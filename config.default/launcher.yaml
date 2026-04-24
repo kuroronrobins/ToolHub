@@ -1,0 +1,14 @@
+launcher:
+  name: ToolHub
+  default_category: すべて
+  logs_dir: "%LOCALAPPDATA%/ToolHub/data/logs"
+
+paths:
+  install_dir: "%LOCALAPPDATA%/Programs/ToolHub"
+  user_data_dir: "%LOCALAPPDATA%/ToolHub"
+
+updates:
+  channel: stable
+  manifest: release/manifest.json
+  app_manifest: release/app_manifest.json
+

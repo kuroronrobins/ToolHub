@@ -54,6 +54,46 @@
 - [x] `docs/` に設計資料がある
 - [x] `release/manifest.json` の雛形がある
 
+## Installer / Distribution
+
+- [x] `ToolHub_Setup.exe` を正式配布物とする方針がREADMEに記載されている
+- [x] インストール先がdocsに記載されている
+- [x] ユーザーデータ保存先がdocsに記載されている
+- [x] ユーザーがPython / Node.js / Rust / Web自動化用ランタイムを手動導入しない方針がdocsに記載されている
+- [x] `scripts/package_installer.ps1` が存在する
+- [x] `scripts/verify_release.ps1` が存在する
+- [x] `release/manifest.json` が拡張されている
+- [x] `release/app_manifest.json` が存在する
+- [x] ToolHub Core / Runner / Apps / Runtime / User Data の更新単位がdocsに記載されている
+- [x] per-user install方針がdocsに記載されている
+- [x] 完全単一exeを正式方式にしない理由がdocsに記載されている
+- [x] フォルダ配布を正式方式にしない理由がdocsに記載されている
+- [ ] 実際の `ToolHub_Setup.exe` が生成されている
+- [ ] `ToolHub_Setup.exe` のコード署名が完了している
+
+## Update Design
+
+- [x] App Pack方式がdocsに記載されている
+- [x] `app_manifest.json` の仕様がdocsに記載されている
+- [x] sha256検証方針がdocsに記載されている
+- [x] 更新前バックアップ方針がdocsに記載されている
+- [x] ロールバック方針がdocsに記載されている
+- [x] User Dataを更新で消さない方針がdocsに記載されている
+- [x] Web自動化用ランタイムをHeavy Runtimeとして扱う方針がdocsに記載されている
+- [x] `scripts/package_app_pack.ps1` でApp Pack zipとsha256を生成できる
+- [x] `scripts/verify_release.ps1` でApp Pack sha256を検証できる
+- [ ] 自動更新本体は未実装
+- [ ] 更新ダウンロード、展開、原子的置き換え、ロールバックの実処理は未実装
+
+## Regression
+
+- [x] `python main.py --check` が引き続き動作する
+- [x] 既存`app.yaml`プラグイン方式が維持されている
+- [x] メイン画面に管理者情報を出さない方針が維持されている
+- [x] 利用者画面に内部技術名を出さない方針が維持されている
+- [x] runner層に起動処理が集約されている
+- [x] `main.py` は開発用ブートストラップに留まっている
+
 ## main.py Self-Check
 
 - [x] `--help` が使い方を表示する
@@ -64,12 +104,21 @@
 
 ## Self-Inspection Result
 
-実行済みチェック:
+今回の配布・更新対応で実行したコマンド:
 
 - `python -m unittest discover -s runner/tests`: 12 tests OK
 - `python -m py_compile ...`: Python主要ファイルの構文チェックOK
+- `python -m json.tool release/manifest.json`: OK
+- `python -m json.tool release/app_manifest.json`: OK
+- `python -m json.tool launcher/src-tauri/tauri.conf.json`: OK
+- `launcher/node_modules/.bin/tsc.cmd --noEmit`: OK
+- `scripts/package_app_pack.ps1`: OK。3つのサンプルApp Pack zipを作成し、`release/app_manifest.json` にsha256を反映
+- `scripts/package_installer.ps1 -AllowMissingBundle`: OK。Tauri bundle未生成のためinstaller sha256は空のまま
+- `scripts/verify_release.ps1`: OK。installer未生成はWARN、App Pack sha256はOK
+- `scripts/build_release.ps1 -SkipBuild -AllowMissingBundle`: OK。App Pack作成、installer manifest staging、release検証まで通過
+- `scripts/check_all.ps1`: OK。TypeScript/Rustは環境制約でWARN
 - `python main.py --help`: OK
-- `python main.py --check`: フォルダ構成OK、Node.js/npm/Rust/cargo不足をNG表示
+- `python main.py --check`: フォルダ構成、Node.js/npm/Rust/cargo確認OK
 - `python main.py --dev`: npm不足時に利用者向けメッセージと `data/logs/launcher/latest.log` を表示
 - `python main.py --release`: ビルド済み実行ファイルなしを表示し、開発起動へ進まない
 - `python runner/toolhub_runner/main.py --project-root . --app-id sample_cli_app ...`: OK、ログ保存確認
@@ -77,13 +126,39 @@
 - `scripts/check_all.ps1`: 実行済み。Bootstrap checkはNode.js/npm/Rust/cargo不足でNG、Python runner testsはOK、TypeScript/Rustチェックは環境不足でSKIP
 - 利用者向けUIソースと表示用manifestに内部技術名が出ていないことを検索で確認
 
-未完了または環境依存:
+成功したチェック:
 
-- Node.js/npmがないため、React/Vitest/TypeScript buildは未実行
-- Rust/cargoがないため、Tauri/Rustの `cargo check` とTauri起動は未実行
+- release manifest JSON検証
+- app manifest JSON検証
+- App Pack生成
+- App Pack sha256検証
+- App Pack内部の `app.yaml` / `pack_manifest.json` 確認
+- 配布docs存在確認
+- `main.py` 静的境界確認
+- Python runner単体テスト
+
+環境不足または環境制約で実行できなかったチェック:
+
+- TypeScript/Vitestは `esbuild` のspawnが `EPERM` で失敗
+- Vite buildは同じ `spawn EPERM` で失敗。TypeScript単体の `tsc --noEmit` はOK
+- Rust `cargo check` はMSVC linker `link.exe` 不在で失敗
 - Tauriが起動できていないため、実画面でのカード表示、モーダル表示、GUIサンプル起動は未確認
-- リリースビルドは未実行
+- Tauri bundle成果物がないため、実際の `ToolHub_Setup.exe` 生成は未確認
+- コード署名は未実施
 
-メモ:
+未完了項目:
 
-- 初回テストで作成された `data/test_tmp` は環境ACLの都合で削除できない一時フォルダが残ったため、`.ignore` と `.gitignore` で検索・管理対象から除外しています。
+- runtime/python の実体同梱
+- runtime/app_envs の生成
+- Web自動化用ランタイム実体同梱
+- 自動更新本体
+- 署名
+- 実インストーラー生成とインストール/アンインストール検証
+
+次に人間が確認すべき項目:
+
+- Visual Studio Build Toolsを入れたWindows環境で `cargo check` と `npm run tauri build` を実行する
+- `release/dist_installer/ToolHub_Setup_0.1.0.exe` が生成されることを確認する
+- インストール先が `%LOCALAPPDATA%\Programs\ToolHub\` になることを確認する
+- ユーザーデータが `%LOCALAPPDATA%\ToolHub\` に分離されることを確認する
+- 実機でショートカット起動、App Pack検証、runner起動、ログ保存を確認する

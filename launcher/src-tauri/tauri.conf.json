@@ -26,6 +26,22 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": ["nsis", "msi"],
+    "resources": [
+      "../../runner",
+      "../../apps",
+      "../../runtime",
+      "../../config.default",
+      "../../release/manifest.json",
+      "../../release/app_manifest.json",
+      "../../updater",
+      "../../README.md"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      }
+    }
   }
 }

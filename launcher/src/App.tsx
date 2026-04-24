@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, Info, RefreshCw, Settings } from "lucide-react";
+import { AboutDialog } from "./components/AboutDialog";
 import { AppDetailDialog } from "./components/AppDetailDialog";
 import { AppGrid } from "./components/AppGrid";
 import { CategorySidebar } from "./components/CategorySidebar";
 import { LaunchProgressDialog } from "./components/LaunchProgressDialog";
 import { SearchBox } from "./components/SearchBox";
+import { SystemInfoDialog } from "./components/SystemInfoDialog";
+import { UpdateNotice } from "./components/UpdateNotice";
+import { UpdateSummaryDialog } from "./components/UpdateSummaryDialog";
 import { ALL_CATEGORY, enabledApps, getCategoryList } from "./lib/appCatalog";
 import { launchApp, listApps } from "./lib/api";
 import { filterApps } from "./lib/search";
 import type { LaunchEvent, RunStatus, ToolApp } from "./lib/types";
+import type { UpdateSummary } from "./lib/updateTypes";
 
 export default function App() {
   const [apps, setApps] = useState<ToolApp[]>([]);
@@ -21,6 +26,10 @@ export default function App() {
   const [launchEvents, setLaunchEvents] = useState<LaunchEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [systemInfoOpen, setSystemInfoOpen] = useState(false);
+  const [updateSummary, setUpdateSummary] = useState<UpdateSummary | null>(null);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
 
   async function loadCatalog() {
     setLoading(true);
@@ -43,6 +52,7 @@ export default function App() {
   const categories = useMemo(() => getCategoryList(apps), [apps]);
   const visibleApps = useMemo(() => filterApps(apps, query, category), [apps, category, query]);
   const isFiltered = query.trim().length > 0 || category !== ALL_CATEGORY;
+  const visibleUpdateSummary = updateDialogOpen ? updateSummary : null;
 
   async function handleLaunch(app: ToolApp) {
     setLaunchAppTarget(app);
@@ -69,15 +79,29 @@ export default function App() {
           <h1>ToolHub</h1>
           <p>利用する業務アプリを選択してください。</p>
         </div>
-        <button className="secondary-button refresh-button" type="button" onClick={() => void loadCatalog()} title="アプリ一覧を更新">
-          <RefreshCw size={18} aria-hidden="true" />
-          更新
-        </button>
+        <div className="topbar-actions">
+          <button className="secondary-button refresh-button" type="button" onClick={() => void loadCatalog()} title="アプリ一覧を更新">
+            <RefreshCw size={18} aria-hidden="true" />
+            更新
+          </button>
+          <button className="icon-button" type="button" onClick={() => setAboutOpen(true)} title="ToolHubについて">
+            <Info size={19} aria-hidden="true" />
+          </button>
+          <button className="icon-button" type="button" onClick={() => setSystemInfoOpen(true)} title="システム情報">
+            <Settings size={19} aria-hidden="true" />
+          </button>
+        </div>
       </header>
 
       <div className="search-row">
         <SearchBox value={query} onChange={setQuery} />
       </div>
+
+      <UpdateNotice
+        summary={updateSummary}
+        onOpen={() => setUpdateDialogOpen(true)}
+        onDismiss={() => setUpdateSummary(null)}
+      />
 
       {loadError ? (
         <div className="inline-alert" role="alert">
@@ -101,6 +125,9 @@ export default function App() {
       </main>
 
       <AppDetailDialog app={selectedApp} onClose={() => setSelectedApp(null)} />
+      <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
+      <SystemInfoDialog open={systemInfoOpen} onClose={() => setSystemInfoOpen(false)} />
+      <UpdateSummaryDialog summary={visibleUpdateSummary} onClose={() => setUpdateDialogOpen(false)} />
       <LaunchProgressDialog
         app={launchAppTarget}
         status={launchStatus}
@@ -115,4 +142,3 @@ export default function App() {
     </div>
   );
 }
-

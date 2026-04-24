@@ -7,4 +7,9 @@ launcher/src-tauri/target/
 data/logs/**/*.log
 data/logs/**/*.json
 data/test_tmp/
-
+release/app_packs/*
+!release/app_packs/.gitkeep
+release/dist_installer/*
+!release/dist_installer/.gitkeep
+release/staging/*
+!release/staging/.gitkeep

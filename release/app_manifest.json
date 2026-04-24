@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "channel": "stable",
+  "apps": {
+    "sample_gui_app": {
+      "version": "1.0.0",
+      "package": "app_packs/sample_gui_app-1.0.0.zip",
+      "sha256": "7d2981e3e7308b08ab748b4edc0e8da6deec1cce38e2ca6a97827c8942ea95eb",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": null,
+      "enabled": true
+    },
+    "sample_cli_app": {
+      "version": "1.0.0",
+      "package": "app_packs/sample_cli_app-1.0.0.zip",
+      "sha256": "5f8bcb7ef7d09f378b13799be7f9c2eaa6812f6962f86eabbef22b3dc1a99ec0",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": null,
+      "enabled": true
+    },
+    "sample_playwright_app": {
+      "version": "1.0.0",
+      "package": "app_packs/sample_playwright_app-1.0.0.zip",
+      "sha256": "50a80496a7561319829a467059892058de1d922bb876eabef51dd7fe9a4b1c97",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": "web-runtime-001",
+      "enabled": true
+    }
+  }
+}

@@ -1,18 +1,33 @@
 {
-  "launcher": {
+  "schema_version": 1,
+  "channel": "stable",
+  "toolhub": {
     "name": "ToolHub",
+    "version": "0.1.0",
+    "installer": {
+      "file": "ToolHub_Setup_0.1.0.exe",
+      "sha256": "",
+      "size": null
+    }
+  },
+  "core": {
+    "version": "0.1.0",
+    "minimum_supported_app_manifest": 1
+  },
+  "runner": {
     "version": "0.1.0"
   },
-  "apps": {
-    "sample_gui_app": {
-      "version": "1.0.0"
+  "runtime": {
+    "python": {
+      "id": "python-embedded-toolhub-001",
+      "version": "",
+      "required": false
     },
-    "sample_cli_app": {
-      "version": "1.0.0"
-    },
-    "sample_playwright_app": {
-      "version": "1.0.0"
+    "web_automation_runtime": {
+      "id": "web-runtime-001",
+      "version": "",
+      "required": false
     }
-  }
+  },
+  "apps_manifest": "app_manifest.json"
 }
-
