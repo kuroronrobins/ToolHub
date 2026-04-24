@@ -113,6 +113,23 @@ def git_current_branch() -> str:
     return out
 
 
+def git_local_branch_exists(branch: str) -> bool:
+    rc, _ = run_with_code(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"])
+    return rc == 0
+
+
+def git_remote_branch_exists(branch: str, remote: str = "origin") -> bool:
+    rc, _ = run_with_code(["git", "show-ref", "--verify", "--quiet", f"refs/remotes/{remote}/{branch}"])
+    if rc == 0:
+        return True
+    return branch in git_remote_heads(remote)
+
+
+def git_upstream_branch() -> str:
+    rc, out = run_with_code(["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+    return out.strip() if rc == 0 else ""
+
+
 def git_status(cfg: Dict[str, Any]) -> None:
     ensure_git_ready(cfg)
     print(run(["git", "status", "-sb"], capture=True, check=False))
@@ -136,7 +153,14 @@ def checkout(branch: str) -> None:
     if not git_has_commit():
         run(["git", "checkout", "-B", branch], check=True)
         return
-    run(["git", "checkout", branch], check=True)
+    if git_local_branch_exists(branch):
+        run(["git", "checkout", branch], check=True)
+        return
+    if git_remote_branch_exists(branch):
+        run(["git", "checkout", "-b", branch, "--track", f"origin/{branch}"], check=True)
+        return
+    print(f"[INIT] Branch does not exist locally or on GitHub. Created local branch: {branch}")
+    run(["git", "checkout", "-B", branch], check=True)
 
 
 def git_is_repo() -> bool:
@@ -226,6 +250,15 @@ def ensure_git_ready(cfg: Dict[str, Any]) -> None:
 
 def pull_flow(cfg: Dict[str, Any]) -> None:
     ensure_git_ready(cfg)
+    branch = git_current_branch()
+    if not git_upstream_branch():
+        if git_has_commit():
+            print(f"[PULL] origin/{branch} does not exist yet. Creating GitHub branch first.")
+            run(["git", "push", "-u", "origin", branch], check=True)
+        else:
+            print(f"[PULL] origin/{branch} does not exist yet, and there is no local commit to push.")
+            print("[INFO] Make the first commit with Push, then Pull will work normally.")
+            return
     print("[PULL] git pull")
     run(["git", "pull"], check=True)
 
@@ -367,8 +400,13 @@ def push_flow(cfg: Dict[str, Any]) -> None:
     else:
         stage_and_commit(message=msg, paths=None)
 
-    print("[PUSH] git push")
-    run(["git", "push"], check=True)
+    branch = git_current_branch()
+    if git_upstream_branch():
+        print("[PUSH] git push")
+        run(["git", "push"], check=True)
+    else:
+        print(f"[PUSH] git push -u origin {branch}")
+        run(["git", "push", "-u", "origin", branch], check=True)
 
 
 def build_flow(cfg: Dict[str, Any]) -> None:
