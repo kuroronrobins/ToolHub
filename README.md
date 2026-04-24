@@ -76,15 +76,28 @@ python main.py --help
 - Node.js / npm
 - Rust / cargo
 - Tauri CLI
+- Visual Studio Build Tools
+- Desktop development with C++
+- MSVC v143以降
+- Windows SDK
 
 開発時のPythonは仮想環境ではなく実環境で実行する前提です。runnerは標準ライブラリ中心で動作し、YAML読み込みはPyYAMLがある場合に使用します。PyYAMLがない環境でも、サンプルのような基本的な `app.yaml` は簡易パーサーで読み込めます。
+
+WindowsでTauri/Rustのrelease buildを行う場合は、Rust本体だけでなくMSVC linkerの `link.exe` とC++ compilerの `cl.exe` が必要です。見つからない場合はVisual Studio Build ToolsにC++ workloadとWindows SDKを追加してください。
 
 フロントエンド依存関係は `launcher/` で管理します。
 
 ```powershell
 cd launcher
-npm install
+npm ci
 ```
+
+ToolHubは配布アプリケーションなので、再現性のために以下のlock fileを管理対象にします。
+
+- `launcher/package-lock.json`
+- `launcher/src-tauri/Cargo.lock`
+
+`package-lock.json` は `npm ci` で同じ依存バージョンを復元するために使います。`Cargo.lock` はTauri/Rust側の依存解決を固定するために使います。
 
 ## サンプルアプリ
 
@@ -126,8 +139,15 @@ ToolHubを再起動すると、`app.yaml` から自動検出されます。
 
 ```powershell
 .\scripts\package_app_pack.ps1
+.\scripts\prepare_runtime.ps1 -AllowMissingRuntime
 .\scripts\package_installer.ps1
 .\scripts\verify_release.ps1
+```
+
+Tauri bundleが未生成の環境でも、App Pack、runtime雛形、staging、manifest検証まで進める場合は以下を使います。
+
+```powershell
+.\scripts\build_release.ps1 -SkipBuild -AllowMissingBundle
 ```
 
 詳細な検収項目は [docs/06_acceptance_checklist.md](docs/06_acceptance_checklist.md) を参照してください。
@@ -149,6 +169,8 @@ ToolHubを再起動すると、`app.yaml` から自動検出されます。
 - [docs/08_update_design.md](docs/08_update_design.md)
 - [docs/09_app_pack_spec.md](docs/09_app_pack_spec.md)
 - [docs/10_runtime_packaging.md](docs/10_runtime_packaging.md)
+- [docs/11_build_environment.md](docs/11_build_environment.md)
+- [docs/12_troubleshooting.md](docs/12_troubleshooting.md)
 
 ## 既知の制約
 
@@ -156,3 +178,4 @@ ToolHubを再起動すると、`app.yaml` から自動検出されます。
 - Web操作サンプルは外部サイト依存を避けるため、安全なローカルHTMLデモを優先します。実行環境が未準備の場合は利用者向けエラーと詳細ログを確認できます。
 - 自動更新機能は未実装です。`release/manifest.json`、`release/app_manifest.json`、App Packスクリプト、更新設計docsを用意しています。
 - `ToolHub_Setup.exe` の署名、完全なruntime同梱、実機インストール検証は今後の作業です。
+- 現段階の `scripts/prepare_runtime.ps1 -AllowMissingRuntime` はruntimeフォルダとapp_env雛形を作りますが、Python runtime本体とWeb自動化用ランタイム本体は同梱しません。

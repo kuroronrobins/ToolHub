@@ -2,37 +2,97 @@ param(
     [switch]$SkipInstall,
     [switch]$SkipBuild,
     [switch]$SkipAppPacks,
+    [switch]$SkipRuntime,
     [switch]$SkipInstallerPackage,
     [switch]$SkipVerify,
-    [switch]$AllowMissingBundle
+    [switch]$AllowMissingBundle,
+    [switch]$Strict,
+    [switch]$RequireRuntime
 )
 
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
-$Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 
-if (-not $SkipBuild -and -not (Get-Command npm -ErrorAction SilentlyContinue)) {
-    Write-Error "npm was not found. Install Node.js first."
+$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$LauncherDir = Join-Path $Root "launcher"
+
+function Test-CommandAvailable {
+    param(
+        [string]$Name,
+        [bool]$Required
+    )
+    if (Get-Command $Name -ErrorAction SilentlyContinue) {
+        Write-Host "[OK] $Name is available"
+        return $true
+    }
+    $Message = "$Name was not found."
+    if ($Required) {
+        Write-Host "[NG] $Message"
+        throw $Message
+    }
+    Write-Host "[WARN] $Message"
+    return $false
 }
-if (-not $SkipBuild -and -not (Get-Command cargo -ErrorAction SilentlyContinue)) {
-    Write-Error "cargo was not found. Install Rust first."
+
+Write-Host "ToolHub release build started."
+Write-Host "Root: $Root"
+
+Write-Host ""
+Write-Host "== 1. Environment preflight =="
+$BuildRequired = -not $SkipBuild
+Test-CommandAvailable -Name "node" -Required:$BuildRequired | Out-Null
+Test-CommandAvailable -Name "npm" -Required:$BuildRequired | Out-Null
+Test-CommandAvailable -Name "cargo" -Required:$BuildRequired | Out-Null
+Test-CommandAvailable -Name "rustc" -Required:$BuildRequired | Out-Null
+
+if (-not (Test-Path -LiteralPath (Join-Path $LauncherDir "package-lock.json") -PathType Leaf)) {
+    if ($Strict) { throw "launcher/package-lock.json is required for reproducible release builds." }
+    Write-Host "[WARN] launcher/package-lock.json is missing."
+}
+if (-not (Test-Path -LiteralPath (Join-Path $LauncherDir "src-tauri\Cargo.lock") -PathType Leaf)) {
+    if ($Strict) { throw "launcher/src-tauri/Cargo.lock is required for reproducible release builds." }
+    Write-Host "[WARN] launcher/src-tauri/Cargo.lock is missing."
 }
 
 if (-not $SkipAppPacks) {
-    Write-Host "Packaging built-in app packs."
+    Write-Host ""
+    Write-Host "== 2. Package App Packs =="
     & (Join-Path $Root "scripts\package_app_pack.ps1")
     if (-not $?) { exit 1 }
+} else {
+    Write-Host "[SKIP] App Pack packaging"
+}
+
+if (-not $SkipRuntime) {
+    Write-Host ""
+    Write-Host "== 3. Prepare Runtime =="
+    $RuntimeArgs = @{}
+    if (-not $RequireRuntime) { $RuntimeArgs.AllowMissingRuntime = $true }
+    & (Join-Path $Root "scripts\prepare_runtime.ps1") @RuntimeArgs
+    if (-not $?) { exit 1 }
+} else {
+    Write-Host "[SKIP] Runtime preparation"
 }
 
 if (-not $SkipBuild) {
-    Push-Location (Join-Path $Root "launcher")
+    Write-Host ""
+    Write-Host "== 4. Frontend install/build =="
+    Push-Location $LauncherDir
     try {
-        if (-not $SkipInstall -and -not (Test-Path "node_modules")) {
-            Write-Host "Installing frontend dependencies."
-            & npm "install"
+        if (-not $SkipInstall) {
+            if (Test-Path -LiteralPath "package-lock.json" -PathType Leaf) {
+                Write-Host "Installing frontend dependencies with npm ci."
+                & npm "ci"
+            } else {
+                Write-Host "Installing frontend dependencies with npm install."
+                & npm "install"
+            }
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        } else {
+            Write-Host "[SKIP] npm dependency install"
         }
+
         Write-Host "Running Tauri release build."
         & npm "run" "tauri" "build"
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -40,22 +100,35 @@ if (-not $SkipBuild) {
     finally {
         Pop-Location
     }
+} else {
+    Write-Host "[SKIP] Tauri build"
 }
 
 if (-not $SkipInstallerPackage) {
-    Write-Host "Collecting installer artifacts."
-    if ($AllowMissingBundle) {
-        & (Join-Path $Root "scripts\package_installer.ps1") -AllowMissingBundle
-    } else {
-        & (Join-Path $Root "scripts\package_installer.ps1")
-    }
+    Write-Host ""
+    Write-Host "== 5. Package Installer Artifacts =="
+    $InstallerArgs = @{}
+    if ($AllowMissingBundle) { $InstallerArgs.AllowMissingBundle = $true }
+    & (Join-Path $Root "scripts\package_installer.ps1") @InstallerArgs
     if (-not $?) { exit 1 }
+} else {
+    Write-Host "[SKIP] Installer packaging"
 }
 
 if (-not $SkipVerify) {
-    Write-Host "Verifying release artifacts."
-    & (Join-Path $Root "scripts\verify_release.ps1")
+    Write-Host ""
+    Write-Host "== 6. Verify Release =="
+    $VerifyArgs = @{}
+    if (-not $AllowMissingBundle) { $VerifyArgs.RequireInstaller = $true }
+    if (-not $SkipAppPacks) { $VerifyArgs.RequireAppPacks = $true }
+    if ($RequireRuntime) { $VerifyArgs.RequireRuntime = $true }
+    if ($Strict) { $VerifyArgs.Strict = $true }
+    & (Join-Path $Root "scripts\verify_release.ps1") @VerifyArgs
     if (-not $?) { exit 1 }
+} else {
+    Write-Host "[SKIP] Release verification"
 }
 
+Write-Host ""
+Write-Host "ToolHub release build flow completed."
 exit 0

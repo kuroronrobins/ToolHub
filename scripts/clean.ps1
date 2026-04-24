@@ -2,7 +2,9 @@ param(
     [switch]$IncludeLogs,
     [switch]$IncludeBuild,
     [switch]$IncludeRelease,
-    [switch]$IncludeUpdateCache
+    [switch]$IncludeUpdateCache,
+    [switch]$IncludeTemp,
+    [switch]$IncludeRuntimeGenerated
 )
 
 $ErrorActionPreference = "Stop"
@@ -61,6 +63,38 @@ if ($IncludeUpdateCache) {
     if (Test-Path $CacheDir) {
         Remove-Item -Path $CacheDir -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host "Update cache deleted."
+    }
+}
+
+if ($IncludeTemp) {
+    $TempPaths = @(
+        "temp",
+        "tmp",
+        "release/temp"
+    )
+    foreach ($Dir in $TempPaths) {
+        $Path = Join-Path $Root $Dir
+        if (Test-Path $Path) {
+            Remove-Item -Path $Path -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "Temp deleted: $Path"
+        }
+    }
+}
+
+if ($IncludeRuntimeGenerated) {
+    $RuntimeGenerated = @(
+        "runtime/python",
+        "runtime/app_envs",
+        "runtime/web_automation_runtime"
+    )
+    foreach ($Dir in $RuntimeGenerated) {
+        $Path = Join-Path $Root $Dir
+        if (Test-Path $Path) {
+            Remove-Item -Path $Path -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        New-Item -ItemType Directory -Force -Path $Path | Out-Null
+        New-Item -ItemType File -Force -Path (Join-Path $Path ".gitkeep") | Out-Null
+        Write-Host "Reset runtime generated directory: $Path"
     }
 }
 

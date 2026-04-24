@@ -45,6 +45,17 @@ admin:
   owner: admin
   requirements: requirements.txt
   log_dir: logs
+
+# Optional future distribution metadata.
+# The current launcher UI does not display these fields.
+runtime:
+  required_runtime: python-embedded-toolhub-001
+  app_env: sample_csv_merger
+  requirements_lock: requirements.lock
+
+distribution:
+  mode: app_env
+  package: app_packs/sample_csv_merger-1.0.0.zip
 ```
 
 ## Required Fields
@@ -78,6 +89,8 @@ admin:
 
 メイン画面は `display` の内容だけを表示します。`detail` は説明モーダル、`admin` は管理者向け折りたたみ領域で使います。
 
+`runtime` と `distribution` は将来の配布・更新管理用の任意フィールドです。初回実装では必須ではなく、利用者向けUIには表示しません。依存関係や実行方式の情報は管理者向けdocs、manifest、検収で扱います。
+
 メイン画面に以下は表示しません。
 
 - バージョン
@@ -87,4 +100,3 @@ admin:
 - 依存関係
 - 実行パス
 - ログ保存先
-

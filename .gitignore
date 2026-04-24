@@ -13,3 +13,11 @@ release/dist_installer/*
 !release/dist_installer/.gitkeep
 release/staging/*
 !release/staging/.gitkeep
+runtime/python/*
+!runtime/python/.gitkeep
+runtime/app_envs/*
+!runtime/app_envs/.gitkeep
+runtime/web_automation_runtime/*
+!runtime/web_automation_runtime/.gitkeep
+vendor/runtime/
+tools/runtime_sources/

@@ -1,8 +1,8 @@
 # ToolHub Runtime
 
-This directory is the future install-time runtime root.
+This directory is prepared by `scripts/prepare_runtime.ps1`.
 
-Planned layout:
+Planned release layout:
 
 ```text
 runtime/
@@ -11,5 +11,6 @@ runtime/
 └─ web_automation_runtime/
 ```
 
-The initial repository keeps this as a placeholder. Release packaging scripts can include this directory when runtime artifacts are prepared.
+Large runtime artifacts are intentionally not tracked in Git. Place local runtime archives under `vendor/runtime/` or `tools/runtime_sources/` and pass them to `prepare_runtime.ps1 -SourceArchive <path>`.
 
+Default behavior does not download anything from the internet.

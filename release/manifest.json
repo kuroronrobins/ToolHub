@@ -6,6 +6,7 @@
     "version": "0.1.0",
     "installer": {
       "file": "ToolHub_Setup_0.1.0.exe",
+      "type": "nsis",
       "sha256": "",
       "size": null
     }

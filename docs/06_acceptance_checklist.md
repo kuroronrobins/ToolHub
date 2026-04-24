@@ -102,63 +102,101 @@
 - [x] 起動ログが `data/logs/launcher/` に保存される
 - [x] `--release` はビルド済み実行ファイルがない場合に開発起動へ進まない
 
+## Release Build Flow
+
+- [x] `build_release.ps1` が正式なリリース入口として整理されている
+- [x] `build_release.ps1 -SkipBuild -AllowMissingBundle` が通る
+- [x] `package_app_pack.ps1` がApp Packを生成できる
+- [x] `prepare_runtime.ps1` がruntime雛形を作成できる
+- [x] `package_installer.ps1` がstagingを作成できる
+- [x] `package_installer.ps1` がbundle成果物を `release/dist_installer/` へ収集できる構造になっている
+- [x] `verify_release.ps1` がmanifest / app pack / staging / runtimeを検証できる
+- [x] `release/manifest.json` がinstaller file/type/sha256/sizeを保持する
+- [x] `release/app_manifest.json` がApp Pack package/sha256/runtime要求を保持する
+- [ ] 実際のTauri bundle成果物から `ToolHub_Setup_0.1.0.exe` を生成できた
+
+## Environment
+
+- [x] `check_all.ps1` がnode/npm/cargo/rustc/link.exe/cl.exeを確認する
+- [x] Visual Studio Build Tools不足時の案内がある
+- [x] `esbuild spawn EPERM` のトラブルシューティングがdocsにある
+- [x] `package-lock.json` / `Cargo.lock` の管理方針がdocsにある
+- [x] `launcher/package-lock.json` が存在する
+- [x] `launcher/src-tauri/Cargo.lock` が存在する
+- [ ] この環境で `link.exe` / `cl.exe` がPATH上にある
+
+## Runtime
+
+- [x] `runtime/README.md` がある
+- [x] `runtime/app_envs/` が作成される
+- [x] `runtime/web_automation_runtime/` が作成される
+- [x] runtimeをGitに含めない方針がdocsと `.gitignore` にある
+- [x] runtime同梱が未完了の場合、未完了としてdocsに明記されている
+- [ ] `runtime/python/python.exe` の実体が同梱されている
+- [ ] `runtime/app_envs/<app_id>/` の実体が生成されている
+- [ ] Web自動化用ランタイム実体が同梱されている
+
 ## Self-Inspection Result
 
-今回の配布・更新対応で実行したコマンド:
+今回の配布・runtime・検証強化で実行したコマンド:
 
+- `python main.py --help`: OK
+- `python main.py --check`: OK
 - `python -m unittest discover -s runner/tests`: 12 tests OK
-- `python -m py_compile ...`: Python主要ファイルの構文チェックOK
+- `python -m py_compile main.py`: OK
 - `python -m json.tool release/manifest.json`: OK
 - `python -m json.tool release/app_manifest.json`: OK
-- `python -m json.tool launcher/src-tauri/tauri.conf.json`: OK
-- `launcher/node_modules/.bin/tsc.cmd --noEmit`: OK
-- `scripts/package_app_pack.ps1`: OK。3つのサンプルApp Pack zipを作成し、`release/app_manifest.json` にsha256を反映
-- `scripts/package_installer.ps1 -AllowMissingBundle`: OK。Tauri bundle未生成のためinstaller sha256は空のまま
-- `scripts/verify_release.ps1`: OK。installer未生成はWARN、App Pack sha256はOK
-- `scripts/build_release.ps1 -SkipBuild -AllowMissingBundle`: OK。App Pack作成、installer manifest staging、release検証まで通過
-- `scripts/check_all.ps1`: OK。TypeScript/Rustは環境制約でWARN
-- `python main.py --help`: OK
-- `python main.py --check`: フォルダ構成、Node.js/npm/Rust/cargo確認OK
-- `python main.py --dev`: npm不足時に利用者向けメッセージと `data/logs/launcher/latest.log` を表示
-- `python main.py --release`: ビルド済み実行ファイルなしを表示し、開発起動へ進まない
-- `python runner/toolhub_runner/main.py --project-root . --app-id sample_cli_app ...`: OK、ログ保存確認
-- `python runner/toolhub_runner/main.py --project-root . --app-id sample_playwright_app ...`: この環境では実行環境不足で失敗、利用者向けエラーと詳細ログ保存を確認
-- `scripts/check_all.ps1`: 実行済み。Bootstrap checkはNode.js/npm/Rust/cargo不足でNG、Python runner testsはOK、TypeScript/Rustチェックは環境不足でSKIP
-- 利用者向けUIソースと表示用manifestに内部技術名が出ていないことを検索で確認
+- `scripts/package_app_pack.ps1`: OK。3つのサンプルApp Pack zipを生成し、`release/app_manifest.json` にsha256を反映
+- `scripts/prepare_runtime.ps1 -AllowMissingRuntime`: OK。runtime雛形とapp_env skeletonを作成。Python runtime実体とWeb自動化用ランタイム実体はWARN
+- `scripts/package_installer.ps1 -AllowMissingBundle`: OK。`release/staging/installer_payload/` を作成。Tauri bundle未生成のためinstaller sha256/sizeは空
+- `scripts/verify_release.ps1`: OK。App Pack sha256、zip内部の `app.yaml` / `pack_manifest.json`、staging manifestを確認
+- `scripts/build_release.ps1 -SkipBuild -AllowMissingBundle`: OK。App Pack、runtime雛形、staging、release検証まで通過
+- `scripts/check_all.ps1`: OK。環境不足とfrontend build制約はWARNとして分類
+- `npm run typecheck` 相当: OK。`scripts/frontend_check.ps1` 経由で `tsc --noEmit` が通過
+- `cargo fmt --check`: 既存Rustファイルのformat差分がありNG。今回追加の `setup.rs` は指摘箇所を修正済み
+- `git diff --check`: OK。CRLF変換警告のみ
 
 成功したチェック:
 
 - release manifest JSON検証
 - app manifest JSON検証
+- lock file存在確認
 - App Pack生成
 - App Pack sha256検証
 - App Pack内部の `app.yaml` / `pack_manifest.json` 確認
-- 配布docs存在確認
+- runtime雛形作成
+- installer staging作成
+- staging manifest作成
+- Tauri bundle targetがNSIS/MSIを含むことの確認
 - `main.py` 静的境界確認
 - Python runner単体テスト
+- TypeScript型チェック
 
 環境不足または環境制約で実行できなかったチェック:
 
-- TypeScript/Vitestは `esbuild` のspawnが `EPERM` で失敗
-- Vite buildは同じ `spawn EPERM` で失敗。TypeScript単体の `tsc --noEmit` はOK
-- Rust `cargo check` はMSVC linker `link.exe` 不在で失敗
-- Tauriが起動できていないため、実画面でのカード表示、モーダル表示、GUIサンプル起動は未確認
-- Tauri bundle成果物がないため、実際の `ToolHub_Setup.exe` 生成は未確認
-- コード署名は未実施
+- `npm test`: `esbuild` の `spawn EPERM` によりWARN。対策は `docs/12_troubleshooting.md` に記載
+- `npm run build`: 同じ `spawn EPERM` によりWARN。`tsc --noEmit` はOK
+- `cargo check`: MSVC linker `link.exe` 不在で失敗。Visual Studio Build Tools / C++ workload / Windows SDKが必要
+- `npm run tauri build`: frontend buildの `spawn EPERM` とMSVC linker不足があるため未完了
+- 実際の `ToolHub_Setup.exe` 生成: Tauri bundle成果物がないため未確認
+- 実インストール / アンインストール検証: installer未生成のため未実施
+- コード署名: 未実装
 
 未完了項目:
 
-- runtime/python の実体同梱
-- runtime/app_envs の生成
+- Python runtime実体同梱
+- app_env実体生成
 - Web自動化用ランタイム実体同梱
 - 自動更新本体
-- 署名
-- 実インストーラー生成とインストール/アンインストール検証
+- コード署名
+- 実インストーラー生成
+- 実インストール / アンインストール検証
 
 次に人間が確認すべき項目:
 
-- Visual Studio Build Toolsを入れたWindows環境で `cargo check` と `npm run tauri build` を実行する
-- `release/dist_installer/ToolHub_Setup_0.1.0.exe` が生成されることを確認する
+- Visual Studio Build Toolsを導入したWindows環境で `cargo check` を実行する
+- OneDriveやセキュリティソフトの影響がないローカルパスで `npm test` / `npm run build` を再実行する
+- `npm run tauri build` で `release/dist_installer/ToolHub_Setup_0.1.0.exe` が生成されることを確認する
 - インストール先が `%LOCALAPPDATA%\Programs\ToolHub\` になることを確認する
-- ユーザーデータが `%LOCALAPPDATA%\ToolHub\` に分離されることを確認する
-- 実機でショートカット起動、App Pack検証、runner起動、ログ保存を確認する
+- 初回起動時にユーザーデータが `%LOCALAPPDATA%\ToolHub\` に作成され、既存設定を上書きしないことを実機で確認する
+- runtime実体を配置し、`verify_release.ps1 -RequireRuntime -Strict` を通す

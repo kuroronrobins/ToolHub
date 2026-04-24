@@ -1,6 +1,8 @@
 param(
     [switch]$RequireInstaller,
-    [switch]$RequireAppPacks
+    [switch]$RequireAppPacks,
+    [switch]$RequireRuntime,
+    [switch]$Strict
 )
 
 $ErrorActionPreference = "Continue"
@@ -15,7 +17,13 @@ $Failed = $false
 Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
 
 function Pass($Message) { Write-Host "[OK] $Message" }
-function Warn($Message) { Write-Host "[WARN] $Message" }
+function Warn($Message) {
+    if ($Strict) {
+        Fail $Message
+    } else {
+        Write-Host "[WARN] $Message"
+    }
+}
 function Fail($Message) { Write-Host "[NG] $Message"; $script:Failed = $true }
 
 function Read-Json($Path) {
@@ -27,15 +35,59 @@ function Read-Json($Path) {
     }
 }
 
-if (Test-Path -LiteralPath $ManifestPath -PathType Leaf) { Pass "release/manifest.json exists" } else { Fail "release/manifest.json is missing" }
-if (Test-Path -LiteralPath $AppManifestPath -PathType Leaf) { Pass "release/app_manifest.json exists" } else { Fail "release/app_manifest.json is missing" }
+function Require-Directory($Path) {
+    if (Test-Path -LiteralPath $Path -PathType Container) { Pass "$Path exists" } else { Fail "$Path is missing" }
+}
+
+function Require-File($Path) {
+    if (Test-Path -LiteralPath $Path -PathType Leaf) { Pass "$Path exists" } else { Fail "$Path is missing" }
+}
+
+Require-File $ManifestPath
+Require-File $AppManifestPath
 
 $Manifest = if (Test-Path -LiteralPath $ManifestPath -PathType Leaf) { Read-Json $ManifestPath } else { $null }
 $AppManifest = if (Test-Path -LiteralPath $AppManifestPath -PathType Leaf) { Read-Json $AppManifestPath } else { $null }
 
-foreach ($Path in @("runner", "apps", "runtime", "config.default", "updater", "installer")) {
-    $Full = Join-Path $Root $Path
-    if (Test-Path -LiteralPath $Full -PathType Container) { Pass "$Path exists" } else { Fail "$Path is missing" }
+foreach ($Path in @(
+    "runner",
+    "apps",
+    "runtime",
+    "runtime\app_envs",
+    "runtime\web_automation_runtime",
+    "config.default",
+    "updater",
+    "installer",
+    "release\staging",
+    "release\dist_installer",
+    "release\app_packs"
+)) {
+    Require-Directory (Join-Path $Root $Path)
+}
+Require-File (Join-Path $Root "runtime\README.md")
+
+$PythonExe = Join-Path $Root "runtime\python\python.exe"
+$WebRuntimeDir = Join-Path $Root "runtime\web_automation_runtime"
+$WebRuntimeFiles = @()
+if (Test-Path -LiteralPath $WebRuntimeDir -PathType Container) {
+    $WebRuntimeFiles = @(Get-ChildItem -LiteralPath $WebRuntimeDir -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notin @(".gitkeep", "README.md") })
+}
+
+if (Test-Path -LiteralPath $PythonExe -PathType Leaf) {
+    Pass "Python runtime executable exists"
+} elseif ($RequireRuntime) {
+    Fail "Python runtime executable is missing: runtime/python/python.exe"
+} else {
+    Warn "Python runtime executable is not bundled yet"
+}
+
+if ($WebRuntimeFiles.Count -gt 0) {
+    Pass "Web automation runtime files exist"
+} elseif ($RequireRuntime) {
+    Fail "Web automation runtime files are missing"
+} else {
+    Warn "Web automation runtime files are not bundled yet"
 }
 
 if ($Manifest) {
@@ -53,6 +105,14 @@ if ($Manifest) {
             } else {
                 Warn "installer sha256 is empty"
             }
+            $ActualSize = (Get-Item -LiteralPath $InstallerPath).Length
+            if ($Manifest.toolhub.installer.size -and [int64]$Manifest.toolhub.installer.size -eq $ActualSize) {
+                Pass "installer size matches"
+            } elseif ($Manifest.toolhub.installer.size) {
+                Fail "installer size mismatch"
+            } else {
+                Warn "installer size is empty"
+            }
         } elseif ($RequireInstaller) {
             Fail "installer file is missing: $InstallerPath"
         } else {
@@ -60,6 +120,11 @@ if ($Manifest) {
         }
     } else {
         Fail "installer file is missing in manifest"
+    }
+    if ($Manifest.toolhub.installer.type -in @("nsis", "msi")) {
+        Pass "installer type is set"
+    } else {
+        Fail "installer type must be nsis or msi"
     }
 }
 
@@ -73,6 +138,8 @@ if ($AppManifest) {
         if ($Entry.version) { Pass "$Id version is set" } else { Fail "$Id version is missing" }
         if ($Entry.required_core) { Pass "$Id required_core is set" } else { Fail "$Id required_core is missing" }
         if ($Entry.required_runner) { Pass "$Id required_runner is set" } else { Fail "$Id required_runner is missing" }
+        $AppEnv = Join-Path (Join-Path $Root "runtime\app_envs") $Id
+        if (Test-Path -LiteralPath $AppEnv -PathType Container) { Pass "$Id app_env skeleton exists" } else { Warn "$Id app_env skeleton is missing" }
         if ($Entry.package) {
             $PackPath = Join-Path $ReleaseDir ([string]$Entry.package)
             if (Test-Path -LiteralPath $PackPath -PathType Leaf) {
@@ -103,6 +170,13 @@ if ($AppManifest) {
             Fail "$Id package path is missing"
         }
     }
+}
+
+$StageManifest = Join-Path $ReleaseDir "staging\installer_payload\staging_manifest.json"
+if (Test-Path -LiteralPath $StageManifest -PathType Leaf) {
+    Pass "installer staging manifest exists"
+} else {
+    Warn "installer staging manifest is not present yet"
 }
 
 if ($Failed) {

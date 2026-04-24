@@ -11,6 +11,7 @@ $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ReleaseDir = Join-Path $Root "release"
 $ManifestPath = Join-Path $ReleaseDir "manifest.json"
 $DistDir = Join-Path $ReleaseDir "dist_installer"
+$StagingDir = Join-Path $ReleaseDir "staging\installer_payload"
 $BundleDir = Join-Path $Root "launcher\src-tauri\target\release\bundle"
 
 function Assert-InRoot {
@@ -20,6 +21,56 @@ function Assert-InRoot {
         throw "Refusing path outside workspace: $Full"
     }
     return $Full
+}
+
+function Reset-Directory {
+    param([string]$Path)
+    $Full = Assert-InRoot $Path
+    if (Test-Path -LiteralPath $Full) {
+        Remove-Item -LiteralPath $Full -Recurse -Force
+    }
+    New-Item -ItemType Directory -Force -Path $Full | Out-Null
+}
+
+function Copy-ToStage {
+    param(
+        [string]$Source,
+        [string]$RelativeDestination
+    )
+    $SourceFull = Assert-InRoot $Source
+    if (-not (Test-Path -LiteralPath $SourceFull)) {
+        throw "Staging source is missing: $SourceFull"
+    }
+    $Destination = Join-Path $StagingDir $RelativeDestination
+    $DestinationParent = Split-Path -Parent $Destination
+    New-Item -ItemType Directory -Force -Path $DestinationParent | Out-Null
+    Copy-Item -LiteralPath $SourceFull -Destination $Destination -Recurse -Force
+}
+
+function Remove-ExcludedFromStage {
+    $ExcludedDirectories = @(
+        ".git",
+        "node_modules",
+        "debug",
+        "__pycache__",
+        ".pytest_cache",
+        "browser_profiles",
+        "update_cache",
+        "logs"
+    )
+    foreach ($Name in $ExcludedDirectories) {
+        Get-ChildItem -LiteralPath $StagingDir -Recurse -Directory -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ieq $Name -or $_.FullName -match "\\target\\debug($|\\)" } |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    Get-ChildItem -LiteralPath $StagingDir -Recurse -File -Force -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Name -like "*.pyc" -or
+            $_.Name -like "*.pyo" -or
+            $_.Name -like "*.tmp" -or
+            $_.Name -like "*.log"
+        } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
 if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
@@ -35,42 +86,83 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 }
 
 New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
+Reset-Directory $StagingDir
 
-$InstallerName = "ToolHub_Setup_$Version.exe"
-$InstallerPath = Join-Path $DistDir $InstallerName
+$StageItems = @(
+    @{ Source = "runner"; Destination = "runner" },
+    @{ Source = "apps"; Destination = "apps" },
+    @{ Source = "runtime"; Destination = "runtime" },
+    @{ Source = "config.default"; Destination = "config.default" },
+    @{ Source = "updater"; Destination = "updater" },
+    @{ Source = "installer"; Destination = "installer" },
+    @{ Source = "README.md"; Destination = "README.md" },
+    @{ Source = "release\manifest.json"; Destination = "release\manifest.json" },
+    @{ Source = "release\app_manifest.json"; Destination = "release\app_manifest.json" }
+)
+
+foreach ($Item in $StageItems) {
+    Copy-ToStage -Source (Join-Path $Root $Item.Source) -RelativeDestination $Item.Destination
+    Write-Host "[OK] Staged $($Item.Source)"
+}
+Remove-ExcludedFromStage
+
+$StagedFiles = Get-ChildItem -LiteralPath $StagingDir -Recurse -File -Force | ForEach-Object {
+    $_.FullName.Substring($StagingDir.Length + 1).Replace("\", "/")
+}
+$StageManifest = [ordered]@{
+    schema_version = 1
+    toolhub_version = $Version
+    created_by = "scripts/package_installer.ps1"
+    files = @($StagedFiles)
+}
+$StageManifest | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 (Join-Path $StagingDir "staging_manifest.json")
+
 $Candidates = @()
-
 if (Test-Path -LiteralPath $BundleDir -PathType Container) {
     $Candidates += Get-ChildItem -Path $BundleDir -Recurse -File -Include "*.exe","*.msi" -ErrorAction SilentlyContinue
 }
 
-$NsisOrExe = $Candidates | Where-Object { $_.Extension -ieq ".exe" } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$Exe = $Candidates | Where-Object { $_.Extension -ieq ".exe" } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $Msi = $Candidates | Where-Object { $_.Extension -ieq ".msi" } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
-if ($NsisOrExe) {
-    Copy-Item -LiteralPath $NsisOrExe.FullName -Destination $InstallerPath -Force
-    Write-Host "Collected installer: $($NsisOrExe.FullName)"
+$InstallerFileName = "ToolHub_Setup_$Version.exe"
+$InstallerType = "nsis"
+$InstallerPath = Join-Path $DistDir $InstallerFileName
+
+if ($Exe) {
+    Copy-Item -LiteralPath $Exe.FullName -Destination $InstallerPath -Force
+    Write-Host "Collected NSIS/exe installer: $($Exe.FullName)"
 } elseif ($Msi) {
-    $MsiTarget = Join-Path $DistDir "ToolHub_Setup_$Version.msi"
-    Copy-Item -LiteralPath $Msi.FullName -Destination $MsiTarget -Force
+    $InstallerFileName = "ToolHub_Setup_$Version.msi"
+    $InstallerType = "msi"
+    $InstallerPath = Join-Path $DistDir $InstallerFileName
+    Copy-Item -LiteralPath $Msi.FullName -Destination $InstallerPath -Force
     Write-Host "Collected MSI installer: $($Msi.FullName)"
 } elseif ($AllowMissingBundle) {
-    Write-Host "[WARN] Tauri bundle output was not found. Leaving installer sha256 empty."
+    Write-Host "[WARN] Tauri bundle output was not found. Staging was created and installer sha256 remains empty."
 } else {
-    throw "No Tauri bundle installer was found under $BundleDir. Run npm run tauri build first, or pass -AllowMissingBundle for manifest-only staging."
+    throw "No Tauri bundle installer was found under $BundleDir. Run npm run tauri build first, or pass -AllowMissingBundle for staging-only packaging."
 }
+
+$Manifest.toolhub.installer.file = $InstallerFileName
+$Manifest.toolhub.installer.type = $InstallerType
 
 if (Test-Path -LiteralPath $InstallerPath -PathType Leaf) {
     $Hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $InstallerPath).Hash.ToLowerInvariant()
     $Size = (Get-Item -LiteralPath $InstallerPath).Length
-    $Manifest.toolhub.installer.file = $InstallerName
     $Manifest.toolhub.installer.sha256 = $Hash
     $Manifest.toolhub.installer.size = $Size
     Write-Host "Installer sha256: $Hash"
+    Write-Host "Installer size: $Size"
 } else {
-    $Manifest.toolhub.installer.file = $InstallerName
+    $Manifest.toolhub.installer.sha256 = ""
+    $Manifest.toolhub.installer.size = $null
 }
 
 $Manifest | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 $ManifestPath
+$StagedManifestPath = Join-Path $StagingDir "release\manifest.json"
+if (Test-Path -LiteralPath $StagedManifestPath -PathType Leaf) {
+    $Manifest | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 $StagedManifestPath
+}
 Write-Host "Updated release/manifest.json"
-
+Write-Host "Installer staging completed: $StagingDir"
