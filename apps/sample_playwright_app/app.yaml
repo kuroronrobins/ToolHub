@@ -1,0 +1,44 @@
+id: sample_playwright_app
+name: Web操作サンプルアプリ
+
+display:
+  icon: icon.svg
+  short_description: 画面操作を伴う業務処理を想定したデモです。
+  categories:
+    - 業務デモ
+    - Web操作
+
+detail:
+  description: >
+    ローカルのデモ画面を開き、画面操作を伴う業務アプリをToolHubから通常アプリと同じように起動するためのサンプルです。
+  use_cases:
+    - Web画面を使う業務処理の雛形を確認したい
+    - 初回設定があるアプリの案内方法を確認したい
+  inputs:
+    - なし
+  outputs:
+    - 実行ログ
+  notes:
+    - 実行環境が未準備の場合は、利用者向けメッセージと詳細ログを保存します。
+
+search:
+  keywords:
+    - Web
+    - 画面操作
+    - 自動処理
+    - サンプル
+  examples:
+    - Web画面を使う業務を実行したい
+    - 初回設定が必要なアプリを確認したい
+
+run:
+  runner: playwright_python
+  entry: main.py
+  mode: background
+
+admin:
+  version: 1.0.0
+  owner: admin
+  requirements: requirements.txt
+  log_dir: logs
+

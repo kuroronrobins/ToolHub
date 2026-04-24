@@ -1,0 +1,18 @@
+{
+  "launcher": {
+    "name": "ToolHub",
+    "version": "0.1.0"
+  },
+  "apps": {
+    "sample_gui_app": {
+      "version": "1.0.0"
+    },
+    "sample_cli_app": {
+      "version": "1.0.0"
+    },
+    "sample_playwright_app": {
+      "version": "1.0.0"
+    }
+  }
+}
+

@@ -1,0 +1,10 @@
+[project]
+name = "toolhub-runner"
+version = "0.1.0"
+description = "Python app runner for ToolHub"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

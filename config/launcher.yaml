@@ -1,0 +1,16 @@
+launcher:
+  name: ToolHub
+  default_category: すべて
+  logs_dir: data/logs
+
+ui:
+  show_admin_info_collapsed: true
+  main_screen_fields:
+    - icon
+    - name
+    - short_description
+    - categories
+
+runner:
+  user_error_message: アプリの起動に失敗しました。時間をおいて再実行するか、管理者に連絡してください。
+

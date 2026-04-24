@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+node_modules/
+launcher/dist/
+launcher/src-tauri/target/
+data/logs/**/*.log
+data/logs/**/*.json
+data/test_tmp/
+

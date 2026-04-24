@@ -1,0 +1,68 @@
+{
+  "app": {
+    "name": "MyApp",
+    "exe_name": "MyApp",
+    "entry_script": "main.py",
+    "entry_args": []
+  },
+  "repo": {
+    "remote_url": "https://github.com/kuroronrobins/ToolHub.git",
+    "stable_branch": "stable",
+    "develop_branch": "develop"
+  },
+  "version": {
+    "stable": "0.0.0",
+    "develop": "0.0.0"
+  },
+  "release": {
+    "manifest_path": "release/manifest.json",
+    "latest_exe_path": "release/latest/{exe_name}.exe",
+    "require_sha256": true
+  },
+  "build": {
+    "onefile": true,
+    "console": true,
+    "icon_path": "",
+    "additional_pyinstaller_options": ""
+  },
+  "paths": {
+    "exclude": [
+      "build/",
+      "dist/",
+      ".git/",
+      "__pycache__/",
+      "venv/",
+      ".venv/"
+    ],
+    "stage_protected": [
+      "build/",
+      "dist/"
+    ],
+    "always_stage_on_publish": [
+      "release/manifest.json",
+      "release/latest/"
+    ]
+  },
+  "docs": {
+    "README": "この docs セクションは説明用です。ツールは無視します。必要に応じて消してもOKです。",
+    "app.name": "アプリ名（表示用）。例: \"AgendaSnap\"",
+    "app.exe_name": "生成するexeのファイル名（拡張子なし）。例: \"agendasnap\" → agendasnap.exe",
+    "app.entry_script": "exeが更新チェック後に起動するPythonスクリプト名。例: \"main.py\" / \"app.py\"",
+    "app.entry_args": "entry_scriptに渡したい引数の配列（任意）。例: [\"--mode\",\"stream\"]",
+    "repo.remote_url": "GitHubリポジトリURL（.git 付き推奨）。例: https://github.com/OWNER/REPO.git",
+    "repo.stable_branch": "自動更新で参照するブランチ名（通常 stable）。",
+    "repo.develop_branch": "開発用ブランチ名（通常 develop）。",
+    "version.stable": "stableの現在バージョン（Push→Stableで更新され、exeにも埋め込まれます）。",
+    "version.develop": "developの現在バージョン（任意）。",
+    "release.manifest_path": "stableブランチ上のmanifestの固定パス。既定: release/manifest.json",
+    "release.latest_exe_path": "stableブランチ上の最新exe固定パス。{exe_name} が置換されます。既定: release/latest/{exe_name}.exe",
+    "release.require_sha256": "manifestにsha256がある場合は一致を必須にする（推奨: true）。",
+    "build.onefile": "PyInstallerの--onefileを使うか。",
+    "build.console": "コンソール有りで作るか。GUIアプリなら false（= --noconsole）。",
+    "build.icon_path": "アイコン(.ico)のパス（任意）。空なら未設定。",
+    "build.additional_pyinstaller_options": "追加のPyInstallerオプション（任意）。例: \"--clean\"",
+    "paths.exclude": "git add の対象外パス（安全のため build/dist/.git 等を除外）。",
+    "paths.stage_protected": "通常のpushでステージしない保護パス（誤ってexe等をコミットしないため）。",
+    "paths.always_stage_on_publish": "Publish=Yのときだけ強制ステージするパス（release/配下）。"
+  }
+}
