@@ -50,7 +50,6 @@ def write_demo_page() -> Path:
 
 
 def main() -> int:
-    emit("status", "起動準備をしています", 10)
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
     except Exception as exc:

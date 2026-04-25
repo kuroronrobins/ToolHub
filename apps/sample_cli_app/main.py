@@ -15,8 +15,6 @@ def emit(event_type: str, message: str, progress: int | None = None) -> None:
 
 
 def main() -> None:
-    emit("status", "起動準備をしています", 10)
-    time.sleep(0.5)
     emit("status", "データを確認しています", 45)
     time.sleep(0.5)
     print("通常のprint出力もログに保存されます。", flush=True)

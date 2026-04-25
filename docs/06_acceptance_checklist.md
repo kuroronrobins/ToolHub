@@ -2,21 +2,32 @@
 
 このチェックリストは初回実装の自己検収結果を記録する場所です。
 
+## Real-Machine Verification
+
+新しいPCで確認済み:
+
+- [x] `python main.py --dev` でToolHubランチャーが起動する
+- [x] ランチャーにアプリカードが表示される
+- [x] GUIサンプルアプリがウィンドウを開く
+- [x] CLIサンプルアプリがrunner経由で `ok: true` を返し、ログを保存する
+- [x] Web操作サンプルアプリがrunner経由で `ok: true` を返し、ログを保存する
+- [x] Web操作サンプルは `headless=True` のため、ブラウザウィンドウが表示されない挙動を正常として確認済み
+
 ## Functional
 
 - [x] プロジェクト直下で `python main.py` を実行するとToolHub起動を試行できる
 - [x] `python main.py --dev` で開発モード起動を試行できる
 - [x] `python main.py --release` でビルド済み実行ファイルのみ起動を試行できる
 - [x] `python main.py --check` で環境確認ができる
-- [ ] ランチャーが起動できる
+- [x] ランチャーが起動できる
 - [x] `apps/` 配下の `app.yaml` を自動検出できる構造がある
-- [ ] アプリカードが表示される
+- [x] アプリカードが表示される
 - [x] カードにアイコン、名称、短い説明、カテゴリを表示する実装がある
 - [x] メイン画面に管理者向け情報が表示されない実装である
 - [x] カテゴリで絞り込める実装がある
 - [x] 検索で絞り込める実装がある
 - [x] 説明を見るを押すと詳細が表示される実装がある
-- [ ] GUIサンプルアプリを起動できる
+- [x] GUIサンプルアプリを起動できる
 - [x] CLIサンプルアプリを起動できる
 - [x] Web自動化サンプルアプリを他アプリと同様のrunner経由で起動できる
 - [x] エラー時に利用者向けメッセージが出る
@@ -113,6 +124,7 @@
 - [x] `verify_release.ps1` がmanifest / app pack / staging / runtimeを検証できる
 - [x] `release/manifest.json` がinstaller file/type/sha256/sizeを保持する
 - [x] `release/app_manifest.json` がApp Pack package/sha256/runtime要求を保持する
+- [x] `npm run tauri build` でTauri標準のNSIS/MSI成果物を生成できた
 - [ ] 実際のTauri bundle成果物から `ToolHub_Setup_0.1.0.exe` を生成できた
 
 ## Environment
@@ -138,23 +150,14 @@
 
 ## Self-Inspection Result
 
-今回の配布・runtime・検証強化で実行したコマンド:
+今回の安定化作業で実行したコマンド:
 
-- `python main.py --help`: OK
 - `python main.py --check`: OK
-- `python -m unittest discover -s runner/tests`: 12 tests OK
-- `python -m py_compile main.py`: OK
-- `python -m json.tool release/manifest.json`: OK
-- `python -m json.tool release/app_manifest.json`: OK
-- `scripts/package_app_pack.ps1`: OK。3つのサンプルApp Pack zipを生成し、`release/app_manifest.json` にsha256を反映
-- `scripts/prepare_runtime.ps1 -AllowMissingRuntime`: OK。runtime雛形とapp_env skeletonを作成。Python runtime実体とWeb自動化用ランタイム実体はWARN
-- `scripts/package_installer.ps1 -AllowMissingBundle`: OK。`release/staging/installer_payload/` を作成。Tauri bundle未生成のためinstaller sha256/sizeは空
-- `scripts/verify_release.ps1`: OK。App Pack sha256、zip内部の `app.yaml` / `pack_manifest.json`、staging manifestを確認
-- `scripts/build_release.ps1 -SkipBuild -AllowMissingBundle`: OK。App Pack、runtime雛形、staging、release検証まで通過
-- `scripts/check_all.ps1`: OK。環境不足とfrontend build制約はWARNとして分類
-- `npm run typecheck` 相当: OK。`scripts/frontend_check.ps1` 経由で `tsc --noEmit` が通過
-- `cargo fmt --check`: 既存Rustファイルのformat差分がありNG。今回追加の `setup.rs` は指摘箇所を修正済み
-- `git diff --check`: OK。CRLF変換警告のみ
+- `python -m unittest discover -s runner/tests`: 14 tests OK
+- `python runner/toolhub_runner/main.py --project-root . --app-id sample_cli_app`: OK。runner側の初期statusと、アプリ側の実処理eventのみ出力
+- `python runner/toolhub_runner/main.py --project-root . --app-id sample_playwright_app`: sandbox内ではWinError 5、sandbox外再実行でOK。runner側の初期statusと、アプリ側の実処理eventのみ出力
+- `scripts/check_all.ps1`: OK。`icon.ico`、`bundle.icon`、`bundle.resources` の存在確認を含む
+- `npm run tauri build`: sandbox内ではVite/esbuildの `spawn EPERM`、sandbox外再実行でOK
 
 成功したチェック:
 
@@ -168,18 +171,19 @@
 - installer staging作成
 - staging manifest作成
 - Tauri bundle targetがNSIS/MSIを含むことの確認
+- Tauri Windows icon `launcher/src-tauri/icons/icon.ico` の存在とICO header確認
+- Tauri `bundle.icon` と `bundle.resources` の主要パス存在確認
+- Tauri標準NSIS/MSI bundle生成
 - `main.py` 静的境界確認
 - Python runner単体テスト
 - TypeScript型チェック
+- CLI / Web操作サンプルの重複初期status削除確認
 
 環境不足または環境制約で実行できなかったチェック:
 
-- `npm test`: `esbuild` の `spawn EPERM` によりWARN。対策は `docs/12_troubleshooting.md` に記載
-- `npm run build`: 同じ `spawn EPERM` によりWARN。`tsc --noEmit` はOK
-- `cargo check`: MSVC linker `link.exe` 不在で失敗。Visual Studio Build Tools / C++ workload / Windows SDKが必要
-- `npm run tauri build`: frontend buildの `spawn EPERM` とMSVC linker不足があるため未完了
-- 実際の `ToolHub_Setup.exe` 生成: Tauri bundle成果物がないため未確認
-- 実インストール / アンインストール検証: installer未生成のため未実施
+- `scripts/check_all.ps1` 内のVitest/Vite build: sandbox内では `esbuild` の `spawn EPERM` によりWARN。sandbox外の `npm run tauri build` ではVite build通過
+- 実際の `ToolHub_Setup.exe` 生成: Tauri標準bundleは生成済みだが、正式配布名での `release/dist_installer/` 収集は未確認
+- 実インストール / アンインストール検証: 正式配布installer未生成のため未実施
 - コード署名: 未実装
 
 未完了項目:
@@ -189,14 +193,13 @@
 - Web自動化用ランタイム実体同梱
 - 自動更新本体
 - コード署名
-- 実インストーラー生成
+- 正式配布名の実インストーラー生成
 - 実インストール / アンインストール検証
 
 次に人間が確認すべき項目:
 
-- Visual Studio Build Toolsを導入したWindows環境で `cargo check` を実行する
 - OneDriveやセキュリティソフトの影響がないローカルパスで `npm test` / `npm run build` を再実行する
-- `npm run tauri build` で `release/dist_installer/ToolHub_Setup_0.1.0.exe` が生成されることを確認する
+- release packaging flowで `release/dist_installer/ToolHub_Setup_0.1.0.exe` が生成されることを確認する
 - インストール先が `%LOCALAPPDATA%\Programs\ToolHub\` になることを確認する
 - 初回起動時にユーザーデータが `%LOCALAPPDATA%\ToolHub\` に作成され、既存設定を上書きしないことを実機で確認する
 - runtime実体を配置し、`verify_release.ps1 -RequireRuntime -Strict` を通す

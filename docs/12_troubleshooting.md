@@ -1,5 +1,29 @@
 # Troubleshooting
 
+## icons/icon.ico not found
+
+症状:
+
+- `npm run tauri build` が `icons/icon.ico not found` で失敗する。
+- Windows Resource file生成時にTauri buildが停止する。
+
+原因:
+
+- `launcher/src-tauri/icons/icon.ico` はTauriのWindowsビルドに必要なアイコン資産である。
+- このファイルがGitにコミットされていないと、別PCのfresh cloneで同じ失敗が起きる。
+
+対応:
+
+- `launcher/src-tauri/icons/icon.ico` が存在することを確認する。
+- 必要な場合は `python make_icon.py` で最小アイコン資産を再生成する。
+- 生成した `launcher/src-tauri/icons/icon.ico` をリポジトリにコミットする。
+
+確認:
+
+```powershell
+.\scripts\check_all.ps1
+```
+
 ## link.exe not found
 
 症状:

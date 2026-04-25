@@ -70,6 +70,73 @@ function Require-Path {
     }
 }
 
+function Test-TauriIconAssets {
+    $IconPath = "launcher/src-tauri/icons/icon.ico"
+    if (-not (Test-Path -LiteralPath $IconPath -PathType Leaf)) {
+        Warn "Missing Tauri Windows icon: $IconPath. Tauri build requires this file; commit it so a fresh clone can build."
+        return
+    }
+
+    Pass "Tauri Windows icon exists: $IconPath"
+
+    try {
+        $Bytes = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $IconPath).Path)
+        if ($Bytes.Length -lt 6) {
+            Warn "Tauri Windows icon is too small to be a valid ICO file: $IconPath"
+            return
+        }
+
+        $Reserved = [BitConverter]::ToUInt16($Bytes, 0)
+        $Type = [BitConverter]::ToUInt16($Bytes, 2)
+        $Count = [BitConverter]::ToUInt16($Bytes, 4)
+        if ($Reserved -eq 0 -and $Type -eq 1 -and $Count -gt 0) {
+            Pass "Tauri Windows icon has a valid ICO header"
+        } else {
+            Warn "Tauri Windows icon is not a valid ICO file: $IconPath"
+        }
+    } catch {
+        Warn "Tauri Windows icon could not be validated: $IconPath"
+    }
+
+    $PngPath = "launcher/src-tauri/icons/icon.png"
+    if (Test-Path -LiteralPath $PngPath -PathType Leaf) {
+        Pass "Tauri PNG icon exists: $PngPath"
+    }
+}
+
+function Test-TauriBundleResources {
+    param(
+        [string]$ConfigPath,
+        [object[]]$Resources,
+        [string]$Label = "bundle resource"
+    )
+
+    $ConfigDir = Split-Path -Parent $ConfigPath
+    if (-not $Resources -or $Resources.Count -eq 0) {
+        Warn "Tauri $Label list is empty."
+        return
+    }
+
+    foreach ($Resource in $Resources) {
+        if (-not $Resource) {
+            continue
+        }
+
+        $ResourceText = [string]$Resource
+        if ([System.IO.Path]::IsPathRooted($ResourceText)) {
+            $ResourcePath = $ResourceText
+        } else {
+            $ResourcePath = Join-Path $ConfigDir $ResourceText
+        }
+
+        if (Test-Path -LiteralPath $ResourcePath) {
+            Pass "Tauri $Label exists: $ResourceText"
+        } else {
+            Warn "Tauri $Label missing: $ResourceText ($ResourcePath)"
+        }
+    }
+}
+
 function Test-Tool {
     param(
         [string]$Name,
@@ -124,6 +191,8 @@ function Test-TauriBundleConfig {
         } else {
             Fail "Tauri bundle targets should include nsis or msi"
         }
+        Test-TauriBundleResources -ConfigPath $ConfigPath -Resources @($Config.bundle.icon) -Label "bundle icon"
+        Test-TauriBundleResources -ConfigPath $ConfigPath -Resources @($Config.bundle.resources) -Label "bundle resource"
     } catch {
         Fail "Tauri config could not be parsed"
     }
@@ -145,6 +214,7 @@ try {
     Require-Path "launcher/package-lock.json"
     Require-Path "launcher/src-tauri/Cargo.toml"
     Require-Path "launcher/src-tauri/Cargo.lock"
+    Test-TauriIconAssets
     Require-Path "scripts/package_installer.ps1"
     Require-Path "scripts/package_app_pack.ps1"
     Require-Path "scripts/prepare_runtime.ps1"
