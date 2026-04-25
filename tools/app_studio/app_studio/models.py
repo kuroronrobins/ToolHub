@@ -17,6 +17,14 @@ class ImportOptions:
     build_mode: str = "auto"
     icon_prompt: str | None = None
     version: str = "0.1.0"
+    create_app_env: bool = False
+    rebuild_app_env: bool = False
+    skip_app_env_build: bool = False
+    generate_lock: bool = False
+    skip_lock: bool = False
+    build_frozen_folder: bool = False
+    rebuild_frozen_folder: bool = False
+    skip_frozen_build: bool = False
 
 
 @dataclass
@@ -151,4 +159,63 @@ class GeneratedArtifacts:
     icon_svg: str
     build_plan_md: str
     import_plan: dict[str, Any]
+    icon_ai_report: str = ""
 
+
+@dataclass
+class AppEnvBuildResult:
+    ok: bool
+    skipped: bool
+    app_env_path: Path
+    python_path: Path | None
+    python_source: str
+    report: str
+    error: str = ""
+
+
+@dataclass
+class LockGenerationResult:
+    ok: bool
+    skipped: bool
+    lock_path: Path
+    source: str
+    report: str
+    error: str = ""
+
+
+@dataclass
+class FrozenBuildResult:
+    ok: bool
+    skipped: bool
+    exe_path: Path | None
+    report: str
+    command: list[str] = field(default_factory=list)
+    error: str = ""
+
+
+@dataclass
+class ExecutionCheck:
+    name: str
+    status: str
+    detail: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"name": self.name, "status": self.status, "detail": self.detail}
+
+
+@dataclass
+class ExecutionTestResult:
+    app_id: str
+    generated_at: str
+    overall_status: str
+    approval_allowed: bool
+    checks: list[ExecutionCheck]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "app_id": self.app_id,
+            "generated_at": self.generated_at,
+            "overall_status": self.overall_status,
+            "approval_allowed": self.approval_allowed,
+            "checks": [check.to_dict() for check in self.checks],
+        }

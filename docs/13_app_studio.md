@@ -133,3 +133,118 @@ frozen-folder 方式:
 .\scripts\import_app.ps1 -Entry "C:\path\to\main.py" -AppId "agendasnap" -Name "AgendaSnap" -IconPrompt "マイクとメモ帳を組み合わせ、ToolHub既存アイコンに合うシンプルな線画にする" -Suggest
 ```
 
+## app_env実体作成
+
+`app-env` 方式では、開発時に `runtime/app_envs/<app_id>/` を作成できます。利用者PCでは、この作成済み app_env が ToolHub インストール先へ展開される前提であり、利用者に Python や pip の導入を要求しません。
+
+```powershell
+.\scripts\import_app.ps1 -Entry "C:\work\tool\main.py" -AppId "my_tool" -Name "My Tool" -BuildMode "app-env" -Apply -GenerateLock -CreateAppEnv
+```
+
+- `-CreateAppEnv`: `runtime/app_envs/<app_id>/` を作成します。
+- `-RebuildAppEnv`: 既存 app_env を `backups/app_studio/...` へ退避して再作成します。
+- `-SkipAppEnvBuild`: app_env 作成を明示的にスキップします。
+
+`runtime/python/python.exe` があればそれを使います。ない場合は開発環境 Python を使い、`app_env_build_report.md` に明記します。
+
+## requirements.lock生成
+
+`-GenerateLock` を指定すると、`requirements.lock` を生成またはコピーします。
+
+- 既存 `requirements.lock` がある場合はコピーを優先します。
+- app_env Python がある場合は `pip freeze` を使います。
+- それ以外は `requirements.txt` の正規化結果を lock として保存します。
+- `-SkipLock` では lock 生成をスキップします。
+
+レポートは `lock_generation_report.md` と `data/logs/app_studio/<app_id>_lock_generation_report.md` に保存されます。`pip freeze` は過剰依存が混ざる可能性があるため、人間レビューを前提にします。
+
+## frozen-folder実ビルド
+
+複雑な Python アプリは `frozen-folder` 方式で PyInstaller `--onedir` 相当のフォルダビルドを行えます。
+
+```powershell
+.\scripts\import_app.ps1 -Entry "C:\work\AgendaSnap\agendasnap\app.py" -AppId "agendasnap" -Name "AgendaSnap" -BuildMode "frozen-folder" -Apply -BuildFrozenFolder
+```
+
+- `-BuildFrozenFolder`: PyInstaller `--onedir` でビルドします。
+- `-RebuildFrozenFolder`: 既存出力を再作成します。
+- `-SkipFrozenBuild`: ビルドをスキップし、plan のみ残します。
+
+`--onefile` は標準では使いません。App Studio の frozen build は `bin/<app_id>/<app_id>.exe` を `run.entry` として扱います。PyInstaller が見つからない場合は失敗し、`frozen_folder_build_report.md` に理由を残します。
+
+## 実行確認JSON
+
+Apply 後、Markdown に加えて machine-readable な結果を生成します。
+
+```text
+execution_test_result.json
+data/logs/app_studio/<app_id>_execution_test_result.json
+```
+
+形式:
+
+```json
+{
+  "app_id": "agendasnap",
+  "generated_at": "...",
+  "overall_status": "pass",
+  "approval_allowed": true,
+  "checks": [
+    { "name": "app.yaml parse", "status": "pass", "detail": "..." }
+  ]
+}
+```
+
+`fail` がある場合は承認不可です。`warn` は通常承認では許容できますが、`StrictApproval` では承認不可です。
+
+## 承認モード
+
+```powershell
+.\scripts\approve_imported_app.ps1 -AppId "agendasnap" -StrictApproval
+```
+
+- 既定: `fail` がなければ承認できます。
+- `-AllowWarnings`: warn まで承認可能です。
+- `-StrictApproval`: `pass` のみ承認可能です。
+
+承認時は `execution_test_result.json`、`apps/<app_id>/app.yaml`、`release/app_manifest.json`、App Pack 生成、可能な範囲の `verify_release.ps1` を確認します。失敗した場合は `enabled=true` にせず、途中で変更した場合も元に戻します。
+
+## OpenAI API連携
+
+AI 連携は明示的に有効化した場合だけ試行します。未設定時や失敗時は deterministic fallback を使います。
+
+```powershell
+$env:TOOLHUB_APP_STUDIO_AI_ENABLED="true"
+$env:TOOLHUB_APP_STUDIO_TEXT_MODEL="<configurable-model>"
+$env:TOOLHUB_APP_STUDIO_IMAGE_MODEL="<configurable-model>"
+$env:OPENAI_API_KEY="..."
+```
+
+安全方針:
+
+- `TOOLHUB_APP_STUDIO_AI_ENABLED` が `true` / `1` の場合だけAPI呼び出しを試みます。
+- APIキーやモデル名が未設定ならfallbackします。
+- `openai` Python package がない場合もfallbackします。
+- high severity の秘密情報が検出された場合はAI送信しません。
+- Entry全文は送らず、ファイル名、README抜粋、既存カテゴリなどの限定情報だけを使います。
+- 最終 `icon.svg` は常にローカル生成SVGを保存し、ToolHubのSVG表示互換性を保ちます。
+
+## 実運用推奨コマンド
+
+軽量アプリ:
+
+```powershell
+.\scripts\import_app.ps1 -Entry "C:\work\tool\main.py" -AppId "my_tool" -Name "My Tool" -BuildMode "app-env" -Apply -GenerateLock -CreateAppEnv
+```
+
+複雑アプリ:
+
+```powershell
+.\scripts\import_app.ps1 -Entry "C:\work\AgendaSnap\agendasnap\app.py" -AppId "agendasnap" -Name "AgendaSnap" -BuildMode "frozen-folder" -Apply -BuildFrozenFolder
+```
+
+厳格承認:
+
+```powershell
+.\scripts\approve_imported_app.ps1 -AppId "agendasnap" -StrictApproval
+```

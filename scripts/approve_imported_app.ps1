@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$AppId
+    [string]$AppId,
+    [switch]$StrictApproval,
+    [switch]$AllowWarnings
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,7 +32,10 @@ try {
 
     Push-Location $Root
     try {
-        & $Python $StudioMain "approve" "--app-id" $AppId
+        $ArgsList = @($StudioMain, "approve", "--app-id", $AppId)
+        if ($StrictApproval) { $ArgsList += "--strict-approval" }
+        if ($AllowWarnings) { $ArgsList += "--allow-warnings" }
+        & $Python @ArgsList
         $ExitCode = $LASTEXITCODE
     }
     finally {

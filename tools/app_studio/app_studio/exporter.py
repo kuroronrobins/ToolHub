@@ -33,6 +33,8 @@ def export_suggestion(
     write_text(icon_work / "icon_prompt_revision.md", artifacts.icon_prompt_revision)
     write_text(icon_work / "icon_candidate_1.svg", artifacts.icon_svg)
     write_text(icon_work / "icon_final.svg", artifacts.icon_svg)
+    if artifacts.icon_ai_report:
+        write_text(icon_work / "ai_generation_report.md", artifacts.icon_ai_report)
 
     final_app = output_dir / "final_app"
     write_text(final_app / "app.yaml", artifacts.app_yaml)

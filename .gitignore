@@ -10,6 +10,7 @@ data/logs/**/*.json
 data/logs/app_studio/
 data/test_tmp/
 data/tmp_tests/
+backups/app_studio/
 release/app_packs/*
 !release/app_packs/.gitkeep
 release/dist_installer/*

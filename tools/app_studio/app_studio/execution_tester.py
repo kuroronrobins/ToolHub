@@ -6,64 +6,76 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .models import BuildPlan, StudioContext
-from .util import now_iso, write_text
+from .models import BuildPlan, ExecutionCheck, ExecutionTestResult, SecretScanReport, StudioContext
+from .util import now_iso, write_json, write_text
 
 
 SUPPORTED_RUNNERS = {"python", "cli", "exe", "playwright_python", "python_app_env"}
 
 
-def run_execution_checks(context: StudioContext, plan: BuildPlan, output_dir: Path) -> Path:
-    report = build_execution_report(context, plan)
-    output_report = output_dir / "execution_test_report.md"
-    write_text(output_report, report)
+def run_execution_checks(context: StudioContext, plan: BuildPlan, output_dir: Path, secret_report: SecretScanReport | None = None) -> ExecutionTestResult:
+    result = build_execution_result(context, plan, secret_report)
+    report = execution_report_markdown(result)
+
+    write_text(output_dir / "execution_test_report.md", report)
+    write_json(output_dir / "execution_test_result.json", result.to_dict())
 
     log_dir = context.repo_root / "data" / "logs" / "app_studio"
-    log_report = log_dir / f"{context.app_id}_execution_test_report.md"
-    write_text(log_report, report)
-    return output_report
+    write_text(log_dir / f"{context.app_id}_execution_test_report.md", report)
+    write_json(log_dir / f"{context.app_id}_execution_test_result.json", result.to_dict())
+    return result
 
 
-def build_execution_report(context: StudioContext, plan: BuildPlan) -> str:
-    checks: list[tuple[str, str, str]] = []
+def build_execution_result(context: StudioContext, plan: BuildPlan, secret_report: SecretScanReport | None = None) -> ExecutionTestResult:
+    checks: list[ExecutionCheck] = []
     app_yaml = context.repo_root / "apps" / context.app_id / "app.yaml"
     app_entry = context.repo_root / "apps" / context.app_id / plan.entry
 
-    checks.append(("OK" if app_yaml.is_file() else "NG", "app.yaml", str(app_yaml)))
+    checks.append(check("app.yaml exists", "pass" if app_yaml.is_file() else "fail", str(app_yaml)))
     checks.append(parse_manifest_check(context))
-    checks.append(("OK" if plan.runner in SUPPORTED_RUNNERS else "NG", "runner", plan.runner))
-    checks.append(("OK" if app_entry.is_file() else "WARN", "entry", str(app_entry)))
+    checks.append(check("runner supported", "pass" if plan.runner in SUPPORTED_RUNNERS else "fail", plan.runner))
+
+    if plan.mode == "frozen-folder":
+        checks.append(check("frozen-folder executable", "pass" if app_entry.is_file() else "fail", str(app_entry)))
+    else:
+        checks.append(check("run.entry exists", "pass" if app_entry.is_file() else "fail", str(app_entry)))
+
+    if secret_report and secret_report.has_high:
+        checks.append(check("secret scan", "fail", "High severity secret findings block approval."))
+    elif secret_report:
+        checks.append(check("secret scan", "pass", "No high severity secret findings."))
 
     if plan.runner == "python_app_env":
-        app_env_python = context.repo_root / "runtime" / "app_envs" / context.app_id / "Scripts" / "python.exe"
-        runtime_python = context.repo_root / "runtime" / "python" / "python.exe"
-        if app_env_python.is_file():
-            checks.append(("OK", "python_app_env runtime", str(app_env_python)))
-        elif runtime_python.is_file():
-            checks.append(("OK", "python runtime fallback", str(runtime_python)))
-        else:
-            checks.append(("WARN", "python runtime", f"Missing {app_env_python} and {runtime_python}. Runtime may be provided during installation."))
+        checks.append(python_runtime_check(context))
 
     runner_attempt = attempt_runner(context, plan, app_entry)
     if runner_attempt:
         checks.append(runner_attempt)
 
-    lines = [
-        "# Execution Test Report",
-        "",
-        f"- app_id: `{context.app_id}`",
-        f"- generated_at: `{now_iso()}`",
-        "",
-        "| Status | Check | Detail |",
-        "| --- | --- | --- |",
-    ]
-    lines.extend(f"| {status} | {name} | {detail} |" for status, name, detail in checks)
-    lines.append("")
-    lines.append("Human approval is required before enabling this app in release/app_manifest.json.")
-    return "\n".join(lines) + "\n"
+    overall = overall_status(checks)
+    return ExecutionTestResult(
+        app_id=context.app_id,
+        generated_at=now_iso(),
+        overall_status=overall,
+        approval_allowed=overall != "fail",
+        checks=checks,
+    )
 
 
-def parse_manifest_check(context: StudioContext) -> tuple[str, str, str]:
+def check(name: str, status: str, detail: str) -> ExecutionCheck:
+    return ExecutionCheck(name=name, status=status, detail=detail)
+
+
+def overall_status(checks: list[ExecutionCheck]) -> str:
+    statuses = {item.status for item in checks}
+    if "fail" in statuses:
+        return "fail"
+    if "warn" in statuses:
+        return "warn"
+    return "pass"
+
+
+def parse_manifest_check(context: StudioContext) -> ExecutionCheck:
     runner_path = context.repo_root / "runner"
     if str(runner_path) not in sys.path:
         sys.path.insert(0, str(runner_path))
@@ -72,22 +84,32 @@ def parse_manifest_check(context: StudioContext) -> tuple[str, str, str]:
 
         manifest = load_app_manifest(context.repo_root, context.app_id)
     except Exception as exc:
-        return ("NG", "app.yaml parse", repr(exc))
-    return ("OK", "app.yaml parse", f"runner={manifest.run.runner}, entry={manifest.run.entry}")
+        return check("app.yaml parse", "fail", repr(exc))
+    return check("app.yaml parse", "pass", f"runner={manifest.run.runner}, entry={manifest.run.entry}")
 
 
-def attempt_runner(context: StudioContext, plan: BuildPlan, app_entry: Path) -> tuple[str, str, str] | None:
+def python_runtime_check(context: StudioContext) -> ExecutionCheck:
+    app_env_python = context.repo_root / "runtime" / "app_envs" / context.app_id / "Scripts" / "python.exe"
+    runtime_python = context.repo_root / "runtime" / "python" / "python.exe"
+    if app_env_python.is_file():
+        return check("python_app_env runtime", "pass", str(app_env_python))
+    if runtime_python.is_file():
+        return check("python runtime fallback", "pass", str(runtime_python))
+    return check("python runtime", "warn", f"Missing {app_env_python} and {runtime_python}. StrictApproval will reject this.")
+
+
+def attempt_runner(context: StudioContext, plan: BuildPlan, app_entry: Path) -> ExecutionCheck | None:
     if not app_entry.is_file():
-        return ("WARN", "runner dry execution", "Skipped because entry file is not present.")
+        return check("runner dry execution", "fail", "Skipped because entry file is not present.")
     if plan.runner == "exe" or plan.mode == "frozen-folder":
-        return ("WARN", "runner dry execution", "Skipped for exe/frozen-folder mode in MVP.")
+        return check("runner dry execution", "warn", "Skipped for exe/frozen-folder mode.")
     if plan.runner == "python_app_env":
         app_env_python = context.repo_root / "runtime" / "app_envs" / context.app_id / "Scripts" / "python.exe"
         runtime_python = context.repo_root / "runtime" / "python" / "python.exe"
         if not app_env_python.is_file() and not runtime_python.is_file():
-            return ("WARN", "runner dry execution", "Skipped because ToolHub Python runtime is not present in this checkout.")
+            return check("runner dry execution", "warn", "Skipped because ToolHub Python runtime/app_env is not present.")
     if plan.runner not in {"python_app_env", "cli"}:
-        return ("WARN", "runner dry execution", "Skipped because automatic GUI execution could be disruptive.")
+        return check("runner dry execution", "warn", "Skipped because automatic GUI execution could be disruptive.")
 
     result_json = context.repo_root / "data" / "logs" / "app_studio" / f"{context.app_id}_runner_result.json"
     command = [
@@ -103,12 +125,33 @@ def attempt_runner(context: StudioContext, plan: BuildPlan, app_entry: Path) -> 
     try:
         completed = subprocess.run(command, cwd=str(context.repo_root), text=True, capture_output=True, timeout=20, check=False)
     except Exception as exc:
-        return ("WARN", "runner dry execution", f"Could not run runner: {exc!r}")
+        return check("runner dry execution", "warn", f"Could not run runner: {exc!r}")
     detail: Any = {"exit_code": completed.returncode}
     if result_json.is_file():
         try:
             detail["result"] = json.loads(result_json.read_text(encoding="utf-8"))
         except Exception:
             detail["result"] = "result json could not be parsed"
-    status = "OK" if completed.returncode == 0 else "WARN"
-    return (status, "runner dry execution", json.dumps(detail, ensure_ascii=False))
+    if completed.returncode == 0:
+        return check("runner dry execution", "pass", json.dumps(detail, ensure_ascii=False))
+    status = "fail" if plan.runner == "cli" or plan.runner == "python_app_env" and plan.entry.endswith(".py") else "warn"
+    return check("runner dry execution", status, json.dumps(detail, ensure_ascii=False))
+
+
+def execution_report_markdown(result: ExecutionTestResult) -> str:
+    lines = [
+        "# Execution Test Report",
+        "",
+        f"- app_id: `{result.app_id}`",
+        f"- generated_at: `{result.generated_at}`",
+        f"- overall_status: `{result.overall_status}`",
+        f"- approval_allowed: `{str(result.approval_allowed).lower()}`",
+        "",
+        "| Status | Check | Detail |",
+        "| --- | --- | --- |",
+    ]
+    lines.extend(f"| {item.status} | {item.name} | {item.detail} |" for item in result.checks)
+    lines.append("")
+    lines.append("Human approval is required before enabling this app in release/app_manifest.json.")
+    return "\n".join(lines) + "\n"
+

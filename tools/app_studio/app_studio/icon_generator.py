@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .ai_metadata_suggester import suggest_icon_prompt
 from .models import StudioContext
+from .openai_client import generate_image
 
 
 PALETTE = [
@@ -27,13 +28,35 @@ def collect_icon_style_reference(repo_root: Path) -> str:
     return "Existing ToolHub icon references: " + ", ".join(names)
 
 
-def generate_icon_assets(context: StudioContext, revision_prompt: str | None = None) -> tuple[str, str, str, str]:
+def generate_icon_assets(context: StudioContext, revision_prompt: str | None = None, allow_ai: bool = True) -> tuple[str, str, str, str, str]:
     style_reference = collect_icon_style_reference(context.repo_root)
-    initial_prompt = suggest_icon_prompt(context)
-    revision = suggest_icon_prompt(context, revision_prompt) if revision_prompt else "No revision prompt was provided."
+    initial_prompt, initial_report = suggest_icon_prompt(context, allow_ai=allow_ai)
+    if revision_prompt:
+        revision, revision_report = suggest_icon_prompt(context, revision_prompt, allow_ai=allow_ai)
+    else:
+        revision = "No revision prompt was provided."
+        revision_report = "No revision prompt was provided."
     prompt_for_svg = revision if revision_prompt else initial_prompt
+    image_result = generate_image(prompt_for_svg) if allow_ai else None
     svg = generate_local_svg(context, prompt_for_svg, style_reference)
-    return initial_prompt, revision, svg, style_reference
+    report = "\n".join(
+        [
+            "# AI Generation Report",
+            "",
+            "## Icon Prompt",
+            "",
+            initial_report,
+            "",
+            revision_report,
+            "",
+            "## Image Generation",
+            "",
+            image_result.report if image_result else "OpenAI image generation skipped because AI use was not allowed.",
+            "",
+            "The final icon.svg is always a local deterministic SVG fallback so the launcher can render it safely.",
+        ]
+    )
+    return initial_prompt, revision, svg, style_reference, report
 
 
 def generate_local_svg(context: StudioContext, prompt: str, style_reference: str) -> str:
@@ -47,4 +70,3 @@ def generate_local_svg(context: StudioContext, prompt: str, style_reference: str
   <text x="46" y="50" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="{stroke}">{letter}</text>
 </svg>
 """
-

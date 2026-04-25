@@ -33,7 +33,7 @@ def make_build_plan(context: StudioContext, inventory: SourceInventory) -> Build
         required_runtime = None
     elif mode == "frozen-folder":
         runner = "exe"
-        entry = f"bin/{context.app_id}.exe"
+        entry = f"bin/{context.app_id}/{context.app_id}.exe"
         required_runtime = None
     else:
         runner = "python_app_env"
@@ -42,7 +42,7 @@ def make_build_plan(context: StudioContext, inventory: SourceInventory) -> Build
 
     warnings: list[str] = []
     if mode == "frozen-folder":
-        warnings.append("MVP creates a frozen-folder build plan only. It does not run PyInstaller.")
+        warnings.append("Frozen-folder uses PyInstaller --onedir or an equivalent folder build.")
         warnings.append("Use PyInstaller --onedir or equivalent. --onefile is not the ToolHub standard.")
     if mode == "existing-exe":
         warnings.append("Existing executable folders are copied as folder/exe style assets.")
@@ -118,4 +118,3 @@ def build_plan_markdown(plan: BuildPlan, context: StudioContext) -> str:
     else:
         lines.extend(["", "## existing-exe Notes", "", "- Copy the executable and its sibling runtime files under `bin/`."])
     return "\n".join(lines) + "\n"
-

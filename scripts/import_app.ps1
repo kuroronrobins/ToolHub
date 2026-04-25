@@ -6,6 +6,14 @@ param(
     [ValidateSet("auto", "app-env", "frozen-folder", "existing-exe")]
     [string]$BuildMode = "auto",
     [string]$IconPrompt,
+    [switch]$CreateAppEnv,
+    [switch]$RebuildAppEnv,
+    [switch]$SkipAppEnvBuild,
+    [switch]$GenerateLock,
+    [switch]$SkipLock,
+    [switch]$BuildFrozenFolder,
+    [switch]$RebuildFrozenFolder,
+    [switch]$SkipFrozenBuild,
     [switch]$DryRun,
     [switch]$Suggest,
     [switch]$Apply
@@ -45,6 +53,14 @@ try {
     if ($AppId) { $ArgsList += @("--app-id", $AppId) }
     if ($Name) { $ArgsList += @("--name", $Name) }
     if ($IconPrompt) { $ArgsList += @("--icon-prompt", $IconPrompt) }
+    if ($CreateAppEnv) { $ArgsList += "--create-app-env" }
+    if ($RebuildAppEnv) { $ArgsList += "--rebuild-app-env" }
+    if ($SkipAppEnvBuild) { $ArgsList += "--skip-app-env-build" }
+    if ($GenerateLock) { $ArgsList += "--generate-lock" }
+    if ($SkipLock) { $ArgsList += "--skip-lock" }
+    if ($BuildFrozenFolder) { $ArgsList += "--build-frozen-folder" }
+    if ($RebuildFrozenFolder) { $ArgsList += "--rebuild-frozen-folder" }
+    if ($SkipFrozenBuild) { $ArgsList += "--skip-frozen-build" }
     if ($DryRun) { $ArgsList += "--dry-run" }
     if ($Suggest) { $ArgsList += "--suggest" }
     if ($Apply) { $ArgsList += "--apply" }

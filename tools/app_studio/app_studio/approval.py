@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import copy
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -9,40 +11,69 @@ from .registrar import load_app_manifest_json, package_app_pack
 from .util import find_repo_root, now_iso, write_json, write_text
 
 
-def approve_app(repo_root: Path, app_id: str) -> Path:
+def approve_app(repo_root: Path, app_id: str, strict: bool = False, allow_warnings: bool = True) -> Path:
     repo_root = find_repo_root(repo_root)
-    report_path = repo_root / "data" / "logs" / "app_studio" / f"{app_id}_execution_test_report.md"
-    if not report_path.is_file():
-        raise FileNotFoundError(f"Execution test report was not found: {report_path}")
-
     manifest_path = repo_root / "release" / "app_manifest.json"
-    manifest = load_app_manifest_json(manifest_path)
+    original_manifest = load_app_manifest_json(manifest_path)
+    manifest = copy.deepcopy(original_manifest)
+
+    record_path = repo_root / "data" / "logs" / "app_studio" / f"{app_id}_approval_record.md"
+    record_written = False
+    try:
+        entry, result = validate_approval_inputs(repo_root, manifest, app_id, strict, allow_warnings)
+        entry["enabled"] = True
+        manifest["apps"][app_id] = entry
+        write_json(manifest_path, manifest)
+
+        package_path = package_app_pack(repo_root, app_id)
+        verify_result = run_verify_release(repo_root)
+        if verify_result.get("status") == "failed":
+            write_json(manifest_path, original_manifest)
+            record = approval_record("failed", app_id, entry, package_path, result, verify_result, ["verify_release.ps1 failed"])
+            write_text(record_path, record)
+            record_written = True
+            write_mirror_record(repo_root, app_id, record, package_path)
+            raise RuntimeError("verify_release.ps1 failed; enabled=true was rolled back.")
+
+        record = approval_record("approved", app_id, entry, package_path, result, verify_result, [])
+        write_text(record_path, record)
+        record_written = True
+        write_mirror_record(repo_root, app_id, record, package_path)
+        return record_path
+    except Exception as exc:
+        write_json(manifest_path, original_manifest)
+        if not record_written:
+            record = approval_record("failed", app_id, {}, None, None, {"status": "not_run"}, [str(exc)])
+            write_text(record_path, record)
+        raise
+
+
+def validate_approval_inputs(repo_root: Path, manifest: dict[str, Any], app_id: str, strict: bool, allow_warnings: bool) -> tuple[dict[str, Any], dict[str, Any]]:
     apps = manifest.get("apps") or {}
     entry = apps.get(app_id)
     if not isinstance(entry, dict):
         raise ValueError(f"App is not listed in release/app_manifest.json: {app_id}")
+    app_yaml = repo_root / "apps" / app_id / "app.yaml"
+    if not app_yaml.is_file():
+        raise FileNotFoundError(f"app.yaml was not found: {app_yaml}")
 
-    entry["enabled"] = True
-    apps[app_id] = entry
-    manifest["apps"] = apps
-    write_json(manifest_path, manifest)
-    package_path = package_app_pack(repo_root, app_id)
-    verify_result = run_verify_release(repo_root)
-    record = approval_record(app_id, entry, package_path, report_path, verify_result)
+    result_path = repo_root / "data" / "logs" / "app_studio" / f"{app_id}_execution_test_result.json"
+    if not result_path.is_file():
+        raise FileNotFoundError(f"Execution test result JSON was not found: {result_path}")
+    result = json.loads(result_path.read_text(encoding="utf-8"))
 
-    log_dir = repo_root / "data" / "logs" / "app_studio"
-    record_path = log_dir / f"{app_id}_approval_record.md"
-    write_text(record_path, record)
-
-    mirror = find_output_mirror(repo_root, app_id)
-    if mirror:
-        write_text(mirror / "approval_record.md", record)
-        pack_dir = mirror / "app_pack"
-        pack_dir.mkdir(parents=True, exist_ok=True)
-        import shutil
-
-        shutil.copy2(package_path, pack_dir / package_path.name)
-    return record_path
+    checks = result.get("checks") or []
+    fail_checks = [item for item in checks if item.get("status") == "fail"]
+    warn_checks = [item for item in checks if item.get("status") == "warn"]
+    if result.get("approval_allowed") is not True:
+        raise ValueError("Execution test result does not allow approval.")
+    if fail_checks:
+        raise ValueError("Execution test result contains fail checks.")
+    if strict and warn_checks:
+        raise ValueError("StrictApproval rejects warning checks.")
+    if not allow_warnings and warn_checks:
+        raise ValueError("Warnings are not allowed for this approval.")
+    return entry, result
 
 
 def run_verify_release(repo_root: Path) -> dict[str, Any]:
@@ -62,17 +93,35 @@ def run_verify_release(repo_root: Path) -> dict[str, Any]:
     }
 
 
-def approval_record(app_id: str, manifest_entry: dict[str, Any], package_path: Path, report_path: Path, verify_result: dict[str, Any]) -> str:
+def approval_record(
+    status: str,
+    app_id: str,
+    manifest_entry: dict[str, Any],
+    package_path: Path | None,
+    execution_result: dict[str, Any] | None,
+    verify_result: dict[str, Any],
+    failures: list[str],
+) -> str:
     return "\n".join(
         [
             "# Approval Record",
             "",
-            f"- approved_at: `{now_iso()}`",
+            f"- status: `{status}`",
+            f"- recorded_at: `{now_iso()}`",
             f"- app_id: `{app_id}`",
             f"- version: `{manifest_entry.get('version')}`",
             f"- enabled: `{manifest_entry.get('enabled')}`",
             f"- package: `{package_path}`",
-            f"- execution_test_report: `{report_path}`",
+            "",
+            "## Failures",
+            "",
+            *(f"- {failure}" for failure in failures),
+            "",
+            "## execution_test_result.json",
+            "",
+            "```json",
+            json.dumps(execution_result or {}, ensure_ascii=False, indent=2),
+            "```",
             "",
             "## verify_release.ps1",
             "",
@@ -82,6 +131,17 @@ def approval_record(app_id: str, manifest_entry: dict[str, Any], package_path: P
             "",
         ]
     )
+
+
+def write_mirror_record(repo_root: Path, app_id: str, record: str, package_path: Path | None) -> None:
+    mirror = find_output_mirror(repo_root, app_id)
+    if not mirror:
+        return
+    write_text(mirror / "approval_record.md", record)
+    if package_path and package_path.is_file():
+        pack_dir = mirror / "app_pack"
+        pack_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(package_path, pack_dir / package_path.name)
 
 
 def find_output_mirror(repo_root: Path, app_id: str) -> Path | None:
@@ -94,4 +154,3 @@ def find_output_mirror(repo_root: Path, app_id: str) -> Path | None:
             if value:
                 return Path(value)
     return None
-
