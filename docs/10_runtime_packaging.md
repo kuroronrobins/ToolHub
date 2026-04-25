@@ -44,6 +44,8 @@ runtime/
 
 正式配布では利用者にPythonインストールを要求しません。第一候補は `runtime/python/` にPython embedded runtimeを固定配置する方式です。
 
+現行のRust backendはまだ同梱runtimeを使っておらず、PATH上の `python` / `py` を探してPython runnerを起動します。これは開発・検証用の暫定実装です。正式配布前に `runtime/python/python.exe` を優先する実装へ切り替え、利用者にPython導入を要求しない状態にする必要があります。
+
 検証対象:
 
 - `runtime/python/python.exe`
@@ -105,6 +107,8 @@ distribution:
 管理者向けには、Web操作アプリが内部で専用runnerとブラウザ実行環境を必要とすることを説明してよいです。実体は `runtime/web_automation_runtime/` に配置し、ToolHub Coreや軽量App Packとは別のHeavy Runtime更新単位として扱います。
 
 現段階ではWeb自動化用ランタイム実体は未同梱です。`prepare_runtime.ps1 -AllowMissingRuntime` ではWARN扱いにし、`verify_release.ps1 -RequireRuntime` ではNG扱いにします。
+
+`sample_playwright_app` は検証安定性のため `headless=True` でローカルHTMLを操作します。正常時もブラウザウィンドウは表示されません。
 
 ## Heavy Runtime Update
 

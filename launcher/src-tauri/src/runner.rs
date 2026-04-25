@@ -37,6 +37,7 @@ pub fn launch_runner(root: &Path, app_id: &str) -> Result<LaunchResult, Box<dyn 
 
     crate::logging::append_launcher_log(root, &format!("launch app_id={} via {:?}", app_id, python));
 
+    let user_data_root = crate::setup::user_data_root();
     let output = Command::new(&python)
         .arg(runner_script)
         .arg("--project-root")
@@ -45,6 +46,7 @@ pub fn launch_runner(root: &Path, app_id: &str) -> Result<LaunchResult, Box<dyn 
         .arg(app_id)
         .arg("--result-json")
         .arg(&result_file)
+        .env("TOOLHUB_USER_DATA_ROOT", &user_data_root)
         .current_dir(root)
         .output()?;
 
@@ -102,10 +104,10 @@ fn find_on_path(command: &str) -> Option<PathBuf> {
     None
 }
 
-fn result_file_path(root: &Path, app_id: &str) -> Result<PathBuf, Box<dyn Error>> {
+fn result_file_path(_root: &Path, app_id: &str) -> Result<PathBuf, Box<dyn Error>> {
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
     let safe_app_id = app_id.replace(['\\', '/', ':'], "_");
-    Ok(root
+    Ok(crate::setup::user_data_root()
         .join("data")
         .join("logs")
         .join("launcher")

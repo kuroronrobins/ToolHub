@@ -53,6 +53,8 @@ per-user installを第一候補にします。
 
 Tauri/Rust側の起動時初期化で、ユーザーデータ先の基本フォルダを作成します。`config.default/launcher.yaml` が見つかり、かつユーザー設定が未作成の場合だけ初期設定をコピーします。既存設定は上書きしません。
 
+現行実装では、Tauriランチャー経由のRust backendとPython runnerは `%LOCALAPPDATA%\ToolHub\` をユーザーデータrootとして使います。runnerを `python runner/toolhub_runner/main.py --project-root . --app-id ...` で直接実行する場合は、開発・テスト用フォールバックとしてリポジトリ直下の `data/` を使います。
+
 ## Windows Build Environment
 
 実インストーラー生成には以下が必要です。
@@ -65,7 +67,7 @@ Tauri/Rust側の起動時初期化で、ユーザーデータ先の基本フォ�
 - Desktop development with C++
 - MSVC v143以降
 - Windows SDK
-- Tauri CLI
+- Tauri CLI（通常は `launcher/package.json` のnpm依存から `npm run tauri` で使う。global installは必須ではない）
 
 確認:
 
@@ -168,6 +170,8 @@ release検証:
 
 Tauri bundleでNSISまたはMSIを生成します。`scripts/package_installer.ps1` は `launcher/src-tauri/target/release/bundle/` から成果物を収集し、`release/dist_installer/` に配置します。
 
+現状では `scripts/build_release.ps1 -SkipInstall` により、Tauri標準NSIS/MSI bundle生成、正式配布名 `release/dist_installer/ToolHub_Setup_0.1.0.exe` への収集、installer `sha256` / `size` の確定まで確認済みです。実インストール検証、コード署名、runtime実体同梱は未完了として扱います。
+
 優先順位:
 
 1. `.exe` がある場合はNSIS installerとして `ToolHub_Setup_<version>.exe` にする。
@@ -179,6 +183,8 @@ Tauri bundleでNSISまたはMSIを生成します。`scripts/package_installer.p
 ## Staging and Tauri Resources
 
 Tauri `bundle.resources` は、Tauri bundleへ同梱する最低限のruntime resourceを指定します。`release/staging/installer_payload/` は、インストーラーに入れるべき固定配置ファイルを検証しやすくするための作業領域です。
+
+TauriのWindows buildには `launcher/src-tauri/icons/icon.ico` が必要です。`tauri.conf.json` の `bundle.icon` には `icons/icon.ico` と `icons/icon.png` を指定します。必要な場合は `python make_icon.py` で最小アイコン資産を再生成できます。
 
 stagingに含める対象:
 
@@ -216,6 +222,8 @@ runtime方針は [docs/10_runtime_packaging.md](10_runtime_packaging.md) にま�
 - `runtime/web_automation_runtime/`
 
 Python runtime本体、app_env実体、Web自動化用ランタイム本体は未同梱です。正式配布前にローカルruntime archiveを準備し、sha256検証付きで展開する必要があります。
+
+Rust backendのrunner起動は、現時点ではPATH上の `python` / `py` を探してPython runnerを呼びます。正式配布前に `runtime/python/python.exe` などの同梱runtimeを優先する実装へ切り替える必要があります。
 
 ## App Pack
 

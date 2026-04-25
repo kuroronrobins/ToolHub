@@ -32,11 +32,17 @@ py main.py
 - pip package
 - Node.js / npm
 - Rust / cargo
-- Tauri CLI
+- Tauri CLI（通常は `launcher/package.json` のnpm依存から `npm run tauri` で使います。global installは必須ではありません）
 - Web自動化用ランタイム
 - 各Pythonアプリのライブラリ
 
 現段階では、完全なPython同梱runtimeとWeb自動化用ランタイムの同梱は設計・スクリプト雛形までです。正式配布前に `runtime/` の実体作成、インストーラー生成、署名、実機検証が必要です。
+
+現行実装の到達点:
+
+- 新しいPCで `python main.py --dev` によるランチャー起動、アプリカード表示、GUI/CLI/Web操作サンプルの起動は確認済みです。
+- `scripts/build_release.ps1 -SkipInstall` によりTauri標準NSIS/MSI bundle生成、`release/dist_installer/ToolHub_Setup_0.1.0.exe` への収集、`release/manifest.json` のinstaller `sha256` / `size` 更新は確認済みです。
+- 実インストール検証、コード署名、runtime実体同梱は未完了です。
 
 ## 開発モードで起動
 
@@ -84,6 +90,7 @@ python main.py --help
 開発時のPythonは仮想環境ではなく実環境で実行する前提です。runnerは標準ライブラリ中心で動作し、YAML読み込みはPyYAMLがある場合に使用します。PyYAMLがない環境でも、サンプルのような基本的な `app.yaml` は簡易パーサーで読み込めます。
 
 WindowsでTauri/Rustのrelease buildを行う場合は、Rust本体だけでなくMSVC linkerの `link.exe` とC++ compilerの `cl.exe` が必要です。見つからない場合はVisual Studio Build ToolsにC++ workloadとWindows SDKを追加してください。
+通常のPowerShellではPATHに出ていなくても、Developer PowerShell for VSでは見つかる場合があります。
 
 フロントエンド依存関係は `launcher/` で管理します。
 
@@ -106,6 +113,8 @@ ToolHubは配布アプリケーションなので、再現性のために以下�
 - `sample_gui_app`: Python標準のTkinterを使うGUIサンプル
 - `sample_cli_app`: JSON Linesイベントを標準出力に出すCLIサンプル
 - `sample_playwright_app`: Web自動化アプリ想定のサンプル
+
+`sample_playwright_app` は `headless=True` でローカルHTMLを操作するため、正常時もブラウザウィンドウは表示されません。
 
 利用者向け画面では、アプリの実行方式や内部技術名は表示しません。
 
@@ -152,6 +161,20 @@ Tauri bundleが未生成の環境でも、App Pack、runtime雛形、staging、m
 
 詳細な検収項目は [docs/06_acceptance_checklist.md](docs/06_acceptance_checklist.md) を参照してください。
 
+## 現行のデータ保存先
+
+Tauriランチャー経由では、起動時に `%LOCALAPPDATA%\ToolHub\` 配下へ以下を作成し、Rust backendとPython runnerに同じユーザーデータrootを渡します。
+
+- `config/`
+- `data/logs/`
+- `data/browser_profiles/`
+- `data/search_index/`
+- `data/app_state/`
+- `backups/`
+- `update_cache/`
+
+`python runner/toolhub_runner/main.py --project-root . --app-id ...` のようにrunnerを直接実行した場合は、開発・テスト用のフォールバックとしてリポジトリ直下の `data/` を使います。
+
 ## 配布・更新設計
 
 - 正式配布方式: インストーラー型配布
@@ -177,5 +200,7 @@ Tauri bundleが未生成の環境でも、App Pack、runtime雛形、staging、m
 - 初回実装では、TauriからReactへのリアルタイムイベントストリーミングは将来拡張の構造に留め、起動結果とログパスを返します。
 - Web操作サンプルは外部サイト依存を避けるため、安全なローカルHTMLデモを優先します。実行環境が未準備の場合は利用者向けエラーと詳細ログを確認できます。
 - 自動更新機能は未実装です。`release/manifest.json`、`release/app_manifest.json`、App Packスクリプト、更新設計docsを用意しています。
+- Rust backendのrunner起動は現時点ではPATH上の `python` / `py` を探します。正式配布前に `runtime/python/python.exe` などの同梱runtimeへ切り替える必要があります。
 - `ToolHub_Setup.exe` の署名、完全なruntime同梱、実機インストール検証は今後の作業です。
 - 現段階の `scripts/prepare_runtime.ps1 -AllowMissingRuntime` はruntimeフォルダとapp_env雛形を作りますが、Python runtime本体とWeb自動化用ランタイム本体は同梱しません。
+- Tauri iconは `launcher/src-tauri/icons/icon.ico` / `icon.png` をGit管理します。必要な場合は `python make_icon.py` で再生成できます。

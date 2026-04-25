@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -18,7 +19,7 @@ class RunLogPaths:
 
 
 def create_run_log_paths(project_root: Path, app_id: str) -> RunLogPaths:
-    log_dir = project_root / "data" / "logs" / app_id
+    log_dir = user_data_root(project_root) / "data" / "logs" / app_id
     log_dir.mkdir(parents=True, exist_ok=True)
     timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     return RunLogPaths(
@@ -27,6 +28,13 @@ def create_run_log_paths(project_root: Path, app_id: str) -> RunLogPaths:
         text_log=log_dir / f"run_{timestamp}.log",
         latest_log=log_dir / "latest.log",
     )
+
+
+def user_data_root(project_root: Path) -> Path:
+    configured = os.environ.get("TOOLHUB_USER_DATA_ROOT")
+    if configured:
+        return Path(configured)
+    return project_root
 
 
 def save_run_log(

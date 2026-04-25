@@ -15,13 +15,23 @@ release/app_packs/<app_id>-<version>.zip
 ├─ app.yaml
 ├─ main.py
 ├─ requirements.txt
+├─ pack_manifest.json
 ├─ requirements.lock
 ├─ README.md
 ├─ icon.svg
 └─ src/
 ```
 
-`requirements.lock` と `src/` はアプリに必要な場合に含めます。
+`scripts/package_app_pack.ps1` はアプリフォルダ全体をコピーしてzip化し、`pack_manifest.json` を追加します。
+
+パッケージ時に必須として確認するファイル:
+
+- `app.yaml`
+- `README.md`
+- `requirements.txt`
+- `icon.svg`
+
+`main.py` はサンプルとPython系runnerの標準entryです。`app.yaml` の `run.entry` が `main.py` を指す場合は実行時に必要です。`requirements.lock` と `src/` はアプリに必要な場合だけ含めます。
 
 ## Required Metadata
 
@@ -84,5 +94,6 @@ release/app_packs/<app_id>-<version>.zip
 - zipの存在
 - sha256一致
 - zip内部に `<app_id>/app.yaml` がある
+- zip内部に `<app_id>/pack_manifest.json` がある
 - manifestに互換性条件がある
 

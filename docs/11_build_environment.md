@@ -15,15 +15,28 @@ ToolHubの実インストーラー生成にはWindows上のTauri/Rust build環�
 - MSVC v143以降
 - Windows SDK
 
+Tauri CLIは `launcher/package.json` のnpm依存から `npm run tauri` で使います。global `tauri` commandは必須ではありません。
+
 確認:
 
 ```powershell
 .\scripts\check_all.ps1
 ```
 
+`check_all.ps1` は現時点で以下を確認します。
+
+- node / npm / cargo / rustc
+- Visual Studio C++ toolchainの検出状況
+- Tauri icon `launcher/src-tauri/icons/icon.ico` とICO header
+- `tauri.conf.json` の `bundle.icon` と `bundle.resources` の主要パス
+- release manifest JSON
+- Python runner tests
+- frontend typecheck / Vitest / Vite build
+- Rust `cargo check`
+
 ## Visual Studio Build Tools
 
-`cargo check` や `npm run tauri build` が `link.exe` 不在で失敗する場合、MSVC linkerがPATH上にありません。
+`cargo check` や `npm run tauri build` が `link.exe` 不在で失敗する場合、MSVC linkerが現在のシェルPATH上にありません。Visual Studio C++ workloadが導入済みでも、通常のPowerShellではPATHに出ず、Developer PowerShell for VSでは通る場合があります。
 
 導入するもの:
 

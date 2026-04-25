@@ -2,8 +2,11 @@ use chrono::Local;
 use std::io::Write;
 use std::path::Path;
 
-pub fn append_launcher_log(root: &Path, message: &str) {
-    let log_dir = root.join("data").join("logs").join("launcher");
+pub fn append_launcher_log(_root: &Path, message: &str) {
+    let log_dir = crate::setup::user_data_root()
+        .join("data")
+        .join("logs")
+        .join("launcher");
     if std::fs::create_dir_all(&log_dir).is_err() {
         return;
     }

@@ -22,10 +22,10 @@ pub fn launch_app(app_id: String) -> Result<LaunchResult, String> {
 
 #[tauri::command]
 pub fn get_recent_logs(app_id: Option<String>) -> Result<Vec<String>, String> {
-    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    let user_data_root = crate::setup::user_data_root();
     let base = match app_id {
-        Some(id) => root.join("data").join("logs").join(id),
-        None => root.join("data").join("logs").join("launcher"),
+        Some(id) => user_data_root.join("data").join("logs").join(id),
+        None => user_data_root.join("data").join("logs").join("launcher"),
     };
 
     if !base.is_dir() {

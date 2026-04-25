@@ -30,9 +30,12 @@ run:
 
 ## Data Locations
 
-- アプリ別プロファイル: `data/browser_profiles/<app_id>/`
-- 実行ログ: `data/logs/<app_id>/`
-- 詳細エラー: `data/logs/<app_id>/run_*.log`
+- Tauriランチャー経由のアプリ別プロファイル: `%LOCALAPPDATA%\ToolHub\data\browser_profiles\<app_id>\`
+- Tauriランチャー経由の実行ログ: `%LOCALAPPDATA%\ToolHub\data\logs\<app_id>\`
+- runner直接実行時の開発フォールバック: `data/browser_profiles/<app_id>/` と `data/logs/<app_id>/`
+- 詳細エラー: `run_*.log`
+
+`sample_playwright_app` は `headless=True` で実行するため、正常時もブラウザウィンドウは表示されません。
 
 ## Error Handling
 

@@ -24,7 +24,7 @@ pub fn ensure_user_data() -> io::Result<()> {
     Ok(())
 }
 
-fn user_data_root() -> PathBuf {
+pub fn user_data_root() -> PathBuf {
     if let Ok(local_app_data) = env::var("LOCALAPPDATA") {
         return PathBuf::from(local_app_data).join("ToolHub");
     }

@@ -2,6 +2,13 @@
 
 ToolHubはインストーラー型配布を正式方針にします。
 
+## Current Status
+
+- Tauri標準のNSIS/MSI bundle生成は確認済みです。
+- 正式配布名 `release/dist_installer/ToolHub_Setup_0.1.0.exe` への収集、`release/manifest.json` のinstaller `sha256` / `size` 更新、`verify_release.ps1 -RequireInstaller` は確認済みです。
+- 実インストール検証、コード署名は未完了です。
+- runtime実体、app_env実体、Web自動化用ランタイム実体はまだ同梱していません。
+
 ## User Flow
 
 1. 利用者は `ToolHub_Setup.exe` を受け取る。
@@ -59,6 +66,8 @@ ToolHubはインストーラー型配布を正式方針にします。
 ```
 
 更新や再インストールでこの領域を消してはいけません。
+
+Tauriランチャー経由では、起動時初期化とrunner呼び出しの両方でこのユーザーデータ先を使います。runner直接実行時は開発・テスト用フォールバックとしてリポジトリ直下の `data/` を使います。
 
 ## Staging Output
 

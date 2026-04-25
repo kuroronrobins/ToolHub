@@ -11,7 +11,7 @@ ToolHubは以下の層で構成します。
 | Tauri Backend | `launcher/src-tauri` | `apps/` のスキャン、manifest読込、runner呼び出し |
 | Python App Runner | `runner/toolhub_runner` | runner種別選択、起動、イベント解釈、ログ保存、利用者向けエラー変換 |
 | App Plugins | `apps/<app_id>` | 各アプリ本体、`app.yaml`、README、アイコン |
-| Runtime Data | `data/` | ログ、ブラウザプロファイル、検索インデックス |
+| Runtime Data | `%LOCALAPPDATA%\ToolHub\` / `data/` | ログ、ブラウザプロファイル、検索インデックス |
 
 ## Data Flow
 
@@ -20,7 +20,8 @@ ToolHubは以下の層で構成します。
 3. React UI は表示用情報だけを受け取りカードを描画する。
 4. 利用者が起動すると、Tauri backend が `runner/toolhub_runner/main.py` を呼び出す。
 5. runnerが対象アプリを起動し、標準出力をイベントとして解釈する。
-6. 実行ログは `data/logs/<app_id>/` に保存する。
+6. Tauriランチャー経由では実行ログを `%LOCALAPPDATA%\ToolHub\data\logs\<app_id>\` に保存する。
+7. runnerを直接実行する開発・テスト時は、フォールバックとして `data/logs/<app_id>/` を使う。
 
 ## Responsibility Rules
 
@@ -38,7 +39,7 @@ ToolHubは以下の層で構成します。
 - `detail.description`
 - 各アプリの `README.md`
 
-検索インデックスの保存先は `data/search_index/` を想定します。
+検索インデックスの保存先はTauriランチャー経由では `%LOCALAPPDATA%\ToolHub\data\search_index\`、開発フォールバックでは `data/search_index/` を想定します。
 
 ## Update Extension Note
 

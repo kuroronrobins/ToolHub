@@ -2,6 +2,27 @@
 
 ToolHubは将来、ToolHub本体と内蔵アプリを安全に更新できる構造にします。
 
+## Implementation Status
+
+現時点で実装済み:
+
+- `release/manifest.json` と `release/app_manifest.json` の雛形
+- App Pack zip生成とsha256記録
+- App Pack sha256検証
+- runtime雛形作成
+- 更新対象とUser Dataを分離する設計docs
+
+未実装:
+
+- 起動後の更新確認
+- manifestのダウンロード
+- 更新内容表示
+- 更新ファイルのダウンロード、展開、原子的置き換え
+- 更新前バックアップとロールバックの実処理
+- manifestやinstallerの署名検証
+
+この文書は現時点では将来設計であり、自動更新本体が動作することを意味しません。
+
 ## Update Units
 
 | Unit | Examples | User Data |

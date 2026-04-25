@@ -4,6 +4,7 @@ __pycache__/
 node_modules/
 launcher/dist/
 launcher/src-tauri/target/
+launcher/src-tauri/gen/
 data/logs/**/*.log
 data/logs/**/*.json
 data/test_tmp/

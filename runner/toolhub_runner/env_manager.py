@@ -16,6 +16,7 @@ def build_app_env(project_root: Path, manifest: AppManifest) -> dict[str, str]:
 
 
 def browser_profile_dir(project_root: Path, app_id: str) -> Path:
-    path = project_root / "data" / "browser_profiles" / app_id
+    base = Path(os.environ.get("TOOLHUB_USER_DATA_ROOT", project_root))
+    path = base / "data" / "browser_profiles" / app_id
     path.mkdir(parents=True, exist_ok=True)
     return path
