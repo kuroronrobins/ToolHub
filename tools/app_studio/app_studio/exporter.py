@@ -6,7 +6,7 @@ from pathlib import Path
 from .file_classifier import inventory_markdown
 from .models import BuildPlan, DependencyReport, GeneratedArtifacts, SecretScanReport, SourceInventory, StudioContext
 from .secret_scanner import secret_report_markdown
-from .util import copy_file_preserving_root, reset_output_dir, write_json, write_text
+from .util import copy_file_preserving_root, reset_output_dir, write_bytes, write_json, write_text
 
 
 def export_suggestion(
@@ -35,6 +35,10 @@ def export_suggestion(
     write_text(icon_work / "icon_final.svg", artifacts.icon_svg)
     if artifacts.icon_ai_report:
         write_text(icon_work / "ai_generation_report.md", artifacts.icon_ai_report)
+    if artifacts.icon_candidate_png:
+        write_bytes(icon_work / "icon_candidate_1.png", artifacts.icon_candidate_png)
+    if artifacts.icon_candidate_url:
+        write_text(icon_work / "icon_candidate_1.url.txt", artifacts.icon_candidate_url + "\n")
 
     final_app = output_dir / "final_app"
     write_text(final_app / "app.yaml", artifacts.app_yaml)

@@ -18,9 +18,12 @@ from app_studio.app_env_builder import create_app_env
 from app_studio.approval import approve_app
 from app_studio.build_planner import make_build_plan
 from app_studio.execution_tester import build_execution_result, run_execution_checks
-from app_studio.frozen_folder_builder import pyinstaller_command
+from app_studio.exporter import export_suggestion
+from app_studio.frozen_folder_builder import build_report as frozen_build_report
+from app_studio.frozen_folder_builder import detect_pyinstaller_environment_issue, pyinstaller_command
 from app_studio.lock_generator import generate_lock
-from app_studio.models import BuildPlan, ImportOptions, SecretFinding, SecretScanReport
+from app_studio.models import BuildPlan, DependencyReport, GeneratedArtifacts, ImportOptions, SecretFinding, SecretScanReport, SourceInventory
+from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.util import write_json, write_text
 
@@ -233,6 +236,19 @@ class FrozenFolderTests(unittest.TestCase):
             self.assertEqual(result.overall_status, "fail")
             self.assertFalse(result.approval_allowed)
 
+    def test_pathlib_backport_issue_is_reported_without_uninstall(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            plan = BuildPlan("frozen-folder", "exe", "bin/demo_app/demo_app.exe", None, [])
+            stderr = "The 'pathlib' package is an obsolete backport of a standard library package. python -m pip uninstall pathlib"
+
+            hints = detect_pyinstaller_environment_issue("", stderr)
+            report = frozen_build_report(context, plan, [["python", "-m", "PyInstaller", "--version"]], "probe failed", None, "", stderr)
+
+            self.assertTrue(hints)
+            self.assertIn("obsolete pathlib backport", report)
+            self.assertIn("did not uninstall", report)
+
 
 class ExecutionAndApprovalTests(unittest.TestCase):
     def test_app_yaml_parse_fail_blocks_approval(self) -> None:
@@ -313,6 +329,87 @@ class OpenAIFallbackTests(unittest.TestCase):
             self.assertIn("high severity secret", metadata["_ai_generation_report"])
 
 
+class IconCandidateExportTests(unittest.TestCase):
+    def test_png_candidate_is_saved(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            artifacts = minimal_artifacts(context, icon_candidate_png=b"\x89PNG\r\n\x1a\n")
+
+            output = export_suggestion(context, SourceInventory([]), DependencyReport("test", [], [], []), SecretScanReport([]), BuildPlan("app-env", "python_app_env", "src/main.py", None, []), artifacts)
+
+            self.assertTrue((output / "icon_work" / "icon_candidate_1.png").is_file())
+            self.assertTrue((output / "icon_work" / "icon_final.svg").is_file())
+
+    def test_url_candidate_is_saved(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            artifacts = minimal_artifacts(context, icon_candidate_url="https://example.com/icon.png")
+
+            output = export_suggestion(context, SourceInventory([]), DependencyReport("test", [], [], []), SecretScanReport([]), BuildPlan("app-env", "python_app_env", "src/main.py", None, []), artifacts)
+
+            self.assertEqual((output / "icon_work" / "icon_candidate_1.url.txt").read_text(encoding="utf-8").strip(), "https://example.com/icon.png")
+            self.assertTrue((output / "icon_work" / "icon_final.svg").is_file())
+
+    def test_api_failure_still_leaves_final_svg(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            artifacts = minimal_artifacts(context)
+
+            output = export_suggestion(context, SourceInventory([]), DependencyReport("test", [], [], []), SecretScanReport([]), BuildPlan("app-env", "python_app_env", "src/main.py", None, []), artifacts)
+
+            self.assertTrue((output / "icon_work" / "icon_final.svg").is_file())
+
+
+class RuntimeCheckerTests(unittest.TestCase):
+    def test_missing_runtime_records_fail(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+
+            result = verify_runtime(context, context.output_dir)
+
+            self.assertIn(result.overall_status, {"warn", "fail"})
+            self.assertTrue((context.output_dir / "runtime_check_report.md").is_file())
+            self.assertTrue((context.output_dir / "runtime_check_result.json").is_file())
+            self.assertTrue((context.repo_root / "data" / "logs" / "app_studio" / "demo_app_runtime_check_result.json").is_file())
+
+    def test_app_env_python_checks_pass_when_present(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            app_env_python = context.repo_root / "runtime" / "app_envs" / context.app_id / "Scripts" / "python.exe"
+            app_env_python.parent.mkdir(parents=True, exist_ok=True)
+            app_env_python.write_bytes(b"fake")
+
+            with patch("app_studio.runtime_checker.subprocess.run") as run:
+                run.return_value = type("Completed", (), {"returncode": 0, "stdout": "Python 3.13", "stderr": ""})()
+                result = verify_runtime(context, context.output_dir)
+
+            checks = {check.name: check.status for check in result.checks}
+            self.assertEqual(checks["app_env python exists"], "pass")
+            self.assertEqual(checks["app_env python --version"], "pass")
+
+
+class DocsTests(unittest.TestCase):
+    def test_old_pyinstaller_mvp_statement_was_removed(self) -> None:
+        text = (ROOT / "docs" / "13_app_studio.md").read_text(encoding="utf-8")
+        self.assertNotIn("MVP では実際の PyInstaller 実行は行わず", text)
+
+
+def minimal_artifacts(context, icon_candidate_png: bytes | None = None, icon_candidate_url: str = "") -> GeneratedArtifacts:
+    return GeneratedArtifacts(
+        metadata={},
+        app_yaml="id: demo_app\nname: Demo\n",
+        readme="# Demo\n",
+        requirements="",
+        icon_prompt_initial="initial",
+        icon_prompt_revision="revision",
+        icon_svg="<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"/>",
+        build_plan_md="# Build\n",
+        import_plan={"app_id": context.app_id},
+        icon_ai_report="report",
+        icon_candidate_png=icon_candidate_png,
+        icon_candidate_url=icon_candidate_url,
+    )
+
+
 if __name__ == "__main__":
     unittest.main()
-

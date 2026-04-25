@@ -14,6 +14,7 @@ param(
     [switch]$BuildFrozenFolder,
     [switch]$RebuildFrozenFolder,
     [switch]$SkipFrozenBuild,
+    [switch]$VerifyRuntime,
     [switch]$DryRun,
     [switch]$Suggest,
     [switch]$Apply
@@ -61,6 +62,7 @@ try {
     if ($BuildFrozenFolder) { $ArgsList += "--build-frozen-folder" }
     if ($RebuildFrozenFolder) { $ArgsList += "--rebuild-frozen-folder" }
     if ($SkipFrozenBuild) { $ArgsList += "--skip-frozen-build" }
+    if ($VerifyRuntime) { $ArgsList += "--verify-runtime" }
     if ($DryRun) { $ArgsList += "--dry-run" }
     if ($Suggest) { $ArgsList += "--suggest" }
     if ($Apply) { $ArgsList += "--apply" }

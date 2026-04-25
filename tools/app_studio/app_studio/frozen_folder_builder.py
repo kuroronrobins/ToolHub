@@ -105,6 +105,23 @@ def exe_name(app_id: str) -> str:
     return f"{app_id}.exe" if os.name == "nt" else app_id
 
 
+def detect_pyinstaller_environment_issue(stdout: str, stderr: str) -> list[str]:
+    text = f"{stdout}\n{stderr}".lower()
+    findings: list[str] = []
+    pathlib_signals = ["obsolete backport", "pathlib package", "backport of a standard library package", "pip uninstall pathlib"]
+    if "pathlib" in text and any(signal in text for signal in pathlib_signals):
+        findings.extend(
+            [
+                "PyInstaller output suggests an obsolete pathlib backport is installed.",
+                "Python 3 includes pathlib in the standard library; the backport can break PyInstaller.",
+                "Remove the backport from the build environment manually, for example: `python -m pip uninstall pathlib`.",
+                "Recreate the app_env if needed, then rerun with `-BuildFrozenFolder`.",
+                "ToolHub App Studio did not uninstall anything automatically.",
+            ]
+        )
+    return findings
+
+
 def build_report(context: StudioContext, plan: BuildPlan, commands: list[list[str]], error: str, exe_path: Path | None, stdout: str = "", stderr: str = "") -> str:
     status = "FAIL" if error else "PASS"
     lines = [
@@ -124,6 +141,10 @@ def build_report(context: StudioContext, plan: BuildPlan, commands: list[list[st
         lines.append("- No command was run.")
     if stdout or stderr:
         lines.extend(["", "## Output", "", "```text", stdout[-4000:].strip(), stderr[-4000:].strip(), "```"])
+    issues = detect_pyinstaller_environment_issue(stdout, stderr)
+    if issues:
+        lines.extend(["", "## Environment Issue Hints", ""])
+        lines.extend(f"- {issue}" for issue in issues)
     if error:
         lines.extend(["", "## Error", "", error])
     return "\n".join(lines) + "\n"
@@ -132,4 +153,3 @@ def build_report(context: StudioContext, plan: BuildPlan, commands: list[list[st
 def write_frozen_report(context: StudioContext, result: FrozenBuildResult) -> None:
     write_text(context.output_dir / "frozen_folder_build_report.md", result.report)
     write_text(context.repo_root / "data" / "logs" / "app_studio" / f"{context.app_id}_frozen_folder_build_report.md", result.report)
-

@@ -22,9 +22,13 @@ ToolHub App Studio は、開発者が既存アプリのメインファイルを�
 
 ## frozen-folder方式
 
-`frozen-folder` は PyInstaller `--onedir` 相当を前提にした方式です。MVP では実際の PyInstaller 実行は行わず、`build_plan.md` と配置雛形を生成します。
+`frozen-folder` は PyInstaller `--onedir` 相当を前提にした方式です。通常は plan 生成だけでも利用できますが、`-BuildFrozenFolder` を指定すると PyInstaller `--onedir` の実ビルドを行います。
+
+PyInstaller が未導入、またはビルド環境に問題がある場合は、Apply を成功扱いにせず `frozen_folder_build_report.md` に理由と対処案を残します。実ビルド成果物は `bin/<app_id>/<app_id>.exe` を `run.entry` として扱います。
 
 `--onefile` は標準にしません。起動が遅くなりやすく、利用者体験とログ調査の面で ToolHub の標準配布方式に合わないためです。
+
+AgendaSnap 級の複雑アプリ、音声/GUI/外部DLL/重い依存を含むアプリでは、`frozen-folder` 方式を第一候補にします。
 
 ## アイコン修正プロンプト
 
@@ -172,6 +176,31 @@ frozen-folder 方式:
 
 `--onefile` は標準では使いません。App Studio の frozen build は `bin/<app_id>/<app_id>.exe` を `run.entry` として扱います。PyInstaller が見つからない場合は失敗し、`frozen_folder_build_report.md` に理由を残します。
 
+PyInstaller probe や build が obsolete `pathlib` backport の影響で失敗した場合、レポートに原因候補と対処案を出します。App Studio はユーザー環境を壊さないため、自動で `pip uninstall pathlib` は実行しません。
+
+## runtime検証
+
+正式配布前には、開発環境 Python ではなく ToolHub 同梱 runtime で確認してください。
+
+```powershell
+.\scripts\import_app.ps1 -Entry "C:\work\tool\main.py" -AppId "my_tool" -Apply -VerifyRuntime
+```
+
+`-VerifyRuntime` は次を確認し、`runtime_check_report.md` と `runtime_check_result.json` を元フォルダ側および `data/logs/app_studio/` に保存します。
+
+- `runtime/python/python.exe` の存在
+- `runtime/python/python.exe --version`
+- `runtime/python/python.exe -m pip --version`
+- `runtime/app_envs/<app_id>/Scripts/python.exe` の存在
+- app_env Python の `--version`
+- app_env Python の `-m pip --version`
+
+開発中に `runtime/python/python.exe` が未配置でも通常フローは壊しません。ただし正式配布前は `runtime/python/python.exe` を配置し、app_env を再作成してから次を通すことを推奨します。
+
+```powershell
+.\scripts\verify_release.ps1 -RequireRuntime -Strict
+```
+
 ## 実行確認JSON
 
 Apply 後、Markdown に加えて machine-readable な結果を生成します。
@@ -228,6 +257,9 @@ $env:OPENAI_API_KEY="..."
 - high severity の秘密情報が検出された場合はAI送信しません。
 - Entry全文は送らず、ファイル名、README抜粋、既存カテゴリなどの限定情報だけを使います。
 - 最終 `icon.svg` は常にローカル生成SVGを保存し、ToolHubのSVG表示互換性を保ちます。
+- 画像APIが b64 PNG を返した場合は `icon_work/icon_candidate_1.png` に保存します。
+- 画像APIが URL を返した場合は、ダウンロードせず `icon_work/icon_candidate_1.url.txt` に保存します。
+- PNG/URL は人間レビュー用候補であり、ランチャー表示の標準は `icon.svg` です。
 
 ## 実運用推奨コマンド
 
@@ -248,3 +280,32 @@ $env:OPENAI_API_KEY="..."
 ```powershell
 .\scripts\approve_imported_app.ps1 -AppId "agendasnap" -StrictApproval
 ```
+
+## 実アプリ適用前チェックリスト
+
+app-env方式:
+
+- `requirements.txt` を確認する。
+- `-GenerateLock` で `requirements.lock` を生成する。
+- `-CreateAppEnv` で `runtime/app_envs/<app_id>/` を作成する。
+- `-VerifyRuntime` を実行し、runtime/app_env の状態を確認する。
+- `execution_test_result.json` が `pass` または許容できる `warn` であることを確認する。
+- `runtime/python/python.exe` 配置後に app_env を再作成する。
+- `.\scripts\approve_imported_app.ps1 -AppId "<app_id>" -StrictApproval` を実行する。
+
+frozen-folder方式:
+
+- PyInstaller が使える環境であることを確認する。
+- obsolete `pathlib` backport が入っていないことを確認する。
+- `-BuildFrozenFolder` で `bin/<app_id>/<app_id>.exe` が生成されることを確認する。
+- `execution_test_result.json` の `frozen-folder executable` が `pass` であることを確認する。
+- `--onefile` を使っていないことを確認する。
+- 起動速度を実機で確認する。
+- `.\scripts\approve_imported_app.ps1 -AppId "<app_id>" -StrictApproval` を実行する。
+
+AI利用時:
+
+- `TOOLHUB_APP_STUDIO_AI_ENABLED=true` を明示する。
+- `OPENAI_API_KEY` が設定されていることを確認する。
+- high secret がある場合はAI送信されないことを確認する。
+- 生成アイコン候補PNG/URLは人間レビュー用であり、最終採用は `icon.svg` であることを確認する。

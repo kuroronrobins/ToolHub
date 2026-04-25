@@ -25,6 +25,7 @@ class ImportOptions:
     build_frozen_folder: bool = False
     rebuild_frozen_folder: bool = False
     skip_frozen_build: bool = False
+    verify_runtime: bool = False
 
 
 @dataclass
@@ -160,6 +161,32 @@ class GeneratedArtifacts:
     build_plan_md: str
     import_plan: dict[str, Any]
     icon_ai_report: str = ""
+    icon_candidate_png: bytes | None = None
+    icon_candidate_url: str = ""
+
+
+@dataclass
+class RuntimeCheck:
+    name: str
+    status: str
+    detail: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"name": self.name, "status": self.status, "detail": self.detail}
+
+
+@dataclass
+class RuntimeCheckResult:
+    app_id: str
+    overall_status: str
+    checks: list[RuntimeCheck]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "app_id": self.app_id,
+            "overall_status": self.overall_status,
+            "checks": [check.to_dict() for check in self.checks],
+        }
 
 
 @dataclass

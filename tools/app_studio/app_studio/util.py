@@ -103,6 +103,11 @@ def write_json(path: Path, payload: Any) -> None:
     write_text(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
 
+def write_bytes(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+
+
 def file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -146,4 +151,3 @@ def markdown_table(headers: list[str], rows: list[list[str]]) -> str:
     for row in rows:
         lines.append("| " + " | ".join(cell.replace("\n", " ") for cell in row) + " |")
     return "\n".join(lines)
-

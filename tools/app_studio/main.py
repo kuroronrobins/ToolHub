@@ -16,12 +16,13 @@ from app_studio.execution_tester import run_execution_checks
 from app_studio.exporter import export_suggestion
 from app_studio.file_classifier import classify_files
 from app_studio.frozen_folder_builder import build_frozen_folder
-from app_studio.icon_generator import generate_icon_assets
+from app_studio.icon_generator import generate_icon_assets_with_candidates
 from app_studio.lock_generator import generate_lock
 from app_studio.manifest_generator import generate_app_yaml
 from app_studio.models import BUILD_MODES, GeneratedArtifacts, ImportOptions
 from app_studio.readme_generator import generate_readme
 from app_studio.registrar import apply_registration
+from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import scan_secrets
 from app_studio.util import find_repo_root
@@ -53,6 +54,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--build-frozen-folder", action="store_true")
     parser.add_argument("--rebuild-frozen-folder", action="store_true")
     parser.add_argument("--skip-frozen-build", action="store_true")
+    parser.add_argument("--verify-runtime", action="store_true")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--suggest", action="store_true")
@@ -95,6 +97,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         build_frozen_folder=args.build_frozen_folder,
         rebuild_frozen_folder=args.rebuild_frozen_folder,
         skip_frozen_build=args.skip_frozen_build,
+        verify_runtime=args.verify_runtime,
     )
     context = create_context(options, repo_root)
     inventory = classify_files(context)
@@ -105,7 +108,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     metadata = suggest_metadata(context, secret_report)
     app_yaml = generate_app_yaml(context, plan, metadata)
     readme = generate_readme(context, plan)
-    icon_prompt_initial, icon_prompt_revision, icon_svg, style_reference, icon_ai_report = generate_icon_assets(
+    icon_prompt_initial, icon_prompt_revision, icon_svg, style_reference, icon_ai_report, icon_candidate_png, icon_candidate_url = generate_icon_assets_with_candidates(
         context,
         args.icon_prompt,
         allow_ai=not secret_report.has_high,
@@ -129,6 +132,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "create_app_env": options.create_app_env,
         "generate_lock": options.generate_lock,
         "build_frozen_folder": options.build_frozen_folder,
+        "verify_runtime": options.verify_runtime,
     }
     artifacts = GeneratedArtifacts(
         metadata=metadata,
@@ -141,6 +145,8 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         build_plan_md=build_plan_md,
         import_plan=import_plan,
         icon_ai_report=icon_ai_report,
+        icon_candidate_png=icon_candidate_png,
+        icon_candidate_url=icon_candidate_url,
     )
 
     print_summary(context.app_id, context.name, action, plan.mode, len(inventory.included_files), len(secret_report.findings), context.output_dir)
@@ -176,6 +182,10 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         print(f"requirements.lock status: ok={lock_result.ok}, source={lock_result.source}")
         if not lock_result.ok:
             return 1
+
+    if args.verify_runtime:
+        runtime_result = verify_runtime(context, output_dir)
+        print(f"runtime check status: {runtime_result.overall_status}")
 
     should_build_frozen = plan.mode == "frozen-folder" and (args.build_frozen_folder or args.rebuild_frozen_folder) and not args.skip_frozen_build
     if should_build_frozen:
@@ -215,4 +225,3 @@ def print_summary(app_id: str, name: str, action: str, build_mode: str, included
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

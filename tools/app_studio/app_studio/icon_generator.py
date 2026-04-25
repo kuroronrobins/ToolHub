@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .ai_metadata_suggester import suggest_icon_prompt
 from .models import StudioContext
-from .openai_client import generate_image
+from .openai_client import decode_base64_image, generate_image
 
 
 PALETTE = [
@@ -29,6 +29,11 @@ def collect_icon_style_reference(repo_root: Path) -> str:
 
 
 def generate_icon_assets(context: StudioContext, revision_prompt: str | None = None, allow_ai: bool = True) -> tuple[str, str, str, str, str]:
+    initial_prompt, revision, svg, style_reference, report, _, _ = generate_icon_assets_with_candidates(context, revision_prompt, allow_ai)
+    return initial_prompt, revision, svg, style_reference, report
+
+
+def generate_icon_assets_with_candidates(context: StudioContext, revision_prompt: str | None = None, allow_ai: bool = True) -> tuple[str, str, str, str, str, bytes | None, str]:
     style_reference = collect_icon_style_reference(context.repo_root)
     initial_prompt, initial_report = suggest_icon_prompt(context, allow_ai=allow_ai)
     if revision_prompt:
@@ -38,6 +43,7 @@ def generate_icon_assets(context: StudioContext, revision_prompt: str | None = N
         revision_report = "No revision prompt was provided."
     prompt_for_svg = revision if revision_prompt else initial_prompt
     image_result = generate_image(prompt_for_svg) if allow_ai else None
+    png_bytes, image_url, image_note = image_candidate_from_result(image_result)
     svg = generate_local_svg(context, prompt_for_svg, style_reference)
     report = "\n".join(
         [
@@ -52,11 +58,24 @@ def generate_icon_assets(context: StudioContext, revision_prompt: str | None = N
             "## Image Generation",
             "",
             image_result.report if image_result else "OpenAI image generation skipped because AI use was not allowed.",
+            image_note,
             "",
             "The final icon.svg is always a local deterministic SVG fallback so the launcher can render it safely.",
         ]
     )
-    return initial_prompt, revision, svg, style_reference, report
+    return initial_prompt, revision, svg, style_reference, report, png_bytes, image_url
+
+
+def image_candidate_from_result(image_result) -> tuple[bytes | None, str, str]:
+    if image_result is None or not image_result.ok or not image_result.content:
+        return None, "", "No API image candidate was saved."
+    content = image_result.content.strip()
+    if content.startswith("http://") or content.startswith("https://"):
+        return None, content, "API returned an image URL. It will be saved as icon_candidate_1.url.txt."
+    try:
+        return decode_base64_image(content), "", "API returned b64 image data. It will be saved as icon_candidate_1.png."
+    except Exception:
+        return None, "", "API image data could not be decoded; fallback SVG remains available."
 
 
 def generate_local_svg(context: StudioContext, prompt: str, style_reference: str) -> str:
