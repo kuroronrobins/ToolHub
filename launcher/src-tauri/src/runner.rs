@@ -24,10 +24,14 @@ pub struct LaunchResult {
 }
 
 pub fn launch_runner(root: &Path, app_id: &str) -> Result<LaunchResult, Box<dyn Error>> {
-    let python = find_python().ok_or("Python command was not found")?;
+    let python = find_python(root).ok_or("Python command was not found")?;
     let runner_script = root.join("runner").join("toolhub_runner").join("main.py");
     if !runner_script.is_file() {
-        return Ok(failure(app_id, "アプリの起動に失敗しました。管理者に連絡してください。", None));
+        return Ok(failure(
+            app_id,
+            "アプリの起動に失敗しました。管理者に連絡してください。",
+            None,
+        ));
     }
 
     let result_file = result_file_path(root, app_id)?;
@@ -35,7 +39,10 @@ pub fn launch_runner(root: &Path, app_id: &str) -> Result<LaunchResult, Box<dyn 
         std::fs::create_dir_all(parent)?;
     }
 
-    crate::logging::append_launcher_log(root, &format!("launch app_id={} via {:?}", app_id, python));
+    crate::logging::append_launcher_log(
+        root,
+        &format!("launch app_id={} via {:?}", app_id, python),
+    );
 
     let user_data_root = crate::setup::user_data_root();
     let output = Command::new(&python)
@@ -74,7 +81,15 @@ pub fn launch_runner(root: &Path, app_id: &str) -> Result<LaunchResult, Box<dyn 
     ))
 }
 
-fn find_python() -> Option<PathBuf> {
+fn find_python(root: &Path) -> Option<PathBuf> {
+    let embedded = root.join("runtime").join("python").join(if cfg!(windows) {
+        "python.exe"
+    } else {
+        "python"
+    });
+    if embedded.is_file() {
+        return Some(embedded);
+    }
     for command in ["python", "py"] {
         if let Some(path) = find_on_path(command) {
             return Some(path);
@@ -128,4 +143,3 @@ fn failure(app_id: &str, message: &str, log_path: Option<String>) -> LaunchResul
         }],
     }
 }
-

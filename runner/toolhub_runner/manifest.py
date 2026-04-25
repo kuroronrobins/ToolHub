@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 
-SUPPORTED_RUNNERS = {"python", "cli", "exe", "playwright_python"}
+SUPPORTED_RUNNERS = {"python", "cli", "exe", "playwright_python", "python_app_env"}
 SUPPORTED_MODES = {"gui", "cli", "background"}
 
 

@@ -7,6 +7,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from toolhub_runner.manifest import ManifestError, manifest_from_dict, load_app_manifest
+from toolhub_runner.manifest import SUPPORTED_RUNNERS
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,6 +64,9 @@ class ManifestTests(unittest.TestCase):
         data["run"]["runner"] = "unknown"
         with self.assertRaises(ManifestError):
             manifest_from_dict(data, ROOT / "apps" / "sample")
+
+    def test_python_app_env_is_supported(self) -> None:
+        self.assertIn("python_app_env", SUPPORTED_RUNNERS)
 
 
 if __name__ == "__main__":

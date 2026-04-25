@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::env;
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -100,6 +100,17 @@ struct RawAdmin {
     log_dir: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+struct RawAppReleaseManifest {
+    #[serde(default)]
+    apps: HashMap<String, RawAppReleaseEntry>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct RawAppReleaseEntry {
+    enabled: Option<bool>,
+}
+
 pub fn project_root() -> Result<PathBuf, Box<dyn Error>> {
     if let Ok(value) = env::var("TOOLHUB_ROOT") {
         let path = PathBuf::from(value);
@@ -133,6 +144,7 @@ pub fn load_apps(root: &Path) -> Result<Vec<AppInfo>, Box<dyn Error>> {
         return Ok(Vec::new());
     }
 
+    let release_enabled = load_release_enabled(root).unwrap_or_default();
     let mut apps = Vec::new();
     for entry in std::fs::read_dir(apps_dir)? {
         let entry = entry?;
@@ -144,15 +156,34 @@ pub fn load_apps(root: &Path) -> Result<Vec<AppInfo>, Box<dyn Error>> {
         if !manifest_path.is_file() {
             continue;
         }
-        let app = match load_one_app(&app_dir, &manifest_path) {
+        let mut app = match load_one_app(&app_dir, &manifest_path) {
             Ok(app) => app,
             Err(error) => disabled_app(&app_dir, error.to_string()),
         };
+        if release_enabled.get(&app.id) == Some(&false) {
+            app.enabled = false;
+            app.disabled_reason =
+                Some("release/app_manifest.json で無効化されています。".to_string());
+        }
         apps.push(app);
     }
 
     apps.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(apps)
+}
+
+fn load_release_enabled(root: &Path) -> Result<HashMap<String, bool>, Box<dyn Error>> {
+    let path = root.join("release").join("app_manifest.json");
+    if !path.is_file() {
+        return Ok(HashMap::new());
+    }
+    let text = std::fs::read_to_string(path)?;
+    let raw: RawAppReleaseManifest = serde_json::from_str(&text)?;
+    Ok(raw
+        .apps
+        .into_iter()
+        .filter_map(|(id, entry)| entry.enabled.map(|enabled| (id, enabled)))
+        .collect())
 }
 
 fn load_one_app(app_dir: &Path, manifest_path: &Path) -> Result<AppInfo, Box<dyn Error>> {
@@ -161,7 +192,9 @@ fn load_one_app(app_dir: &Path, manifest_path: &Path) -> Result<AppInfo, Box<dyn
     validate_run(&raw.run)?;
 
     let icon_path = app_dir.join(&raw.display.icon);
-    let icon_svg = if icon_path.is_file() && icon_path.extension().and_then(|value| value.to_str()) == Some("svg") {
+    let icon_svg = if icon_path.is_file()
+        && icon_path.extension().and_then(|value| value.to_str()) == Some("svg")
+    {
         Some(std::fs::read_to_string(icon_path)?)
     } else {
         None
@@ -196,7 +229,13 @@ fn load_one_app(app_dir: &Path, manifest_path: &Path) -> Result<AppInfo, Box<dyn
 }
 
 fn validate_run(run: &RawRun) -> Result<(), Box<dyn Error>> {
-    let runners = ["python", "cli", "exe", "playwright_python"];
+    let runners = [
+        "python",
+        "cli",
+        "exe",
+        "playwright_python",
+        "python_app_env",
+    ];
     if !runners.contains(&run.runner.as_str()) {
         return Err(format!("unsupported runner: {}", run.runner).into());
     }
@@ -285,7 +324,9 @@ mod tests {
             disabled_reason: None,
         }];
 
-        assert_eq!(collect_categories(&apps), vec!["すべて".to_string(), "CSV".to_string()]);
+        assert_eq!(
+            collect_categories(&apps),
+            vec!["すべて".to_string(), "CSV".to_string()]
+        );
     }
 }
-

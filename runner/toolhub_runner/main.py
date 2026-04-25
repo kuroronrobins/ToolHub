@@ -16,12 +16,15 @@ from toolhub_runner.event_protocol import RunnerEvent
 from toolhub_runner.log_manager import create_run_log_paths, now_iso, save_run_log
 from toolhub_runner.manifest import AppManifest, ManifestError, load_app_manifest
 from toolhub_runner.playwright_runner import PlaywrightPythonRunner
+from toolhub_runner.python_app_env_runner import PythonAppEnvRunner
 from toolhub_runner.python_runner import PythonRunner
 
 
 def select_runner(project_root: Path, manifest: AppManifest):
     if manifest.run.runner == "python":
         return PythonRunner(project_root, manifest)
+    if manifest.run.runner == "python_app_env":
+        return PythonAppEnvRunner(project_root, manifest)
     if manifest.run.runner == "cli":
         return CliRunner(project_root, manifest)
     if manifest.run.runner == "exe":

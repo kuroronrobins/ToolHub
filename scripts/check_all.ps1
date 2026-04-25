@@ -254,6 +254,10 @@ try {
         & $Python "-m" "unittest" "discover" "-s" "runner/tests"
     }
 
+    Run-Step "ToolHub App Studio tests" {
+        & $Python "-m" "unittest" "discover" "-s" "tools/app_studio/tests"
+    }
+
     Run-Step "Release manifest verification" {
         & ".\scripts\verify_release.ps1"
     } -Optional

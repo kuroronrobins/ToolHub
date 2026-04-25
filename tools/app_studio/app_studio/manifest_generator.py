@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+from typing import Any
+
+from .models import BuildPlan, StudioContext
+from .util import yaml_scalar
+
+
+def generate_app_yaml(context: StudioContext, plan: BuildPlan, metadata: dict[str, Any]) -> str:
+    categories = list_or_default(metadata.get("categories"), ["業務ツール"])
+    use_cases = list_or_default(metadata.get("use_cases"), [f"{context.name} をToolHubから起動する"])
+    inputs = list_or_default(metadata.get("inputs"), ["アプリ設定に依存"])
+    outputs = list_or_default(metadata.get("outputs"), ["アプリ実行結果"])
+    notes = list_or_default(metadata.get("notes"), ["正式登録前に実行確認と人間承認が必要です。"])
+    keywords = list_or_default(metadata.get("keywords"), [context.name, context.app_id])
+    examples = list_or_default(metadata.get("examples"), [f"{context.name} を起動したい"])
+    short_description = str(metadata.get("short_description") or f"{context.name} をToolHubから起動するアプリです。")
+    description = str(metadata.get("description") or short_description)
+    mode = infer_run_mode(context)
+    required_runtime = plan.required_runtime
+    distribution_mode = plan.mode.replace("-", "_")
+
+    lines = [
+        f"id: {yaml_scalar(context.app_id)}",
+        f"name: {yaml_scalar(context.name)}",
+        "",
+        "display:",
+        "  icon: icon.svg",
+        f"  short_description: {yaml_scalar(short_description)}",
+        "  categories:",
+        *[f"    - {yaml_scalar(item)}" for item in categories],
+        "",
+        "detail:",
+        "  description: >",
+        *[f"    {line}" for line in wrap_block(description)],
+        "  use_cases:",
+        *[f"    - {yaml_scalar(item)}" for item in use_cases],
+        "  inputs:",
+        *[f"    - {yaml_scalar(item)}" for item in inputs],
+        "  outputs:",
+        *[f"    - {yaml_scalar(item)}" for item in outputs],
+        "  notes:",
+        *[f"    - {yaml_scalar(item)}" for item in notes],
+        "",
+        "search:",
+        "  keywords:",
+        *[f"    - {yaml_scalar(item)}" for item in keywords],
+        "  examples:",
+        *[f"    - {yaml_scalar(item)}" for item in examples],
+        "",
+        "run:",
+        f"  runner: {plan.runner}",
+        f"  entry: {plan.entry}",
+        f"  mode: {mode}",
+        "",
+        "admin:",
+        f"  version: {context.version}",
+        "  owner: admin",
+        "  requirements: requirements.txt",
+        "  log_dir: logs",
+        "",
+        "runtime:",
+        f"  distribution_mode: {distribution_mode}",
+        f"  app_env: {yaml_scalar(context.app_id if plan.mode == 'app-env' else None)}",
+        f"  required_runtime: {yaml_scalar(required_runtime)}",
+        "  requirements_lock: requirements.lock",
+        "",
+        "build:",
+        "  managed_by: toolhub_app_studio",
+        f"  build_mode: {plan.mode}",
+        f"  source_entry: {context.entry}",
+        f"  output_mirror: {context.output_dir}",
+        "",
+        "quality:",
+        "  approval_required: true",
+        "  execution_test_required: true",
+    ]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def list_or_default(value: Any, default: list[str]) -> list[str]:
+    if isinstance(value, list) and value:
+        return [str(item) for item in value if str(item).strip()] or default
+    return default
+
+
+def wrap_block(text: str) -> list[str]:
+    stripped = text.strip()
+    return stripped.splitlines() or [""]
+
+
+def infer_run_mode(context: StudioContext) -> str:
+    if context.entry.suffix.lower() == ".exe":
+        return "gui"
+    try:
+        text = context.entry.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "gui"
+    cli_signals = ["argparse", "click.", "typer.", "sys.argv"]
+    gui_signals = ["tkinter", "PyQt", "PySide", "customtkinter", "wx."]
+    if any(signal in text for signal in gui_signals):
+        return "gui"
+    if any(signal in text for signal in cli_signals):
+        return "cli"
+    return "gui"
