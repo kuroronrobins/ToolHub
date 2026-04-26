@@ -7,6 +7,7 @@ import unittest
 import uuid
 from pathlib import Path
 import sys
+import types
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -23,6 +24,7 @@ from app_studio.frozen_folder_builder import build_report as frozen_build_report
 from app_studio.frozen_folder_builder import detect_pyinstaller_environment_issue, pyinstaller_command
 from app_studio.lock_generator import generate_lock
 from app_studio.models import BuildPlan, DependencyReport, GeneratedArtifacts, ImportOptions, SecretFinding, SecretScanReport, SourceInventory
+from app_studio.openai_client import generate_image
 from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.util import write_json, write_text
@@ -319,6 +321,14 @@ class OpenAIFallbackTests(unittest.TestCase):
 
             self.assertIn("AI is disabled", metadata["_ai_generation_report"])
 
+    def test_text_model_missing_uses_metadata_fallback(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "OPENAI_API_KEY": "sk-test1234abcd"}, clear=True):
+                metadata = suggest_metadata(context)
+
+            self.assertIn("model is not configured", metadata["_ai_generation_report"])
+
     def test_high_secret_skips_ai(self) -> None:
         with workspace_tempdir() as root:
             context = make_context(root)
@@ -327,6 +337,115 @@ class OpenAIFallbackTests(unittest.TestCase):
             metadata = suggest_metadata(context, report)
 
             self.assertIn("high severity secret", metadata["_ai_generation_report"])
+
+    def test_responses_api_success_parses_metadata_json(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            payload = {
+                "short_description": "AI short",
+                "description": "AI long",
+                "categories": ["AI"],
+                "use_cases": ["Use"],
+                "inputs": ["Input"],
+                "outputs": ["Output"],
+                "notes": ["Note"],
+                "keywords": ["ai"],
+                "examples": ["example"],
+            }
+
+            class Responses:
+                def create(self, **kwargs):
+                    self.kwargs = kwargs
+                    return types.SimpleNamespace(output_text=json.dumps(payload))
+
+            responses = Responses()
+            client = types.SimpleNamespace(responses=responses)
+            with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_TEXT_MODEL": "text-model", "OPENAI_API_KEY": "sk-test1234abcd"}, clear=True):
+                with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
+                    metadata = suggest_metadata(context)
+
+            self.assertEqual(metadata["short_description"], "AI short")
+            self.assertEqual(responses.kwargs["model"], "text-model")
+            self.assertIn("api: responses.create", metadata["_ai_generation_report"])
+            self.assertIn("status: success", metadata["_ai_generation_report"])
+            self.assertIn("parse_status: success", metadata["_ai_generation_report"])
+
+    def test_responses_api_invalid_json_falls_back_with_parse_reason(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            client = types.SimpleNamespace(responses=types.SimpleNamespace(create=lambda **_: types.SimpleNamespace(output_text="not json")))
+            with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_TEXT_MODEL": "text-model", "OPENAI_API_KEY": "sk-test1234abcd"}, clear=True):
+                with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
+                    metadata = suggest_metadata(context)
+
+            self.assertNotEqual(metadata["short_description"], "not json")
+            self.assertIn("parse_status: failed", metadata["_ai_generation_report"])
+
+    def test_images_generate_accepts_b64_without_response_format(self) -> None:
+        calls = []
+
+        class Images:
+            def generate(self, **kwargs):
+                calls.append(kwargs)
+                return types.SimpleNamespace(data=[types.SimpleNamespace(b64_json="iVBORw0KGgo=")])
+
+        client = types.SimpleNamespace(images=Images())
+        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": "sk-test1234abcd"}, clear=True):
+            with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
+                result = generate_image("prompt")
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.content_type, "b64_png")
+        self.assertNotIn("response_format", calls[0])
+
+    def test_images_generate_accepts_url_candidate(self) -> None:
+        client = types.SimpleNamespace(images=types.SimpleNamespace(generate=lambda **_: types.SimpleNamespace(data=[types.SimpleNamespace(url="https://example.com/icon.png")])))
+        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": "sk-test1234abcd"}, clear=True):
+            with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
+                result = generate_image("prompt")
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.content_type, "url")
+        self.assertEqual(result.content, "https://example.com/icon.png")
+
+    def test_images_generate_retries_without_optional_parameters(self) -> None:
+        calls = []
+
+        class Images:
+            def generate(self, **kwargs):
+                calls.append(kwargs)
+                if len(calls) == 1:
+                    raise TypeError("Unknown parameter: output_format")
+                return types.SimpleNamespace(data=[types.SimpleNamespace(b64_json="iVBORw0KGgo=")])
+
+        client = types.SimpleNamespace(images=Images())
+        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": "sk-test1234abcd"}, clear=True):
+            with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
+                result = generate_image("prompt")
+
+        self.assertTrue(result.ok)
+        self.assertIn("output_format", calls[0])
+        self.assertNotIn("output_format", calls[1])
+        self.assertNotIn("quality", calls[1])
+        self.assertNotIn("response_format", calls[0])
+        self.assertNotIn("response_format", calls[1])
+
+    def test_images_generate_failure_reports_fallback_reason(self) -> None:
+        client = types.SimpleNamespace(images=types.SimpleNamespace(generate=lambda **_: (_ for _ in ()).throw(RuntimeError("BadRequestError: broken"))))
+        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": "sk-test1234abcd"}, clear=True):
+            with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
+                result = generate_image("prompt")
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.status, "failed")
+        self.assertIn("fallback_reason: Image API failed", result.report)
+
+    def test_empty_image_model_uses_image_fallback(self) -> None:
+        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "", "OPENAI_API_KEY": "sk-test1234abcd"}, clear=True):
+            result = generate_image("prompt")
+
+        self.assertFalse(result.ok)
+        self.assertIn("model is not configured", result.report)
 
 
 class IconCandidateExportTests(unittest.TestCase):

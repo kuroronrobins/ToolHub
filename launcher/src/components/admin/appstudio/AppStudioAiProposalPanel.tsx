@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Bot, CheckCircle2, RefreshCw } from "lucide-react";
-import { appStudioReadAiProposal } from "../../../lib/appStudioApi";
-import type { AppStudioAiProposal, AppStudioIconOverride, AppStudioRunResult, AppStudioSelectedIconSource } from "../../../lib/appStudioTypes";
+import { appStudioAiDiagnostics, appStudioReadAiProposal } from "../../../lib/appStudioApi";
+import type { AppStudioAiDiagnostics, AppStudioAiProposal, AppStudioIconOverride, AppStudioRunResult, AppStudioSelectedIconSource } from "../../../lib/appStudioTypes";
 import { formatAdminError } from "../adminUi";
 
 interface Props {
@@ -22,12 +22,26 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [diagnostics, setDiagnostics] = useState<AppStudioAiDiagnostics | null>(null);
+
+  useEffect(() => {
+    void refreshDiagnostics();
+  }, []);
+
+  async function refreshDiagnostics() {
+    try {
+      setDiagnostics(await appStudioAiDiagnostics());
+    } catch {
+      setDiagnostics(null);
+    }
+  }
 
   async function loadProposal(sourceResult: AppStudioRunResult | null = result) {
     setLoading(true);
     setError("");
     setMessage("");
     try {
+      await refreshDiagnostics();
       const loaded = await appStudioReadAiProposal(sourceResult?.appId ?? appId, sourceResult?.outputDir ?? outputDir ?? undefined);
       setProposal(loaded);
       onProposalLoaded?.(loaded);
@@ -44,6 +58,7 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
     setError("");
     setMessage("");
     try {
+      await refreshDiagnostics();
       const generated = await onGenerate();
       if (generated) {
         await loadProposal(generated);
@@ -83,6 +98,7 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
       <p className="admin-muted">
         Suggestで生成される proposed_app.yaml と icon_work を読み込みます。AI提案は自動反映せず、採用ボタンを押した項目だけGUI入力へ反映します。
       </p>
+      {diagnostics ? <DiagnosticsPanel diagnostics={diagnostics} /> : null}
       <div className="studio-action-row">
         <button className="secondary-button" type="button" onClick={() => void loadProposal()} disabled={busy || loading}>
           <RefreshCw size={17} aria-hidden="true" />
@@ -111,6 +127,7 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
             </button>
           </div>
           <dl className="studio-ai-fields">
+            <ReportFields title="Metadata AI status" report={metadata.aiReport} />
             <Field label="short_description" value={metadata.shortDescription} />
             <Field label="description" value={metadata.description} />
             <Field label="categories" value={metadata.categories.join(", ")} />
@@ -166,6 +183,7 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
             </div>
           ) : null}
           <dl className="studio-ai-fields">
+            <ReportFields title="Image AI status" report={icon.aiReport} />
             <Field label="initial_prompt" value={icon.promptInitial} />
             <Field label="revision_prompt" value={icon.promptRevision} />
             <Field label="ai_report" value={icon.aiReport} />
@@ -196,6 +214,65 @@ function Field({ label, value }: { label: string; value?: string | null }) {
       <dd>{value}</dd>
     </>
   );
+}
+
+function DiagnosticsPanel({ diagnostics }: { diagnostics: AppStudioAiDiagnostics }) {
+  return (
+    <div className="studio-ai-status-grid">
+      <StatusItem label="AI enabled" value={diagnostics.aiEnabled ? "yes" : "no"} />
+      <StatusItem label="API key source" value={diagnostics.apiKeySource} />
+      <StatusItem label="Text model" value={diagnostics.textModel || "not configured"} />
+      <StatusItem label="Image model" value={diagnostics.imageModel || "not configured"} />
+      <StatusItem label="CLI env ready" value={diagnostics.cliEnvReady ? "yes" : "no"} />
+      <StatusItem label="Message" value={diagnostics.message} />
+    </div>
+  );
+}
+
+function StatusItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function ReportFields({ title, report }: { title: string; report?: string | null }) {
+  const summary = reportSummary(report);
+  if (!summary.length) {
+    return null;
+  }
+  return (
+    <>
+      <dt>{title}</dt>
+      <dd>
+        <div className="studio-ai-report-summary">
+          {summary.map(([key, value]) => (
+            <span key={key}>
+              <strong>{key}</strong>: {value}
+            </span>
+          ))}
+        </div>
+      </dd>
+    </>
+  );
+}
+
+function reportSummary(report?: string | null): Array<[string, string]> {
+  if (!report) {
+    return [];
+  }
+  const keys = ["api", "status", "model", "parse_status", "content_type", "saved_candidate", "fallback_reason"];
+  const lines = report.split(/\r?\n/);
+  return keys
+    .map((key): [string, string] | null => {
+      const prefix = `${key}:`;
+      const line = lines.find((item) => item.trim().startsWith(prefix));
+      const value = line?.slice(prefix.length).trim();
+      return value ? [key, value] : null;
+    })
+    .filter((item): item is [string, string] => Boolean(item));
 }
 
 function IconSvg({ title, svg }: { title: string; svg: string }) {

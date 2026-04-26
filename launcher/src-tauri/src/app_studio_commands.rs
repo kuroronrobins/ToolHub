@@ -154,6 +154,7 @@ pub struct AppStudioAiMetadataSuggestion {
     pub icon_prompt: Option<String>,
     pub release_notes: Vec<String>,
     pub change_summary: Option<String>,
+    pub ai_report: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -180,10 +181,31 @@ pub struct AppStudioAiProposal {
     pub warnings: Vec<String>,
 }
 
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioAiDiagnostics {
+    pub ai_enabled: bool,
+    pub api_key_source: String,
+    pub api_key_present: bool,
+    pub text_model: String,
+    pub text_model_set: bool,
+    pub image_model: String,
+    pub image_model_set: bool,
+    pub cli_env_ready: bool,
+    pub credential_supported: bool,
+    pub message: String,
+}
+
 #[derive(Debug, Clone)]
 struct PythonCandidate {
     source: String,
     path: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+struct AiEnvPlan {
+    diagnostics: AppStudioAiDiagnostics,
+    api_key: Option<String>,
 }
 
 #[tauri::command]
@@ -331,6 +353,14 @@ pub fn app_studio_read_ai_proposal(
     Ok(read_ai_proposal(output_path.as_deref()))
 }
 
+#[tauri::command]
+pub fn app_studio_ai_diagnostics(
+    session: State<AdminSessionState>,
+) -> Result<AppStudioAiDiagnostics, String> {
+    session.require_authenticated()?;
+    Ok(build_ai_env_plan().diagnostics)
+}
+
 fn run_update_action(
     request: AppStudioUpdateRequest,
     action: &str,
@@ -419,6 +449,7 @@ fn run_import_action(
         .as_ref()
         .map(|(_, source)| source.clone())
         .unwrap_or_default();
+    let ai_env = build_ai_env_plan();
 
     append_app_studio_gui_log(
         &format!("{action} started"),
@@ -428,6 +459,17 @@ fn run_import_action(
             ("python_source", python_candidate.source.clone()),
             ("metadata_override_keys", metadata_override_keys.clone()),
             ("icon_override_source", icon_override_source.clone()),
+            ("ai_enabled", ai_env.diagnostics.ai_enabled.to_string()),
+            ("api_key_source", ai_env.diagnostics.api_key_source.clone()),
+            (
+                "cli_env_ready",
+                ai_env.diagnostics.cli_env_ready.to_string(),
+            ),
+            (
+                "text_model_set",
+                ai_env.diagnostics.text_model_set.to_string(),
+            ),
+            ("image_model", ai_env.diagnostics.image_model.clone()),
         ],
     );
 
@@ -477,7 +519,7 @@ fn run_import_action(
     } else {
         "--suggest"
     });
-    apply_ai_environment(&mut command);
+    apply_ai_environment(&mut command, &ai_env);
 
     let output = command
         .current_dir(&root)
@@ -509,6 +551,12 @@ fn run_import_action(
             ("python_source", python_candidate.source),
             ("metadata_override_keys", metadata_override_keys),
             ("icon_override_source", icon_override_source),
+            ("ai_enabled", ai_env.diagnostics.ai_enabled.to_string()),
+            ("api_key_source", ai_env.diagnostics.api_key_source),
+            (
+                "cli_env_ready",
+                ai_env.diagnostics.cli_env_ready.to_string(),
+            ),
             (
                 "user_message",
                 if output.status.success() {
@@ -980,6 +1028,7 @@ fn read_ai_proposal(output_dir: Option<&Path>) -> AppStudioAiProposal {
             .filter(|value| !value.trim().is_empty())
             .or_else(|| proposal.icon.prompt_initial.clone());
     }
+    fill_metadata_ai_report(output_dir, &mut proposal.metadata);
     fill_release_notes(output_dir, &mut proposal.metadata);
     proposal.ok = proposal.warnings.is_empty()
         || proposal.metadata.name.is_some()
@@ -1005,7 +1054,20 @@ fn metadata_from_yaml(yaml: &serde_yaml::Value) -> AppStudioAiMetadataSuggestion
         icon_prompt: None,
         release_notes: yaml_string_list(yaml, &["release", "release_notes"]),
         change_summary: yaml_str(yaml, &["release", "change_summary"]),
+        ai_report: None,
     }
+}
+
+fn fill_metadata_ai_report(output_dir: &Path, metadata: &mut AppStudioAiMetadataSuggestion) {
+    let Some(json) = read_json(&output_dir.join("import_plan.json")) else {
+        return;
+    };
+    metadata.ai_report = json
+        .get("metadata_ai_report")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
 }
 
 fn fill_release_notes(output_dir: &Path, metadata: &mut AppStudioAiMetadataSuggestion) {
@@ -1498,24 +1560,80 @@ fn icon_override_payload(
     Ok(Some((Value::Object(map), source.to_string())))
 }
 
-fn apply_ai_environment(command: &mut Command) {
+fn build_ai_env_plan() -> AiEnvPlan {
     let user_data_root = crate::setup::user_data_root();
-    if let Ok(settings) = crate::ai_settings::load_settings_at(&user_data_root) {
-        command.env(
-            "TOOLHUB_APP_STUDIO_AI_ENABLED",
-            if settings.ai_enabled { "true" } else { "false" },
-        );
-        let text_model = settings.text_model.trim();
-        if !text_model.is_empty() {
-            command.env("TOOLHUB_APP_STUDIO_TEXT_MODEL", text_model);
-        }
-        let image_model = settings.image_model.trim();
-        if !image_model.is_empty() {
-            command.env("TOOLHUB_APP_STUDIO_IMAGE_MODEL", image_model);
-        }
+    let settings = crate::ai_settings::load_settings_at(&user_data_root)
+        .unwrap_or_else(|_| crate::ai_settings::default_settings());
+    let text_model = settings.text_model.trim().to_string();
+    let image_model = settings.image_model.trim().to_string();
+    let credential_supported = crate::secret_store::credential_manager_supported();
+    let credential_key = crate::secret_store::read_openai_api_key()
+        .ok()
+        .flatten()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let env_key = crate::secret_store::env_openai_api_key();
+    let (api_key_source, api_key) = if let Some(value) = credential_key {
+        ("credential".to_string(), Some(value))
+    } else if let Some(value) = env_key {
+        ("environment".to_string(), Some(value))
+    } else {
+        ("missing".to_string(), None)
+    };
+    let api_key_present = api_key.is_some();
+    let text_model_set = !text_model.is_empty();
+    let image_model_set = !image_model.is_empty();
+    let cli_env_ready =
+        settings.ai_enabled && api_key_present && (text_model_set || image_model_set);
+    let message = if !settings.ai_enabled {
+        "AI is disabled; CLI will use fallback.".to_string()
+    } else if !api_key_present {
+        "API key is missing; CLI will use fallback.".to_string()
+    } else if !text_model_set && !image_model_set {
+        "No AI models are configured; CLI will use fallback.".to_string()
+    } else {
+        "CLI AI environment is ready.".to_string()
+    };
+
+    AiEnvPlan {
+        diagnostics: AppStudioAiDiagnostics {
+            ai_enabled: settings.ai_enabled,
+            api_key_source,
+            api_key_present,
+            text_model,
+            text_model_set,
+            image_model,
+            image_model_set,
+            cli_env_ready,
+            credential_supported,
+            message,
+        },
+        api_key,
     }
-    if let Ok(Some(api_key)) = crate::secret_store::read_openai_api_key() {
-        command.env("OPENAI_API_KEY", api_key);
+}
+
+fn apply_ai_environment(command: &mut Command, plan: &AiEnvPlan) {
+    command.env(
+        "TOOLHUB_APP_STUDIO_AI_ENABLED",
+        if plan.diagnostics.ai_enabled {
+            "true"
+        } else {
+            "false"
+        },
+    );
+    command.env(
+        "TOOLHUB_APP_STUDIO_TEXT_MODEL",
+        &plan.diagnostics.text_model,
+    );
+    command.env(
+        "TOOLHUB_APP_STUDIO_IMAGE_MODEL",
+        &plan.diagnostics.image_model,
+    );
+    command.env_remove("OPENAI_API_KEY");
+    if plan.diagnostics.ai_enabled {
+        if let Some(api_key) = plan.api_key.as_ref() {
+            command.env("OPENAI_API_KEY", api_key);
+        }
     }
 }
 
@@ -1836,6 +1954,74 @@ mod tests {
     }
 
     #[test]
+    fn ai_environment_sets_cli_env_when_enabled() {
+        let plan = AiEnvPlan {
+            diagnostics: AppStudioAiDiagnostics {
+                ai_enabled: true,
+                api_key_source: "credential".to_string(),
+                api_key_present: true,
+                text_model: "text-model".to_string(),
+                text_model_set: true,
+                image_model: "gpt-image-2".to_string(),
+                image_model_set: true,
+                cli_env_ready: true,
+                credential_supported: true,
+                message: "ready".to_string(),
+            },
+            api_key: Some("sk-test1234abcd".to_string()),
+        };
+        let mut command = Command::new("python");
+
+        apply_ai_environment(&mut command, &plan);
+
+        let envs = command_envs(&command);
+        assert_eq!(
+            envs.get("TOOLHUB_APP_STUDIO_AI_ENABLED")
+                .map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            envs.get("TOOLHUB_APP_STUDIO_IMAGE_MODEL")
+                .map(String::as_str),
+            Some("gpt-image-2")
+        );
+        assert_eq!(
+            envs.get("OPENAI_API_KEY").map(String::as_str),
+            Some("sk-test1234abcd")
+        );
+    }
+
+    #[test]
+    fn ai_environment_omits_api_key_when_disabled() {
+        let plan = AiEnvPlan {
+            diagnostics: AppStudioAiDiagnostics {
+                ai_enabled: false,
+                api_key_source: "credential".to_string(),
+                api_key_present: true,
+                text_model: "text-model".to_string(),
+                text_model_set: true,
+                image_model: "gpt-image-2".to_string(),
+                image_model_set: true,
+                cli_env_ready: false,
+                credential_supported: true,
+                message: "disabled".to_string(),
+            },
+            api_key: Some("sk-test1234abcd".to_string()),
+        };
+        let mut command = Command::new("python");
+
+        apply_ai_environment(&mut command, &plan);
+
+        let envs = command_envs(&command);
+        assert_eq!(
+            envs.get("TOOLHUB_APP_STUDIO_AI_ENABLED")
+                .map(String::as_str),
+            Some("false")
+        );
+        assert!(!envs.contains_key("OPENAI_API_KEY"));
+    }
+
+    #[test]
     fn metadata_override_payload_uses_only_non_empty_fields() {
         let metadata = Some(AppStudioEditableMetadata {
             short_description: Some("Short".to_string()),
@@ -1988,7 +2174,7 @@ mod tests {
         .unwrap();
         std::fs::write(
             output.join("import_plan.json"),
-            "{\"app_id\":\"sample\",\"version\":\"1.2.3\",\"selected_build_mode\":\"app-env\"}",
+            "{\"app_id\":\"sample\",\"version\":\"1.2.3\",\"selected_build_mode\":\"app-env\",\"metadata_ai_report\":\"status: success\\nmodel: text-model\"}",
         )
         .unwrap();
         std::fs::write(icon_work.join("icon_prompt_initial.md"), "simple icon").unwrap();
@@ -2003,6 +2189,12 @@ mod tests {
         let proposal = read_ai_proposal(Some(&output));
         assert!(proposal.ok);
         assert_eq!(proposal.metadata.name.as_deref(), Some("Sample App"));
+        assert!(proposal
+            .metadata
+            .ai_report
+            .as_deref()
+            .unwrap_or_default()
+            .contains("status: success"));
         assert_eq!(proposal.metadata.categories, vec!["CSV".to_string()]);
         assert!(proposal.icon.fallback_svg.is_some());
         assert!(proposal.icon.final_png_data_url.is_some());
@@ -2108,6 +2300,19 @@ mod tests {
         std::fs::create_dir_all(root.join("apps")).unwrap();
         std::fs::create_dir_all(root.join("release")).unwrap();
         root
+    }
+
+    fn command_envs(command: &Command) -> std::collections::HashMap<String, String> {
+        command
+            .get_envs()
+            .filter_map(|(key, value)| {
+                let value = value?;
+                Some((
+                    key.to_str()?.to_string(),
+                    value.to_str().unwrap_or("").to_string(),
+                ))
+            })
+            .collect()
     }
 
     fn write_registered_app(root: &Path, app_id: &str, version: &str) {

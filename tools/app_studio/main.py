@@ -118,10 +118,12 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         metadata, metadata_override_applied, metadata_override_warnings = apply_metadata_override(metadata, override)
     app_yaml = generate_app_yaml(context, plan, metadata)
     readme = generate_readme(context, plan)
+    ai_skip_reason = "high secret detected, AI skipped" if secret_report.has_high else ""
     icon_prompt_initial, icon_prompt_revision, icon_svg, fallback_png, style_reference, icon_ai_report, icon_candidate_png, icon_candidate_url = generate_icon_assets_with_candidates(
         context,
         args.icon_prompt,
         allow_ai=not secret_report.has_high,
+        ai_skip_reason=ai_skip_reason,
     )
     icon_override_warnings: list[str] = []
     selected_icon_source = "fallback_png"
