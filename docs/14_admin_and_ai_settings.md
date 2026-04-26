@@ -1,3 +1,9 @@
+# App Studio GUI AI提案の補足
+
+App Studio GUI のAI提案は管理者セッションが有効な場合だけ利用できます。GUIはCLI版 App Studio の Suggest を呼び出し、生成された `proposed_app.yaml` と `icon_work/` を読み込んで表示します。APIキー未設定、AI無効、OpenAI packageなし、API失敗時もfallbackで動作します。
+
+AI提案は自動確定しません。管理者が提案内容を確認し、採用ボタンを押した項目だけGUI入力へ反映します。high secret が検出された場合はAI送信しません。APIキー、プロンプト内のsecret値、画像b64全文はログへ出しません。
+
 # 管理者画面とAI設定
 
 ## 目的

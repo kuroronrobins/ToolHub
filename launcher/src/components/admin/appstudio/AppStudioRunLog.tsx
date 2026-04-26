@@ -6,28 +6,45 @@ interface Props {
 }
 
 export function AppStudioRunLog({ busy, result }: Props) {
+  const warningOnly = result?.executionStatus === "warn" && result.approvalAllowed === true;
   return (
     <section className="studio-side-section">
       <div className="admin-section-head">
         <div>
-          <p className="dialog-kicker">実行ログ</p>
+          <p className="dialog-kicker">Run log</p>
           <h4>stdout / stderr</h4>
         </div>
-        <span className={`admin-status-pill ${result?.ok ? "ok" : ""}`}>{busy ? "実行中" : result ? statusText(result.ok) : "未実行"}</span>
+        <span className={`admin-status-pill ${result?.ok || warningOnly ? "ok" : ""}`}>
+          {busy ? "running" : result ? statusText(result) : "idle"}
+        </span>
       </div>
-      {busy ? <p className="admin-muted">App Studioを実行しています。完了まで画面を閉じずに待ってください。</p> : null}
-      <pre className="studio-log">{result ? joinLogs(result) : "まだ実行ログはありません。"}</pre>
+      {busy ? <p className="admin-muted">App Studio is running. Wait for the command to finish before approving.</p> : null}
+      {warningOnly ? (
+        <p className="admin-muted">
+          The command returned a non-zero exit code, but execution_test_result.json is warn and approval_allowed=true.
+          Review the logs, then approve with AllowWarnings if acceptable.
+        </p>
+      ) : null}
+      <pre className="studio-log">{result ? joinLogs(result) : "No run log yet."}</pre>
     </section>
   );
 }
 
-function statusText(ok: boolean): string {
-  return ok ? "成功" : "失敗";
+function statusText(result: AppStudioRunResult): string {
+  if (result.ok) {
+    return "success";
+  }
+  if (result.executionStatus === "warn" && result.approvalAllowed === true) {
+    return "warning";
+  }
+  return "failed";
 }
 
 function joinLogs(result: AppStudioRunResult): string {
   const parts = [
     `exitCode: ${result.exitCode}`,
+    `executionStatus: ${result.executionStatus ?? "unknown"}`,
+    `approvalAllowed: ${String(result.approvalAllowed ?? "unknown")}`,
     "",
     "[stdout]",
     result.stdout.trim() || "(empty)",

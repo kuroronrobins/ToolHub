@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="20251123 ExcelBatchReplace icon">
+  <rect x="10" y="8" width="44" height="48" rx="8" fill="#EEF0F6" stroke="#5A5F7A" stroke-width="3"/>
+  <path d="M22 22h20M22 32h20M22 42h12" fill="none" stroke="#5A5F7A" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="46" cy="46" r="8" fill="#ffffff" stroke="#5A5F7A" stroke-width="3"/>
+  <text x="46" y="50" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#5A5F7A">2</text>
+</svg>

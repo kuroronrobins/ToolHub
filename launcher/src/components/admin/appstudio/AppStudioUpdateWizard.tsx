@@ -22,6 +22,7 @@ import type {
 } from "../../../lib/appStudioTypes";
 import { bumpAppVersion, compareSimpleSemVer } from "../../../lib/appStudioVersion";
 import { formatAdminError } from "../adminUi";
+import { AppStudioAiProposalPanel } from "./AppStudioAiProposalPanel";
 import { AppStudioBuildOptions } from "./AppStudioBuildOptions";
 import { AppStudioPreflightPanel } from "./AppStudioPreflightPanel";
 import { AppStudioRegisteredAppPicker } from "./AppStudioRegisteredAppPicker";
@@ -138,7 +139,7 @@ export function AppStudioUpdateWizard() {
     }
   }
 
-  async function run(action: "suggest" | "apply") {
+  async function run(action: "suggest" | "apply"): Promise<AppStudioRunResult | null> {
     setBusy(true);
     setError("");
     setMessage("");
@@ -147,22 +148,51 @@ export function AppStudioUpdateWizard() {
       const cleaned = cleanRequest(request, newVersion);
       const check = await runPreflight(cleaned);
       if (!check?.ok) {
-        return;
+        return null;
       }
-      const runResult = action === "suggest" ? await appStudioUpdateSuggest(cleaned) : await appStudioUpdateApply(cleaned);
-      setResult({
-        ...runResult,
+      const rawResult = action === "suggest" ? await appStudioUpdateSuggest(cleaned) : await appStudioUpdateApply(cleaned);
+      const runResult = await refreshRunResult({
+        ...rawResult,
         currentVersion: request.currentVersion,
         newVersion,
       });
-      setMessage(runResult.userMessage);
-      if (!runResult.ok) {
+      setResult(runResult);
+      setMessage(messageForResult(runResult));
+      if (!runResult.ok && !isWarningOnly(runResult)) {
         setError(runResult.userMessage);
       }
+      return runResult;
     } catch (runError) {
       setError(formatAdminError(runError, "App Studio update could not run."));
+      return null;
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function refreshRunResult(runResult: AppStudioRunResult): Promise<AppStudioRunResult> {
+    const appId = runResult.appId ?? request.appId;
+    const outputDir = runResult.outputDir ?? undefined;
+    if (!appId && !outputDir) {
+      return runResult;
+    }
+    try {
+      const summary = await appStudioReadResult(appId || undefined, outputDir || undefined);
+      return {
+        ...runResult,
+        outputDir: summary.outputDir ?? runResult.outputDir,
+        appId: summary.appId ?? runResult.appId,
+        selectedBuildMode: summary.selectedBuildMode ?? runResult.selectedBuildMode,
+        executionStatus: summary.executionStatus ?? runResult.executionStatus,
+        approvalAllowed: summary.approvalAllowed ?? runResult.approvalAllowed,
+        runtimeStatus: summary.runtimeStatus ?? runResult.runtimeStatus,
+        appPack: summary.appPack ?? runResult.appPack,
+        enabled: summary.enabled ?? runResult.enabled,
+        currentVersion: request.currentVersion,
+        newVersion: summary.version ?? newVersion,
+      };
+    } catch {
+      return runResult;
     }
   }
 
@@ -178,14 +208,15 @@ export function AppStudioUpdateWizard() {
     setLastAction("approve");
     try {
       const approveResult = await appStudioUpdateApprove(appId, approvalMode === "strict");
-      setResult({
+      const freshResult = await refreshRunResult({
         ...approveResult,
         currentVersion: request.currentVersion,
         newVersion,
       });
-      setMessage(approveResult.userMessage);
-      if (!approveResult.ok) {
-        setError(approveResult.userMessage);
+      setResult(freshResult);
+      setMessage(messageForResult(freshResult));
+      if (!freshResult.ok && !isWarningOnly(freshResult)) {
+        setError(freshResult.userMessage);
       }
     } catch (approveError) {
       setError(formatAdminError(approveError, "Update approval could not run."));
@@ -203,24 +234,18 @@ export function AppStudioUpdateWizard() {
     setBusy(true);
     setError("");
     try {
-      const summary = await appStudioReadResult(appId || undefined, outputDir || undefined);
-      setResult((current) => ({
-        ok: current?.ok ?? true,
-        exitCode: current?.exitCode ?? 0,
-        stdout: current?.stdout ?? "",
-        stderr: current?.stderr ?? "",
-        userMessage: current?.userMessage ?? "Result was refreshed.",
-        outputDir: summary.outputDir,
-        appId: summary.appId,
-        selectedBuildMode: summary.selectedBuildMode,
-        executionStatus: summary.executionStatus,
-        approvalAllowed: summary.approvalAllowed,
-        runtimeStatus: summary.runtimeStatus,
-        appPack: summary.appPack,
-        enabled: summary.enabled,
-        currentVersion: request.currentVersion,
-        newVersion: summary.version ?? newVersion,
-      }));
+      const freshResult = await refreshRunResult(
+        result ?? {
+          ok: true,
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          userMessage: "Result was refreshed.",
+          appId,
+          outputDir,
+        },
+      );
+      setResult(freshResult);
       setMessage("Result was refreshed.");
     } catch (refreshError) {
       setError(formatAdminError(refreshError, "Result could not be refreshed."));
@@ -241,6 +266,14 @@ export function AppStudioUpdateWizard() {
     buildFrozenFolder: request.buildFrozenFolder,
     verifyRuntime: request.verifyRuntime,
   };
+
+  function adoptAiProposal(values: { name?: string; iconPrompt?: string }) {
+    update({
+      name: values.name ?? request.name,
+      iconPrompt: values.iconPrompt ?? request.iconPrompt,
+    });
+    setMessage("AI proposal was copied into the editable fields. Review before Apply update.");
+  }
 
   return (
     <div className="studio-wizard-layout">
@@ -326,6 +359,15 @@ export function AppStudioUpdateWizard() {
           </label>
         </section>
 
+        <AppStudioAiProposalPanel
+          appId={request.appId}
+          outputDir={result?.outputDir}
+          result={result}
+          busy={busy}
+          onGenerate={() => run("suggest")}
+          onAdopt={adoptAiProposal}
+        />
+
         <AppStudioPreflightPanel result={preflight} busy={busy} onRun={() => void runPreflight()} />
 
         <div className="studio-action-row">
@@ -341,7 +383,7 @@ export function AppStudioUpdateWizard() {
 
         {bumped.warning ? <p className="admin-muted">{bumped.warning}</p> : null}
         {versionCompare === 1 ? <p className="admin-error">New version is older than current version.</p> : null}
-        {message ? <p className="admin-success">{message}</p> : null}
+        {message ? <p className={result && !result.ok && isWarningOnly(result) ? "admin-muted" : "admin-success"}>{message}</p> : null}
         {error ? <p className="admin-error" role="alert">{error}</p> : null}
       </section>
 
@@ -418,7 +460,7 @@ function updateNextAction(
   if (!result) {
     return "Run Preflight, then Suggest update.";
   }
-  if (!result.ok) {
+  if (!result.ok && !isWarningOnly(result)) {
     return "Review stdout/stderr and generated reports.";
   }
   if (result.enabled) {
@@ -437,4 +479,15 @@ function updateNextAction(
     return "Run Approve update.";
   }
   return "Review the result.";
+}
+
+function isWarningOnly(result: AppStudioRunResult): boolean {
+  return result.executionStatus === "warn" && result.approvalAllowed === true;
+}
+
+function messageForResult(result: AppStudioRunResult): string {
+  if (!result.ok && isWarningOnly(result)) {
+    return "App Studio completed with warnings. execution_test_result.json allows approval; review logs before approving.";
+  }
+  return result.userMessage;
 }
