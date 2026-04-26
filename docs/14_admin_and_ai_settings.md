@@ -2,7 +2,7 @@
 
 App Studio GUI のAI提案は管理者セッションが有効な場合だけ利用できます。GUIはCLI版 App Studio の Suggest を呼び出し、生成された `proposed_app.yaml` と `icon_work/` を読み込んで表示します。APIキー未設定、AI無効、OpenAI packageなし、API失敗時もfallbackで動作します。
 
-AI提案は自動確定しません。管理者が提案内容を確認し、採用ボタンを押した項目だけGUI入力へ反映します。high secret が検出された場合はAI送信しません。APIキー、プロンプト内のsecret値、画像b64全文はログへ出しません。
+AI提案は自動確定しません。管理者が提案内容を確認し、採用ボタンを押した項目だけGUI入力へ反映します。アイコンもPNG候補を主表示にし、採用したPNGだけを `icon.png` に反映します。high secret が検出された場合はAI送信しません。APIキー、プロンプト内のsecret値、画像b64全文はログへ出しません。
 
 Metadata editor で採用・編集した登録項目は、管理者認証済みの Tauri command が `%LOCALAPPDATA%\ToolHub\data\app_studio\metadata_overrides\` に一時JSONとして保存し、CLIへ `--metadata-override` で渡します。ログに残すのは `metadata_override_keys` だけで、値本文は記録しません。空欄は既存の CLI 生成値を上書きせず、APIキー未設定時も fallback metadata と GUI編集値の merge で動作します。
 
@@ -71,6 +71,8 @@ Metadata editor で採用・編集した登録項目は、管理者認証済み�
 ```
 
 設定JSONには APIキー本体を書きません。保存するのは `ai_enabled`、`text_model`、`image_model`、`api_key_source`、`updated_at` です。
+
+Image model の既定候補は `gpt-image-2` です。これは設定値として保存・変更でき、App Studio 実行時は管理者画面の設定から `TOOLHUB_APP_STUDIO_IMAGE_MODEL` として CLI に渡します。APIキー未設定またはAI無効の場合は画像生成APIを呼ばず、fallback PNG と互換用SVGで動作します。
 
 ## APIキー保存場所
 

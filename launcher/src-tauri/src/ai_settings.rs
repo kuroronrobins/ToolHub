@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 const DEFAULT_API_KEY_SOURCE: &str = "windows_credential_manager";
+const DEFAULT_IMAGE_MODEL: &str = "gpt-image-2";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -58,7 +59,11 @@ pub fn load_settings_at(user_data_root: &Path) -> Result<AiSettings, String> {
     Ok(AiSettings {
         ai_enabled: file.ai_enabled,
         text_model: file.text_model,
-        image_model: file.image_model,
+        image_model: if file.image_model.trim().is_empty() {
+            DEFAULT_IMAGE_MODEL.to_string()
+        } else {
+            file.image_model
+        },
         api_key_source: file.api_key_source,
         updated_at: Some(file.updated_at),
     })
@@ -69,7 +74,11 @@ pub fn save_settings_at(user_data_root: &Path, settings: AiSettings) -> Result<A
     let cleaned = AiSettings {
         ai_enabled: settings.ai_enabled,
         text_model: settings.text_model.trim().to_string(),
-        image_model: settings.image_model.trim().to_string(),
+        image_model: if settings.image_model.trim().is_empty() {
+            DEFAULT_IMAGE_MODEL.to_string()
+        } else {
+            settings.image_model.trim().to_string()
+        },
         api_key_source: if settings.api_key_source.trim().is_empty() {
             DEFAULT_API_KEY_SOURCE.to_string()
         } else {
@@ -98,7 +107,7 @@ pub fn default_settings() -> AiSettings {
     AiSettings {
         ai_enabled: false,
         text_model: String::new(),
-        image_model: String::new(),
+        image_model: DEFAULT_IMAGE_MODEL.to_string(),
         api_key_source: DEFAULT_API_KEY_SOURCE.to_string(),
         updated_at: None,
     }
@@ -209,6 +218,30 @@ mod tests {
         let loaded = load_settings_at(&root).unwrap();
         assert_eq!(loaded.image_model, "image-model");
         assert_eq!(loaded.api_key_source, DEFAULT_API_KEY_SOURCE);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn default_image_model_is_png_generation_candidate() {
+        let settings = default_settings();
+        assert_eq!(settings.image_model, "gpt-image-2");
+    }
+
+    #[test]
+    fn empty_saved_image_model_uses_default_candidate() {
+        let root = temp_root("image_default");
+        let saved = save_settings_at(
+            &root,
+            AiSettings {
+                ai_enabled: true,
+                text_model: String::new(),
+                image_model: String::new(),
+                api_key_source: String::new(),
+                updated_at: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(saved.image_model, "gpt-image-2");
         let _ = std::fs::remove_dir_all(root);
     }
 }

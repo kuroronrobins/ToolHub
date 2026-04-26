@@ -17,6 +17,7 @@ pub struct AppStudioImportRequest {
     pub build_mode: String,
     pub icon_prompt: Option<String>,
     pub metadata: Option<AppStudioEditableMetadata>,
+    pub icon_override: Option<AppStudioIconOverride>,
     pub create_app_env: bool,
     pub rebuild_app_env: bool,
     pub generate_lock: bool,
@@ -35,6 +36,7 @@ pub struct AppStudioUpdateRequest {
     pub build_mode: String,
     pub icon_prompt: Option<String>,
     pub metadata: Option<AppStudioEditableMetadata>,
+    pub icon_override: Option<AppStudioIconOverride>,
     pub create_app_env: bool,
     pub rebuild_app_env: bool,
     pub generate_lock: bool,
@@ -56,6 +58,13 @@ pub struct AppStudioEditableMetadata {
     pub notes: Option<Vec<String>>,
     pub release_notes: Option<Vec<String>>,
     pub change_summary: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioIconOverride {
+    pub selected_icon_source: Option<String>,
+    pub png_data_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -86,6 +95,8 @@ pub struct AppStudioResultSummary {
     pub version: Option<String>,
     pub metadata_override_used: bool,
     pub metadata_override_keys: Vec<String>,
+    pub icon_override_used: bool,
+    pub selected_icon_source: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -108,6 +119,8 @@ pub struct AppStudioRunResult {
     pub new_version: Option<String>,
     pub metadata_override_used: bool,
     pub metadata_override_keys: Vec<String>,
+    pub icon_override_used: bool,
+    pub selected_icon_source: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -150,7 +163,9 @@ pub struct AppStudioAiIconSuggestion {
     pub prompt_revision: Option<String>,
     pub candidate_svg: Option<String>,
     pub final_svg: Option<String>,
+    pub fallback_svg: Option<String>,
     pub candidate_png_data_url: Option<String>,
+    pub final_png_data_url: Option<String>,
     pub candidate_url: Option<String>,
     pub ai_report: Option<String>,
 }
@@ -308,14 +323,11 @@ pub fn app_studio_read_ai_proposal(
 ) -> Result<AppStudioAiProposal, String> {
     session.require_authenticated()?;
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
-    let output_path = output_dir
-        .as_deref()
-        .map(PathBuf::from)
-        .or_else(|| {
-            app_id
-                .as_deref()
-                .and_then(|id| output_dir_from_app_yaml(&root, id))
-        });
+    let output_path = output_dir.as_deref().map(PathBuf::from).or_else(|| {
+        app_id
+            .as_deref()
+            .and_then(|id| output_dir_from_app_yaml(&root, id))
+    });
     Ok(read_ai_proposal(output_path.as_deref()))
 }
 
@@ -402,6 +414,11 @@ fn run_import_action(
         .as_ref()
         .map(|(_, keys)| keys.join(","))
         .unwrap_or_default();
+    let icon_override = write_icon_override_file(&request)?;
+    let icon_override_source = icon_override
+        .as_ref()
+        .map(|(_, source)| source.clone())
+        .unwrap_or_default();
 
     append_app_studio_gui_log(
         &format!("{action} started"),
@@ -410,6 +427,7 @@ fn run_import_action(
             ("build_mode", request.build_mode.clone()),
             ("python_source", python_candidate.source.clone()),
             ("metadata_override_keys", metadata_override_keys.clone()),
+            ("icon_override_source", icon_override_source.clone()),
         ],
     );
 
@@ -436,6 +454,9 @@ fn run_import_action(
     if let Some((path, _)) = metadata_override.as_ref() {
         command.arg("--metadata-override").arg(path);
     }
+    if let Some((path, _)) = icon_override.as_ref() {
+        command.arg("--icon-override").arg(path);
+    }
     if request.create_app_env {
         command.arg("--create-app-env");
     }
@@ -456,6 +477,7 @@ fn run_import_action(
     } else {
         "--suggest"
     });
+    apply_ai_environment(&mut command);
 
     let output = command
         .current_dir(&root)
@@ -486,6 +508,7 @@ fn run_import_action(
             ("output_dir", summary.output_dir.clone().unwrap_or_default()),
             ("python_source", python_candidate.source),
             ("metadata_override_keys", metadata_override_keys),
+            ("icon_override_source", icon_override_source),
             (
                 "user_message",
                 if output.status.success() {
@@ -645,6 +668,8 @@ fn result_from_process(
         new_version: summary.version,
         metadata_override_used: summary.metadata_override_used,
         metadata_override_keys: summary.metadata_override_keys,
+        icon_override_used: summary.icon_override_used,
+        selected_icon_source: summary.selected_icon_source,
     }
 }
 
@@ -937,10 +962,15 @@ fn read_ai_proposal(output_dir: Option<&Path>) -> AppStudioAiProposal {
     proposal.icon.prompt_revision = read_text_optional(&icon_work.join("icon_prompt_revision.md"));
     proposal.icon.candidate_svg = read_text_optional(&icon_work.join("icon_candidate_1.svg"));
     proposal.icon.final_svg = read_text_optional(&icon_work.join("icon_final.svg"));
+    proposal.icon.fallback_svg = read_text_optional(&icon_work.join("icon_fallback.svg"))
+        .or_else(|| proposal.icon.final_svg.clone())
+        .or_else(|| proposal.icon.candidate_svg.clone());
     proposal.icon.candidate_url = read_text_optional(&icon_work.join("icon_candidate_1.url.txt"));
     proposal.icon.ai_report = read_text_optional(&icon_work.join("ai_generation_report.md"));
     proposal.icon.candidate_png_data_url =
         read_png_data_url_optional(&icon_work.join("icon_candidate_1.png"));
+    proposal.icon.final_png_data_url =
+        read_png_data_url_optional(&icon_work.join("icon_final.png"));
 
     if proposal.metadata.icon_prompt.is_none() {
         proposal.metadata.icon_prompt = proposal
@@ -953,8 +983,9 @@ fn read_ai_proposal(output_dir: Option<&Path>) -> AppStudioAiProposal {
     fill_release_notes(output_dir, &mut proposal.metadata);
     proposal.ok = proposal.warnings.is_empty()
         || proposal.metadata.name.is_some()
-        || proposal.icon.final_svg.is_some()
-        || proposal.icon.candidate_svg.is_some();
+        || proposal.icon.final_png_data_url.is_some()
+        || proposal.icon.candidate_png_data_url.is_some()
+        || proposal.icon.fallback_svg.is_some();
     proposal
 }
 
@@ -981,10 +1012,7 @@ fn fill_release_notes(output_dir: &Path, metadata: &mut AppStudioAiMetadataSugge
     let Some(json) = read_json(&output_dir.join("import_plan.json")) else {
         return;
     };
-    let app_id = json
-        .get("app_id")
-        .and_then(Value::as_str)
-        .unwrap_or("app");
+    let app_id = json.get("app_id").and_then(Value::as_str).unwrap_or("app");
     let version = json
         .get("version")
         .and_then(Value::as_str)
@@ -1000,7 +1028,8 @@ fn fill_release_notes(output_dir: &Path, metadata: &mut AppStudioAiMetadataSugge
         ];
     }
     if metadata.change_summary.is_none() {
-        metadata.change_summary = Some(format!("Update {app_id} to version {version} with {mode}."));
+        metadata.change_summary =
+            Some(format!("Update {app_id} to version {version} with {mode}."));
     }
 }
 
@@ -1090,6 +1119,12 @@ fn read_import_plan(output_dir: &Path, summary: &mut AppStudioResultSummary) {
             .filter_map(Value::as_str)
             .map(str::to_string)
             .collect();
+    }
+    if let Some(value) = json.get("icon_override_used").and_then(Value::as_bool) {
+        summary.icon_override_used = value;
+    }
+    if let Some(value) = json.get("selected_icon_source").and_then(Value::as_str) {
+        summary.selected_icon_source = Some(value.to_string());
     }
 }
 
@@ -1274,6 +1309,7 @@ fn import_request_from_update(request: &AppStudioUpdateRequest) -> AppStudioImpo
         build_mode: request.build_mode.clone(),
         icon_prompt: request.icon_prompt.clone(),
         metadata: request.metadata.clone(),
+        icon_override: request.icon_override.clone(),
         create_app_env: request.create_app_env,
         rebuild_app_env: request.rebuild_app_env,
         generate_lock: request.generate_lock,
@@ -1400,6 +1436,89 @@ fn write_metadata_override_file(
     Ok(Some((path, keys)))
 }
 
+fn write_icon_override_file(
+    request: &AppStudioImportRequest,
+) -> Result<Option<(PathBuf, String)>, String> {
+    let Some((payload, source)) = icon_override_payload(&request.icon_override)? else {
+        return Ok(None);
+    };
+    let dir = crate::setup::user_data_root()
+        .join("data")
+        .join("app_studio")
+        .join("icon_overrides");
+    std::fs::create_dir_all(&dir)
+        .map_err(|_| "Could not create App Studio icon override directory.".to_string())?;
+    let app_stem = clean_optional(&request.app_id).unwrap_or("pending");
+    let stamp = chrono::Local::now().timestamp_millis();
+    let path = dir.join(format!("{}_{}.json", safe_file_stem(app_stem), stamp));
+    let text = serde_json::to_string_pretty(&payload)
+        .map_err(|_| "Could not serialize App Studio icon override.".to_string())?;
+    std::fs::write(&path, text)
+        .map_err(|_| "Could not write App Studio icon override file.".to_string())?;
+    Ok(Some((path, source)))
+}
+
+fn icon_override_payload(
+    icon_override: &Option<AppStudioIconOverride>,
+) -> Result<Option<(Value, String)>, String> {
+    let Some(icon_override) = icon_override.as_ref() else {
+        return Ok(None);
+    };
+    let source = icon_override
+        .selected_icon_source
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("fallback_png");
+    if source == "fallback_png" {
+        return Ok(None);
+    }
+    if source != "candidate_png" && source != "final_png" {
+        return Err("Icon override source is invalid.".to_string());
+    }
+    let png_data_url = icon_override
+        .png_data_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "PNG icon data is required when adopting a PNG candidate.".to_string())?;
+    if !png_data_url.starts_with("data:image/png;base64,") {
+        return Err("PNG icon data must be a data:image/png;base64 URL.".to_string());
+    }
+
+    let mut map = Map::new();
+    map.insert(
+        "selected_icon_source".to_string(),
+        Value::String(source.to_string()),
+    );
+    map.insert(
+        "png_base64".to_string(),
+        Value::String(png_data_url.to_string()),
+    );
+    Ok(Some((Value::Object(map), source.to_string())))
+}
+
+fn apply_ai_environment(command: &mut Command) {
+    let user_data_root = crate::setup::user_data_root();
+    if let Ok(settings) = crate::ai_settings::load_settings_at(&user_data_root) {
+        command.env(
+            "TOOLHUB_APP_STUDIO_AI_ENABLED",
+            if settings.ai_enabled { "true" } else { "false" },
+        );
+        let text_model = settings.text_model.trim();
+        if !text_model.is_empty() {
+            command.env("TOOLHUB_APP_STUDIO_TEXT_MODEL", text_model);
+        }
+        let image_model = settings.image_model.trim();
+        if !image_model.is_empty() {
+            command.env("TOOLHUB_APP_STUDIO_IMAGE_MODEL", image_model);
+        }
+    }
+    if let Ok(Some(api_key)) = crate::secret_store::read_openai_api_key() {
+        command.env("OPENAI_API_KEY", api_key);
+    }
+}
+
 fn metadata_override_payload(
     metadata: &Option<AppStudioEditableMetadata>,
 ) -> Option<(Value, Vec<String>)> {
@@ -1425,10 +1544,20 @@ fn metadata_override_payload(
         "change_summary",
         metadata.change_summary.as_deref(),
     );
-    insert_list_override(&mut map, &mut keys, "categories", metadata.categories.as_ref());
+    insert_list_override(
+        &mut map,
+        &mut keys,
+        "categories",
+        metadata.categories.as_ref(),
+    );
     insert_list_override(&mut map, &mut keys, "keywords", metadata.keywords.as_ref());
     insert_list_override(&mut map, &mut keys, "examples", metadata.examples.as_ref());
-    insert_list_override(&mut map, &mut keys, "use_cases", metadata.use_cases.as_ref());
+    insert_list_override(
+        &mut map,
+        &mut keys,
+        "use_cases",
+        metadata.use_cases.as_ref(),
+    );
     insert_list_override(&mut map, &mut keys, "inputs", metadata.inputs.as_ref());
     insert_list_override(&mut map, &mut keys, "outputs", metadata.outputs.as_ref());
     insert_list_override(&mut map, &mut keys, "notes", metadata.notes.as_ref());
@@ -1648,6 +1777,7 @@ mod tests {
             build_mode: "app-env".to_string(),
             icon_prompt: None,
             metadata: None,
+            icon_override: None,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,
@@ -1676,6 +1806,7 @@ mod tests {
             build_mode: "app-env".to_string(),
             icon_prompt: None,
             metadata: None,
+            icon_override: None,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,
@@ -1726,6 +1857,30 @@ mod tests {
     }
 
     #[test]
+    fn icon_override_payload_accepts_png_data_url_only_for_adopted_png() {
+        let icon_override = Some(AppStudioIconOverride {
+            selected_icon_source: Some("candidate_png".to_string()),
+            png_data_url: Some("data:image/png;base64,iVBORw0KGgo=".to_string()),
+        });
+
+        let (payload, source) = icon_override_payload(&icon_override).unwrap().unwrap();
+        let object = payload.as_object().unwrap();
+
+        assert_eq!(source, "candidate_png");
+        assert_eq!(
+            object.get("selected_icon_source").and_then(Value::as_str),
+            Some("candidate_png")
+        );
+        assert!(object.get("png_base64").is_some());
+        assert!(icon_override_payload(&Some(AppStudioIconOverride {
+            selected_icon_source: Some("fallback_png".to_string()),
+            png_data_url: None,
+        }))
+        .unwrap()
+        .is_none());
+    }
+
+    #[test]
     fn update_request_preserves_metadata_override() {
         let request = AppStudioUpdateRequest {
             app_id: "sample_app".to_string(),
@@ -1739,6 +1894,7 @@ mod tests {
                 short_description: Some("Updated short".to_string()),
                 ..AppStudioEditableMetadata::default()
             }),
+            icon_override: None,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,
@@ -1836,16 +1992,26 @@ mod tests {
         )
         .unwrap();
         std::fs::write(icon_work.join("icon_prompt_initial.md"), "simple icon").unwrap();
-        std::fs::write(icon_work.join("icon_final.svg"), "<svg viewBox=\"0 0 64 64\"></svg>").unwrap();
+        std::fs::write(
+            icon_work.join("icon_fallback.svg"),
+            "<svg viewBox=\"0 0 64 64\"></svg>",
+        )
+        .unwrap();
+        std::fs::write(icon_work.join("icon_final.png"), [137, 80, 78, 71]).unwrap();
         std::fs::write(icon_work.join("icon_candidate_1.png"), [137, 80, 78, 71]).unwrap();
 
         let proposal = read_ai_proposal(Some(&output));
         assert!(proposal.ok);
         assert_eq!(proposal.metadata.name.as_deref(), Some("Sample App"));
         assert_eq!(proposal.metadata.categories, vec!["CSV".to_string()]);
-        assert!(proposal.icon.final_svg.is_some());
+        assert!(proposal.icon.fallback_svg.is_some());
+        assert!(proposal.icon.final_png_data_url.is_some());
         assert!(proposal.icon.candidate_png_data_url.is_some());
-        assert!(proposal.metadata.release_notes.iter().any(|item| item.contains("1.2.3")));
+        assert!(proposal
+            .metadata
+            .release_notes
+            .iter()
+            .any(|item| item.contains("1.2.3")));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1904,6 +2070,7 @@ mod tests {
             build_mode: "app-env".to_string(),
             icon_prompt: None,
             metadata: None,
+            icon_override: None,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,

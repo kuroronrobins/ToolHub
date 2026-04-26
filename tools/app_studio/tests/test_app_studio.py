@@ -16,6 +16,7 @@ from app_studio.file_classifier import classify_files
 from app_studio.manifest_generator import generate_app_yaml
 from app_studio.metadata_override import apply_metadata_override, load_metadata_override
 from app_studio.models import ImportOptions
+from app_studio.icon_override import apply_icon_override, load_icon_override
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import scan_secrets
 from app_studio.util import default_app_id_for_entry, reset_output_dir
@@ -107,6 +108,8 @@ class AppStudioTests(unittest.TestCase):
 
             self.assertEqual(manifest.id, "demo_app")
             self.assertEqual(manifest.run.runner, "python_app_env")
+            self.assertEqual(data["display"]["icon"], "icon.png")
+            self.assertEqual(data["display"]["icon_fallback"], "icon.svg")
 
     def test_metadata_override_applies_manifest_fields(self) -> None:
         with workspace_tempdir() as temp:
@@ -169,11 +172,14 @@ class AppStudioTests(unittest.TestCase):
                 "main.py",
                 "--metadata-override",
                 "override.json",
+                "--icon-override",
+                "icon_override.json",
                 "--suggest",
             ]
         )
 
         self.assertEqual(args.metadata_override, "override.json")
+        self.assertEqual(args.icon_override, "icon_override.json")
 
     def test_metadata_override_invalid_json_fails_clearly(self) -> None:
         with workspace_tempdir() as temp:
@@ -182,6 +188,25 @@ class AppStudioTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "metadata override JSON is invalid"):
                 load_metadata_override(path)
+
+    def test_icon_override_adopts_png(self) -> None:
+        png = "data:image/png;base64,iVBORw0KGgo="
+        final_png, source, warnings = apply_icon_override(
+            b"\x89PNG\r\n\x1a\nfallback",
+            {"selected_icon_source": "candidate_png", "png_base64": png},
+        )
+
+        self.assertEqual(source, "candidate_png")
+        self.assertEqual(warnings, [])
+        self.assertTrue(final_png.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_icon_override_invalid_json_fails_clearly(self) -> None:
+        with workspace_tempdir() as temp:
+            path = Path(temp) / "icon_override.json"
+            path.write_text("{invalid", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "icon override JSON is invalid"):
+                load_icon_override(path)
 
 
 if __name__ == "__main__":

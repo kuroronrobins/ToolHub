@@ -59,6 +59,7 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
         <ResultRow icon={<CheckCircle2 size={18} />} label="last_action" value={lastAction ?? "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="output_dir" value={result?.outputDir ?? "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="metadata_override" value={metadataOverrideText(result)} />
+        <ResultRow icon={<CheckCircle2 size={18} />} label="icon_override" value={iconOverrideText(result)} />
         <ResultRow icon={<CircleAlert size={18} />} label="execution" value={result?.executionStatus ?? "unknown"} />
         <ResultRow icon={<CircleAlert size={18} />} label="approval_allowed" value={formatBool(result?.approvalAllowed)} />
         <ResultRow icon={<CircleAlert size={18} />} label="runtime" value={result?.runtimeStatus ?? "unknown"} />
@@ -125,6 +126,13 @@ function metadataOverrideText(result: AppStudioRunResult | null): string {
     return "not used";
   }
   return result.metadataOverrideKeys?.length ? result.metadataOverrideKeys.join(", ") : "used";
+}
+
+function iconOverrideText(result: AppStudioRunResult | null): string {
+  if (!result?.iconOverrideUsed) {
+    return result?.selectedIconSource ?? "not used";
+  }
+  return result.selectedIconSource ?? "used";
 }
 
 function nextActionText(

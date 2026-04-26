@@ -5,6 +5,9 @@ import os
 from dataclasses import dataclass
 
 
+DEFAULT_IMAGE_MODEL = "gpt-image-2"
+
+
 @dataclass
 class OpenAIResult:
     ok: bool
@@ -23,7 +26,7 @@ def text_model() -> str:
 
 
 def image_model() -> str:
-    return os.environ.get("TOOLHUB_APP_STUDIO_IMAGE_MODEL", "local-deterministic-fallback")
+    return os.environ.get("TOOLHUB_APP_STUDIO_IMAGE_MODEL", DEFAULT_IMAGE_MODEL)
 
 
 def can_call_api() -> tuple[bool, str]:
@@ -74,7 +77,10 @@ def generate_image(prompt: str) -> OpenAIResult:
         return OpenAIResult(False, False, "", f"OpenAI package is not available. fallback used. error={exc!r}", repr(exc))
     try:
         client = OpenAI()
-        response = client.images.generate(model=model, prompt=prompt, size="1024x1024")
+        try:
+            response = client.images.generate(model=model, prompt=prompt, size="1024x1024", response_format="b64_json")
+        except TypeError:
+            response = client.images.generate(model=model, prompt=prompt, size="1024x1024")
         data = response.data[0]
         b64 = getattr(data, "b64_json", None)
         if b64:
@@ -87,4 +93,3 @@ def generate_image(prompt: str) -> OpenAIResult:
 
 def decode_base64_image(content: str) -> bytes:
     return base64.b64decode(content)
-

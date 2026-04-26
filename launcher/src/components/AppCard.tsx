@@ -12,7 +12,13 @@ export function AppCard({ app, onLaunch, onDetail }: Props) {
     <article className="app-card">
       <div className="card-head">
         <div className="app-icon" aria-hidden="true">
-          {app.iconSvg ? <img src={`data:image/svg+xml;utf8,${encodeURIComponent(app.iconSvg)}`} alt="" /> : <FileQuestion size={28} />}
+          {app.iconDataUrl ? (
+            <img src={app.iconDataUrl} alt="" />
+          ) : app.iconSvg ? (
+            <img src={`data:image/svg+xml;utf8,${encodeURIComponent(app.iconSvg)}`} alt="" />
+          ) : (
+            <FileQuestion size={28} />
+          )}
         </div>
         <div className="card-title-block">
           <h2>{app.name}</h2>

@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import html
 from pathlib import Path
+import struct
+import zlib
 
 from .ai_metadata_suggester import suggest_icon_prompt
 from .models import StudioContext
@@ -17,11 +19,14 @@ PALETTE = [
 ]
 
 
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
 def collect_icon_style_reference(repo_root: Path) -> str:
     app_dirs = sorted((repo_root / "apps").glob("*"))
     names = []
     for app_dir in app_dirs:
-        if (app_dir / "app.yaml").is_file() and (app_dir / "icon.svg").is_file():
+        if (app_dir / "app.yaml").is_file() and ((app_dir / "icon.png").is_file() or (app_dir / "icon.svg").is_file()):
             names.append(app_dir.name)
     if not names:
         return "No existing app icons were found."
@@ -29,11 +34,11 @@ def collect_icon_style_reference(repo_root: Path) -> str:
 
 
 def generate_icon_assets(context: StudioContext, revision_prompt: str | None = None, allow_ai: bool = True) -> tuple[str, str, str, str, str]:
-    initial_prompt, revision, svg, style_reference, report, _, _ = generate_icon_assets_with_candidates(context, revision_prompt, allow_ai)
+    initial_prompt, revision, svg, _, style_reference, report, _, _ = generate_icon_assets_with_candidates(context, revision_prompt, allow_ai)
     return initial_prompt, revision, svg, style_reference, report
 
 
-def generate_icon_assets_with_candidates(context: StudioContext, revision_prompt: str | None = None, allow_ai: bool = True) -> tuple[str, str, str, str, str, bytes | None, str]:
+def generate_icon_assets_with_candidates(context: StudioContext, revision_prompt: str | None = None, allow_ai: bool = True) -> tuple[str, str, str, bytes, str, str, bytes | None, str]:
     style_reference = collect_icon_style_reference(context.repo_root)
     initial_prompt, initial_report = suggest_icon_prompt(context, allow_ai=allow_ai)
     if revision_prompt:
@@ -45,6 +50,7 @@ def generate_icon_assets_with_candidates(context: StudioContext, revision_prompt
     image_result = generate_image(prompt_for_svg) if allow_ai else None
     png_bytes, image_url, image_note = image_candidate_from_result(image_result)
     svg = generate_local_svg(context, prompt_for_svg, style_reference)
+    fallback_png = generate_local_png(context, prompt_for_svg, style_reference)
     report = "\n".join(
         [
             "# AI Generation Report",
@@ -60,10 +66,11 @@ def generate_icon_assets_with_candidates(context: StudioContext, revision_prompt
             image_result.report if image_result else "OpenAI image generation skipped because AI use was not allowed.",
             image_note,
             "",
-            "The final icon.svg is always a local deterministic SVG fallback so the launcher can render it safely.",
+            "PNG is the standard ToolHub App Studio icon output. API PNG candidates require human adoption before final icon.png is replaced.",
+            "A deterministic local PNG and SVG fallback remain available when AI is disabled, missing, or blocked.",
         ]
     )
-    return initial_prompt, revision, svg, style_reference, report, png_bytes, image_url
+    return initial_prompt, revision, svg, fallback_png, style_reference, report, png_bytes, image_url
 
 
 def image_candidate_from_result(image_result) -> tuple[bytes | None, str, str]:
@@ -89,3 +96,73 @@ def generate_local_svg(context: StudioContext, prompt: str, style_reference: str
   <text x="46" y="50" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="{stroke}">{letter}</text>
 </svg>
 """
+
+
+def generate_local_png(context: StudioContext, prompt: str, style_reference: str, size: int = 64) -> bytes:
+    digest = hashlib.sha256((context.app_id + prompt + style_reference).encode("utf-8")).digest()
+    stroke_hex, fill_hex = PALETTE[digest[0] % len(PALETTE)]
+    stroke = hex_to_rgb(stroke_hex)
+    fill = hex_to_rgb(fill_hex)
+    white = (255, 255, 255)
+    transparent = (0, 0, 0, 0)
+    pixels: list[list[tuple[int, int, int, int]]] = []
+    for y in range(size):
+        row: list[tuple[int, int, int, int]] = []
+        for x in range(size):
+            color = transparent
+            if 10 <= x <= 54 and 8 <= y <= 56:
+                color = (*fill, 255)
+            if border_pixel(x, y):
+                color = (*stroke, 255)
+            if (22 <= x <= 42 and y in {22, 23, 32, 33}) or (22 <= x <= 34 and y in {42, 43}):
+                color = (*stroke, 255)
+            if (x - 46) * (x - 46) + (y - 46) * (y - 46) <= 64:
+                color = (*white, 255)
+            if 49 <= (x - 46) * (x - 46) + (y - 46) * (y - 46) <= 81:
+                color = (*stroke, 255)
+            if letter_mark_pixel(x, y, digest):
+                color = (*stroke, 255)
+            row.append(color)
+        pixels.append(row)
+    return encode_png_rgba(pixels)
+
+
+def border_pixel(x: int, y: int) -> bool:
+    on_outer = 10 <= x <= 54 and 8 <= y <= 56 and (x in {10, 11, 53, 54} or y in {8, 9, 55, 56})
+    corner_cut = (x < 14 and y < 12) or (x > 50 and y < 12) or (x < 14 and y > 52) or (x > 50 and y > 52)
+    return on_outer and not corner_cut
+
+
+def letter_mark_pixel(x: int, y: int, digest: bytes) -> bool:
+    pattern = digest[1] % 3
+    if pattern == 0:
+        return (43 <= x <= 49 and y in {43, 44}) or (43 <= x <= 49 and y in {48, 49}) or (43 <= y <= 49 and x in {43, 44})
+    if pattern == 1:
+        return (43 <= y <= 49 and x in {43, 44, 48, 49}) or (43 <= x <= 49 and y in {43, 44})
+    return (43 <= x <= 49 and y in {43, 44, 48, 49}) or (43 <= y <= 49 and x in {43, 44, 48, 49})
+
+
+def hex_to_rgb(value: str) -> tuple[int, int, int]:
+    stripped = value.lstrip("#")
+    return int(stripped[0:2], 16), int(stripped[2:4], 16), int(stripped[4:6], 16)
+
+
+def encode_png_rgba(pixels: list[list[tuple[int, int, int, int]]]) -> bytes:
+    height = len(pixels)
+    width = len(pixels[0]) if height else 0
+    raw = bytearray()
+    for row in pixels:
+        raw.append(0)
+        for red, green, blue, alpha in row:
+            raw.extend([red, green, blue, alpha])
+    chunks = [
+        png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)),
+        png_chunk(b"IDAT", zlib.compress(bytes(raw))),
+        png_chunk(b"IEND", b""),
+    ]
+    return PNG_SIGNATURE + b"".join(chunks)
+
+
+def png_chunk(kind: bytes, data: bytes) -> bytes:
+    checksum = zlib.crc32(kind + data) & 0xFFFFFFFF
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", checksum)

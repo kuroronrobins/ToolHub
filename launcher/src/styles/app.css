@@ -1201,9 +1201,20 @@ button {
   overflow: hidden;
 }
 
+.studio-icon-preview.primary-icon-preview {
+  width: 96px;
+  height: 96px;
+}
+
 .studio-icon-preview svg {
   width: 64px;
   height: 64px;
+}
+
+.studio-icon-fallback {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
 }
 
 .studio-ai-warning {
