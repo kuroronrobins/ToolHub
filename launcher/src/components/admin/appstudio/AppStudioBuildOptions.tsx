@@ -17,12 +17,12 @@ export function AppStudioBuildOptions({ request, onChange }: Props) {
   }
 
   return (
-    <section className="studio-step">
+    <section className="studio-step studio-build-options">
       <div>
-        <span className="studio-step-index">3</span>
-        <h4>Build mode</h4>
+        <span className="studio-step-index">B</span>
+        <h4>実行方式</h4>
       </div>
-      <div className="studio-segmented" role="radiogroup" aria-label="Build mode">
+      <div className="studio-segmented" role="radiogroup" aria-label="実行方式">
         {BUILD_MODES.map((mode) => (
           <button
             key={mode}
@@ -47,8 +47,8 @@ export function AppStudioBuildOptions({ request, onChange }: Props) {
           <ul>
             <li>既存exeとして登録します。</li>
             <li>Python依存解析は基本的に不要です。</li>
-            <li>exeと同じフォルダのDLL/設定ファイルもbin配下にコピーされます。</li>
-            <li>dry executionはスキップされるためwarnになる場合があります。AllowWarningsなら承認できます。</li>
+            <li>exeと同じフォルダのDLLや設定ファイルもbin配下にコピーされます。</li>
+            <li>dry executionがスキップされてwarnになる場合があります。AllowWarningsなら承認できます。</li>
           </ul>
         ) : null}
       </div>

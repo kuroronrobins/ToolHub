@@ -16,36 +16,41 @@ type ArrayKey = "categories" | "keywords" | "examples" | "useCases" | "inputs" |
 type MetadataKey = ScalarKey | ArrayKey;
 type FieldHistory = Partial<Record<MetadataKey, string | string[]>>;
 
-const SCALAR_FIELDS: Array<{ key: ScalarKey; label: string; rows: number; releaseOnly?: boolean }> = [
-  { key: "shortDescription", label: "short_description", rows: 2 },
-  { key: "description", label: "description", rows: 4 },
-  { key: "changeSummary", label: "change_summary", rows: 3, releaseOnly: true },
+const SCALAR_FIELDS: Array<{ key: ScalarKey; label: string; rows: number; releaseOnly?: boolean; detail?: boolean }> = [
+  { key: "shortDescription", label: "一言説明", rows: 2 },
+  { key: "description", label: "詳細説明", rows: 4 },
+  { key: "changeSummary", label: "変更概要", rows: 3, releaseOnly: true },
 ];
 
-const ARRAY_FIELDS: Array<{ key: ArrayKey; label: string; releaseOnly?: boolean }> = [
-  { key: "categories", label: "categories" },
-  { key: "keywords", label: "keywords" },
-  { key: "examples", label: "examples" },
-  { key: "useCases", label: "use_cases" },
-  { key: "inputs", label: "inputs" },
-  { key: "outputs", label: "outputs" },
-  { key: "notes", label: "notes" },
-  { key: "releaseNotes", label: "release_notes", releaseOnly: true },
+const ARRAY_FIELDS: Array<{ key: ArrayKey; label: string; releaseOnly?: boolean; detail?: boolean }> = [
+  { key: "categories", label: "カテゴリ" },
+  { key: "keywords", label: "検索キーワード" },
+  { key: "examples", label: "利用例", detail: true },
+  { key: "useCases", label: "用途", detail: true },
+  { key: "inputs", label: "入力", detail: true },
+  { key: "outputs", label: "出力", detail: true },
+  { key: "notes", label: "備考", detail: true },
+  { key: "releaseNotes", label: "リリースノート", releaseOnly: true, detail: true },
 ];
 
 interface Props {
   metadata?: AppStudioEditableMetadata;
   proposal?: AppStudioAiMetadataSuggestion | null;
   includeReleaseFields?: boolean;
+  compact?: boolean;
   onChange: (metadata: AppStudioEditableMetadata) => void;
 }
 
-export function AppStudioMetadataEditor({ metadata, proposal, includeReleaseFields = false, onChange }: Props) {
+export function AppStudioMetadataEditor({ metadata, proposal, includeReleaseFields = false, compact = false, onChange }: Props) {
   const [history, setHistory] = useState<FieldHistory>({});
   const current = metadata ?? createEmptyAppStudioMetadata();
   const proposalMetadata = useMemo(() => (proposal ? metadataFromSuggestion(proposal) : null), [proposal]);
   const scalarFields = SCALAR_FIELDS.filter((field) => includeReleaseFields || !field.releaseOnly);
   const arrayFields = ARRAY_FIELDS.filter((field) => includeReleaseFields || !field.releaseOnly);
+  const primaryScalarFields = compact ? scalarFields.filter((field) => !field.detail && field.key !== "changeSummary") : scalarFields;
+  const primaryArrayFields = compact ? arrayFields.filter((field) => !field.detail) : arrayFields;
+  const detailScalarFields = compact ? scalarFields.filter((field) => field.detail || field.key === "changeSummary") : [];
+  const detailArrayFields = compact ? arrayFields.filter((field) => field.detail) : [];
   const hasProposal = hasEditableMetadata(proposalMetadata ?? undefined);
 
   function update(partial: Partial<AppStudioEditableMetadata>) {
@@ -116,47 +121,67 @@ export function AppStudioMetadataEditor({ metadata, proposal, includeReleaseFiel
     <section className="studio-step">
       <div>
         <span className="studio-step-index">M</span>
-        <h4>Metadata</h4>
+        <h4>登録情報</h4>
       </div>
       <div className="studio-action-row">
         <button className="secondary-button" type="button" onClick={adoptAll} disabled={!hasProposal}>
           <CheckCircle2 size={17} aria-hidden="true" />
-          Adopt all proposals
+          AI提案をすべて採用
         </button>
       </div>
       <div className="studio-metadata-grid">
-        {scalarFields.map((field) => (
-          <AppStudioMetadataField
-            key={field.key}
-            label={field.label}
-            rows={field.rows}
-            value={current[field.key] ?? ""}
-            proposal={proposalMetadata?.[field.key] ?? ""}
-            status={statusForString(current[field.key], proposalMetadata?.[field.key])}
-            warning={warningForString(field.key, current[field.key])}
-            canRevert={typeof history[field.key] === "string"}
-            onChange={(value) => update({ [field.key]: value })}
-            onAdopt={() => adoptScalar(field.key)}
-            onRevert={() => revertScalar(field.key)}
-          />
-        ))}
-        {arrayFields.map((field) => (
-          <AppStudioArrayField
-            key={field.key}
-            label={field.label}
-            value={current[field.key]}
-            proposal={proposalMetadata?.[field.key]}
-            status={statusForList(current[field.key], proposalMetadata?.[field.key])}
-            warning={warningForList(field.key, current[field.key])}
-            canRevert={Array.isArray(history[field.key])}
-            onChange={(value) => update({ [field.key]: value })}
-            onAdopt={() => adoptArray(field.key)}
-            onRevert={() => revertArray(field.key)}
-          />
-        ))}
+        {renderScalarFields(primaryScalarFields)}
+        {renderArrayFields(primaryArrayFields)}
+        {compact && (detailScalarFields.length || detailArrayFields.length) ? (
+          <details className="studio-collapsible">
+            <summary>
+              <span>詳細項目を開く</span>
+              <small>利用例、用途、入力、出力、備考を編集します。</small>
+            </summary>
+            <div className="studio-collapsible-body studio-metadata-grid">
+              {renderScalarFields(detailScalarFields)}
+              {renderArrayFields(detailArrayFields)}
+            </div>
+          </details>
+        ) : null}
       </div>
     </section>
   );
+
+  function renderScalarFields(fields: typeof scalarFields) {
+    return fields.map((field) => (
+      <AppStudioMetadataField
+        key={field.key}
+        label={field.label}
+        rows={field.rows}
+        value={current[field.key] ?? ""}
+        proposal={proposalMetadata?.[field.key] ?? ""}
+        status={statusForString(current[field.key], proposalMetadata?.[field.key])}
+        warning={warningForString(field.key, current[field.key])}
+        canRevert={typeof history[field.key] === "string"}
+        onChange={(value) => update({ [field.key]: value })}
+        onAdopt={() => adoptScalar(field.key)}
+        onRevert={() => revertScalar(field.key)}
+      />
+    ));
+  }
+
+  function renderArrayFields(fields: typeof arrayFields) {
+    return fields.map((field) => (
+      <AppStudioArrayField
+        key={field.key}
+        label={field.label}
+        value={current[field.key]}
+        proposal={proposalMetadata?.[field.key]}
+        status={statusForList(current[field.key], proposalMetadata?.[field.key])}
+        warning={warningForList(field.key, current[field.key])}
+        canRevert={Array.isArray(history[field.key])}
+        onChange={(value) => update({ [field.key]: value })}
+        onAdopt={() => adoptArray(field.key)}
+        onRevert={() => revertArray(field.key)}
+      />
+    ));
+  }
 }
 
 function withoutKey(history: FieldHistory, key: MetadataKey): FieldHistory {
@@ -192,10 +217,10 @@ function statusForList(current?: string[], proposal?: string[]): string {
 function warningForString(key: ScalarKey, value?: string): string {
   const cleaned = cleanString(value);
   if (!cleaned && (key === "shortDescription" || key === "description")) {
-    return `${key === "shortDescription" ? "short_description" : key} is empty; CLI fallback will be used unless you adopt or edit it.`;
+    return `${key === "shortDescription" ? "一言説明" : "詳細説明"}が未入力です。採用または手入力しない場合はCLI側のフォールバックが使われます。`;
   }
   if (key === "shortDescription" && cleaned.length > 160) {
-    return "short_description is long for launcher cards.";
+    return "一言説明が長めです。ランチャーカードでは短い文の方が読みやすくなります。";
   }
   return "";
 }
@@ -203,7 +228,7 @@ function warningForString(key: ScalarKey, value?: string): string {
 function warningForList(key: ArrayKey, value?: string[]): string {
   const cleaned = cleanList(value);
   if (!cleaned.length && (key === "categories" || key === "keywords")) {
-    return `${key} is empty; CLI fallback will be used unless you adopt or edit it.`;
+    return `${key === "categories" ? "カテゴリ" : "検索キーワード"}が未入力です。採用または手入力しない場合はCLI側のフォールバックが使われます。`;
   }
   return "";
 }
