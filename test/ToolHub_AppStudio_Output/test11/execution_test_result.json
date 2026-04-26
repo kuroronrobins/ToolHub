@@ -1,0 +1,43 @@
+{
+  "app_id": "test11",
+  "generated_at": "2026-04-26T20:53:30",
+  "overall_status": "warn",
+  "approval_allowed": true,
+  "checks": [
+    {
+      "name": "app.yaml exists",
+      "status": "pass",
+      "detail": "C:\\Users\\kuroron\\Documents\\RD\\20260426_Toolhub\\apps\\test11\\app.yaml"
+    },
+    {
+      "name": "app.yaml parse",
+      "status": "pass",
+      "detail": "runner=python_app_env, entry=src/main.py"
+    },
+    {
+      "name": "runner supported",
+      "status": "pass",
+      "detail": "python_app_env"
+    },
+    {
+      "name": "run.entry exists",
+      "status": "pass",
+      "detail": "C:\\Users\\kuroron\\Documents\\RD\\20260426_Toolhub\\apps\\test11\\src\\main.py"
+    },
+    {
+      "name": "secret scan",
+      "status": "pass",
+      "detail": "No high severity secret findings."
+    },
+    {
+      "name": "python runtime",
+      "status": "warn",
+      "detail": "Missing C:\\Users\\kuroron\\Documents\\RD\\20260426_Toolhub\\runtime\\app_envs\\test11\\Scripts\\python.exe and C:\\Users\\kuroron\\Documents\\RD\\20260426_Toolhub\\runtime\\python\\python.exe. StrictApproval will reject this."
+    },
+    {
+      "name": "runner dry execution",
+      "status": "warn",
+      "detail": "Skipped because ToolHub Python runtime/app_env is not present."
+    }
+  ]
+}
