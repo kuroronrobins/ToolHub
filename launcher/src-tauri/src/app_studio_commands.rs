@@ -43,11 +43,54 @@ pub struct AppStudioRunResult {
     pub user_message: String,
     pub output_dir: Option<String>,
     pub app_id: Option<String>,
+    pub selected_build_mode: Option<String>,
     pub execution_status: Option<String>,
     pub approval_allowed: Option<bool>,
     pub runtime_status: Option<String>,
     pub app_pack: Option<String>,
     pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioPreflightResult {
+    pub ok: bool,
+    pub entry_exists: bool,
+    pub app_id_valid: bool,
+    pub build_mode_valid: bool,
+    pub python_source: String,
+    pub python_path: Option<String>,
+    pub runtime_python_exists: bool,
+    pub warnings: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct PythonCandidate {
+    source: String,
+    path: PathBuf,
+}
+
+#[tauri::command]
+pub fn app_studio_preflight(
+    request: AppStudioImportRequest,
+    session: State<AdminSessionState>,
+) -> Result<AppStudioPreflightResult, String> {
+    session.require_authenticated()?;
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    Ok(preflight_for_request(
+        &request,
+        &root,
+        find_python_candidate(&root),
+    ))
+}
+
+#[tauri::command]
+pub fn app_studio_pick_entry_file(
+    session: State<AdminSessionState>,
+) -> Result<Option<String>, String> {
+    session.require_authenticated()?;
+    pick_entry_file()
 }
 
 #[tauri::command]
@@ -75,10 +118,11 @@ pub async fn app_studio_apply(
 #[tauri::command]
 pub async fn app_studio_approve(
     app_id: String,
+    strict: bool,
     session: State<'_, AdminSessionState>,
 ) -> Result<AppStudioRunResult, String> {
     session.require_authenticated()?;
-    tauri::async_runtime::spawn_blocking(move || run_approve_action(app_id))
+    tauri::async_runtime::spawn_blocking(move || run_approve_action(app_id, strict))
         .await
         .map_err(|_| "App Studio承認処理を完了できませんでした。".to_string())?
 }
@@ -105,7 +149,8 @@ fn run_import_action(
 ) -> Result<AppStudioRunResult, String> {
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
     validate_request(&request)?;
-    let python = find_python(&root).ok_or_else(python_missing_message)?;
+    let python_candidate = find_python_candidate(&root).ok_or_else(python_missing_message)?;
+    let python = python_candidate.path.clone();
     let script = root.join("tools").join("app_studio").join("main.py");
     if !script.is_file() {
         return Err("tools/app_studio/main.py が見つかりません。".to_string());
@@ -116,6 +161,7 @@ fn run_import_action(
         &[
             ("app_id", request.app_id.clone().unwrap_or_default()),
             ("build_mode", request.build_mode.clone()),
+            ("python_source", python_candidate.source.clone()),
         ],
     );
 
@@ -184,6 +230,15 @@ fn run_import_action(
             ),
             ("build_mode", request.build_mode.clone()),
             ("output_dir", summary.output_dir.clone().unwrap_or_default()),
+            ("python_source", python_candidate.source),
+            (
+                "user_message",
+                if output.status.success() {
+                    "ok".to_string()
+                } else {
+                    "App Studio処理に失敗しました".to_string()
+                },
+            ),
         ],
     );
     Ok(result_from_process(
@@ -200,17 +255,27 @@ fn run_import_action(
     ))
 }
 
-fn run_approve_action(app_id: String) -> Result<AppStudioRunResult, String> {
+fn run_approve_action(app_id: String, strict: bool) -> Result<AppStudioRunResult, String> {
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
     validate_app_id(&app_id)?;
-    let python = find_python(&root).ok_or_else(python_missing_message)?;
+    let python_candidate = find_python_candidate(&root).ok_or_else(python_missing_message)?;
+    let python = python_candidate.path.clone();
     let script = root.join("tools").join("app_studio").join("main.py");
-    append_app_studio_gui_log("approve started", &[("app_id", app_id.clone())]);
+    let approval_mode = approval_mode_name(strict);
+    append_app_studio_gui_log(
+        "approve started",
+        &[
+            ("app_id", app_id.clone()),
+            ("approval_mode", approval_mode.to_string()),
+            ("python_source", python_candidate.source.clone()),
+        ],
+    );
     let output = Command::new(&python)
         .arg(script)
         .arg("approve")
         .arg("--app-id")
         .arg(&app_id)
+        .arg(approval_flag(strict))
         .current_dir(&root)
         .output()
         .map_err(|_| "App Studio承認処理を起動できませんでした。".to_string())?;
@@ -224,6 +289,16 @@ fn run_approve_action(app_id: String) -> Result<AppStudioRunResult, String> {
             ("exit_code", exit_code.to_string()),
             ("app_id", app_id),
             ("output_dir", summary.output_dir.clone().unwrap_or_default()),
+            ("approval_mode", approval_mode.to_string()),
+            ("python_source", python_candidate.source),
+            (
+                "user_message",
+                if output.status.success() {
+                    "ok".to_string()
+                } else {
+                    "App Studio承認処理に失敗しました".to_string()
+                },
+            ),
         ],
     );
     Ok(result_from_process(
@@ -256,6 +331,7 @@ fn result_from_process(
         },
         output_dir: summary.output_dir,
         app_id: summary.app_id,
+        selected_build_mode: summary.selected_build_mode,
         execution_status: summary.execution_status,
         approval_allowed: summary.approval_allowed,
         runtime_status: summary.runtime_status,
@@ -272,18 +348,23 @@ fn validate_request(request: &AppStudioImportRequest) -> Result<(), String> {
     if !entry.is_file() {
         return Err("Entryファイルが見つかりません。".to_string());
     }
-    let lower = entry.to_string_lossy().to_lowercase();
-    for marker in [".env", ".pem", ".key", "credentials", "secrets", "token"] {
-        if lower.contains(marker) {
-            return Err("Entryファイルのパスに秘密情報らしい名前が含まれています。".to_string());
-        }
-    }
+    validate_entry_path(&entry)?;
     if !["auto", "app-env", "frozen-folder", "existing-exe"].contains(&request.build_mode.as_str())
     {
         return Err("BuildModeが不正です。".to_string());
     }
     if let Some(app_id) = clean_optional(&request.app_id) {
         validate_app_id(app_id)?;
+    }
+    Ok(())
+}
+
+fn validate_entry_path(entry: &Path) -> Result<(), String> {
+    let lower = entry.to_string_lossy().to_lowercase();
+    for marker in [".env", ".pem", ".key", "credentials", "secrets", "token"] {
+        if lower.contains(marker) {
+            return Err("Entryファイルのパスに秘密情報らしい名前が含まれています。".to_string());
+        }
     }
     Ok(())
 }
@@ -311,14 +392,21 @@ fn validate_app_id(app_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn find_python(root: &Path) -> Option<PathBuf> {
-    let embedded = root.join("runtime").join("python").join(if cfg!(windows) {
+fn runtime_python_path(root: &Path) -> PathBuf {
+    root.join("runtime").join("python").join(if cfg!(windows) {
         "python.exe"
     } else {
         "python"
-    });
+    })
+}
+
+fn find_python_candidate(root: &Path) -> Option<PythonCandidate> {
+    let embedded = runtime_python_path(root);
     if embedded.is_file() {
-        return Some(embedded);
+        return Some(PythonCandidate {
+            source: "runtime".to_string(),
+            path: embedded,
+        });
     }
     find_on_path(if cfg!(windows) {
         "python.exe"
@@ -326,7 +414,16 @@ fn find_python(root: &Path) -> Option<PathBuf> {
         "python"
     })
     .or_else(|| find_on_path("python"))
-    .or_else(|| find_on_path("py"))
+    .map(|path| PythonCandidate {
+        source: "python".to_string(),
+        path,
+    })
+    .or_else(|| {
+        find_on_path("py").map(|path| PythonCandidate {
+            source: "py".to_string(),
+            path,
+        })
+    })
 }
 
 fn find_on_path(command: &str) -> Option<PathBuf> {
@@ -348,6 +445,81 @@ fn find_on_path(command: &str) -> Option<PathBuf> {
 
 fn python_missing_message() -> String {
     "App Studioを実行するPythonが見つかりません。runtime/python/python.exeを配置するか、管理者の開発環境にpythonまたはpyを用意してください。通常ランチャー機能には影響しません。".to_string()
+}
+
+fn preflight_for_request(
+    request: &AppStudioImportRequest,
+    root: &Path,
+    python_candidate: Option<PythonCandidate>,
+) -> AppStudioPreflightResult {
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+
+    let entry = PathBuf::from(request.entry.trim());
+    let entry_exists = !request.entry.trim().is_empty() && entry.is_file();
+    if request.entry.trim().is_empty() {
+        errors.push("Entryファイルを指定してください。".to_string());
+    } else if !entry_exists {
+        errors.push("Entryファイルが見つかりません。".to_string());
+    } else if let Err(error) = validate_entry_path(&entry) {
+        errors.push(error);
+    }
+
+    let build_mode_valid =
+        ["auto", "app-env", "frozen-folder", "existing-exe"].contains(&request.build_mode.as_str());
+    if !build_mode_valid {
+        errors.push("BuildModeが不正です。".to_string());
+    }
+
+    let app_id_valid = match clean_optional(&request.app_id) {
+        Some(app_id) => match validate_app_id(app_id) {
+            Ok(()) => true,
+            Err(error) => {
+                errors.push(error);
+                false
+            }
+        },
+        None => {
+            warnings.push("AppIdが未入力です。CLI側の自動生成に任せます。".to_string());
+            true
+        }
+    };
+
+    let runtime_python_exists = runtime_python_path(root).is_file();
+    if !runtime_python_exists {
+        warnings.push(
+            "runtime/python/python.exe は未配置です。開発環境Python fallbackになる可能性があります。"
+                .to_string(),
+        );
+    }
+
+    let (python_source, python_path) = match python_candidate {
+        Some(candidate) => {
+            if candidate.source != "runtime" {
+                warnings.push(
+                    "開発環境Python fallbackを使用します。正式配布前はToolHub同梱runtimeで再確認してください。"
+                        .to_string(),
+                );
+            }
+            (candidate.source, Some(candidate.path.display().to_string()))
+        }
+        None => {
+            errors.push(python_missing_message());
+            ("missing".to_string(), None)
+        }
+    };
+
+    AppStudioPreflightResult {
+        ok: errors.is_empty(),
+        entry_exists,
+        app_id_valid,
+        build_mode_valid,
+        python_source,
+        python_path,
+        runtime_python_exists,
+        warnings,
+        errors,
+    }
 }
 
 fn read_summary(
@@ -505,6 +677,65 @@ fn clean_optional(value: &Option<String>) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
+fn approval_flag(strict: bool) -> &'static str {
+    if strict {
+        "--strict-approval"
+    } else {
+        "--allow-warnings"
+    }
+}
+
+fn approval_mode_name(strict: bool) -> &'static str {
+    if strict {
+        "StrictApproval"
+    } else {
+        "AllowWarnings"
+    }
+}
+
+#[cfg(windows)]
+fn pick_entry_file() -> Result<Option<String>, String> {
+    let script = r#"
+Add-Type -AssemblyName System.Windows.Forms
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = 'ToolHub App Studio Entry'
+$dialog.Filter = 'Python or executable (*.py;*.exe)|*.py;*.exe|Python files (*.py)|*.py|Executable files (*.exe)|*.exe|All files (*.*)|*.*'
+$dialog.CheckFileExists = $true
+$dialog.Multiselect = $false
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  Write-Output $dialog.FileName
+}
+"#;
+    let output = Command::new("powershell")
+        .arg("-NoProfile")
+        .arg("-STA")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-Command")
+        .arg(script)
+        .output()
+        .map_err(|_| {
+            "ファイル選択ダイアログを開けませんでした。手入力で続行してください。".to_string()
+        })?;
+    if !output.status.success() {
+        return Err(
+            "ファイル選択ダイアログでエラーが発生しました。手入力で続行してください。".to_string(),
+        );
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if value.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(value))
+    }
+}
+
+#[cfg(not(windows))]
+fn pick_entry_file() -> Result<Option<String>, String> {
+    Err("この環境ではファイル選択ダイアログを使用できません。Entryファイルパスを手入力してください。".to_string())
+}
+
 fn mask_sensitive(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut output = String::with_capacity(text.len());
@@ -601,6 +832,43 @@ mod tests {
         };
         assert!(validate_request(&request).is_ok());
         let _ = std::fs::remove_dir_all(entry.parent().unwrap());
+    }
+
+    #[test]
+    fn app_id_validation_rejects_invalid_values() {
+        assert!(validate_app_id("my_tool-1").is_ok());
+        assert!(validate_app_id("BadId").is_err());
+        assert!(validate_app_id("_bad").is_err());
+    }
+
+    #[test]
+    fn preflight_reports_missing_python() {
+        let entry = temp_entry();
+        let request = AppStudioImportRequest {
+            entry: entry.display().to_string(),
+            app_id: Some("my_tool".to_string()),
+            name: Some("My Tool".to_string()),
+            build_mode: "app-env".to_string(),
+            icon_prompt: None,
+            create_app_env: false,
+            rebuild_app_env: false,
+            generate_lock: false,
+            build_frozen_folder: false,
+            verify_runtime: false,
+        };
+        let result = preflight_for_request(&request, entry.parent().unwrap(), None);
+        assert!(!result.ok);
+        assert_eq!(result.python_source, "missing");
+        assert!(result.errors.iter().any(|item| item.contains("Python")));
+        let _ = std::fs::remove_dir_all(entry.parent().unwrap());
+    }
+
+    #[test]
+    fn approval_mode_maps_to_cli_flags() {
+        assert_eq!(approval_flag(true), "--strict-approval");
+        assert_eq!(approval_flag(false), "--allow-warnings");
+        assert_eq!(approval_mode_name(true), "StrictApproval");
+        assert_eq!(approval_mode_name(false), "AllowWarnings");
     }
 
     #[test]

@@ -37,7 +37,9 @@ fn main() {
             app_studio_commands::app_studio_suggest,
             app_studio_commands::app_studio_apply,
             app_studio_commands::app_studio_approve,
-            app_studio_commands::app_studio_read_result
+            app_studio_commands::app_studio_read_result,
+            app_studio_commands::app_studio_preflight,
+            app_studio_commands::app_studio_pick_entry_file
         ])
         .run(tauri::generate_context!())
         .expect("failed to run ToolHub");
