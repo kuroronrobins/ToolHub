@@ -10,7 +10,9 @@ import {
   appStudioUpdatePreflight,
   appStudioUpdateSuggest,
 } from "../../../lib/appStudioApi";
+import { cleanEditableMetadata, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
 import type {
+  AppStudioAiProposal,
   AppStudioApprovalMode,
   AppStudioBuildMode,
   AppStudioImportRequest,
@@ -24,6 +26,7 @@ import { bumpAppVersion, compareSimpleSemVer } from "../../../lib/appStudioVersi
 import { formatAdminError } from "../adminUi";
 import { AppStudioAiProposalPanel } from "./AppStudioAiProposalPanel";
 import { AppStudioBuildOptions } from "./AppStudioBuildOptions";
+import { AppStudioMetadataEditor } from "./AppStudioMetadataEditor";
 import { AppStudioPreflightPanel } from "./AppStudioPreflightPanel";
 import { AppStudioRegisteredAppPicker } from "./AppStudioRegisteredAppPicker";
 import { AppStudioResultPanel } from "./AppStudioResultPanel";
@@ -40,6 +43,7 @@ const INITIAL_REQUEST: AppStudioUpdateRequest = {
   newVersion: "",
   buildMode: "auto",
   iconPrompt: "",
+  metadata: createEmptyAppStudioMetadata(),
   createAppEnv: false,
   rebuildAppEnv: false,
   generateLock: false,
@@ -56,6 +60,7 @@ export function AppStudioUpdateWizard() {
   const [busy, setBusy] = useState(false);
   const [preflight, setPreflight] = useState<AppStudioPreflightResult | null>(null);
   const [result, setResult] = useState<AppStudioRunResult | null>(null);
+  const [aiProposal, setAiProposal] = useState<AppStudioAiProposal | null>(null);
   const [lastAction, setLastAction] = useState<StudioAction | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -94,11 +99,13 @@ export function AppStudioUpdateWizard() {
       name: app.name,
       currentVersion: app.version,
       buildMode: normalizeBuildMode(app.buildMode) ?? current.buildMode,
+      metadata: createEmptyAppStudioMetadata(),
     }));
     setVersionMode("patch");
     setManualVersion("");
     setPreflight(null);
     setResult(null);
+    setAiProposal(null);
     setLastAction(null);
   }
 
@@ -190,6 +197,8 @@ export function AppStudioUpdateWizard() {
         enabled: summary.enabled ?? runResult.enabled,
         currentVersion: request.currentVersion,
         newVersion: summary.version ?? newVersion,
+        metadataOverrideUsed: summary.metadataOverrideUsed ?? runResult.metadataOverrideUsed,
+        metadataOverrideKeys: summary.metadataOverrideKeys ?? runResult.metadataOverrideKeys,
       };
     } catch {
       return runResult;
@@ -312,6 +321,13 @@ export function AppStudioUpdateWizard() {
           onManualVersionChange={setManualVersion}
         />
 
+        <AppStudioMetadataEditor
+          metadata={request.metadata}
+          proposal={aiProposal?.metadata ?? null}
+          includeReleaseFields
+          onChange={(metadata) => update({ metadata })}
+        />
+
         <section className="studio-step">
           <div>
             <span className="studio-step-index">4</span>
@@ -366,6 +382,7 @@ export function AppStudioUpdateWizard() {
           busy={busy}
           onGenerate={() => run("suggest")}
           onAdopt={adoptAiProposal}
+          onProposalLoaded={setAiProposal}
         />
 
         <AppStudioPreflightPanel result={preflight} busy={busy} onRun={() => void runPreflight()} />
@@ -428,6 +445,7 @@ function cleanRequest(request: AppStudioUpdateRequest, newVersion: string): AppS
     currentVersion: request.currentVersion?.trim() || undefined,
     newVersion: newVersion.trim(),
     iconPrompt: request.iconPrompt?.trim() || undefined,
+    metadata: cleanEditableMetadata(request.metadata),
   };
 }
 

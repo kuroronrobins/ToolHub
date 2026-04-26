@@ -4,6 +4,8 @@ App Studio GUI のAI提案は管理者セッションが有効な場合だけ利
 
 AI提案は自動確定しません。管理者が提案内容を確認し、採用ボタンを押した項目だけGUI入力へ反映します。high secret が検出された場合はAI送信しません。APIキー、プロンプト内のsecret値、画像b64全文はログへ出しません。
 
+Metadata editor で採用・編集した登録項目は、管理者認証済みの Tauri command が `%LOCALAPPDATA%\ToolHub\data\app_studio\metadata_overrides\` に一時JSONとして保存し、CLIへ `--metadata-override` で渡します。ログに残すのは `metadata_override_keys` だけで、値本文は記録しません。空欄は既存の CLI 生成値を上書きせず、APIキー未設定時も fallback metadata と GUI編集値の merge で動作します。
+
 # 管理者画面とAI設定
 
 ## 目的

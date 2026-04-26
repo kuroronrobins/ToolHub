@@ -13,6 +13,18 @@ GUIでは、Suggest が生成した `proposed_app.yaml` と `icon_work/` をAI/f
 
 GUIでは CLI process の `exit_code` / `process_ok` と、`execution_test_result.json` の `overall_status` / `approval_allowed` を分けて表示します。`existing-exe` や `frozen-folder` では runner dry execution がスキップされ、`overall_status: warn` になることがあります。`approval_allowed: true` で、他のチェックが pass の場合は致命的失敗ではありません。GUIはこの状態を `warn / approval OK` と表示し、AllowWarnings で承認できるようにします。App Packが見つからない場合は App Pack 欄だけ `not found` と表示します。Apply後はGUIが `app_studio_read_result` を再実行し、生成済みJSONの内容を表示へ反映します。
 
+## AI提案メタデータとmetadata_override
+
+Metadata editor は、現在の編集値と AI/fallback 提案値を項目ごとに並べて表示します。`Adopt` はその項目だけを編集値へコピーし、`Revert` は採用直前の値へ戻します。`Adopt all proposals` は表示中の提案項目だけをまとめて採用します。AI提案は読み込み・生成だけでは確定しません。
+
+GUIで編集できる metadata は `short_description`、`description`、`categories`、`keywords`、`examples`、`use_cases`、`inputs`、`outputs`、`notes` です。更新GUIでは `release_notes` と `change_summary` も同じ editor で扱います。配列項目はMVPとして改行またはカンマ区切りの textarea です。
+
+編集値がある場合、GUI は `%LOCALAPPDATA%\ToolHub\data\app_studio\metadata_overrides\` に一時JSONを書き、CLIへ `--metadata-override <path>` を渡します。空欄や空配列は上書きしません。JSONには APIキーや secret を入れず、ログには値本文ではなく `metadata_override_keys` だけを記録します。不正JSONは CLI エラーとして扱い、型不一致や secret らしい値は警告として無視します。
+
+metadata_override は CLI の metadata 生成後に merge され、`proposed_app.yaml`、`final_app/app.yaml`、Apply 後の `apps/<app_id>/app.yaml` に反映されます。反映先は `display.short_description`、`detail.description`、`display.categories`、`search.keywords`、`search.examples`、`detail.use_cases`、`detail.inputs`、`detail.outputs`、`detail.notes`、`release.release_notes`、`release.change_summary` です。結果パネルには metadata_override の使用有無と反映キーを表示します。
+
+Icon候補は `final_svg`、`candidate_svg`、`fallback` の選択状態をGUIで明示できます。現時点ではレビュー用状態であり、Apply が実際に保存する `final_app/icon.svg` は CLI が生成した final SVG です。
+
 # ToolHub App Studio
 
 ## 目的

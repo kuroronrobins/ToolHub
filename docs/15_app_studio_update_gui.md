@@ -16,6 +16,7 @@
 - 更新用Preflightを実行する。
 - `Suggest update`、`Apply update`、`Approve update` を実行する。
 - current version / new version、execution、runtime、App Pack、enabled、次に必要な操作を表示する。
+- metadata editor で `short_description`、`description`、`categories`、`keywords`、`release_notes`、`change_summary` などを編集し、metadata_override 経由で更新後の `app.yaml` に反映する。
 
 ## Version Bump
 

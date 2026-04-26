@@ -14,11 +14,13 @@ sys.path.insert(0, str(ROOT / "runner"))
 from app_studio.build_planner import make_build_plan
 from app_studio.file_classifier import classify_files
 from app_studio.manifest_generator import generate_app_yaml
+from app_studio.metadata_override import apply_metadata_override, load_metadata_override
 from app_studio.models import ImportOptions
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import scan_secrets
 from app_studio.util import default_app_id_for_entry, reset_output_dir
 from toolhub_runner.manifest import manifest_from_dict, load_yaml_mapping
+from main import parse_args as parse_app_studio_args
 
 
 @contextmanager
@@ -105,6 +107,81 @@ class AppStudioTests(unittest.TestCase):
 
             self.assertEqual(manifest.id, "demo_app")
             self.assertEqual(manifest.run.runner, "python_app_env")
+
+    def test_metadata_override_applies_manifest_fields(self) -> None:
+        with workspace_tempdir() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            (repo / "apps").mkdir(parents=True)
+            (repo / "release").mkdir()
+            (repo / "runner").mkdir()
+            source = root / "source"
+            source.mkdir()
+            entry = source / "main.py"
+            entry.write_text("print('hello')\n", encoding="utf-8")
+
+            context = create_context(ImportOptions(entry=entry, action="suggest", app_id="demo_app", name="Demo App"), repo)
+            inventory = classify_files(context)
+            plan = make_build_plan(context, inventory)
+            metadata, applied, warnings = apply_metadata_override(
+                {"short_description": "old", "categories": ["old"], "keywords": ["old"]},
+                {
+                    "short_description": "New short",
+                    "description": "New long",
+                    "categories": ["ops", "reports"],
+                    "keywords": ["demo", "report"],
+                },
+            )
+            yaml_text = generate_app_yaml(context, plan, metadata)
+
+            self.assertEqual(warnings, [])
+            self.assertIn("short_description", applied)
+            self.assertIn("short_description: New short", yaml_text)
+            self.assertIn("- ops", yaml_text)
+            self.assertIn("- report", yaml_text)
+
+    def test_metadata_override_empty_values_do_not_overwrite(self) -> None:
+        metadata, applied, warnings = apply_metadata_override(
+            {"short_description": "keep", "categories": ["keep"]},
+            {"short_description": "  ", "categories": []},
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(applied, [])
+        self.assertEqual(metadata["short_description"], "keep")
+        self.assertEqual(metadata["categories"], ["keep"])
+
+    def test_metadata_override_json_loads(self) -> None:
+        with workspace_tempdir() as temp:
+            path = Path(temp) / "override.json"
+            path.write_text('{"short_description": "Loaded", "categories": ["ops"]}', encoding="utf-8")
+
+            loaded = load_metadata_override(path)
+
+            self.assertEqual(loaded["short_description"], "Loaded")
+            self.assertEqual(loaded["categories"], ["ops"])
+
+    def test_metadata_override_cli_argument_is_supported(self) -> None:
+        args = parse_app_studio_args(
+            [
+                "import",
+                "--entry",
+                "main.py",
+                "--metadata-override",
+                "override.json",
+                "--suggest",
+            ]
+        )
+
+        self.assertEqual(args.metadata_override, "override.json")
+
+    def test_metadata_override_invalid_json_fails_clearly(self) -> None:
+        with workspace_tempdir() as temp:
+            path = Path(temp) / "override.json"
+            path.write_text("{invalid", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "metadata override JSON is invalid"):
+                load_metadata_override(path)
 
 
 if __name__ == "__main__":

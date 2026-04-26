@@ -11,10 +11,12 @@ interface Props {
   busy: boolean;
   onGenerate: () => Promise<AppStudioRunResult | null>;
   onAdopt: (values: { name?: string; iconPrompt?: string }) => void;
+  onProposalLoaded?: (proposal: AppStudioAiProposal) => void;
 }
 
-export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGenerate, onAdopt }: Props) {
+export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGenerate, onAdopt, onProposalLoaded }: Props) {
   const [proposal, setProposal] = useState<AppStudioAiProposal | null>(null);
+  const [selectedIconSource, setSelectedIconSource] = useState<"final_svg" | "candidate_svg" | "fallback">("fallback");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -26,6 +28,7 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
     try {
       const loaded = await appStudioReadAiProposal(sourceResult?.appId ?? appId, sourceResult?.outputDir ?? outputDir ?? undefined);
       setProposal(loaded);
+      onProposalLoaded?.(loaded);
       setMessage(loaded.ok ? "AI提案を読み込みました。" : "提案ファイルがまだ不足しています。Suggestを実行してください。");
     } catch (loadError) {
       setError(formatAdminError(loadError, "AI提案を読み込めませんでした。"));
@@ -100,6 +103,7 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
             <Field label="outputs" value={metadata.outputs.join(", ")} />
             <Field label="notes" value={metadata.notes.join(" / ")} />
             <Field label="release_notes" value={metadata.releaseNotes.join(" / ")} />
+            <Field label="change_summary" value={metadata.changeSummary} />
           </dl>
         </div>
       ) : null}
@@ -121,6 +125,22 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
             {icon.finalSvg ? <IconSvg title="final svg" svg={icon.finalSvg} /> : null}
             {icon.candidatePngDataUrl ? <img className="studio-icon-preview" src={icon.candidatePngDataUrl} alt="AI PNG icon candidate" /> : null}
           </div>
+          <div className="studio-action-row">
+            <span className="admin-status-pill">selected: {selectedIconSource}</span>
+            <button className="secondary-button" type="button" onClick={() => setSelectedIconSource("final_svg")} disabled={!icon.finalSvg}>
+              <CheckCircle2 size={17} aria-hidden="true" />
+              Use final SVG
+            </button>
+            <button className="secondary-button" type="button" onClick={() => setSelectedIconSource("candidate_svg")} disabled={!icon.candidateSvg}>
+              <CheckCircle2 size={17} aria-hidden="true" />
+              Use candidate SVG
+            </button>
+            <button className="secondary-button" type="button" onClick={() => setSelectedIconSource("fallback")}>
+              <CheckCircle2 size={17} aria-hidden="true" />
+              Use fallback
+            </button>
+          </div>
+          <p className="admin-muted">Icon source selection is visible for review; Apply still writes the CLI-generated final_app/icon.svg.</p>
           {icon.candidateUrl ? <p className="admin-muted">PNG URL candidate: {icon.candidateUrl}</p> : null}
           <dl className="studio-ai-fields">
             <Field label="initial_prompt" value={icon.promptInitial} />
@@ -156,5 +176,20 @@ function Field({ label, value }: { label: string; value?: string | null }) {
 }
 
 function IconSvg({ title, svg }: { title: string; svg: string }) {
-  return <div className="studio-icon-preview" title={title} dangerouslySetInnerHTML={{ __html: svg }} />;
+  const safeSvg = sanitizeSvg(svg);
+  if (!safeSvg) {
+    return null;
+  }
+  return <div className="studio-icon-preview" title={title} dangerouslySetInnerHTML={{ __html: safeSvg }} />;
+}
+
+function sanitizeSvg(svg: string): string {
+  const trimmed = svg.trim();
+  if (!trimmed.startsWith("<svg") || !trimmed.includes("</svg>")) {
+    return "";
+  }
+  return trimmed
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, "")
+    .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, "");
 }
