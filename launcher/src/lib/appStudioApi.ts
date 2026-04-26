@@ -50,6 +50,10 @@ export async function appStudioAiDiagnostics(): Promise<AppStudioAiDiagnostics> 
   return invoke<AppStudioAiDiagnostics>("app_studio_ai_diagnostics");
 }
 
+export async function appStudioOpenOutputDir(outputDir: string): Promise<void> {
+  return invoke<void>("app_studio_open_output_dir", { outputDir });
+}
+
 export async function appStudioPreflight(request: AppStudioImportRequest): Promise<AppStudioPreflightResult> {
   return invoke<AppStudioPreflightResult>("app_studio_preflight", { request });
 }

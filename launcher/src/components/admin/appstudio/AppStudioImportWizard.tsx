@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
-import { ChevronRight, FileSearch, Loader2, Play, Rocket, ShieldCheck } from "lucide-react";
+import { ChevronRight, FileSearch, ImagePlus, Loader2, Play, RefreshCw, Rocket, ShieldCheck } from "lucide-react";
 import {
   appStudioApply,
   appStudioApprove,
   appStudioPickEntryFile,
   appStudioPreflight,
+  appStudioReadAiProposal,
   appStudioReadResult,
   appStudioSuggest,
 } from "../../../lib/appStudioApi";
@@ -61,6 +62,7 @@ export function AppStudioImportWizard() {
   const [aiProposal, setAiProposal] = useState<AppStudioAiProposal | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [iconRevisionPrompt, setIconRevisionPrompt] = useState("");
 
   const canRun = useMemo(() => request.entry.trim().length > 0 && !busy, [busy, request.entry]);
   const recommendation = useMemo(() => recommendBuildMode(request.entry), [request.entry]);
@@ -155,7 +157,7 @@ export function AppStudioImportWizard() {
           finishOperation("warning", warning);
         }
       } else if (showOperation) {
-        finishOperation("success", "事前確認が完了しました。次へ進めます。");
+        finishOperation("success", "事前確認が完了しました。このまま次へ進めます。");
       }
       return check;
     } catch (preflightError) {
@@ -172,13 +174,17 @@ export function AppStudioImportWizard() {
     }
   }
 
-  async function run(action: "suggest" | "apply", operationKind: "aiProposal" | "suggest" | "apply" = action): Promise<AppStudioRunResult | null> {
+  async function run(
+    action: "suggest" | "apply",
+    operationKind: "aiProposal" | "suggest" | "apply" = action,
+    requestOverride: AppStudioImportRequest = request,
+  ): Promise<AppStudioRunResult | null> {
     beginOperation(operationKind);
     setError("");
     setMessage("");
     setLastAction(action);
     try {
-      const cleaned = cleanRequest(request);
+      const cleaned = cleanRequest(requestOverride);
       const check = await runPreflight(cleaned, false);
       if (!check?.ok) {
         finishOperation("warning", "事前確認で問題が見つかったため、処理を中止しました。");
@@ -200,7 +206,7 @@ export function AppStudioImportWizard() {
       }
       return freshResult;
     } catch (runError) {
-      const fallback = action === "suggest" ? "登録内容の生成に失敗しました。" : "仮登録に失敗しました。";
+      const fallback = action === "suggest" ? "登録内容の作成に失敗しました。" : "テスト登録と起動確認に失敗しました。";
       setError(formatAdminError(runError, fallback));
       finishOperation("error", fallback);
       return null;
@@ -304,20 +310,44 @@ export function AppStudioImportWizard() {
       name: values.name ?? request.name,
       iconPrompt: values.iconPrompt ?? request.iconPrompt,
     });
-    setMessage("AI提案を編集欄へ反映しました。内容を確認してから仮登録してください。");
+    setMessage("AI提案を編集欄へ反映しました。内容を確認してからテスト登録してください。");
   }
 
   function adoptIconOverride(iconOverride: AppStudioIconOverride) {
     update({ iconOverride });
-    setMessage("PNGアイコン候補を採用しました。次回の仮登録で反映されます。");
+    setMessage("PNGアイコン候補を採用しました。次回のテスト登録で反映されます。");
   }
 
   function beginProposalLoad() {
-    beginOperation("refresh", "AI提案を読み込んでいます。");
+    beginOperation("refresh", "保存済みAI提案を読み込んでいます。");
   }
 
   function finishProposalLoad(ok: boolean, messageText?: string) {
-    finishOperation(ok ? "success" : "warning", messageText || (ok ? "AI提案を読み込みました。" : "AI提案を読み込めませんでした。"));
+    finishOperation(ok ? "success" : "warning", messageText || (ok ? "保存済みAI提案を読み込みました。" : "保存済みAI提案を読み込めませんでした。"));
+  }
+
+  async function regenerateIconProposal() {
+    const revision = iconRevisionPrompt.trim();
+    if (!revision) {
+      setError("アイコンの修正指示を入力してください。");
+      return;
+    }
+    const nextRequest = { ...request, iconPrompt: revision };
+    setRequest(nextRequest);
+    const generated = await run("suggest", "aiProposal", nextRequest);
+    if (!generated) {
+      return;
+    }
+    beginOperation("refresh", "再生成したアイコン候補を読み込んでいます。");
+    try {
+      const loaded = await appStudioReadAiProposal(generated.appId ?? nextRequest.appId, generated.outputDir ?? undefined);
+      setAiProposal(loaded);
+      finishOperation(loaded.ok ? "success" : "warning", loaded.ok ? "アイコン候補を再生成して読み込みました。" : "再生成後の提案ファイルを読み込めませんでした。");
+    } catch (loadError) {
+      const fallback = "再生成後のアイコン候補を読み込めませんでした。";
+      setError(formatAdminError(loadError, fallback));
+      finishOperation("error", fallback);
+    }
   }
 
   return (
@@ -408,7 +438,7 @@ export function AppStudioImportWizard() {
         <div className="studio-action-row">
           <button className="secondary-button" type="button" onClick={() => void runPreflight()} disabled={!canRun}>
             {operation.kind === "preflight" && busy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : null}
-            事前確認
+            事前確認を実行
           </button>
           <button className="primary-button" type="button" onClick={() => setStep("aiProposal")} disabled={!request.entry.trim()}>
             次へ
@@ -471,24 +501,9 @@ export function AppStudioImportWizard() {
 
         <AppStudioLauncherPreview appId={request.appId} name={request.name} metadata={request.metadata} proposal={aiProposal} iconOverride={request.iconOverride} />
 
-        <AppStudioMetadataEditor metadata={request.metadata} proposal={aiProposal?.metadata ?? null} compact onChange={(metadata) => update({ metadata })} />
+        {renderIconRevisionPanel()}
 
-        <section className="studio-step">
-          <div>
-            <span className="studio-step-index">I</span>
-            <h4>アイコン指示</h4>
-          </div>
-          <label className="admin-field">
-            <span>Icon Prompt</span>
-            <textarea
-              className="studio-textarea"
-              value={request.iconPrompt ?? ""}
-              placeholder="シンプルな業務アプリ用アイコン。用途が伝わる色と形を指定してください。"
-              onChange={(event) => update({ iconPrompt: event.target.value })}
-            />
-          </label>
-          <p className="admin-muted">PNG候補はAI提案ステップで確認し、「このPNGを採用」したものだけ仮登録時に反映されます。</p>
-        </section>
+        <AppStudioMetadataEditor metadata={request.metadata} proposal={aiProposal?.metadata ?? null} compact onChange={(metadata) => update({ metadata })} />
 
         <div className="studio-action-row">
           <button className="secondary-button" type="button" onClick={() => setStep("aiProposal")}>
@@ -503,14 +518,70 @@ export function AppStudioImportWizard() {
     );
   }
 
+  function renderIconRevisionPanel() {
+    const latestIcon = aiProposal?.icon.candidatePngDataUrl ?? aiProposal?.icon.finalPngDataUrl ?? null;
+    const adoptedIcon = request.iconOverride?.pngDataUrl ?? null;
+    return (
+      <section className="studio-icon-revision-panel">
+        <div className="admin-section-head">
+          <div>
+            <p className="dialog-kicker">アイコン再生成</p>
+            <h4>AIアイコンを修正する</h4>
+          </div>
+          <span className="admin-status-pill">採用中: {iconSourceLabel(request.iconOverride?.selectedIconSource)}</span>
+        </div>
+        <div className="studio-icon-compare">
+          <div>
+            <span>現在採用中</span>
+            {adoptedIcon ? <img className="studio-icon-preview" src={adoptedIcon} alt="現在採用中のPNGアイコン" /> : <div className="studio-icon-empty">未採用</div>}
+          </div>
+          <div>
+            <span>最新候補</span>
+            {latestIcon ? <img className="studio-icon-preview primary-icon-preview" src={latestIcon} alt="最新のPNGアイコン候補" /> : <div className="studio-icon-empty">候補なし</div>}
+          </div>
+        </div>
+        <label className="admin-field">
+          <span>修正指示</span>
+          <textarea
+            className="studio-textarea"
+            value={iconRevisionPrompt}
+            placeholder="例: もっとシンプルで小サイズでも見やすく。帳票・登録の意味が伝わる落ち着いた緑系にしたい。"
+            onChange={(event) => setIconRevisionPrompt(event.target.value)}
+          />
+        </label>
+        <div className="studio-prompt-summary">
+          <div>
+            <strong>初回Prompt</strong>
+            <p>{aiProposal?.icon.promptInitial || "まだ生成されていません。"}</p>
+          </div>
+          <div>
+            <strong>修正版Prompt</strong>
+            <p>{aiProposal?.icon.promptRevision || request.iconPrompt || "修正指示を入力すると次回生成に使われます。"}</p>
+          </div>
+        </div>
+        <div className="studio-action-row">
+          <button className="secondary-button" type="button" onClick={() => update({ iconPrompt: iconRevisionPrompt })} disabled={!iconRevisionPrompt.trim()}>
+            <ImagePlus size={17} aria-hidden="true" />
+            指示を保存
+          </button>
+          <button className="primary-button" type="button" onClick={() => void regenerateIconProposal()} disabled={busy || !iconRevisionPrompt.trim()}>
+            {operation.kind === "aiProposal" && busy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <RefreshCw size={17} aria-hidden="true" />}
+            この内容で再生成
+          </button>
+        </div>
+        <p className="admin-muted">再生成はAI APIを呼び、最新の提案ファイルとPNG候補を作り直します。採用は自動では行いません。</p>
+      </section>
+    );
+  }
+
   function renderRegister() {
     return (
       <section className="studio-step-panel">
         <div className="studio-panel-head">
           <span className="studio-step-index">4</span>
           <div>
-            <h4>仮登録・承認</h4>
-            <p>登録用ファイルを生成し、仮登録と実行確認を行ってから承認します。</p>
+            <h4>登録・承認</h4>
+            <p>作成、テスト、本登録の3段階で進めます。正式に有効化されるのは承認後です。</p>
           </div>
         </div>
 
@@ -531,18 +602,27 @@ export function AppStudioImportWizard() {
 
         <AppStudioPreflightPanel result={preflight} busy={busy} onRun={() => void runPreflight()} />
 
-        <div className="studio-action-row">
-          <button className="secondary-button" type="button" onClick={() => void run("suggest", "suggest")} disabled={!canRun} title={!canRun ? "アプリのメインファイルを選択してください" : undefined}>
-            {operation.kind === "suggest" && busy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <Play size={17} aria-hidden="true" />}
-            登録内容を作成
+        <div className="studio-register-action-grid">
+          <button className="studio-register-action" type="button" onClick={() => void run("suggest", "suggest")} disabled={!canRun} title={!canRun ? "アプリのメインファイルを選択してください" : undefined}>
+            {operation.kind === "suggest" && busy ? <Loader2 className="studio-spinner" size={18} aria-hidden="true" /> : <Play size={18} aria-hidden="true" />}
+            <span>
+              <strong>{operation.kind === "suggest" && busy ? "登録内容を作成しています..." : "登録内容を作成"}</strong>
+              <small>設定ファイルや出力物を作成します。まだToolHubへ有効化しません。</small>
+            </span>
           </button>
-          <button className="primary-button" type="button" onClick={() => void run("apply", "apply")} disabled={!canRun} title={!canRun ? "アプリのメインファイルを選択してください" : undefined}>
-            {operation.kind === "apply" && busy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <Rocket size={17} aria-hidden="true" />}
-            仮登録して実行確認
+          <button className="studio-register-action primary" type="button" onClick={() => void run("apply", "apply")} disabled={!canRun} title={!canRun ? "アプリのメインファイルを選択してください" : undefined}>
+            {operation.kind === "apply" && busy ? <Loader2 className="studio-spinner" size={18} aria-hidden="true" /> : <Rocket size={18} aria-hidden="true" />}
+            <span>
+              <strong>{operation.kind === "apply" && busy ? "起動確認を実行しています..." : "テスト登録して起動確認"}</strong>
+              <small>一時的に登録し、実際に起動できるか確認します。</small>
+            </span>
           </button>
-          <button className="primary-button" type="button" onClick={() => void approve()} disabled={busy || !canApprove}>
-            {operation.kind === "approve" && busy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <ShieldCheck size={17} aria-hidden="true" />}
-            承認して有効化
+          <button className="studio-register-action primary" type="button" onClick={() => void approve()} disabled={busy || !canApprove}>
+            {operation.kind === "approve" && busy ? <Loader2 className="studio-spinner" size={18} aria-hidden="true" /> : <ShieldCheck size={18} aria-hidden="true" />}
+            <span>
+              <strong>{operation.kind === "approve" && busy ? "承認して有効化しています..." : "承認して有効化"}</strong>
+              <small>このアプリを正式に利用可能な状態にします。</small>
+            </span>
           </button>
         </div>
 
@@ -591,7 +671,20 @@ function messageForResult(result: AppStudioRunResult, action: StudioAction): str
     return "承認して有効化しました。通常ランチャーで表示を確認してください。";
   }
   if (action === "apply") {
-    return "仮登録と実行確認が完了しました。問題なければ承認してください。";
+    return "テスト登録と起動確認が完了しました。問題なければ承認してください。";
   }
-  return "登録用ファイルを生成しました。内容を確認して次へ進んでください。";
+  return "登録内容を作成しました。内容を確認して次へ進んでください。";
+}
+
+function iconSourceLabel(source?: string): string {
+  if (source === "candidate_png") {
+    return "AI PNG候補";
+  }
+  if (source === "final_png") {
+    return "フォールバックPNG";
+  }
+  if (source === "fallback_png") {
+    return "フォールバック";
+  }
+  return "未採用";
 }
