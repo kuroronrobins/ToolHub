@@ -46,6 +46,15 @@
       "required_runner": ">=0.1.0",
       "required_runtime": "python-embedded-toolhub-001",
       "enabled": true
+    },
+    "test11": {
+      "version": "0.1.0",
+      "package": "app_packs/test11-0.1.0.zip",
+      "sha256": "1f9e177a6044c9cc0c6ebbfbd9279224fb9dcd004779b6080a14a7ac15a0661c",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": "python-embedded-toolhub-001",
+      "enabled": false
     }
   }
 }
