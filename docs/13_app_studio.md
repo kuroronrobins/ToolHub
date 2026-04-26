@@ -6,6 +6,10 @@ ToolHub App Studio は、開発者が既存アプリのメインファイルを�
 
 ランチャー本体には App Studio 専用 UI や個別アプリ固有処理を入れません。解析、提案、仮登録、承認は `tools/app_studio` と `scripts/import_app.ps1` で扱います。
 
+GUI 版 App Studio は管理者画面から開く方針です。通常ランチャー画面に App Studio や APIキー管理を直接出さず、初回管理者パスワード設定または管理者ログイン後の管理者ダッシュボードからのみ遷移します。
+
+OpenAI APIキーは管理者画面の AI/APIキー管理で扱います。キー本体は設定JSON、`app.yaml`、App Pack、ログには保存せず、Windows では Credential Manager を使います。APIキー未設定時も App Studio は deterministic fallback で動作します。
+
 ## 対応する登録方式
 
 - `app-env`: 標準方式。`runtime/app_envs/<app_id>/Scripts/python.exe` を優先し、なければ `runtime/python/python.exe` を使います。
@@ -241,6 +245,8 @@ data/logs/app_studio/<app_id>_execution_test_result.json
 ## OpenAI API連携
 
 AI 連携は明示的に有効化した場合だけ試行します。未設定時や失敗時は deterministic fallback を使います。
+
+GUI では管理者画面の AI/APIキー管理から AI ON/OFF、Text model、Image model、OpenAI APIキーを管理します。CLI では従来通り環境変数を利用できます。
 
 ```powershell
 $env:TOOLHUB_APP_STUDIO_AI_ENABLED="true"
