@@ -10,6 +10,46 @@ GUI 版 App Studio は管理者画面から開く方針です。通常ランチ�
 
 OpenAI APIキーは管理者画面の AI/APIキー管理で扱います。キー本体は設定JSON、`app.yaml`、App Pack、ログには保存せず、Windows では Credential Manager を使います。APIキー未設定時も App Studio は deterministic fallback で動作します。
 
+## GUI新規登録フロー
+
+管理者画面の App Studio から、新規アプリ登録の GUI フローを実行できます。GUI は既存の CLI 版 `tools/app_studio/main.py` を呼び出し、CLI の生成物と登録仕様をそのまま使います。
+
+GUI で入力できる項目:
+
+- Entry ファイルパス
+- App ID
+- 表示名
+- BuildMode: `auto`, `app-env`, `frozen-folder`, `existing-exe`
+- Icon Prompt
+- `requirements.lock` 生成
+- app_env 作成/再作成
+- frozen-folder build
+- runtime 検証
+
+GUI で実行できる操作:
+
+- `Suggest`: 元フォルダ側の `ToolHub_AppStudio_Output/<app_id>/` に提案生成
+- `Apply`: `apps/<app_id>/` へ仮登録し、`release/app_manifest.json` へ `enabled=false` で登録
+- `Approve`: 実行確認結果を確認し、承認可能な場合に `enabled=true` へ変更
+
+Apply 後は `execution_test_result.json`、`runtime_check_result.json`、App Pack、`enabled` 状態を GUI に表示します。`fail` がある場合は承認できません。Strict承認のGUI切替は次フェーズで追加予定です。
+
+GUI実行ログ:
+
+```text
+%LOCALAPPDATA%\ToolHub\data\logs\admin\app_studio_gui.log
+```
+
+ログには action、exit code、app_id、build_mode、output_dir を記録します。APIキー、パスワード、secret値は記録しません。stdout/stderr 表示前にも `sk-` 形式のキーらしい文字列をマスクします。
+
+GUI未対応の機能:
+
+- 既存アプリ更新の本実装
+- 削除/アンインストールの本実装
+- publish の本実装
+- ファイルダイアログによる Entry 選択
+- StrictApproval / AllowWarnings のGUI切替
+
 ## 対応する登録方式
 
 - `app-env`: 標準方式。`runtime/app_envs/<app_id>/Scripts/python.exe` を優先し、なければ `runtime/python/python.exe` を使います。

@@ -1,4 +1,5 @@
 import { Boxes, FileCheck2, PackagePlus, Trash2 } from "lucide-react";
+import { AppStudioImportWizard } from "./appstudio/AppStudioImportWizard";
 
 export function AppStudioShell() {
   return (
@@ -11,14 +12,16 @@ export function AppStudioShell() {
         <span className="admin-status-pill">Shell</span>
       </div>
       <p className="admin-muted">
-        CLI版 App Studio の登録、更新、公開準備フローへ接続するための管理者向け画面です。
+        CLI版 App Studio を管理者画面から実行します。今回は新規登録フローを優先実装しています。
       </p>
 
+      <AppStudioImportWizard />
+
       <div className="admin-card-grid">
-        <button className="admin-work-card" type="button" disabled>
+        <button className="admin-work-card" type="button" disabled title="上の新規登録フォームを使用してください">
           <PackagePlus size={22} aria-hidden="true" />
           <strong>新規登録</strong>
-          <span>メインファイル指定から提案生成へ接続予定</span>
+          <span>Suggest / Apply / Approve をGUIから実行できます</span>
         </button>
         <button className="admin-work-card" type="button" disabled>
           <Boxes size={22} aria-hidden="true" />

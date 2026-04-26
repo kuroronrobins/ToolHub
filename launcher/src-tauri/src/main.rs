@@ -3,6 +3,7 @@ mod admin_auth;
 mod admin_commands;
 mod admin_session;
 mod ai_settings;
+mod app_studio_commands;
 mod commands;
 mod logging;
 mod manifest;
@@ -32,7 +33,11 @@ fn main() {
             admin_commands::ai_get_api_key_status,
             admin_commands::ai_save_api_key,
             admin_commands::ai_delete_api_key,
-            admin_commands::ai_test_connection
+            admin_commands::ai_test_connection,
+            app_studio_commands::app_studio_suggest,
+            app_studio_commands::app_studio_apply,
+            app_studio_commands::app_studio_approve,
+            app_studio_commands::app_studio_read_result
         ])
         .run(tauri::generate_context!())
         .expect("failed to run ToolHub");
