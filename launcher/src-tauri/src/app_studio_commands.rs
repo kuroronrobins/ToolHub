@@ -361,6 +361,31 @@ pub fn app_studio_ai_diagnostics(
     Ok(build_ai_env_plan().diagnostics)
 }
 
+#[tauri::command]
+pub fn app_studio_open_output_dir(
+    output_dir: String,
+    session: State<AdminSessionState>,
+) -> Result<(), String> {
+    session.require_authenticated()?;
+    let path = PathBuf::from(output_dir.trim());
+    if !path.is_dir() {
+        return Err("出力先フォルダが見つかりません。".to_string());
+    }
+    let status = if cfg!(windows) {
+        Command::new("explorer").arg(&path).status()
+    } else if cfg!(target_os = "macos") {
+        Command::new("open").arg(&path).status()
+    } else {
+        Command::new("xdg-open").arg(&path).status()
+    }
+    .map_err(|error| format!("出力先フォルダを開けませんでした: {error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("出力先フォルダを開けませんでした。".to_string())
+    }
+}
+
 fn run_update_action(
     request: AppStudioUpdateRequest,
     action: &str,

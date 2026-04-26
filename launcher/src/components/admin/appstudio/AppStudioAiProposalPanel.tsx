@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Bot, CheckCircle2, RefreshCw } from "lucide-react";
+import { Bot, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { appStudioAiDiagnostics, appStudioReadAiProposal } from "../../../lib/appStudioApi";
 import type { AppStudioAiDiagnostics, AppStudioAiProposal, AppStudioIconOverride, AppStudioRunResult, AppStudioSelectedIconSource } from "../../../lib/appStudioTypes";
 import { formatAdminError } from "../adminUi";
@@ -33,6 +33,8 @@ const METADATA_FIELDS: Array<{ key: keyof AppStudioAiProposal["metadata"]; label
   { key: "changeSummary", label: "変更概要" },
 ];
 
+type LoadingAction = "load" | "generate" | null;
+
 export function AppStudioAiProposalPanel({
   appId,
   outputDir,
@@ -49,10 +51,11 @@ export function AppStudioAiProposalPanel({
 }: Props) {
   const [proposal, setProposal] = useState<AppStudioAiProposal | null>(null);
   const [localSelectedIconSource, setLocalSelectedIconSource] = useState<AppStudioSelectedIconSource>("fallback_png");
-  const [loading, setLoading] = useState(false);
+  const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [diagnostics, setDiagnostics] = useState<AppStudioAiDiagnostics | null>(null);
+  const loading = loadingAction !== null;
 
   useEffect(() => {
     void refreshDiagnostics();
@@ -67,7 +70,7 @@ export function AppStudioAiProposalPanel({
   }
 
   async function loadProposal(sourceResult: AppStudioRunResult | null = result) {
-    setLoading(true);
+    setLoadingAction("load");
     setError("");
     setMessage("");
     onLoadStart?.();
@@ -76,20 +79,20 @@ export function AppStudioAiProposalPanel({
       const loaded = await appStudioReadAiProposal(sourceResult?.appId ?? appId, sourceResult?.outputDir ?? outputDir ?? undefined);
       setProposal(loaded);
       onProposalLoaded?.(loaded);
-      const loadedMessage = loaded.ok ? "AI提案を読み込みました。" : "提案ファイルがまだ不足しています。登録内容を作成してから再読み込みしてください。";
+      const loadedMessage = loaded.ok ? "保存済み提案を読み込みました。" : "提案ファイルがまだ不足しています。先にAIで新しく提案を作成してください。";
       setMessage(loadedMessage);
       onLoadComplete?.(loaded.ok, loadedMessage);
     } catch (loadError) {
-      const fallback = "AI提案を読み込めませんでした。";
+      const fallback = "保存済み提案を読み込めませんでした。";
       setError(formatAdminError(loadError, fallback));
       onLoadComplete?.(false, fallback);
     } finally {
-      setLoading(false);
+      setLoadingAction(null);
     }
   }
 
   async function generateProposal() {
-    setLoading(true);
+    setLoadingAction("generate");
     setError("");
     setMessage("");
     try {
@@ -99,9 +102,9 @@ export function AppStudioAiProposalPanel({
         await loadProposal(generated);
       }
     } catch (generateError) {
-      setError(formatAdminError(generateError, "AI提案を生成できませんでした。"));
+      setError(formatAdminError(generateError, "AIで新しく提案を作成できませんでした。"));
     } finally {
-      setLoading(false);
+      setLoadingAction(null);
     }
   }
 
@@ -116,7 +119,7 @@ export function AppStudioAiProposalPanel({
     }
     setLocalSelectedIconSource(source);
     onIconAdopt({ selectedIconSource: source, pngDataUrl });
-    setMessage("PNGアイコン候補を採用しました。内容確認後、仮登録で反映されます。");
+    setMessage("PNGアイコン候補を採用しました。内容確認後、テスト登録で反映されます。");
   }
 
   function adoptFallbackPng() {
@@ -132,17 +135,26 @@ export function AppStudioAiProposalPanel({
         <h4>AI提案</h4>
       </div>
       <p className="admin-muted">
-        登録内容とPNGアイコン候補を作成します。AI提案は自動確定せず、採用ボタンを押した項目だけ編集欄へ反映されます。
+        説明文、カテゴリ、PNGアイコン候補を作成します。AI提案は自動確定されず、採用ボタンを押した項目だけ編集欄に反映されます。
       </p>
       {diagnostics ? <DiagnosticsPanel diagnostics={diagnostics} /> : null}
-      <div className="studio-action-row">
-        <button className="secondary-button" type="button" onClick={() => void loadProposal()} disabled={busy || loading}>
-          <RefreshCw size={17} aria-hidden="true" />
-          提案を読み込み
+
+      <div className="studio-ai-actions">
+        <button className="studio-ai-action-card" type="button" onClick={() => void loadProposal()} disabled={busy || loading}>
+          {loadingAction === "load" ? <Loader2 className="studio-spinner" size={18} aria-hidden="true" /> : <RefreshCw size={18} aria-hidden="true" />}
+          <span>
+            <strong>{loadingAction === "load" ? "保存済み提案を読み込み中..." : "保存済み提案を読み込む"}</strong>
+            <small>前回生成済みの提案ファイルを表示します。APIは呼びません。</small>
+            <em>既存提案を使う操作です。</em>
+          </span>
         </button>
-        <button className="secondary-button" type="button" onClick={() => void generateProposal()} disabled={busy || loading}>
-          <Bot size={17} aria-hidden="true" />
-          AIで登録内容を作成
+        <button className="studio-ai-action-card primary" type="button" onClick={() => void generateProposal()} disabled={busy || loading}>
+          {loadingAction === "generate" ? <Loader2 className="studio-spinner" size={18} aria-hidden="true" /> : <Bot size={18} aria-hidden="true" />}
+          <span>
+            <strong>{loadingAction === "generate" ? "AI提案を生成しています..." : "AIで新しく提案を作成"}</strong>
+            <small>AIに依頼して説明文・カテゴリ・アイコン候補を新規生成します。</small>
+            <em>APIを呼ぶ操作です。数十秒かかる場合があります。</em>
+          </span>
         </button>
       </div>
 
@@ -247,11 +259,11 @@ function DiagnosticsPanel({ diagnostics }: { diagnostics: AppStudioAiDiagnostics
   return (
     <div className="studio-ai-status-grid">
       <StatusItem label="AI機能" value={diagnostics.aiEnabled ? "有効" : "無効"} />
-      <StatusItem label="APIキー" value={apiKeyLabel(diagnostics)} />
-      <StatusItem label="Text model" value={diagnostics.textModel || "未設定"} />
-      <StatusItem label="Image model" value={diagnostics.imageModel || "未設定"} />
-      <StatusItem label="CLI環境" value={diagnostics.cliEnvReady ? "準備済み" : "未準備"} />
-      <StatusItem label="状態" value={diagnostics.message} />
+      <StatusItem label="APIキー取得元" value={apiKeyLabel(diagnostics)} />
+      <StatusItem label="テキストモデル" value={diagnostics.textModel || "未設定"} />
+      <StatusItem label="画像モデル" value={diagnostics.imageModel || "未設定"} />
+      <StatusItem label="CLI環境" value={diagnostics.cliEnvReady ? "AI利用の準備ができています" : "AI利用の準備が未完了です"} />
+      <StatusItem label="診断メッセージ" value={diagnosticMessage(diagnostics.message)} />
     </div>
   );
 }
@@ -347,6 +359,22 @@ function apiKeyLabel(diagnostics: AppStudioAiDiagnostics): string {
     return "環境変数";
   }
   return "設定済み";
+}
+
+function diagnosticMessage(message: string): string {
+  if (!message) {
+    return "診断メッセージはありません。";
+  }
+  if (message.includes("ready")) {
+    return "CLI環境はAI利用の準備ができています。";
+  }
+  if (message.includes("missing") || message.includes("not configured")) {
+    return "AI利用に必要な設定が不足しています。";
+  }
+  if (message.includes("disabled")) {
+    return "AI機能は無効です。フォールバックで続行できます。";
+  }
+  return message;
 }
 
 function selectedIconLabel(source: AppStudioSelectedIconSource | string): string {
