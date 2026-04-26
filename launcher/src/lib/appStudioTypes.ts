@@ -83,5 +83,39 @@ export interface AppStudioResultSummary {
   version?: string | null;
 }
 
+export interface AppStudioAiMetadataSuggestion {
+  appId?: string | null;
+  name?: string | null;
+  shortDescription?: string | null;
+  description?: string | null;
+  categories: string[];
+  keywords: string[];
+  examples: string[];
+  useCases: string[];
+  inputs: string[];
+  outputs: string[];
+  notes: string[];
+  iconPrompt?: string | null;
+  releaseNotes: string[];
+}
+
+export interface AppStudioAiIconSuggestion {
+  promptInitial?: string | null;
+  promptRevision?: string | null;
+  candidateSvg?: string | null;
+  finalSvg?: string | null;
+  candidatePngDataUrl?: string | null;
+  candidateUrl?: string | null;
+  aiReport?: string | null;
+}
+
+export interface AppStudioAiProposal {
+  ok: boolean;
+  outputDir?: string | null;
+  metadata: AppStudioAiMetadataSuggestion;
+  icon: AppStudioAiIconSuggestion;
+  warnings: string[];
+}
+
 export type AppStudioApprovalMode = "allowWarnings" | "strict";
 export type AppStudioVersionBumpMode = "patch" | "minor" | "major" | "manual";

@@ -1,3 +1,4 @@
+import { BUILD_MODE_INFO, buildModeTitle, recommendBuildMode } from "../../../lib/appStudioBuildInfo";
 import type { AppStudioBuildMode, AppStudioImportRequest } from "../../../lib/appStudioTypes";
 
 interface Props {
@@ -8,6 +9,9 @@ interface Props {
 const BUILD_MODES: AppStudioBuildMode[] = ["auto", "app-env", "frozen-folder", "existing-exe"];
 
 export function AppStudioBuildOptions({ request, onChange }: Props) {
+  const selectedInfo = BUILD_MODE_INFO[request.buildMode];
+  const recommendation = recommendBuildMode(request.entry);
+
   function update(partial: Partial<AppStudioImportRequest>) {
     onChange({ ...request, ...partial });
   }
@@ -16,19 +20,37 @@ export function AppStudioBuildOptions({ request, onChange }: Props) {
     <section className="studio-step">
       <div>
         <span className="studio-step-index">3</span>
-        <h4>Build方式</h4>
+        <h4>Build mode</h4>
       </div>
-      <div className="studio-segmented" role="radiogroup" aria-label="Build方式">
+      <div className="studio-segmented" role="radiogroup" aria-label="Build mode">
         {BUILD_MODES.map((mode) => (
           <button
             key={mode}
             type="button"
-            className={request.buildMode === mode ? "active" : ""}
+            className={`${request.buildMode === mode ? "active" : ""} ${recommendation.mode === mode ? "recommended" : ""}`.trim()}
+            title={buildModeTitle(mode)}
             onClick={() => update({ buildMode: mode })}
           >
             {mode}
           </button>
         ))}
+      </div>
+
+      <div className="studio-build-help">
+        <strong>{selectedInfo.title}</strong>
+        <p>{selectedInfo.description}</p>
+        <div className="studio-build-recommendation">
+          <span>推奨: {recommendation.mode}</span>
+          <p>{recommendation.reason}</p>
+        </div>
+        {recommendation.entryKind === "exe" ? (
+          <ul>
+            <li>既存exeとして登録します。</li>
+            <li>Python依存解析は基本的に不要です。</li>
+            <li>exeと同じフォルダのDLL/設定ファイルもbin配下にコピーされます。</li>
+            <li>dry executionはスキップされるためwarnになる場合があります。AllowWarningsなら承認できます。</li>
+          </ul>
+        ) : null}
       </div>
 
       <div className="studio-option-grid">

@@ -28,6 +28,15 @@
       "required_runner": ">=0.1.0",
       "required_runtime": "web-runtime-001",
       "enabled": true
+    },
+    "app_20251123_excelbatchreplace": {
+      "version": "0.1.0",
+      "package": "app_packs/app_20251123_excelbatchreplace-0.1.0.zip",
+      "sha256": "1cedd4ac4534a7bc3c5269433afb2bc57071243f84726848404ca56f2fc9ffea",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": null,
+      "enabled": false
     }
   }
 }

@@ -1,10 +1,18 @@
 import { useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 import { FileSearch, Play, Rocket } from "lucide-react";
-import { appStudioApply, appStudioApprove, appStudioPickEntryFile, appStudioPreflight, appStudioReadResult, appStudioSuggest } from "../../../lib/appStudioApi";
+import {
+  appStudioApply,
+  appStudioApprove,
+  appStudioPickEntryFile,
+  appStudioPreflight,
+  appStudioReadResult,
+  appStudioSuggest,
+} from "../../../lib/appStudioApi";
 import { suggestAppIdentity } from "../../../lib/appStudioIdentity";
-import type { AppStudioImportRequest, AppStudioPreflightResult, AppStudioRunResult } from "../../../lib/appStudioTypes";
+import type { AppStudioApprovalMode, AppStudioImportRequest, AppStudioPreflightResult, AppStudioRunResult } from "../../../lib/appStudioTypes";
 import { formatAdminError } from "../adminUi";
+import { AppStudioAiProposalPanel } from "./AppStudioAiProposalPanel";
 import { AppStudioBuildOptions } from "./AppStudioBuildOptions";
 import { AppStudioPreflightPanel } from "./AppStudioPreflightPanel";
 import { AppStudioResultPanel } from "./AppStudioResultPanel";
@@ -29,7 +37,7 @@ export function AppStudioImportWizard() {
   const [request, setRequest] = useState<AppStudioImportRequest>(INITIAL_REQUEST);
   const [busy, setBusy] = useState(false);
   const [lastAction, setLastAction] = useState<StudioAction | null>(null);
-  const [approvalMode, setApprovalMode] = useState<"allowWarnings" | "strict">("allowWarnings");
+  const [approvalMode, setApprovalMode] = useState<AppStudioApprovalMode>("allowWarnings");
   const [preflight, setPreflight] = useState<AppStudioPreflightResult | null>(null);
   const [result, setResult] = useState<AppStudioRunResult | null>(null);
   const [message, setMessage] = useState("");
@@ -69,26 +77,26 @@ export function AppStudioImportWizard() {
         setEntry(selected);
       }
     } catch (browseError) {
-      setError(formatAdminError(browseError, "ファイル選択ダイアログを開けませんでした。手入力で続行してください。"));
+      setError(formatAdminError(browseError, "Entry file dialog could not be opened. Use manual path input."));
     }
   }
 
   async function runPreflight(candidate: AppStudioImportRequest = request): Promise<AppStudioPreflightResult | null> {
     setError("");
     try {
-      const result = await appStudioPreflight(cleanRequest(candidate));
-      setPreflight(result);
-      if (!result.ok) {
-        setError("Preflightでエラーがあります。内容を確認してください。");
+      const check = await appStudioPreflight(cleanRequest(candidate));
+      setPreflight(check);
+      if (!check.ok) {
+        setError("Preflight reported errors. Review the details before running App Studio.");
       }
-      return result;
+      return check;
     } catch (preflightError) {
-      setError(formatAdminError(preflightError, "Preflightを実行できませんでした。"));
+      setError(formatAdminError(preflightError, "Preflight could not run."));
       return null;
     }
   }
 
-  async function run(action: "suggest" | "apply") {
+  async function run(action: "suggest" | "apply"): Promise<AppStudioRunResult | null> {
     setBusy(true);
     setError("");
     setMessage("");
@@ -97,16 +105,19 @@ export function AppStudioImportWizard() {
       const cleaned = cleanRequest(request);
       const check = await runPreflight(cleaned);
       if (!check?.ok) {
-        return;
+        return null;
       }
-      const runResult = action === "suggest" ? await appStudioSuggest(cleaned) : await appStudioApply(cleaned);
-      setResult(runResult);
-      setMessage(runResult.userMessage);
-      if (!runResult.ok) {
-        setError(runResult.userMessage);
+      const rawResult = action === "suggest" ? await appStudioSuggest(cleaned) : await appStudioApply(cleaned);
+      const freshResult = await refreshRunResult(rawResult);
+      setResult(freshResult);
+      setMessage(messageForResult(freshResult));
+      if (!freshResult.ok && !isWarningOnly(freshResult)) {
+        setError(freshResult.userMessage);
       }
+      return freshResult;
     } catch (runError) {
-      setError(formatAdminError(runError, "App Studioを実行できませんでした。"));
+      setError(formatAdminError(runError, "App Studio could not run."));
+      return null;
     } finally {
       setBusy(false);
     }
@@ -115,7 +126,7 @@ export function AppStudioImportWizard() {
   async function approve() {
     const appId = result?.appId ?? request.appId;
     if (!appId) {
-      setError("承認するAppIdがありません。");
+      setError("AppId is required for approval.");
       return;
     }
     setBusy(true);
@@ -123,50 +134,77 @@ export function AppStudioImportWizard() {
     setMessage("");
     setLastAction("approve");
     try {
-      const approveResult = await appStudioApprove(appId, approvalMode === "strict");
-      setResult(approveResult);
-      setMessage(approveResult.userMessage);
-      if (!approveResult.ok) {
-        setError(approveResult.userMessage);
+      const rawResult = await appStudioApprove(appId, approvalMode === "strict");
+      const freshResult = await refreshRunResult(rawResult);
+      setResult(freshResult);
+      setMessage(messageForResult(freshResult));
+      if (!freshResult.ok && !isWarningOnly(freshResult)) {
+        setError(freshResult.userMessage);
       }
     } catch (approveError) {
-      setError(formatAdminError(approveError, "承認処理を実行できませんでした。"));
+      setError(formatAdminError(approveError, "Approval could not run."));
     } finally {
       setBusy(false);
     }
   }
 
   async function refreshResult() {
-    const appId = result?.appId ?? request.appId;
-    const outputDir = result?.outputDir ?? undefined;
-    if (!appId && !outputDir) {
+    if (!result?.appId && !result?.outputDir && !request.appId) {
       return;
     }
     setBusy(true);
     setError("");
     try {
-      const summary = await appStudioReadResult(appId || undefined, outputDir || undefined);
-      setResult((current) => ({
-        ok: current?.ok ?? true,
-        exitCode: current?.exitCode ?? 0,
-        stdout: current?.stdout ?? "",
-        stderr: current?.stderr ?? "",
-        userMessage: current?.userMessage ?? "結果を再読込しました。",
-        outputDir: summary.outputDir,
-        appId: summary.appId,
-        selectedBuildMode: summary.selectedBuildMode,
-        executionStatus: summary.executionStatus,
-        approvalAllowed: summary.approvalAllowed,
-        runtimeStatus: summary.runtimeStatus,
-        appPack: summary.appPack,
-        enabled: summary.enabled,
-      }));
-      setMessage("結果を再読込しました。");
+      const freshResult = await refreshRunResult(
+        result ?? {
+          ok: true,
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          userMessage: "Result was refreshed.",
+          appId: request.appId,
+        },
+      );
+      setResult(freshResult);
+      setMessage("Result was refreshed.");
     } catch (refreshError) {
-      setError(formatAdminError(refreshError, "結果を読み込めませんでした。"));
+      setError(formatAdminError(refreshError, "Result could not be refreshed."));
     } finally {
       setBusy(false);
     }
+  }
+
+  async function refreshRunResult(runResult: AppStudioRunResult): Promise<AppStudioRunResult> {
+    const appId = runResult.appId ?? request.appId;
+    const outputDir = runResult.outputDir ?? undefined;
+    if (!appId && !outputDir) {
+      return runResult;
+    }
+    try {
+      const summary = await appStudioReadResult(appId || undefined, outputDir || undefined);
+      return {
+        ...runResult,
+        outputDir: summary.outputDir ?? runResult.outputDir,
+        appId: summary.appId ?? runResult.appId,
+        selectedBuildMode: summary.selectedBuildMode ?? runResult.selectedBuildMode,
+        executionStatus: summary.executionStatus ?? runResult.executionStatus,
+        approvalAllowed: summary.approvalAllowed ?? runResult.approvalAllowed,
+        runtimeStatus: summary.runtimeStatus ?? runResult.runtimeStatus,
+        appPack: summary.appPack ?? runResult.appPack,
+        enabled: summary.enabled ?? runResult.enabled,
+        newVersion: summary.version ?? runResult.newVersion,
+      };
+    } catch {
+      return runResult;
+    }
+  }
+
+  function adoptAiProposal(values: { name?: string; iconPrompt?: string }) {
+    update({
+      name: values.name ?? request.name,
+      iconPrompt: values.iconPrompt ?? request.iconPrompt,
+    });
+    setMessage("AI proposal was copied into the editable fields. Review before Apply.");
   }
 
   return (
@@ -174,7 +212,7 @@ export function AppStudioImportWizard() {
       <section className="studio-wizard-main">
         <div className="admin-section-head">
           <div>
-            <p className="dialog-kicker">新規登録</p>
+            <p className="dialog-kicker">New registration</p>
             <h3>App Studio Import Wizard</h3>
           </div>
           <span className="admin-status-pill">GUI beta</span>
@@ -183,16 +221,16 @@ export function AppStudioImportWizard() {
         <section className="studio-step">
           <div>
             <span className="studio-step-index">1</span>
-            <h4>Entry選択</h4>
+            <h4>Entry</h4>
           </div>
           <div className="studio-entry-row">
             <label className="admin-field">
-              <span>Entryファイルパス</span>
+              <span>Entry file path</span>
               <input type="text" value={request.entry} placeholder="C:\\work\\mytool\\main.py" onChange={handleEntryChange} />
             </label>
-            <button className="secondary-button" type="button" onClick={() => void browseEntry()} disabled={busy} title="Entryファイルを選択">
+            <button className="secondary-button" type="button" onClick={() => void browseEntry()} disabled={busy} title="Choose Entry file">
               <FileSearch size={17} aria-hidden="true" />
-              参照
+              Browse
             </button>
           </div>
         </section>
@@ -200,7 +238,7 @@ export function AppStudioImportWizard() {
         <section className="studio-step">
           <div>
             <span className="studio-step-index">2</span>
-            <h4>基本情報</h4>
+            <h4>Basic info</h4>
           </div>
           <div className="admin-two-column">
             <label className="admin-field">
@@ -208,7 +246,7 @@ export function AppStudioImportWizard() {
               <input type="text" value={request.appId ?? ""} placeholder="my_tool" onChange={(event) => update({ appId: event.target.value })} />
             </label>
             <label className="admin-field">
-              <span>表示名</span>
+              <span>Name</span>
               <input type="text" value={request.name ?? ""} placeholder="My Tool" onChange={(event) => update({ name: event.target.value })} />
             </label>
           </div>
@@ -225,7 +263,7 @@ export function AppStudioImportWizard() {
         <section className="studio-step">
           <div>
             <span className="studio-step-index">4</span>
-            <h4>AI/アイコン</h4>
+            <h4>Icon prompt</h4>
           </div>
           <label className="admin-field">
             <span>Icon Prompt</span>
@@ -237,6 +275,15 @@ export function AppStudioImportWizard() {
             />
           </label>
         </section>
+
+        <AppStudioAiProposalPanel
+          appId={request.appId}
+          outputDir={result?.outputDir}
+          result={result}
+          busy={busy}
+          onGenerate={() => run("suggest")}
+          onAdopt={adoptAiProposal}
+        />
 
         <AppStudioPreflightPanel result={preflight} busy={busy} onRun={() => void runPreflight()} />
 
@@ -251,7 +298,7 @@ export function AppStudioImportWizard() {
           </button>
         </div>
 
-        {message ? <p className="admin-success">{message}</p> : null}
+        {message ? <p className={result && !result.ok && isWarningOnly(result) ? "admin-muted" : "admin-success"}>{message}</p> : null}
         {error ? <p className="admin-error" role="alert">{error}</p> : null}
       </section>
 
@@ -279,4 +326,15 @@ function cleanRequest(request: AppStudioImportRequest): AppStudioImportRequest {
     name: request.name?.trim() || undefined,
     iconPrompt: request.iconPrompt?.trim() || undefined,
   };
+}
+
+function isWarningOnly(result: AppStudioRunResult): boolean {
+  return result.executionStatus === "warn" && result.approvalAllowed === true;
+}
+
+function messageForResult(result: AppStudioRunResult): string {
+  if (!result.ok && isWarningOnly(result)) {
+    return "App Studio completed with warnings. execution_test_result.json allows approval; review logs before approving.";
+  }
+  return result.userMessage;
 }

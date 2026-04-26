@@ -1,3 +1,18 @@
+# GUI Build方式・AI提案・結果表示補足
+
+App Studio GUI の Build mode には hover の `title` と選択中説明、Entryに応じた推奨表示があります。
+
+- `auto`: 通常はこれを選びます。Entryの種類から App Studio が自動判定します。.exe なら `existing-exe`、軽量Pythonなら `app-env`、複雑Pythonなら `frozen-folder` を提案します。
+- `app-env`: Pythonソースを ToolHub 同梱Pythonと `runtime/app_envs/<app_id>` で起動します。単一スクリプトや中規模Pythonツール向けです。
+- `frozen-folder`: 複雑なPythonアプリを PyInstaller `--onedir` 相当の展開済みフォルダで配布します。GUI、音声、外部依存、複数ファイル構成向けです。
+- `existing-exe`: すでに `.exe` があるアプリを登録します。exeと同じフォルダのDLL、設定ファイル、補助ファイルも `bin` 配下へコピーする想定です。
+
+Entryが `.exe` の場合、GUIは `existing-exe` を推奨します。Entryが `main.py` / `app.py` の場合は `auto` を推奨し、固有名の単一 `.py` では `app-env` を推奨します。不明なEntryでは `auto` で Suggest し、判定結果を確認してください。
+
+GUIでは、Suggest が生成した `proposed_app.yaml` と `icon_work/` をAI/fallback提案として読み込めます。表示対象は、表示名、short_description、detail.description、categories、search keywords、examples、use_cases、inputs、outputs、notes、icon prompt、更新時の release notes 草案、`icon_candidate_1.svg`、`icon_candidate_1.png`、`icon_candidate_1.url.txt`、`icon_final.svg` です。AI提案は自動確定せず、採用ボタンで表示名やicon promptなど編集可能な入力欄へ反映します。APIキー未設定、AI無効、OpenAI packageなし、API失敗時も CLI 側の deterministic fallback で動きます。high secret 検出時はAI送信しません。
+
+GUIでは CLI process の `exit_code` / `process_ok` と、`execution_test_result.json` の `overall_status` / `approval_allowed` を分けて表示します。`existing-exe` や `frozen-folder` では runner dry execution がスキップされ、`overall_status: warn` になることがあります。`approval_allowed: true` で、他のチェックが pass の場合は致命的失敗ではありません。GUIはこの状態を `warn / approval OK` と表示し、AllowWarnings で承認できるようにします。App Packが見つからない場合は App Pack 欄だけ `not found` と表示します。Apply後はGUIが `app_studio_read_result` を再実行し、生成済みJSONの内容を表示へ反映します。
+
 # ToolHub App Studio
 
 ## 目的

@@ -1,4 +1,5 @@
 use crate::admin_session::AdminSessionState;
+use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -99,6 +100,46 @@ pub struct AppStudioPreflightResult {
     pub runtime_python_exists: bool,
     pub warnings: Vec<String>,
     pub errors: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioAiMetadataSuggestion {
+    pub app_id: Option<String>,
+    pub name: Option<String>,
+    pub short_description: Option<String>,
+    pub description: Option<String>,
+    pub categories: Vec<String>,
+    pub keywords: Vec<String>,
+    pub examples: Vec<String>,
+    pub use_cases: Vec<String>,
+    pub inputs: Vec<String>,
+    pub outputs: Vec<String>,
+    pub notes: Vec<String>,
+    pub icon_prompt: Option<String>,
+    pub release_notes: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioAiIconSuggestion {
+    pub prompt_initial: Option<String>,
+    pub prompt_revision: Option<String>,
+    pub candidate_svg: Option<String>,
+    pub final_svg: Option<String>,
+    pub candidate_png_data_url: Option<String>,
+    pub candidate_url: Option<String>,
+    pub ai_report: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioAiProposal {
+    pub ok: bool,
+    pub output_dir: Option<String>,
+    pub metadata: AppStudioAiMetadataSuggestion,
+    pub icon: AppStudioAiIconSuggestion,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -234,6 +275,25 @@ pub fn app_studio_read_result(
         app_id.as_deref(),
         output_path.as_deref(),
     ))
+}
+
+#[tauri::command]
+pub fn app_studio_read_ai_proposal(
+    app_id: Option<String>,
+    output_dir: Option<String>,
+    session: State<AdminSessionState>,
+) -> Result<AppStudioAiProposal, String> {
+    session.require_authenticated()?;
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    let output_path = output_dir
+        .as_deref()
+        .map(PathBuf::from)
+        .or_else(|| {
+            app_id
+                .as_deref()
+                .and_then(|id| output_dir_from_app_yaml(&root, id))
+        });
+    Ok(read_ai_proposal(output_path.as_deref()))
 }
 
 fn run_update_action(
@@ -522,16 +582,23 @@ fn result_from_process(
     summary: AppStudioResultSummary,
     success_message: &str,
 ) -> AppStudioRunResult {
+    let user_message = if ok {
+        success_message.to_string()
+    } else if summary.execution_status.as_deref() == Some("warn")
+        && summary.approval_allowed == Some(true)
+    {
+        "App Studio completed with warnings. execution_test_result.json allows approval; review the logs before approving.".to_string()
+    } else if summary.execution_status.as_deref() == Some("pass") {
+        "App Studio process returned a non-zero exit code, but execution checks passed. Review stdout/stderr before approval.".to_string()
+    } else {
+        "App Studio processing failed. Review stdout/stderr and generated reports.".to_string()
+    };
     AppStudioRunResult {
         ok,
         exit_code,
         stdout,
         stderr,
-        user_message: if ok {
-            success_message.to_string()
-        } else {
-            "App Studio処理に失敗しました。ログを確認してください。".to_string()
-        },
+        user_message,
         output_dir: summary.output_dir,
         app_id: summary.app_id,
         selected_build_mode: summary.selected_build_mode,
@@ -796,6 +863,142 @@ fn preflight_for_update_request(
 
     result.ok = result.errors.is_empty();
     result
+}
+
+fn read_ai_proposal(output_dir: Option<&Path>) -> AppStudioAiProposal {
+    let mut proposal = AppStudioAiProposal::default();
+    let Some(output_dir) = output_dir else {
+        proposal
+            .warnings
+            .push("Output directory was not found. Run Suggest first.".to_string());
+        return proposal;
+    };
+    proposal.output_dir = Some(output_dir.display().to_string());
+    if !output_dir.is_dir() {
+        proposal
+            .warnings
+            .push("Output directory does not exist. Run Suggest first.".to_string());
+        return proposal;
+    }
+
+    let proposed_yaml = output_dir.join("proposed_app.yaml");
+    if let Ok(text) = std::fs::read_to_string(&proposed_yaml) {
+        if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&text) {
+            proposal.metadata = metadata_from_yaml(&yaml);
+        } else {
+            proposal
+                .warnings
+                .push("proposed_app.yaml could not be parsed.".to_string());
+        }
+    } else {
+        proposal
+            .warnings
+            .push("proposed_app.yaml was not found. Run Suggest first.".to_string());
+    }
+
+    let icon_work = output_dir.join("icon_work");
+    proposal.icon.prompt_initial = read_text_optional(&icon_work.join("icon_prompt_initial.md"));
+    proposal.icon.prompt_revision = read_text_optional(&icon_work.join("icon_prompt_revision.md"));
+    proposal.icon.candidate_svg = read_text_optional(&icon_work.join("icon_candidate_1.svg"));
+    proposal.icon.final_svg = read_text_optional(&icon_work.join("icon_final.svg"));
+    proposal.icon.candidate_url = read_text_optional(&icon_work.join("icon_candidate_1.url.txt"));
+    proposal.icon.ai_report = read_text_optional(&icon_work.join("ai_generation_report.md"));
+    proposal.icon.candidate_png_data_url =
+        read_png_data_url_optional(&icon_work.join("icon_candidate_1.png"));
+
+    if proposal.metadata.icon_prompt.is_none() {
+        proposal.metadata.icon_prompt = proposal
+            .icon
+            .prompt_revision
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| proposal.icon.prompt_initial.clone());
+    }
+    fill_release_notes(output_dir, &mut proposal.metadata);
+    proposal.ok = proposal.warnings.is_empty()
+        || proposal.metadata.name.is_some()
+        || proposal.icon.final_svg.is_some()
+        || proposal.icon.candidate_svg.is_some();
+    proposal
+}
+
+fn metadata_from_yaml(yaml: &serde_yaml::Value) -> AppStudioAiMetadataSuggestion {
+    AppStudioAiMetadataSuggestion {
+        app_id: yaml_str(yaml, &["id"]),
+        name: yaml_str(yaml, &["name"]),
+        short_description: yaml_str(yaml, &["display", "short_description"]),
+        description: yaml_str(yaml, &["detail", "description"]),
+        categories: yaml_string_list(yaml, &["display", "categories"]),
+        keywords: yaml_string_list(yaml, &["search", "keywords"]),
+        examples: yaml_string_list(yaml, &["search", "examples"]),
+        use_cases: yaml_string_list(yaml, &["detail", "use_cases"]),
+        inputs: yaml_string_list(yaml, &["detail", "inputs"]),
+        outputs: yaml_string_list(yaml, &["detail", "outputs"]),
+        notes: yaml_string_list(yaml, &["detail", "notes"]),
+        icon_prompt: None,
+        release_notes: Vec::new(),
+    }
+}
+
+fn fill_release_notes(output_dir: &Path, metadata: &mut AppStudioAiMetadataSuggestion) {
+    let Some(json) = read_json(&output_dir.join("import_plan.json")) else {
+        return;
+    };
+    let app_id = json
+        .get("app_id")
+        .and_then(Value::as_str)
+        .unwrap_or("app");
+    let version = json
+        .get("version")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let mode = json
+        .get("selected_build_mode")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    metadata.release_notes = vec![
+        format!("Update {app_id} to version {version}."),
+        format!("Build mode: {mode}. Review execution_test_result.json before approval."),
+    ];
+}
+
+fn yaml_string_list(value: &serde_yaml::Value, path: &[&str]) -> Vec<String> {
+    let mut current = value;
+    for key in path {
+        let serde_yaml::Value::Mapping(map) = current else {
+            return Vec::new();
+        };
+        let Some(next) = map.get(&serde_yaml::Value::String((*key).to_string())) else {
+            return Vec::new();
+        };
+        current = next;
+    }
+    match current {
+        serde_yaml::Value::Sequence(items) => items
+            .iter()
+            .filter_map(|item| item.as_str().map(|value| value.trim().to_string()))
+            .filter(|value| !value.is_empty())
+            .collect(),
+        serde_yaml::Value::String(value) if !value.trim().is_empty() => {
+            vec![value.trim().to_string()]
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn read_text_optional(path: &Path) -> Option<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn read_png_data_url_optional(path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    Some(format!(
+        "data:image/png;base64,{}",
+        general_purpose::STANDARD.encode(bytes)
+    ))
 }
 
 fn read_summary(
@@ -1339,6 +1542,83 @@ mod tests {
         )
         .unwrap();
         assert!(path.ends_with("my_tool"));
+    }
+
+    #[test]
+    fn warning_execution_result_is_not_overstated_as_hard_failure() {
+        let result = result_from_process(
+            false,
+            1,
+            String::new(),
+            String::new(),
+            AppStudioResultSummary {
+                app_id: Some("exe_app".to_string()),
+                execution_status: Some("warn".to_string()),
+                approval_allowed: Some(true),
+                ..AppStudioResultSummary::default()
+            },
+            "ok",
+        );
+        assert!(!result.ok);
+        assert_eq!(result.execution_status.as_deref(), Some("warn"));
+        assert_eq!(result.approval_allowed, Some(true));
+        assert!(result.user_message.contains("warnings"));
+    }
+
+    #[test]
+    fn read_summary_loads_execution_result_warn_and_approval() {
+        let root = temp_project_root();
+        let output = root
+            .join("source")
+            .join("ToolHub_AppStudio_Output")
+            .join("exe_app");
+        std::fs::create_dir_all(&output).unwrap();
+        std::fs::write(
+            output.join("execution_test_result.json"),
+            "{\"overall_status\":\"warn\",\"approval_allowed\":true}",
+        )
+        .unwrap();
+        std::fs::write(
+            output.join("import_plan.json"),
+            "{\"app_id\":\"exe_app\",\"selected_build_mode\":\"existing-exe\"}",
+        )
+        .unwrap();
+
+        let summary = read_summary(&root, Some("exe_app"), Some(&output));
+        assert_eq!(summary.execution_status.as_deref(), Some("warn"));
+        assert_eq!(summary.approval_allowed, Some(true));
+        assert_eq!(summary.selected_build_mode.as_deref(), Some("existing-exe"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn read_ai_proposal_reads_metadata_and_icon_candidates() {
+        let root = temp_project_root();
+        let output = root.join("output");
+        let icon_work = output.join("icon_work");
+        std::fs::create_dir_all(&icon_work).unwrap();
+        std::fs::write(
+            output.join("proposed_app.yaml"),
+            "id: sample\nname: Sample App\ndisplay:\n  short_description: Short\n  categories:\n    - CSV\ndetail:\n  description: Long\n  use_cases:\n    - Use\n  inputs:\n    - File\n  outputs:\n    - Report\n  notes:\n    - Note\nsearch:\n  keywords:\n    - csv\n  examples:\n    - merge csv\n",
+        )
+        .unwrap();
+        std::fs::write(
+            output.join("import_plan.json"),
+            "{\"app_id\":\"sample\",\"version\":\"1.2.3\",\"selected_build_mode\":\"app-env\"}",
+        )
+        .unwrap();
+        std::fs::write(icon_work.join("icon_prompt_initial.md"), "simple icon").unwrap();
+        std::fs::write(icon_work.join("icon_final.svg"), "<svg viewBox=\"0 0 64 64\"></svg>").unwrap();
+        std::fs::write(icon_work.join("icon_candidate_1.png"), [137, 80, 78, 71]).unwrap();
+
+        let proposal = read_ai_proposal(Some(&output));
+        assert!(proposal.ok);
+        assert_eq!(proposal.metadata.name.as_deref(), Some("Sample App"));
+        assert_eq!(proposal.metadata.categories, vec!["CSV".to_string()]);
+        assert!(proposal.icon.final_svg.is_some());
+        assert!(proposal.icon.candidate_png_data_url.is_some());
+        assert!(proposal.metadata.release_notes.iter().any(|item| item.contains("1.2.3")));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
