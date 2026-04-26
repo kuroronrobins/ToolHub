@@ -858,6 +858,32 @@ button {
   background: #fef2f2;
 }
 
+.studio-tab-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.studio-tab-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid #cfd7e3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #344054;
+}
+
+.studio-tab-row button.active {
+  border-color: #0f766e;
+  background: #e7f4f2;
+  color: #0f5f58;
+  font-weight: 800;
+}
+
 .studio-wizard-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
@@ -918,6 +944,53 @@ button {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: end;
+}
+
+.studio-app-picker {
+  display: grid;
+  gap: 8px;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.studio-app-option {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(110px, 0.7fr) minmax(100px, 0.6fr) minmax(96px, 0.6fr);
+  gap: 8px;
+  align-items: start;
+  min-height: 46px;
+  padding: 10px;
+  border: 1px solid #dfe5ee;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #344054;
+  text-align: left;
+}
+
+.studio-app-option.active {
+  border-color: #0f766e;
+  background: #f2fbfa;
+}
+
+.studio-app-option strong,
+.studio-app-option span,
+.studio-app-option em {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.studio-app-option strong {
+  color: #111827;
+}
+
+.studio-app-option span {
+  color: #5b6675;
+}
+
+.studio-app-option em {
+  grid-column: 1 / -1;
+  color: #9a3412;
+  font-style: normal;
 }
 
 .studio-segmented {
@@ -1172,6 +1245,7 @@ button {
   }
 
   .studio-entry-row,
+  .studio-app-option,
   .studio-result-row {
     grid-template-columns: 1fr;
   }

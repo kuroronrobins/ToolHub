@@ -67,11 +67,15 @@ GUI実行ログ:
 
 ログには action、exit code、app_id、build_mode、output_dir を記録します。APIキー、パスワード、secret値は記録しません。stdout/stderr 表示前にも `sk-` 形式のキーらしい文字列をマスクします。
 
-GUI未対応の機能:
+GUI未対応またはMVPに留めている機能:
 
-- 既存アプリ更新の本実装
+- 既存アプリ更新GUI MVPの詳細は `docs/15_app_studio_update_gui.md` を参照してください。
+- 既存アプリ更新はMVPです。登録済みapp_idの選択、version bump、更新Entry指定、Suggest update / Apply update / Approve update までを対象にします。
+- 完全な差分ビューア
 - 削除/アンインストールの本実装
 - publish の本実装
+- 配布済みランチャーへの自動更新配信
+- manifest署名
 
 ## 対応する登録方式
 

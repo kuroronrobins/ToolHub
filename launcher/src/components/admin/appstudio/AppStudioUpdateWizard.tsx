@@ -1,0 +1,440 @@
+import { useEffect, useMemo, useState } from "react";
+import type { ChangeEvent } from "react";
+import { FileSearch, Play, Rocket } from "lucide-react";
+import {
+  appStudioListRegisteredApps,
+  appStudioPickEntryFile,
+  appStudioReadResult,
+  appStudioUpdateApply,
+  appStudioUpdateApprove,
+  appStudioUpdatePreflight,
+  appStudioUpdateSuggest,
+} from "../../../lib/appStudioApi";
+import type {
+  AppStudioApprovalMode,
+  AppStudioBuildMode,
+  AppStudioImportRequest,
+  AppStudioPreflightResult,
+  AppStudioRegisteredApp,
+  AppStudioRunResult,
+  AppStudioUpdateRequest,
+  AppStudioVersionBumpMode,
+} from "../../../lib/appStudioTypes";
+import { bumpAppVersion, compareSimpleSemVer } from "../../../lib/appStudioVersion";
+import { formatAdminError } from "../adminUi";
+import { AppStudioBuildOptions } from "./AppStudioBuildOptions";
+import { AppStudioPreflightPanel } from "./AppStudioPreflightPanel";
+import { AppStudioRegisteredAppPicker } from "./AppStudioRegisteredAppPicker";
+import { AppStudioResultPanel } from "./AppStudioResultPanel";
+import { AppStudioRunLog } from "./AppStudioRunLog";
+import { AppStudioVersionBump } from "./AppStudioVersionBump";
+
+type StudioAction = "suggest" | "apply" | "approve";
+
+const INITIAL_REQUEST: AppStudioUpdateRequest = {
+  appId: "",
+  entry: "",
+  name: "",
+  currentVersion: "",
+  newVersion: "",
+  buildMode: "auto",
+  iconPrompt: "",
+  createAppEnv: false,
+  rebuildAppEnv: false,
+  generateLock: false,
+  buildFrozenFolder: false,
+  verifyRuntime: false,
+};
+
+export function AppStudioUpdateWizard() {
+  const [apps, setApps] = useState<AppStudioRegisteredApp[]>([]);
+  const [request, setRequest] = useState<AppStudioUpdateRequest>(INITIAL_REQUEST);
+  const [versionMode, setVersionMode] = useState<AppStudioVersionBumpMode>("patch");
+  const [manualVersion, setManualVersion] = useState("");
+  const [approvalMode, setApprovalMode] = useState<AppStudioApprovalMode>("allowWarnings");
+  const [busy, setBusy] = useState(false);
+  const [preflight, setPreflight] = useState<AppStudioPreflightResult | null>(null);
+  const [result, setResult] = useState<AppStudioRunResult | null>(null);
+  const [lastAction, setLastAction] = useState<StudioAction | null>(null);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const selectedApp = apps.find((app) => app.appId === request.appId) ?? null;
+  const bumped = useMemo(
+    () => bumpAppVersion(request.currentVersion ?? "", versionMode, manualVersion),
+    [manualVersion, request.currentVersion, versionMode],
+  );
+  const newVersion = bumped.version;
+  const versionCompare = compareSimpleSemVer(request.currentVersion ?? "", newVersion);
+  const canRun = Boolean(request.appId.trim() && request.entry.trim() && newVersion.trim() && !busy);
+
+  useEffect(() => {
+    void loadApps();
+  }, []);
+
+  async function loadApps() {
+    setBusy(true);
+    setError("");
+    try {
+      const loaded = await appStudioListRegisteredApps();
+      setApps(loaded);
+      setMessage("Registered apps were loaded.");
+    } catch (loadError) {
+      setError(formatAdminError(loadError, "Registered apps could not be loaded."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function selectApp(app: AppStudioRegisteredApp) {
+    setRequest((current) => ({
+      ...current,
+      appId: app.appId,
+      name: app.name,
+      currentVersion: app.version,
+      buildMode: normalizeBuildMode(app.buildMode) ?? current.buildMode,
+    }));
+    setVersionMode("patch");
+    setManualVersion("");
+    setPreflight(null);
+    setResult(null);
+    setLastAction(null);
+  }
+
+  function update(partial: Partial<AppStudioUpdateRequest>) {
+    setRequest((current) => ({ ...current, ...partial }));
+    setPreflight(null);
+  }
+
+  function handleEntryChange(event: ChangeEvent<HTMLInputElement>) {
+    update({ entry: event.target.value });
+  }
+
+  async function browseEntry() {
+    setError("");
+    try {
+      const selected = await appStudioPickEntryFile();
+      if (selected) {
+        update({ entry: selected });
+      }
+    } catch (browseError) {
+      setError(formatAdminError(browseError, "Entry file dialog could not be opened. Use manual path input."));
+    }
+  }
+
+  async function runPreflight(candidate: AppStudioUpdateRequest = request): Promise<AppStudioPreflightResult | null> {
+    setError("");
+    const cleaned = cleanRequest(candidate, newVersion);
+    try {
+      const check = await appStudioUpdatePreflight(cleaned);
+      setPreflight(check);
+      if (!check.ok) {
+        setError("Preflight reported errors. Review the details before running update.");
+      }
+      return check;
+    } catch (preflightError) {
+      setError(formatAdminError(preflightError, "Update preflight could not run."));
+      return null;
+    }
+  }
+
+  async function run(action: "suggest" | "apply") {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    setLastAction(action);
+    try {
+      const cleaned = cleanRequest(request, newVersion);
+      const check = await runPreflight(cleaned);
+      if (!check?.ok) {
+        return;
+      }
+      const runResult = action === "suggest" ? await appStudioUpdateSuggest(cleaned) : await appStudioUpdateApply(cleaned);
+      setResult({
+        ...runResult,
+        currentVersion: request.currentVersion,
+        newVersion,
+      });
+      setMessage(runResult.userMessage);
+      if (!runResult.ok) {
+        setError(runResult.userMessage);
+      }
+    } catch (runError) {
+      setError(formatAdminError(runError, "App Studio update could not run."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function approve() {
+    const appId = result?.appId ?? request.appId;
+    if (!appId) {
+      setError("AppId is required for approval.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setMessage("");
+    setLastAction("approve");
+    try {
+      const approveResult = await appStudioUpdateApprove(appId, approvalMode === "strict");
+      setResult({
+        ...approveResult,
+        currentVersion: request.currentVersion,
+        newVersion,
+      });
+      setMessage(approveResult.userMessage);
+      if (!approveResult.ok) {
+        setError(approveResult.userMessage);
+      }
+    } catch (approveError) {
+      setError(formatAdminError(approveError, "Update approval could not run."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshResult() {
+    const appId = result?.appId ?? request.appId;
+    const outputDir = result?.outputDir ?? undefined;
+    if (!appId && !outputDir) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const summary = await appStudioReadResult(appId || undefined, outputDir || undefined);
+      setResult((current) => ({
+        ok: current?.ok ?? true,
+        exitCode: current?.exitCode ?? 0,
+        stdout: current?.stdout ?? "",
+        stderr: current?.stderr ?? "",
+        userMessage: current?.userMessage ?? "Result was refreshed.",
+        outputDir: summary.outputDir,
+        appId: summary.appId,
+        selectedBuildMode: summary.selectedBuildMode,
+        executionStatus: summary.executionStatus,
+        approvalAllowed: summary.approvalAllowed,
+        runtimeStatus: summary.runtimeStatus,
+        appPack: summary.appPack,
+        enabled: summary.enabled,
+        currentVersion: request.currentVersion,
+        newVersion: summary.version ?? newVersion,
+      }));
+      setMessage("Result was refreshed.");
+    } catch (refreshError) {
+      setError(formatAdminError(refreshError, "Result could not be refreshed."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const buildOptionsRequest: AppStudioImportRequest = {
+    entry: request.entry,
+    appId: request.appId,
+    name: request.name,
+    buildMode: request.buildMode,
+    iconPrompt: request.iconPrompt,
+    createAppEnv: request.createAppEnv,
+    rebuildAppEnv: request.rebuildAppEnv,
+    generateLock: request.generateLock,
+    buildFrozenFolder: request.buildFrozenFolder,
+    verifyRuntime: request.verifyRuntime,
+  };
+
+  return (
+    <div className="studio-wizard-layout">
+      <section className="studio-wizard-main">
+        <div className="admin-section-head">
+          <div>
+            <p className="dialog-kicker">Existing app update</p>
+            <h3>App Studio Update Wizard</h3>
+          </div>
+          <span className="admin-status-pill">MVP</span>
+        </div>
+
+        <AppStudioRegisteredAppPicker apps={apps} selectedAppId={request.appId} loading={busy} onReload={() => void loadApps()} onSelect={selectApp} />
+
+        <section className="studio-step">
+          <div>
+            <span className="studio-step-index">2</span>
+            <h4>Current app</h4>
+          </div>
+          <div className="studio-result-list">
+            <SummaryRow label="app_id" value={(selectedApp?.appId ?? request.appId) || "-"} />
+            <SummaryRow label="name" value={selectedApp?.name ?? request.name ?? "-"} />
+            <SummaryRow label="current_version" value={request.currentVersion || "-"} />
+            <SummaryRow label="enabled" value={selectedApp ? String(selectedApp.enabled) : "-"} />
+            <SummaryRow label="runner" value={selectedApp?.runner ?? "-"} />
+            <SummaryRow label="current_entry" value={selectedApp?.entry ?? "-"} />
+          </div>
+        </section>
+
+        <AppStudioVersionBump
+          currentVersion={request.currentVersion ?? ""}
+          mode={versionMode}
+          manualVersion={manualVersion}
+          newVersion={newVersion}
+          onModeChange={setVersionMode}
+          onManualVersionChange={setManualVersion}
+        />
+
+        <section className="studio-step">
+          <div>
+            <span className="studio-step-index">4</span>
+            <h4>Update entry</h4>
+          </div>
+          <div className="studio-entry-row">
+            <label className="admin-field">
+              <span>Entry file path</span>
+              <input type="text" value={request.entry} placeholder="C:\\work\\mytool\\main.py" onChange={handleEntryChange} />
+            </label>
+            <button className="secondary-button" type="button" onClick={() => void browseEntry()} disabled={busy} title="Choose Entry file">
+              <FileSearch size={17} aria-hidden="true" />
+              Browse
+            </button>
+          </div>
+        </section>
+
+        <AppStudioBuildOptions
+          request={buildOptionsRequest}
+          onChange={(next) => {
+            update({
+              buildMode: next.buildMode,
+              createAppEnv: next.createAppEnv,
+              rebuildAppEnv: next.rebuildAppEnv,
+              generateLock: next.generateLock,
+              buildFrozenFolder: next.buildFrozenFolder,
+              verifyRuntime: next.verifyRuntime,
+            });
+          }}
+        />
+
+        <section className="studio-step">
+          <div>
+            <span className="studio-step-index">6</span>
+            <h4>Icon prompt</h4>
+          </div>
+          <label className="admin-field">
+            <span>Icon Prompt</span>
+            <textarea
+              className="studio-textarea"
+              value={request.iconPrompt ?? ""}
+              placeholder="Simple business app icon revision prompt."
+              onChange={(event) => update({ iconPrompt: event.target.value })}
+            />
+          </label>
+        </section>
+
+        <AppStudioPreflightPanel result={preflight} busy={busy} onRun={() => void runPreflight()} />
+
+        <div className="studio-action-row">
+          <button className="secondary-button" type="button" onClick={() => void run("suggest")} disabled={!canRun || versionCompare === 1}>
+            <Play size={17} aria-hidden="true" />
+            Suggest update
+          </button>
+          <button className="primary-button" type="button" onClick={() => void run("apply")} disabled={!canRun || versionCompare === 1}>
+            <Rocket size={17} aria-hidden="true" />
+            Apply update
+          </button>
+        </div>
+
+        {bumped.warning ? <p className="admin-muted">{bumped.warning}</p> : null}
+        {versionCompare === 1 ? <p className="admin-error">New version is older than current version.</p> : null}
+        {message ? <p className="admin-success">{message}</p> : null}
+        {error ? <p className="admin-error" role="alert">{error}</p> : null}
+      </section>
+
+      <aside className="studio-wizard-side">
+        <section className="studio-side-section">
+          <div className="admin-section-head">
+            <div>
+              <p className="dialog-kicker">Update summary</p>
+              <h4>Version and next action</h4>
+            </div>
+            <span className="admin-status-pill">{lastAction ?? "idle"}</span>
+          </div>
+          <div className="studio-result-list">
+            <SummaryRow label="app_id" value={request.appId || "-"} />
+            <SummaryRow label="current_version" value={request.currentVersion || "-"} />
+            <SummaryRow label="new_version" value={newVersion || "-"} />
+            <SummaryRow label="build_mode" value={request.buildMode} />
+            <SummaryRow label="next" value={updateNextAction(result, lastAction, approvalMode, versionCompare)} />
+          </div>
+        </section>
+        <AppStudioRunLog busy={busy} result={result} />
+        <AppStudioResultPanel
+          result={result}
+          lastAction={lastAction}
+          approvalMode={approvalMode}
+          onApprovalModeChange={setApprovalMode}
+          busy={busy}
+          onApprove={() => void approve()}
+          onRefresh={() => void refreshResult()}
+        />
+      </aside>
+    </div>
+  );
+}
+
+function cleanRequest(request: AppStudioUpdateRequest, newVersion: string): AppStudioUpdateRequest {
+  return {
+    ...request,
+    appId: request.appId.trim(),
+    entry: request.entry.trim(),
+    name: request.name?.trim() || undefined,
+    currentVersion: request.currentVersion?.trim() || undefined,
+    newVersion: newVersion.trim(),
+    iconPrompt: request.iconPrompt?.trim() || undefined,
+  };
+}
+
+function normalizeBuildMode(value: string | null | undefined): AppStudioBuildMode | null {
+  if (value === "auto" || value === "app-env" || value === "frozen-folder" || value === "existing-exe") {
+    return value;
+  }
+  return null;
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="studio-result-row">
+      <span aria-hidden="true">-</span>
+      <strong>{label}</strong>
+      <p>{value}</p>
+    </div>
+  );
+}
+
+function updateNextAction(
+  result: AppStudioRunResult | null,
+  lastAction: StudioAction | null,
+  approvalMode: AppStudioApprovalMode,
+  versionCompare: number | null,
+): string {
+  if (versionCompare === 1) {
+    return "Fix the new version.";
+  }
+  if (!result) {
+    return "Run Preflight, then Suggest update.";
+  }
+  if (!result.ok) {
+    return "Review stdout/stderr and generated reports.";
+  }
+  if (result.enabled) {
+    return "Update approved.";
+  }
+  if (lastAction === "suggest") {
+    return "Run Apply update.";
+  }
+  if (lastAction === "apply") {
+    if (result.executionStatus === "fail" || result.approvalAllowed === false) {
+      return "Resolve fail checks before approval.";
+    }
+    if (approvalMode === "strict" && result.executionStatus !== "pass") {
+      return "StrictApproval requires pass.";
+    }
+    return "Run Approve update.";
+  }
+  return "Review the result.";
+}

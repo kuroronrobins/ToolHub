@@ -1,7 +1,13 @@
+import { useState } from "react";
 import { Boxes, FileCheck2, PackagePlus, Trash2 } from "lucide-react";
 import { AppStudioImportWizard } from "./appstudio/AppStudioImportWizard";
+import { AppStudioUpdateWizard } from "./appstudio/AppStudioUpdateWizard";
+
+type StudioTab = "new" | "update" | "delete" | "publish";
 
 export function AppStudioShell() {
+  const [activeTab, setActiveTab] = useState<StudioTab>("new");
+
   return (
     <section className="admin-panel-section">
       <div className="admin-section-head">
@@ -9,36 +15,58 @@ export function AppStudioShell() {
           <p className="dialog-kicker">App Studio</p>
           <h3>ToolHub App Studio</h3>
         </div>
-        <span className="admin-status-pill">Shell</span>
+        <span className="admin-status-pill">Admin only</span>
       </div>
       <p className="admin-muted">
-        CLI版 App Studio を管理者画面から実行します。今回は新規登録フローを優先実装しています。
+        App Studio runs the CLI workflow from the administrator screen. New registration is available, and existing app
+        update is now available as an MVP. Delete and publish workflows remain placeholders.
       </p>
 
-      <AppStudioImportWizard />
-
-      <div className="admin-card-grid">
-        <button className="admin-work-card" type="button" disabled title="上の新規登録フォームを使用してください">
-          <PackagePlus size={22} aria-hidden="true" />
-          <strong>新規登録</strong>
-          <span>Suggest / Apply / Approve をGUIから実行できます</span>
+      <div className="studio-tab-row" role="tablist" aria-label="App Studio sections">
+        <button type="button" className={activeTab === "new" ? "active" : ""} onClick={() => setActiveTab("new")}>
+          <PackagePlus size={17} aria-hidden="true" />
+          New registration
         </button>
-        <button className="admin-work-card" type="button" disabled>
-          <Boxes size={22} aria-hidden="true" />
-          <strong>既存アプリ更新</strong>
-          <span>既存 app_id の再解析と差し替えに接続予定</span>
+        <button type="button" className={activeTab === "update" ? "active" : ""} onClick={() => setActiveTab("update")}>
+          <Boxes size={17} aria-hidden="true" />
+          Existing app update
         </button>
-        <button className="admin-work-card danger" type="button" disabled>
-          <Trash2 size={22} aria-hidden="true" />
-          <strong>削除/アンインストール</strong>
-          <span>将来は再認証を必須にする操作</span>
+        <button type="button" className={activeTab === "delete" ? "active" : ""} onClick={() => setActiveTab("delete")}>
+          <Trash2 size={17} aria-hidden="true" />
+          Delete
         </button>
-        <button className="admin-work-card" type="button" disabled>
-          <FileCheck2 size={22} aria-hidden="true" />
-          <strong>公開準備</strong>
-          <span>App Pack と承認チェックへ接続予定</span>
+        <button type="button" className={activeTab === "publish" ? "active" : ""} onClick={() => setActiveTab("publish")}>
+          <FileCheck2 size={17} aria-hidden="true" />
+          Publish prep
         </button>
       </div>
+
+      {activeTab === "new" ? <AppStudioImportWizard /> : null}
+      {activeTab === "update" ? <AppStudioUpdateWizard /> : null}
+      {activeTab === "delete" || activeTab === "publish" ? (
+        <div className="admin-card-grid">
+          <button className="admin-work-card" type="button" disabled>
+            <PackagePlus size={22} aria-hidden="true" />
+            <strong>New registration</strong>
+            <span>Use the New registration tab for Suggest / Apply / Approve.</span>
+          </button>
+          <button className="admin-work-card" type="button" disabled>
+            <Boxes size={22} aria-hidden="true" />
+            <strong>Existing app update</strong>
+            <span>Use the Existing app update tab for the update MVP.</span>
+          </button>
+          <button className="admin-work-card danger" type="button" disabled>
+            <Trash2 size={22} aria-hidden="true" />
+            <strong>Delete / uninstall</strong>
+            <span>Not implemented. Future dangerous operations should require re-authentication.</span>
+          </button>
+          <button className="admin-work-card" type="button" disabled>
+            <FileCheck2 size={22} aria-hidden="true" />
+            <strong>Publish prep</strong>
+            <span>Not implemented. Approval and App Pack checks are available before future publishing.</span>
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }

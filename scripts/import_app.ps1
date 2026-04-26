@@ -3,6 +3,7 @@ param(
     [string]$Entry,
     [string]$AppId,
     [string]$Name,
+    [string]$Version,
     [ValidateSet("auto", "app-env", "frozen-folder", "existing-exe")]
     [string]$BuildMode = "auto",
     [string]$IconPrompt,
@@ -53,6 +54,7 @@ try {
     $ArgsList = @($StudioMain, "import", "--entry", $Entry, "--build-mode", $BuildMode)
     if ($AppId) { $ArgsList += @("--app-id", $AppId) }
     if ($Name) { $ArgsList += @("--name", $Name) }
+    if ($Version) { $ArgsList += @("--version", $Version) }
     if ($IconPrompt) { $ArgsList += @("--icon-prompt", $IconPrompt) }
     if ($CreateAppEnv) { $ArgsList += "--create-app-env" }
     if ($RebuildAppEnv) { $ArgsList += "--rebuild-app-env" }
