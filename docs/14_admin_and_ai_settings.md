@@ -110,6 +110,26 @@ APIキーの読み取り優先順位:
 
 ## App Studio GUIの位置づけ
 
-今回のGUIはシェルです。新規登録、既存アプリ更新、削除/アンインストール、公開準備の入口を用意し、今後 CLI 版 `tools/app_studio` と接続します。
+App Studio GUI は管理者セッションが有効な場合だけ利用できます。React 側の表示制御だけでなく、Rust/Tauri command 側でも `session.require_authenticated()` を必ず通します。
+
+新規登録GUIは CLI 版 `tools/app_studio/main.py` を直接呼び出します。処理内容、成果物、`enabled=false` 仮登録、App Pack生成、Approve の流れはCLI版と同じです。
+
+Python実行優先順位:
+
+1. `runtime/python/python.exe`
+2. 管理者の開発環境の `python`
+3. 管理者の開発環境の `py`
+
+Python が見つからない場合、App Studio GUI は分かりやすいエラーを表示します。通常ランチャー画面と通常アプリ起動は影響を受けません。
+
+GUI実行ログ:
+
+```text
+%LOCALAPPDATA%\ToolHub\data\logs\admin\app_studio_gui.log
+```
+
+記録する内容は Suggest / Apply / Approve の開始と終了、exit code、app_id、build_mode、output_dir です。APIキー、管理者パスワード、secret値は記録しません。
+
+既存アプリ更新、削除/アンインストール、公開準備はシェル表示に留めています。
 
 削除、publish、APIキー更新などの危険操作は、将来再認証を必須にする前提です。
