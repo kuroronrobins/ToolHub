@@ -34,11 +34,16 @@ fn main() {
             admin_commands::ai_save_api_key,
             admin_commands::ai_delete_api_key,
             admin_commands::ai_test_connection,
+            app_studio_commands::app_studio_list_registered_apps,
             app_studio_commands::app_studio_suggest,
             app_studio_commands::app_studio_apply,
+            app_studio_commands::app_studio_update_suggest,
+            app_studio_commands::app_studio_update_apply,
             app_studio_commands::app_studio_approve,
+            app_studio_commands::app_studio_update_approve,
             app_studio_commands::app_studio_read_result,
             app_studio_commands::app_studio_preflight,
+            app_studio_commands::app_studio_update_preflight,
             app_studio_commands::app_studio_pick_entry_file
         ])
         .run(tauri::generate_context!())

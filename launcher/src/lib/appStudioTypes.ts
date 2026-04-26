@@ -4,6 +4,7 @@ export interface AppStudioImportRequest {
   entry: string;
   appId?: string;
   name?: string;
+  version?: string;
   buildMode: AppStudioBuildMode;
   iconPrompt?: string;
   createAppEnv: boolean;
@@ -11,6 +12,33 @@ export interface AppStudioImportRequest {
   generateLock: boolean;
   buildFrozenFolder: boolean;
   verifyRuntime: boolean;
+}
+
+export interface AppStudioUpdateRequest {
+  appId: string;
+  entry: string;
+  name?: string;
+  currentVersion?: string;
+  newVersion: string;
+  buildMode: AppStudioBuildMode;
+  iconPrompt?: string;
+  createAppEnv: boolean;
+  rebuildAppEnv: boolean;
+  generateLock: boolean;
+  buildFrozenFolder: boolean;
+  verifyRuntime: boolean;
+}
+
+export interface AppStudioRegisteredApp {
+  appId: string;
+  name: string;
+  version: string;
+  enabled: boolean;
+  buildMode?: string | null;
+  runner?: string | null;
+  entry?: string | null;
+  description?: string | null;
+  warning?: string | null;
 }
 
 export interface AppStudioRunResult {
@@ -27,6 +55,8 @@ export interface AppStudioRunResult {
   runtimeStatus?: "pass" | "warn" | "fail" | "unknown" | string | null;
   appPack?: string | null;
   enabled?: boolean | null;
+  currentVersion?: string | null;
+  newVersion?: string | null;
 }
 
 export interface AppStudioPreflightResult {
@@ -50,4 +80,8 @@ export interface AppStudioResultSummary {
   runtimeStatus?: string | null;
   appPack?: string | null;
   enabled?: boolean | null;
+  version?: string | null;
 }
+
+export type AppStudioApprovalMode = "allowWarnings" | "strict";
+export type AppStudioVersionBumpMode = "patch" | "minor" | "major" | "manual";

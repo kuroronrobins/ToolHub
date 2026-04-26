@@ -36,6 +36,8 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
       <div className="studio-result-list">
         <ResultRow icon={<CheckCircle2 size={18} />} label="app_id" value={result?.appId ?? "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="build_mode" value={result?.selectedBuildMode ?? "-"} />
+        <ResultRow icon={<CheckCircle2 size={18} />} label="current_ver" value={result?.currentVersion ?? "-"} />
+        <ResultRow icon={<CheckCircle2 size={18} />} label="new_ver" value={result?.newVersion ?? "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="exit_code" value={result ? String(result.exitCode) : "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="last_action" value={lastAction ?? "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="output_dir" value={result?.outputDir ?? "-"} />
