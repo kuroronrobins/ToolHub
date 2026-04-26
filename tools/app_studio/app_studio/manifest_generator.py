@@ -16,6 +16,8 @@ def generate_app_yaml(context: StudioContext, plan: BuildPlan, metadata: dict[st
     examples = list_or_default(metadata.get("examples"), [f"{context.name} を起動したい"])
     short_description = str(metadata.get("short_description") or f"{context.name} をToolHubから起動するアプリです。")
     description = str(metadata.get("description") or short_description)
+    release_notes = list_or_empty(metadata.get("release_notes"))
+    change_summary = str(metadata.get("change_summary") or "").strip()
     mode = infer_run_mode(context)
     required_runtime = plan.required_runtime
     distribution_mode = plan.mode.replace("-", "_")
@@ -75,6 +77,12 @@ def generate_app_yaml(context: StudioContext, plan: BuildPlan, metadata: dict[st
         "  approval_required: true",
         "  execution_test_required: true",
     ]
+    if change_summary or release_notes:
+        lines.extend(["", "release:"])
+        if change_summary:
+            lines.extend(["  change_summary: >", *[f"    {line}" for line in wrap_block(change_summary)]])
+        if release_notes:
+            lines.extend(["  release_notes:", *[f"    - {yaml_scalar(item)}" for item in release_notes]])
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -82,6 +90,12 @@ def list_or_default(value: Any, default: list[str]) -> list[str]:
     if isinstance(value, list) and value:
         return [str(item) for item in value if str(item).strip()] or default
     return default
+
+
+def list_or_empty(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item).strip()]
+    return []
 
 
 def wrap_block(text: str) -> list[str]:

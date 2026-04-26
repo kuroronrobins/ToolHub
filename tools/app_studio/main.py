@@ -19,6 +19,7 @@ from app_studio.frozen_folder_builder import build_frozen_folder
 from app_studio.icon_generator import generate_icon_assets_with_candidates
 from app_studio.lock_generator import generate_lock
 from app_studio.manifest_generator import generate_app_yaml
+from app_studio.metadata_override import apply_metadata_override, load_metadata_override
 from app_studio.models import BUILD_MODES, GeneratedArtifacts, ImportOptions
 from app_studio.readme_generator import generate_readme
 from app_studio.registrar import apply_registration
@@ -55,6 +56,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--rebuild-frozen-folder", action="store_true")
     parser.add_argument("--skip-frozen-build", action="store_true")
     parser.add_argument("--verify-runtime", action="store_true")
+    parser.add_argument("--metadata-override")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--suggest", action="store_true")
@@ -98,6 +100,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         rebuild_frozen_folder=args.rebuild_frozen_folder,
         skip_frozen_build=args.skip_frozen_build,
         verify_runtime=args.verify_runtime,
+        metadata_override_path=Path(args.metadata_override) if args.metadata_override else None,
     )
     context = create_context(options, repo_root)
     inventory = classify_files(context)
@@ -106,6 +109,11 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     plan = make_build_plan(context, inventory)
     context.build_mode = plan.mode
     metadata = suggest_metadata(context, secret_report)
+    metadata_override_applied: list[str] = []
+    metadata_override_warnings: list[str] = []
+    if options.metadata_override_path:
+        override = load_metadata_override(options.metadata_override_path)
+        metadata, metadata_override_applied, metadata_override_warnings = apply_metadata_override(metadata, override)
     app_yaml = generate_app_yaml(context, plan, metadata)
     readme = generate_readme(context, plan)
     icon_prompt_initial, icon_prompt_revision, icon_svg, style_reference, icon_ai_report, icon_candidate_png, icon_candidate_url = generate_icon_assets_with_candidates(
@@ -129,6 +137,9 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "secret_high_findings": secret_report.has_high,
         "icon_style_reference": style_reference,
         "metadata_ai_report": metadata.get("_ai_generation_report", ""),
+        "metadata_override_used": bool(metadata_override_applied),
+        "metadata_override_keys": metadata_override_applied,
+        "metadata_override_warnings": metadata_override_warnings,
         "create_app_env": options.create_app_env,
         "generate_lock": options.generate_lock,
         "build_frozen_folder": options.build_frozen_folder,
@@ -150,6 +161,10 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     )
 
     print_summary(context.app_id, context.name, action, plan.mode, len(inventory.included_files), len(secret_report.findings), context.output_dir)
+    if options.metadata_override_path:
+        print(f"- metadata_override_keys: {', '.join(metadata_override_applied) if metadata_override_applied else 'none'}")
+        if metadata_override_warnings:
+            print(f"- metadata_override_warnings: {len(metadata_override_warnings)}")
     if action == "dry-run":
         return 0
 

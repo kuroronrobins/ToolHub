@@ -26,6 +26,7 @@ class ImportOptions:
     rebuild_frozen_folder: bool = False
     skip_frozen_build: bool = False
     verify_runtime: bool = False
+    metadata_override_path: Path | None = None
 
 
 @dataclass

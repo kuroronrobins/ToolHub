@@ -7,6 +7,7 @@ export interface AppStudioImportRequest {
   version?: string;
   buildMode: AppStudioBuildMode;
   iconPrompt?: string;
+  metadata?: AppStudioEditableMetadata;
   createAppEnv: boolean;
   rebuildAppEnv: boolean;
   generateLock: boolean;
@@ -22,6 +23,7 @@ export interface AppStudioUpdateRequest {
   newVersion: string;
   buildMode: AppStudioBuildMode;
   iconPrompt?: string;
+  metadata?: AppStudioEditableMetadata;
   createAppEnv: boolean;
   rebuildAppEnv: boolean;
   generateLock: boolean;
@@ -57,6 +59,8 @@ export interface AppStudioRunResult {
   enabled?: boolean | null;
   currentVersion?: string | null;
   newVersion?: string | null;
+  metadataOverrideUsed?: boolean;
+  metadataOverrideKeys?: string[];
 }
 
 export interface AppStudioPreflightResult {
@@ -81,6 +85,22 @@ export interface AppStudioResultSummary {
   appPack?: string | null;
   enabled?: boolean | null;
   version?: string | null;
+  metadataOverrideUsed?: boolean;
+  metadataOverrideKeys?: string[];
+}
+
+export interface AppStudioEditableMetadata {
+  shortDescription?: string;
+  description?: string;
+  categories?: string[];
+  keywords?: string[];
+  examples?: string[];
+  useCases?: string[];
+  inputs?: string[];
+  outputs?: string[];
+  notes?: string[];
+  releaseNotes?: string[];
+  changeSummary?: string;
 }
 
 export interface AppStudioAiMetadataSuggestion {
@@ -97,6 +117,7 @@ export interface AppStudioAiMetadataSuggestion {
   notes: string[];
   iconPrompt?: string | null;
   releaseNotes: string[];
+  changeSummary?: string | null;
 }
 
 export interface AppStudioAiIconSuggestion {

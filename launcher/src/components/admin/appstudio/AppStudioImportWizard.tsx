@@ -10,10 +10,12 @@ import {
   appStudioSuggest,
 } from "../../../lib/appStudioApi";
 import { suggestAppIdentity } from "../../../lib/appStudioIdentity";
-import type { AppStudioApprovalMode, AppStudioImportRequest, AppStudioPreflightResult, AppStudioRunResult } from "../../../lib/appStudioTypes";
+import { cleanEditableMetadata, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
+import type { AppStudioAiProposal, AppStudioApprovalMode, AppStudioImportRequest, AppStudioPreflightResult, AppStudioRunResult } from "../../../lib/appStudioTypes";
 import { formatAdminError } from "../adminUi";
 import { AppStudioAiProposalPanel } from "./AppStudioAiProposalPanel";
 import { AppStudioBuildOptions } from "./AppStudioBuildOptions";
+import { AppStudioMetadataEditor } from "./AppStudioMetadataEditor";
 import { AppStudioPreflightPanel } from "./AppStudioPreflightPanel";
 import { AppStudioResultPanel } from "./AppStudioResultPanel";
 import { AppStudioRunLog } from "./AppStudioRunLog";
@@ -24,6 +26,7 @@ const INITIAL_REQUEST: AppStudioImportRequest = {
   name: "",
   buildMode: "auto",
   iconPrompt: "",
+  metadata: createEmptyAppStudioMetadata(),
   createAppEnv: false,
   rebuildAppEnv: false,
   generateLock: false,
@@ -40,6 +43,7 @@ export function AppStudioImportWizard() {
   const [approvalMode, setApprovalMode] = useState<AppStudioApprovalMode>("allowWarnings");
   const [preflight, setPreflight] = useState<AppStudioPreflightResult | null>(null);
   const [result, setResult] = useState<AppStudioRunResult | null>(null);
+  const [aiProposal, setAiProposal] = useState<AppStudioAiProposal | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -193,6 +197,8 @@ export function AppStudioImportWizard() {
         appPack: summary.appPack ?? runResult.appPack,
         enabled: summary.enabled ?? runResult.enabled,
         newVersion: summary.version ?? runResult.newVersion,
+        metadataOverrideUsed: summary.metadataOverrideUsed ?? runResult.metadataOverrideUsed,
+        metadataOverrideKeys: summary.metadataOverrideKeys ?? runResult.metadataOverrideKeys,
       };
     } catch {
       return runResult;
@@ -252,6 +258,8 @@ export function AppStudioImportWizard() {
           </div>
         </section>
 
+        <AppStudioMetadataEditor metadata={request.metadata} proposal={aiProposal?.metadata ?? null} onChange={(metadata) => update({ metadata })} />
+
         <AppStudioBuildOptions
           request={request}
           onChange={(next) => {
@@ -283,6 +291,7 @@ export function AppStudioImportWizard() {
           busy={busy}
           onGenerate={() => run("suggest")}
           onAdopt={adoptAiProposal}
+          onProposalLoaded={setAiProposal}
         />
 
         <AppStudioPreflightPanel result={preflight} busy={busy} onRun={() => void runPreflight()} />
@@ -325,6 +334,7 @@ function cleanRequest(request: AppStudioImportRequest): AppStudioImportRequest {
     appId: request.appId?.trim() || undefined,
     name: request.name?.trim() || undefined,
     iconPrompt: request.iconPrompt?.trim() || undefined,
+    metadata: cleanEditableMetadata(request.metadata),
   };
 }
 

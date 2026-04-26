@@ -1,7 +1,7 @@
 use crate::admin_session::AdminSessionState;
 use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -16,6 +16,7 @@ pub struct AppStudioImportRequest {
     pub version: Option<String>,
     pub build_mode: String,
     pub icon_prompt: Option<String>,
+    pub metadata: Option<AppStudioEditableMetadata>,
     pub create_app_env: bool,
     pub rebuild_app_env: bool,
     pub generate_lock: bool,
@@ -33,11 +34,28 @@ pub struct AppStudioUpdateRequest {
     pub new_version: String,
     pub build_mode: String,
     pub icon_prompt: Option<String>,
+    pub metadata: Option<AppStudioEditableMetadata>,
     pub create_app_env: bool,
     pub rebuild_app_env: bool,
     pub generate_lock: bool,
     pub build_frozen_folder: bool,
     pub verify_runtime: bool,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioEditableMetadata {
+    pub short_description: Option<String>,
+    pub description: Option<String>,
+    pub categories: Option<Vec<String>>,
+    pub keywords: Option<Vec<String>>,
+    pub examples: Option<Vec<String>>,
+    pub use_cases: Option<Vec<String>>,
+    pub inputs: Option<Vec<String>>,
+    pub outputs: Option<Vec<String>>,
+    pub notes: Option<Vec<String>>,
+    pub release_notes: Option<Vec<String>>,
+    pub change_summary: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -66,6 +84,8 @@ pub struct AppStudioResultSummary {
     pub app_pack: Option<String>,
     pub enabled: Option<bool>,
     pub version: Option<String>,
+    pub metadata_override_used: bool,
+    pub metadata_override_keys: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -86,6 +106,8 @@ pub struct AppStudioRunResult {
     pub enabled: Option<bool>,
     pub current_version: Option<String>,
     pub new_version: Option<String>,
+    pub metadata_override_used: bool,
+    pub metadata_override_keys: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -118,6 +140,7 @@ pub struct AppStudioAiMetadataSuggestion {
     pub notes: Vec<String>,
     pub icon_prompt: Option<String>,
     pub release_notes: Vec<String>,
+    pub change_summary: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -374,12 +397,19 @@ fn run_import_action(
         return Err("tools/app_studio/main.py が見つかりません。".to_string());
     }
 
+    let metadata_override = write_metadata_override_file(&request)?;
+    let metadata_override_keys = metadata_override
+        .as_ref()
+        .map(|(_, keys)| keys.join(","))
+        .unwrap_or_default();
+
     append_app_studio_gui_log(
         &format!("{action} started"),
         &[
             ("app_id", request.app_id.clone().unwrap_or_default()),
             ("build_mode", request.build_mode.clone()),
             ("python_source", python_candidate.source.clone()),
+            ("metadata_override_keys", metadata_override_keys.clone()),
         ],
     );
 
@@ -402,6 +432,9 @@ fn run_import_action(
     }
     if let Some(icon_prompt) = clean_optional(&request.icon_prompt) {
         command.arg("--icon-prompt").arg(icon_prompt);
+    }
+    if let Some((path, _)) = metadata_override.as_ref() {
+        command.arg("--metadata-override").arg(path);
     }
     if request.create_app_env {
         command.arg("--create-app-env");
@@ -452,6 +485,7 @@ fn run_import_action(
             ("build_mode", request.build_mode.clone()),
             ("output_dir", summary.output_dir.clone().unwrap_or_default()),
             ("python_source", python_candidate.source),
+            ("metadata_override_keys", metadata_override_keys),
             (
                 "user_message",
                 if output.status.success() {
@@ -609,6 +643,8 @@ fn result_from_process(
         enabled: summary.enabled,
         current_version: None,
         new_version: summary.version,
+        metadata_override_used: summary.metadata_override_used,
+        metadata_override_keys: summary.metadata_override_keys,
     }
 }
 
@@ -936,7 +972,8 @@ fn metadata_from_yaml(yaml: &serde_yaml::Value) -> AppStudioAiMetadataSuggestion
         outputs: yaml_string_list(yaml, &["detail", "outputs"]),
         notes: yaml_string_list(yaml, &["detail", "notes"]),
         icon_prompt: None,
-        release_notes: Vec::new(),
+        release_notes: yaml_string_list(yaml, &["release", "release_notes"]),
+        change_summary: yaml_str(yaml, &["release", "change_summary"]),
     }
 }
 
@@ -956,10 +993,15 @@ fn fill_release_notes(output_dir: &Path, metadata: &mut AppStudioAiMetadataSugge
         .get("selected_build_mode")
         .and_then(Value::as_str)
         .unwrap_or("unknown");
-    metadata.release_notes = vec![
-        format!("Update {app_id} to version {version}."),
-        format!("Build mode: {mode}. Review execution_test_result.json before approval."),
-    ];
+    if metadata.release_notes.is_empty() {
+        metadata.release_notes = vec![
+            format!("Update {app_id} to version {version}."),
+            format!("Build mode: {mode}. Review execution_test_result.json before approval."),
+        ];
+    }
+    if metadata.change_summary.is_none() {
+        metadata.change_summary = Some(format!("Update {app_id} to version {version} with {mode}."));
+    }
 }
 
 fn yaml_string_list(value: &serde_yaml::Value, path: &[&str]) -> Vec<String> {
@@ -1038,6 +1080,16 @@ fn read_import_plan(output_dir: &Path, summary: &mut AppStudioResultSummary) {
     }
     if let Some(value) = json.get("version").and_then(Value::as_str) {
         summary.version = Some(value.to_string());
+    }
+    if let Some(value) = json.get("metadata_override_used").and_then(Value::as_bool) {
+        summary.metadata_override_used = value;
+    }
+    if let Some(items) = json.get("metadata_override_keys").and_then(Value::as_array) {
+        summary.metadata_override_keys = items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect();
     }
 }
 
@@ -1221,6 +1273,7 @@ fn import_request_from_update(request: &AppStudioUpdateRequest) -> AppStudioImpo
         version: Some(request.new_version.clone()),
         build_mode: request.build_mode.clone(),
         icon_prompt: request.icon_prompt.clone(),
+        metadata: request.metadata.clone(),
         create_app_env: request.create_app_env,
         rebuild_app_env: request.rebuild_app_env,
         generate_lock: request.generate_lock,
@@ -1323,6 +1376,127 @@ fn clean_optional(value: &Option<String>) -> Option<&str> {
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
+}
+
+fn write_metadata_override_file(
+    request: &AppStudioImportRequest,
+) -> Result<Option<(PathBuf, Vec<String>)>, String> {
+    let Some((payload, keys)) = metadata_override_payload(&request.metadata) else {
+        return Ok(None);
+    };
+    let dir = crate::setup::user_data_root()
+        .join("data")
+        .join("app_studio")
+        .join("metadata_overrides");
+    std::fs::create_dir_all(&dir)
+        .map_err(|_| "Could not create App Studio metadata override directory.".to_string())?;
+    let app_stem = clean_optional(&request.app_id).unwrap_or("pending");
+    let stamp = chrono::Local::now().timestamp_millis();
+    let path = dir.join(format!("{}_{}.json", safe_file_stem(app_stem), stamp));
+    let text = serde_json::to_string_pretty(&payload)
+        .map_err(|_| "Could not serialize App Studio metadata override.".to_string())?;
+    std::fs::write(&path, text)
+        .map_err(|_| "Could not write App Studio metadata override file.".to_string())?;
+    Ok(Some((path, keys)))
+}
+
+fn metadata_override_payload(
+    metadata: &Option<AppStudioEditableMetadata>,
+) -> Option<(Value, Vec<String>)> {
+    let metadata = metadata.as_ref()?;
+    let mut map = Map::new();
+    let mut keys = Vec::new();
+
+    insert_string_override(
+        &mut map,
+        &mut keys,
+        "short_description",
+        metadata.short_description.as_deref(),
+    );
+    insert_string_override(
+        &mut map,
+        &mut keys,
+        "description",
+        metadata.description.as_deref(),
+    );
+    insert_string_override(
+        &mut map,
+        &mut keys,
+        "change_summary",
+        metadata.change_summary.as_deref(),
+    );
+    insert_list_override(&mut map, &mut keys, "categories", metadata.categories.as_ref());
+    insert_list_override(&mut map, &mut keys, "keywords", metadata.keywords.as_ref());
+    insert_list_override(&mut map, &mut keys, "examples", metadata.examples.as_ref());
+    insert_list_override(&mut map, &mut keys, "use_cases", metadata.use_cases.as_ref());
+    insert_list_override(&mut map, &mut keys, "inputs", metadata.inputs.as_ref());
+    insert_list_override(&mut map, &mut keys, "outputs", metadata.outputs.as_ref());
+    insert_list_override(&mut map, &mut keys, "notes", metadata.notes.as_ref());
+    insert_list_override(
+        &mut map,
+        &mut keys,
+        "release_notes",
+        metadata.release_notes.as_ref(),
+    );
+
+    if map.is_empty() {
+        None
+    } else {
+        Some((Value::Object(map), keys))
+    }
+}
+
+fn insert_string_override(
+    map: &mut Map<String, Value>,
+    keys: &mut Vec<String>,
+    key: &str,
+    value: Option<&str>,
+) {
+    let Some(cleaned) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    map.insert(key.to_string(), Value::String(cleaned.to_string()));
+    keys.push(key.to_string());
+}
+
+fn insert_list_override(
+    map: &mut Map<String, Value>,
+    keys: &mut Vec<String>,
+    key: &str,
+    value: Option<&Vec<String>>,
+) {
+    let Some(value) = value else {
+        return;
+    };
+    let items: Vec<Value> = value
+        .iter()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .map(|item| Value::String(item.to_string()))
+        .collect();
+    if items.is_empty() {
+        return;
+    }
+    map.insert(key.to_string(), Value::Array(items));
+    keys.push(key.to_string());
+}
+
+fn safe_file_stem(value: &str) -> String {
+    let stem: String = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if stem.is_empty() {
+        "pending".to_string()
+    } else {
+        stem
+    }
 }
 
 fn approval_flag(strict: bool) -> &'static str {
@@ -1473,6 +1647,7 @@ mod tests {
             version: None,
             build_mode: "app-env".to_string(),
             icon_prompt: None,
+            metadata: None,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,
@@ -1500,6 +1675,7 @@ mod tests {
             version: None,
             build_mode: "app-env".to_string(),
             icon_prompt: None,
+            metadata: None,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,
@@ -1526,6 +1702,58 @@ mod tests {
         let masked = mask_sensitive("key=<DUMMY_OPENAI_API_KEY> done");
         assert!(masked.contains("sk-...abcd"));
         assert!(!masked.contains("test123456"));
+    }
+
+    #[test]
+    fn metadata_override_payload_uses_only_non_empty_fields() {
+        let metadata = Some(AppStudioEditableMetadata {
+            short_description: Some("Short".to_string()),
+            description: Some(" ".to_string()),
+            categories: Some(vec!["ops".to_string(), " ".to_string()]),
+            keywords: Some(vec!["tool".to_string()]),
+            ..AppStudioEditableMetadata::default()
+        });
+
+        let (payload, keys) = metadata_override_payload(&metadata).unwrap();
+        let object = payload.as_object().unwrap();
+
+        assert_eq!(
+            object.get("short_description").and_then(Value::as_str),
+            Some("Short")
+        );
+        assert!(object.get("description").is_none());
+        assert_eq!(keys, vec!["short_description", "categories", "keywords"]);
+    }
+
+    #[test]
+    fn update_request_preserves_metadata_override() {
+        let request = AppStudioUpdateRequest {
+            app_id: "sample_app".to_string(),
+            entry: "C:\\work\\main.py".to_string(),
+            name: Some("Sample App".to_string()),
+            current_version: Some("1.0.0".to_string()),
+            new_version: "1.0.1".to_string(),
+            build_mode: "app-env".to_string(),
+            icon_prompt: None,
+            metadata: Some(AppStudioEditableMetadata {
+                short_description: Some("Updated short".to_string()),
+                ..AppStudioEditableMetadata::default()
+            }),
+            create_app_env: false,
+            rebuild_app_env: false,
+            generate_lock: false,
+            build_frozen_folder: false,
+            verify_runtime: false,
+        };
+
+        let import_request = import_request_from_update(&request);
+
+        assert_eq!(
+            import_request
+                .metadata
+                .and_then(|metadata| metadata.short_description),
+            Some("Updated short".to_string())
+        );
     }
 
     #[test]
@@ -1675,6 +1903,7 @@ mod tests {
             new_version: "1.2.2".to_string(),
             build_mode: "app-env".to_string(),
             icon_prompt: None,
+            metadata: None,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,

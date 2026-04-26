@@ -58,6 +58,7 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
         <ResultRow icon={<CheckCircle2 size={18} />} label="process_ok" value={result ? String(result.ok) : "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="last_action" value={lastAction ?? "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="output_dir" value={result?.outputDir ?? "-"} />
+        <ResultRow icon={<CheckCircle2 size={18} />} label="metadata_override" value={metadataOverrideText(result)} />
         <ResultRow icon={<CircleAlert size={18} />} label="execution" value={result?.executionStatus ?? "unknown"} />
         <ResultRow icon={<CircleAlert size={18} />} label="approval_allowed" value={formatBool(result?.approvalAllowed)} />
         <ResultRow icon={<CircleAlert size={18} />} label="runtime" value={result?.runtimeStatus ?? "unknown"} />
@@ -117,6 +118,13 @@ function formatBool(value: boolean | null | undefined): string {
     return "false";
   }
   return "unknown";
+}
+
+function metadataOverrideText(result: AppStudioRunResult | null): string {
+  if (!result?.metadataOverrideUsed) {
+    return "not used";
+  }
+  return result.metadataOverrideKeys?.length ? result.metadataOverrideKeys.join(", ") : "used";
 }
 
 function nextActionText(
