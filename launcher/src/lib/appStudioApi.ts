@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppStudioImportRequest,
   AppStudioAiProposal,
+  AppStudioAiDiagnostics,
   AppStudioPreflightResult,
   AppStudioRegisteredApp,
   AppStudioResultSummary,
@@ -43,6 +44,10 @@ export async function appStudioReadResult(appId?: string, outputDir?: string): P
 
 export async function appStudioReadAiProposal(appId?: string, outputDir?: string): Promise<AppStudioAiProposal> {
   return invoke<AppStudioAiProposal>("app_studio_read_ai_proposal", { appId, outputDir });
+}
+
+export async function appStudioAiDiagnostics(): Promise<AppStudioAiDiagnostics> {
+  return invoke<AppStudioAiDiagnostics>("app_studio_ai_diagnostics");
 }
 
 export async function appStudioPreflight(request: AppStudioImportRequest): Promise<AppStudioPreflightResult> {

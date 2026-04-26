@@ -43,6 +43,7 @@ fn main() {
             app_studio_commands::app_studio_update_approve,
             app_studio_commands::app_studio_read_result,
             app_studio_commands::app_studio_read_ai_proposal,
+            app_studio_commands::app_studio_ai_diagnostics,
             app_studio_commands::app_studio_preflight,
             app_studio_commands::app_studio_update_preflight,
             app_studio_commands::app_studio_pick_entry_file

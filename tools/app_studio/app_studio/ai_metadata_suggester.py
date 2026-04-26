@@ -4,13 +4,23 @@ import json
 from typing import Any
 
 from .models import SecretScanReport, StudioContext
-from .openai_client import complete_json
+from .openai_client import complete_json, ai_enabled, has_api_key, text_model
 
 
 def suggest_metadata(context: StudioContext, secret_report: SecretScanReport | None = None) -> dict[str, Any]:
     if secret_report and secret_report.has_high:
         metadata = fallback_metadata(context)
-        metadata["_ai_generation_report"] = "OpenAI metadata generation skipped because high severity secret findings exist."
+        metadata["_ai_generation_report"] = "\n".join(
+            [
+                "api: responses.create",
+                "status: skipped",
+                f"model: {text_model()}",
+                f"ai_enabled: {str(ai_enabled()).lower()}",
+                f"api_key_present: {str(has_api_key()).lower()}",
+                "parse_status: not_attempted",
+                "fallback_reason: high severity secret detected, AI skipped",
+            ]
+        )
         return metadata
 
     result = complete_json(
@@ -20,11 +30,15 @@ def suggest_metadata(context: StudioContext, secret_report: SecretScanReport | N
     if result.ok:
         parsed = parse_metadata_json(result.content)
         if parsed:
-            parsed["_ai_generation_report"] = result.report
+            parsed["_ai_generation_report"] = append_parse_status(result.report, "success", "")
             return parsed
 
     metadata = fallback_metadata(context)
-    metadata["_ai_generation_report"] = result.report
+    metadata["_ai_generation_report"] = append_parse_status(
+        result.report,
+        "failed" if result.ok else "not_attempted",
+        "metadata JSON parse failed" if result.ok else "",
+    )
     return metadata
 
 
@@ -47,10 +61,10 @@ def suggest_icon_prompt(context: StudioContext, revision_prompt: str | None = No
             data = json.loads(result.content)
             prompt = str(data.get("icon_prompt") or "").strip()
             if prompt:
-                return prompt, result.report
+                return prompt, append_parse_status(result.report, "success", "")
         except json.JSONDecodeError:
             pass
-    return base, result.report
+    return base, append_parse_status(result.report, "failed" if result.ok else "not_attempted", "icon prompt JSON parse failed" if result.ok else "")
 
 
 def fallback_metadata(context: StudioContext) -> dict[str, Any]:
@@ -112,3 +126,9 @@ def parse_metadata_json(content: str) -> dict[str, Any] | None:
         return None
     return data
 
+
+def append_parse_status(report: str, status: str, reason: str) -> str:
+    lines = [report, f"parse_status: {status}"]
+    if reason:
+        lines.append(f"parse_fallback_reason: {reason}")
+    return "\n".join(lines)

@@ -11,6 +11,8 @@ Entryが `.exe` の場合、GUIは `existing-exe` を推奨します。Entryが 
 
 GUIでは、Suggest が生成した `proposed_app.yaml` と `icon_work/` をAI/fallback提案として読み込めます。表示対象は、表示名、short_description、detail.description、categories、search keywords、examples、use_cases、inputs、outputs、notes、icon prompt、更新時の release notes 草案、`icon_candidate_1.png`、`icon_final.png`、`icon_candidate_1.url.txt`、`icon_fallback.svg`、互換用の `icon_final.svg` です。AI提案は自動確定せず、採用ボタンで表示名やicon promptなど編集可能な入力欄へ反映します。APIキー未設定、AI無効、OpenAI packageなし、API失敗時も CLI 側の deterministic fallback で動きます。high secret 検出時はAI送信しません。
 
+AI提案パネルはCLIへ渡すAI環境の診断も表示します。表示対象は AI enabled、API key source、Text model、Image model、CLI env ready です。APIキー本文は表示しません。`metadata_ai_report` と `icon_work/ai_generation_report.md` から、metadata/image それぞれの `status`、`model`、`parse_status`、`content_type`、`saved_candidate`、`fallback_reason` も確認できます。
+
 GUIでは CLI process の `exit_code` / `process_ok` と、`execution_test_result.json` の `overall_status` / `approval_allowed` を分けて表示します。`existing-exe` や `frozen-folder` では runner dry execution がスキップされ、`overall_status: warn` になることがあります。`approval_allowed: true` で、他のチェックが pass の場合は致命的失敗ではありません。GUIはこの状態を `warn / approval OK` と表示し、AllowWarnings で承認できるようにします。App Packが見つからない場合は App Pack 欄だけ `not found` と表示します。Apply後はGUIが `app_studio_read_result` を再実行し、生成済みJSONの内容を表示へ反映します。
 
 ## AI提案メタデータとmetadata_override
@@ -352,10 +354,14 @@ $env:OPENAI_API_KEY="..."
 安全方針:
 
 - `TOOLHUB_APP_STUDIO_AI_ENABLED` が `true` / `1` の場合だけAPI呼び出しを試みます。
+- Tauri GUIから起動するCLIには、管理者画面のAI設定を優先して `TOOLHUB_APP_STUDIO_AI_ENABLED`、`TOOLHUB_APP_STUDIO_TEXT_MODEL`、`TOOLHUB_APP_STUDIO_IMAGE_MODEL` を渡します。
+- APIキーはAI有効かつキー存在時だけ子プロセスへ `OPENAI_API_KEY` として渡します。Credential Managerが優先で、無ければ環境変数を使います。
 - APIキーやモデル名が未設定ならfallbackします。
 - `openai` Python package がない場合もfallbackします。
 - high severity の秘密情報が検出された場合はAI送信しません。
 - Entry全文は送らず、ファイル名、README抜粋、既存カテゴリなどの限定情報だけを使います。
+- metadata提案は Responses API `responses.create` を使い、JSON parseに失敗した場合はfallbackします。
+- 画像生成は Images API `images.generate` を使います。`response_format` は渡しません。
 - 標準アイコンは `icon.png` です。`app.yaml` は `display.icon: icon.png` と `display.icon_fallback: icon.svg` を出力します。
 - 最終 `icon.svg` はfallback/互換用として保存し、既存SVGアイコンの表示互換性を保ちます。
 - 画像APIが b64 PNG を返した場合は `icon_work/icon_candidate_1.png` に保存します。

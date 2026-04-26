@@ -170,6 +170,7 @@ export function AiSettingsPanel() {
               placeholder="gpt-image-2"
               onChange={(event) => setSettings((current) => ({ ...current, imageModel: event.target.value }))}
             />
+            <small className="admin-muted">推奨: gpt-image-2 / 互換: gpt-image-1.5, gpt-image-1, gpt-image-1-mini</small>
           </label>
         </div>
 

@@ -1181,6 +1181,39 @@ button {
   overflow-wrap: anywhere;
 }
 
+.studio-ai-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.studio-ai-status-grid div,
+.studio-ai-report-summary span {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid #dfe5ee;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.studio-ai-status-grid span,
+.studio-ai-report-summary strong {
+  color: #5b6675;
+  font-size: 0.78rem;
+}
+
+.studio-ai-status-grid strong {
+  color: #1f2937;
+  overflow-wrap: anywhere;
+}
+
+.studio-ai-report-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
 .studio-icon-preview-row {
   display: flex;
   flex-wrap: wrap;

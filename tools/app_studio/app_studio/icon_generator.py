@@ -38,7 +38,12 @@ def generate_icon_assets(context: StudioContext, revision_prompt: str | None = N
     return initial_prompt, revision, svg, style_reference, report
 
 
-def generate_icon_assets_with_candidates(context: StudioContext, revision_prompt: str | None = None, allow_ai: bool = True) -> tuple[str, str, str, bytes, str, str, bytes | None, str]:
+def generate_icon_assets_with_candidates(
+    context: StudioContext,
+    revision_prompt: str | None = None,
+    allow_ai: bool = True,
+    ai_skip_reason: str = "",
+) -> tuple[str, str, str, bytes, str, str, bytes | None, str]:
     style_reference = collect_icon_style_reference(context.repo_root)
     initial_prompt, initial_report = suggest_icon_prompt(context, allow_ai=allow_ai)
     if revision_prompt:
@@ -49,6 +54,7 @@ def generate_icon_assets_with_candidates(context: StudioContext, revision_prompt
     prompt_for_svg = revision if revision_prompt else initial_prompt
     image_result = generate_image(prompt_for_svg) if allow_ai else None
     png_bytes, image_url, image_note = image_candidate_from_result(image_result)
+    image_report = image_result.report if image_result else skipped_image_report(ai_skip_reason)
     svg = generate_local_svg(context, prompt_for_svg, style_reference)
     fallback_png = generate_local_png(context, prompt_for_svg, style_reference)
     report = "\n".join(
@@ -63,7 +69,8 @@ def generate_icon_assets_with_candidates(context: StudioContext, revision_prompt
             "",
             "## Image Generation",
             "",
-            image_result.report if image_result else "OpenAI image generation skipped because AI use was not allowed.",
+            image_report,
+            f"saved_candidate: {saved_candidate_name(png_bytes, image_url)}",
             image_note,
             "",
             "PNG is the standard ToolHub App Studio icon output. API PNG candidates require human adoption before final icon.png is replaced.",
@@ -75,7 +82,8 @@ def generate_icon_assets_with_candidates(context: StudioContext, revision_prompt
 
 def image_candidate_from_result(image_result) -> tuple[bytes | None, str, str]:
     if image_result is None or not image_result.ok or not image_result.content:
-        return None, "", "No API image candidate was saved."
+        reason = image_result.fallback_reason if image_result else "AI image generation was skipped."
+        return None, "", f"No API image candidate was saved. reason={reason or 'none'}"
     content = image_result.content.strip()
     if content.startswith("http://") or content.startswith("https://"):
         return None, content, "API returned an image URL. It will be saved as icon_candidate_1.url.txt."
@@ -83,6 +91,31 @@ def image_candidate_from_result(image_result) -> tuple[bytes | None, str, str]:
         return decode_base64_image(content), "", "API returned b64 image data. It will be saved as icon_candidate_1.png."
     except Exception:
         return None, "", "API image data could not be decoded; fallback SVG remains available."
+
+
+def skipped_image_report(reason: str) -> str:
+    return "\n".join(
+        [
+            "api: images.generate",
+            "status: skipped",
+            "model: not_configured",
+            "ai_enabled: false",
+            "api_key_present: false",
+            "used_api: false",
+            "content_type: none",
+            "output_format: png",
+            "quality: medium",
+            f"fallback_reason: {reason or 'AI use was not allowed.'}",
+        ]
+    )
+
+
+def saved_candidate_name(png_bytes: bytes | None, image_url: str) -> str:
+    if png_bytes:
+        return "icon_candidate_1.png"
+    if image_url:
+        return "icon_candidate_1.url.txt"
+    return "none"
 
 
 def generate_local_svg(context: StudioContext, prompt: str, style_reference: str) -> str:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import os
 from dataclasses import dataclass
+from typing import Any
 
 
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
@@ -15,81 +16,235 @@ class OpenAIResult:
     content: str
     report: str
     error: str = ""
+    status: str = "fallback"
+    model: str = ""
+    api: str = ""
+    content_type: str = "none"
+    fallback_reason: str = ""
 
 
 def ai_enabled() -> bool:
     return os.environ.get("TOOLHUB_APP_STUDIO_AI_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def get_text_model() -> str | None:
+    value = os.environ.get("TOOLHUB_APP_STUDIO_TEXT_MODEL")
+    if value is None:
+        return None
+    value = value.strip()
+    if not value or value == "local-deterministic-fallback":
+        return None
+    return value
+
+
+def get_image_model() -> str | None:
+    value = os.environ.get("TOOLHUB_APP_STUDIO_IMAGE_MODEL")
+    if value is None:
+        return DEFAULT_IMAGE_MODEL
+    value = value.strip()
+    return value or None
+
+
 def text_model() -> str:
-    return os.environ.get("TOOLHUB_APP_STUDIO_TEXT_MODEL", "local-deterministic-fallback")
+    return get_text_model() or "local-deterministic-fallback"
 
 
 def image_model() -> str:
-    return os.environ.get("TOOLHUB_APP_STUDIO_IMAGE_MODEL", DEFAULT_IMAGE_MODEL)
+    return get_image_model() or "local-deterministic-fallback"
 
 
-def can_call_api() -> tuple[bool, str]:
+def has_api_key() -> bool:
+    return bool(os.environ.get("OPENAI_API_KEY", "").strip())
+
+
+def can_call_api(model: str | None) -> tuple[bool, str, str]:
     if not ai_enabled():
-        return False, "AI is disabled. Set TOOLHUB_APP_STUDIO_AI_ENABLED=true to opt in."
-    if not os.environ.get("OPENAI_API_KEY"):
-        return False, "OPENAI_API_KEY is not set."
-    return True, ""
+        return False, "skipped", "AI is disabled."
+    if not has_api_key():
+        return False, "fallback", "OPENAI_API_KEY is not set."
+    if not model:
+        return False, "fallback", "model is not configured."
+    return True, "success", ""
 
 
 def complete_json(system_prompt: str, user_prompt: str) -> OpenAIResult:
-    allowed, reason = can_call_api()
-    model = text_model()
+    model = get_text_model()
+    allowed, status, reason = can_call_api(model)
+    api = "responses.create"
     if not allowed:
-        return OpenAIResult(False, False, "", f"OpenAI text generation fallback used. model={model}. reason={reason}", reason)
-    if model == "local-deterministic-fallback":
-        return OpenAIResult(False, False, "", "OpenAI text generation fallback used because no text model was configured.", "text model not configured")
+        return result_with_report(False, False, "", api, status, model or "", "none", reason)
     try:
         from openai import OpenAI  # type: ignore
     except Exception as exc:
-        return OpenAIResult(False, False, "", f"OpenAI package is not available. fallback used. error={exc!r}", repr(exc))
+        reason = f"OpenAI package is not available: {short_error(exc)}"
+        return result_with_report(False, False, "", api, "fallback", model or "", "none", reason, repr(exc))
     try:
         client = OpenAI()
-        response = client.chat.completions.create(
+        response = client.responses.create(
             model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            response_format={"type": "json_object"},
+            input=f"{system_prompt}\n\n{user_prompt}",
         )
-        content = response.choices[0].message.content or ""
-        return OpenAIResult(True, True, content, f"OpenAI text generation succeeded. model={model}.")
+        content = extract_response_text(response)
+        if not content.strip():
+            reason = "Responses API returned no text."
+            return result_with_report(False, True, "", api, "failed", model or "", "none", reason)
+        return result_with_report(True, True, content, api, "success", model or "", "text", "")
     except Exception as exc:
-        return OpenAIResult(False, False, "", f"OpenAI text generation failed. fallback used. model={model}. error={exc!r}", repr(exc))
+        reason = f"Responses API failed: {short_error(exc)}"
+        return result_with_report(False, True, "", api, "failed", model or "", "none", reason, repr(exc))
 
 
 def generate_image(prompt: str) -> OpenAIResult:
-    allowed, reason = can_call_api()
-    model = image_model()
+    model = get_image_model()
+    allowed, status, reason = can_call_api(model)
+    api = "images.generate"
     if not allowed:
-        return OpenAIResult(False, False, "", f"OpenAI image generation fallback used. model={model}. reason={reason}", reason)
-    if model == "local-deterministic-fallback":
-        return OpenAIResult(False, False, "", "OpenAI image generation fallback used because no image model was configured.", "image model not configured")
+        return result_with_report(False, False, "", api, status, model or "", "none", reason)
     try:
         from openai import OpenAI  # type: ignore
     except Exception as exc:
-        return OpenAIResult(False, False, "", f"OpenAI package is not available. fallback used. error={exc!r}", repr(exc))
+        reason = f"OpenAI package is not available: {short_error(exc)}"
+        return result_with_report(False, False, "", api, "fallback", model or "", "none", reason, repr(exc))
+
+    client = OpenAI()
+    params: dict[str, Any] = {
+        "model": model,
+        "prompt": prompt,
+        "size": "1024x1024",
+        "output_format": "png",
+        "quality": "medium",
+    }
     try:
-        client = OpenAI()
-        try:
-            response = client.images.generate(model=model, prompt=prompt, size="1024x1024", response_format="b64_json")
-        except TypeError:
-            response = client.images.generate(model=model, prompt=prompt, size="1024x1024")
-        data = response.data[0]
-        b64 = getattr(data, "b64_json", None)
-        if b64:
-            return OpenAIResult(True, True, b64, f"OpenAI image generation succeeded. model={model}. content=b64_png")
-        url = getattr(data, "url", "")
-        return OpenAIResult(True, True, url or "", f"OpenAI image generation succeeded. model={model}. content=url")
+        response = client.images.generate(**params)
     except Exception as exc:
-        return OpenAIResult(False, False, "", f"OpenAI image generation failed. fallback used. model={model}. error={exc!r}", repr(exc))
+        if is_unsupported_optional_parameter(exc):
+            retry_params = {key: value for key, value in params.items() if key not in {"output_format", "quality"}}
+            try:
+                response = client.images.generate(**retry_params)
+            except Exception as retry_exc:
+                reason = f"Image API failed after optional-parameter retry: {short_error(retry_exc)}"
+                return result_with_report(False, True, "", api, "failed", model or "", "none", reason, repr(retry_exc), output_format="not_requested", quality="not_requested")
+        else:
+            reason = f"Image API failed: {short_error(exc)}"
+            return result_with_report(False, True, "", api, "failed", model or "", "none", reason, repr(exc))
+
+    content, content_type = extract_image_content(response)
+    if not content:
+        reason = "Image API returned neither b64_json nor url."
+        return result_with_report(False, True, "", api, "failed", model or "", "none", reason)
+    return result_with_report(True, True, content, api, "success", model or "", content_type, "")
+
+
+def result_with_report(
+    ok: bool,
+    used_api: bool,
+    content: str,
+    api: str,
+    status: str,
+    model: str,
+    content_type: str,
+    fallback_reason: str,
+    error: str = "",
+    output_format: str = "png",
+    quality: str = "medium",
+) -> OpenAIResult:
+    report = "\n".join(
+        [
+            f"api: {api}",
+            f"status: {status}",
+            f"model: {model or 'not_configured'}",
+            f"ai_enabled: {str(ai_enabled()).lower()}",
+            f"api_key_present: {str(has_api_key()).lower()}",
+            f"used_api: {str(used_api).lower()}",
+            f"content_type: {content_type}",
+            f"output_format: {output_format if api == 'images.generate' else 'not_applicable'}",
+            f"quality: {quality if api == 'images.generate' else 'not_applicable'}",
+            f"fallback_reason: {mask_sensitive(fallback_reason) if fallback_reason else 'none'}",
+        ]
+    )
+    return OpenAIResult(ok, used_api, content, report, mask_sensitive(error), status, model, api, content_type, fallback_reason)
+
+
+def extract_response_text(response: Any) -> str:
+    output_text = getattr(response, "output_text", None)
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text
+    return extract_text_recursive(getattr(response, "output", None)).strip()
+
+
+def extract_text_recursive(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        if isinstance(value.get("text"), str):
+            return value["text"]
+        if isinstance(value.get("value"), str):
+            return value["value"]
+        return "\n".join(extract_text_recursive(item) for item in value.values()).strip()
+    if isinstance(value, (list, tuple)):
+        return "\n".join(extract_text_recursive(item) for item in value).strip()
+    for attr in ("text", "value", "content"):
+        if hasattr(value, attr):
+            text = extract_text_recursive(getattr(value, attr))
+            if text:
+                return text
+    return ""
+
+
+def extract_image_content(response: Any) -> tuple[str, str]:
+    data_items = getattr(response, "data", None) or []
+    if not data_items:
+        return "", "none"
+    first = data_items[0]
+    b64 = getattr(first, "b64_json", None)
+    if isinstance(b64, str) and b64.strip():
+        return b64.strip(), "b64_png"
+    url = getattr(first, "url", None)
+    if isinstance(url, str) and url.strip():
+        return url.strip(), "url"
+    if isinstance(first, dict):
+        b64 = first.get("b64_json")
+        if isinstance(b64, str) and b64.strip():
+            return b64.strip(), "b64_png"
+        url = first.get("url")
+        if isinstance(url, str) and url.strip():
+            return url.strip(), "url"
+    return "", "none"
+
+
+def is_unsupported_optional_parameter(exc: Exception) -> bool:
+    text = short_error(exc).lower()
+    return any(fragment in text for fragment in ["unknown parameter", "unsupported parameter", "unexpected keyword", "unexpected parameter"])
+
+
+def short_error(error: Exception) -> str:
+    text = str(error) or repr(error)
+    text = mask_sensitive(text).replace("\r", " ").replace("\n", " ")
+    return text[:300]
+
+
+def mask_sensitive(text: str) -> str:
+    chars = list(text)
+    output: list[str] = []
+    index = 0
+    while index < len(chars):
+        if chars[index:index + 3] == ["s", "k", "-"]:
+            start = index
+            index += 3
+            while index < len(chars) and (chars[index].isalnum() or chars[index] in {"-", "_"}):
+                index += 1
+            token = "".join(chars[start:index])
+            suffix = token[-4:] if len(token) > 4 else "****"
+            output.append(f"sk-...{suffix}")
+        else:
+            output.append(chars[index])
+            index += 1
+    return "".join(output)
 
 
 def decode_base64_image(content: str) -> bytes:
+    if content.startswith("data:image/png;base64,"):
+        content = content.split(",", 1)[1]
     return base64.b64decode(content)

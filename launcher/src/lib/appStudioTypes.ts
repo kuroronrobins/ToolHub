@@ -131,6 +131,7 @@ export interface AppStudioAiMetadataSuggestion {
   iconPrompt?: string | null;
   releaseNotes: string[];
   changeSummary?: string | null;
+  aiReport?: string | null;
 }
 
 export interface AppStudioAiIconSuggestion {
@@ -151,6 +152,19 @@ export interface AppStudioAiProposal {
   metadata: AppStudioAiMetadataSuggestion;
   icon: AppStudioAiIconSuggestion;
   warnings: string[];
+}
+
+export interface AppStudioAiDiagnostics {
+  aiEnabled: boolean;
+  apiKeySource: "credential" | "environment" | "missing" | string;
+  apiKeyPresent: boolean;
+  textModel: string;
+  textModelSet: boolean;
+  imageModel: string;
+  imageModelSet: boolean;
+  cliEnvReady: boolean;
+  credentialSupported: boolean;
+  message: string;
 }
 
 export type AppStudioApprovalMode = "allowWarnings" | "strict";
