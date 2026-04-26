@@ -1,7 +1,13 @@
+mod admin_audit;
+mod admin_auth;
+mod admin_commands;
+mod admin_session;
+mod ai_settings;
 mod commands;
 mod logging;
 mod manifest;
 mod runner;
+mod secret_store;
 mod setup;
 
 fn main() {
@@ -10,11 +16,23 @@ fn main() {
     }
 
     tauri::Builder::default()
+        .manage(admin_session::AdminSessionState::new())
         .invoke_handler(tauri::generate_handler![
             commands::list_apps,
             commands::get_categories,
             commands::launch_app,
-            commands::get_recent_logs
+            commands::get_recent_logs,
+            admin_commands::admin_is_password_set,
+            admin_commands::admin_set_password,
+            admin_commands::admin_login,
+            admin_commands::admin_logout,
+            admin_commands::admin_session_status,
+            admin_commands::ai_get_settings,
+            admin_commands::ai_save_settings,
+            admin_commands::ai_get_api_key_status,
+            admin_commands::ai_save_api_key,
+            admin_commands::ai_delete_api_key,
+            admin_commands::ai_test_connection
         ])
         .run(tauri::generate_context!())
         .expect("failed to run ToolHub");

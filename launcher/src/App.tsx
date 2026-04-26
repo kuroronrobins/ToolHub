@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Info, RefreshCw, Settings } from "lucide-react";
+import { AlertCircle, Info, RefreshCw, Settings, ShieldCheck } from "lucide-react";
 import { AboutDialog } from "./components/AboutDialog";
+import { AdminEntryDialog } from "./components/admin/AdminEntryDialog";
 import { AppDetailDialog } from "./components/AppDetailDialog";
 import { AppGrid } from "./components/AppGrid";
 import { CategorySidebar } from "./components/CategorySidebar";
@@ -28,6 +29,7 @@ export default function App() {
   const [loadError, setLoadError] = useState("");
   const [aboutOpen, setAboutOpen] = useState(false);
   const [systemInfoOpen, setSystemInfoOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
   const [updateSummary, setUpdateSummary] = useState<UpdateSummary | null>(null);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
 
@@ -90,6 +92,9 @@ export default function App() {
           <button className="icon-button" type="button" onClick={() => setSystemInfoOpen(true)} title="システム情報">
             <Settings size={19} aria-hidden="true" />
           </button>
+          <button className="icon-button" type="button" onClick={() => setAdminOpen(true)} title="管理者画面">
+            <ShieldCheck size={19} aria-hidden="true" />
+          </button>
         </div>
       </header>
 
@@ -127,6 +132,7 @@ export default function App() {
       <AppDetailDialog app={selectedApp} onClose={() => setSelectedApp(null)} />
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
       <SystemInfoDialog open={systemInfoOpen} onClose={() => setSystemInfoOpen(false)} />
+      <AdminEntryDialog open={adminOpen} onClose={() => setAdminOpen(false)} />
       <UpdateSummaryDialog summary={visibleUpdateSummary} onClose={() => setUpdateDialogOpen(false)} />
       <LaunchProgressDialog
         app={launchAppTarget}

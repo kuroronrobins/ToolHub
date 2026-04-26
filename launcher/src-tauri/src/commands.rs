@@ -48,4 +48,3 @@ pub fn get_recent_logs(app_id: Option<String>) -> Result<Vec<String>, String> {
     entries.sort_by(|a, b| b.0.cmp(&a.0));
     Ok(entries.into_iter().take(10).map(|(_, path)| path).collect())
 }
-

@@ -16,4 +16,3 @@ pub fn append_launcher_log(_root: &Path, message: &str) {
         let _ = writeln!(file, "{} {}", Local::now().format("%Y-%m-%d %H:%M:%S"), message);
     }
 }
-
