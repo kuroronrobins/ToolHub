@@ -11,8 +11,8 @@ export function AppStudioPreflightPanel({ result, busy, onRun }: Props) {
   return (
     <section className="studio-step">
       <div>
-        <span className="studio-step-index">5</span>
-        <h4>Preflight</h4>
+        <span className="studio-step-index">P</span>
+        <h4>事前確認</h4>
       </div>
       <div className="studio-preflight-head">
         <span className={`admin-status-pill ${result?.ok ? "ok" : ""}`}>{result ? (result.ok ? "実行可能" : "要確認") : "未確認"}</span>
@@ -21,10 +21,10 @@ export function AppStudioPreflightPanel({ result, busy, onRun }: Props) {
         </button>
       </div>
       <div className="studio-preflight-grid">
-        <PreflightItem label="Entry exists" ok={result?.entryExists} />
-        <PreflightItem label="AppId" ok={result?.appIdValid} />
-        <PreflightItem label="BuildMode" ok={result?.buildModeValid} />
-        <PreflightItem label="runtime python" ok={result?.runtimePythonExists} warnWhenFalse />
+        <PreflightItem label="アプリのメインファイル" ok={result?.entryExists} />
+        <PreflightItem label="アプリID" ok={result?.appIdValid} />
+        <PreflightItem label="実行方式" ok={result?.buildModeValid} />
+        <PreflightItem label="同梱Python" ok={result?.runtimePythonExists} warnWhenFalse />
       </div>
       <p className="admin-muted">
         Python: {result ? pythonLabel(result) : "未確認"}。Pythonが見つからなくても通常ランチャー機能には影響しません。
@@ -67,6 +67,6 @@ function pythonLabel(result: AppStudioPreflightResult): string {
   if (result.pythonSource === "missing") {
     return "なし";
   }
-  const source = result.pythonSource === "runtime" ? "runtime/python/python.exe" : `開発環境 fallback (${result.pythonSource})`;
+  const source = result.pythonSource === "runtime" ? "runtime/python/python.exe" : `開発環境fallback (${result.pythonSource})`;
   return result.pythonPath ? `${source} - ${result.pythonPath}` : source;
 }

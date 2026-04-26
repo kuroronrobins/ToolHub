@@ -52,7 +52,7 @@ def generate_icon_assets_with_candidates(
         revision = "No revision prompt was provided."
         revision_report = "No revision prompt was provided."
     prompt_for_svg = revision if revision_prompt else initial_prompt
-    image_result = generate_image(prompt_for_svg) if allow_ai else None
+    image_result = generate_image(image_api_prompt(prompt_for_svg)) if allow_ai else None
     png_bytes, image_url, image_note = image_candidate_from_result(image_result)
     image_report = image_result.report if image_result else skipped_image_report(ai_skip_reason)
     svg = generate_local_svg(context, prompt_for_svg, style_reference)
@@ -78,6 +78,17 @@ def generate_icon_assets_with_candidates(
         ]
     )
     return initial_prompt, revision, svg, fallback_png, style_reference, report, png_bytes, image_url
+
+
+def image_api_prompt(prompt: str) -> str:
+    return "\n".join(
+        [
+            prompt.strip(),
+            "",
+            "English rendering guidance: Create a clean 1024x1024 PNG app icon for a desktop launcher.",
+            "Use a simple centered symbol, calm professional colors, no tiny text, no watermark, no mockup frame.",
+        ]
+    )
 
 
 def image_candidate_from_result(image_result) -> tuple[bytes | None, str, str]:

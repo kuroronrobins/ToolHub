@@ -9,14 +9,44 @@ interface Props {
   outputDir?: string | null;
   result: AppStudioRunResult | null;
   busy: boolean;
+  compact?: boolean;
   onGenerate: () => Promise<AppStudioRunResult | null>;
   onAdopt: (values: { name?: string; iconPrompt?: string }) => void;
   onIconAdopt: (iconOverride: AppStudioIconOverride) => void;
   selectedIconSource?: AppStudioSelectedIconSource;
   onProposalLoaded?: (proposal: AppStudioAiProposal) => void;
+  onLoadStart?: () => void;
+  onLoadComplete?: (ok: boolean, message?: string) => void;
 }
 
-export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGenerate, onAdopt, onIconAdopt, selectedIconSource, onProposalLoaded }: Props) {
+const METADATA_FIELDS: Array<{ key: keyof AppStudioAiProposal["metadata"]; label: string; compact?: boolean }> = [
+  { key: "shortDescription", label: "一言説明", compact: true },
+  { key: "description", label: "詳細説明" },
+  { key: "categories", label: "カテゴリ", compact: true },
+  { key: "keywords", label: "検索キーワード", compact: true },
+  { key: "examples", label: "利用例" },
+  { key: "useCases", label: "用途" },
+  { key: "inputs", label: "入力" },
+  { key: "outputs", label: "出力" },
+  { key: "notes", label: "備考" },
+  { key: "releaseNotes", label: "リリースノート" },
+  { key: "changeSummary", label: "変更概要" },
+];
+
+export function AppStudioAiProposalPanel({
+  appId,
+  outputDir,
+  result,
+  busy,
+  compact = false,
+  onGenerate,
+  onAdopt,
+  onIconAdopt,
+  selectedIconSource,
+  onProposalLoaded,
+  onLoadStart,
+  onLoadComplete,
+}: Props) {
   const [proposal, setProposal] = useState<AppStudioAiProposal | null>(null);
   const [localSelectedIconSource, setLocalSelectedIconSource] = useState<AppStudioSelectedIconSource>("fallback_png");
   const [loading, setLoading] = useState(false);
@@ -40,14 +70,19 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
     setLoading(true);
     setError("");
     setMessage("");
+    onLoadStart?.();
     try {
       await refreshDiagnostics();
       const loaded = await appStudioReadAiProposal(sourceResult?.appId ?? appId, sourceResult?.outputDir ?? outputDir ?? undefined);
       setProposal(loaded);
       onProposalLoaded?.(loaded);
-      setMessage(loaded.ok ? "AI提案を読み込みました。" : "提案ファイルがまだ不足しています。Suggestを実行してください。");
+      const loadedMessage = loaded.ok ? "AI提案を読み込みました。" : "提案ファイルがまだ不足しています。登録内容を作成してから再読み込みしてください。";
+      setMessage(loadedMessage);
+      onLoadComplete?.(loaded.ok, loadedMessage);
     } catch (loadError) {
-      setError(formatAdminError(loadError, "AI提案を読み込めませんでした。"));
+      const fallback = "AI提案を読み込めませんでした。";
+      setError(formatAdminError(loadError, fallback));
+      onLoadComplete?.(false, fallback);
     } finally {
       setLoading(false);
     }
@@ -73,6 +108,7 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
   const metadata = proposal?.metadata;
   const icon = proposal?.icon;
   const selected = selectedIconSource ?? localSelectedIconSource;
+  const metadataFields = compact ? METADATA_FIELDS.filter((field) => field.compact) : METADATA_FIELDS;
 
   function adoptPng(source: "candidate_png" | "final_png", pngDataUrl?: string | null) {
     if (!pngDataUrl) {
@@ -80,23 +116,23 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
     }
     setLocalSelectedIconSource(source);
     onIconAdopt({ selectedIconSource: source, pngDataUrl });
-    setMessage("PNG icon candidate was selected. Review it before Apply.");
+    setMessage("PNGアイコン候補を採用しました。内容確認後、仮登録で反映されます。");
   }
 
   function adoptFallbackPng() {
     setLocalSelectedIconSource("fallback_png");
     onIconAdopt({ selectedIconSource: "fallback_png" });
-    setMessage("Fallback PNG was selected. Apply will use the local fallback icon.");
+    setMessage("フォールバックPNGを使用する設定にしました。");
   }
 
   return (
     <section className="studio-step">
       <div>
         <span className="studio-step-index">AI</span>
-        <h4>AI metadata and icon proposal</h4>
+        <h4>AI提案</h4>
       </div>
       <p className="admin-muted">
-        Suggestで生成される proposed_app.yaml と icon_work を読み込みます。AI提案は自動反映せず、採用ボタンを押した項目だけGUI入力へ反映します。
+        登録内容とPNGアイコン候補を作成します。AI提案は自動確定せず、採用ボタンを押した項目だけ編集欄へ反映されます。
       </p>
       {diagnostics ? <DiagnosticsPanel diagnostics={diagnostics} /> : null}
       <div className="studio-action-row">
@@ -106,7 +142,7 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
         </button>
         <button className="secondary-button" type="button" onClick={() => void generateProposal()} disabled={busy || loading}>
           <Bot size={17} aria-hidden="true" />
-          AI提案を生成
+          AIで登録内容を作成
         </button>
       </div>
 
@@ -114,8 +150,8 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
         <div className="studio-ai-card">
           <div className="admin-section-head">
             <div>
-              <p className="dialog-kicker">Metadata</p>
-              <h4>{metadata.name || metadata.appId || "Proposed metadata"}</h4>
+              <p className="dialog-kicker">メタデータ生成</p>
+              <h4>{metadata.name || metadata.appId || "AI提案"}</h4>
             </div>
             <button
               className="secondary-button"
@@ -123,22 +159,14 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
               onClick={() => onAdopt({ name: metadata.name ?? undefined, iconPrompt: metadata.iconPrompt ?? undefined })}
             >
               <CheckCircle2 size={17} aria-hidden="true" />
-              表示名/Prompt採用
+              表示名とPromptを採用
             </button>
           </div>
           <dl className="studio-ai-fields">
-            <ReportFields title="Metadata AI status" report={metadata.aiReport} />
-            <Field label="short_description" value={metadata.shortDescription} />
-            <Field label="description" value={metadata.description} />
-            <Field label="categories" value={metadata.categories.join(", ")} />
-            <Field label="keywords" value={metadata.keywords.join(", ")} />
-            <Field label="examples" value={metadata.examples.join(" / ")} />
-            <Field label="use_cases" value={metadata.useCases.join(" / ")} />
-            <Field label="inputs" value={metadata.inputs.join(", ")} />
-            <Field label="outputs" value={metadata.outputs.join(", ")} />
-            <Field label="notes" value={metadata.notes.join(" / ")} />
-            <Field label="release_notes" value={metadata.releaseNotes.join(" / ")} />
-            <Field label="change_summary" value={metadata.changeSummary} />
+            <ReportFields title="メタデータ生成状態" report={metadata.aiReport} />
+            {metadataFields.map((field) => (
+              <Field key={field.key} label={field.label} value={fieldValue(metadata[field.key])} />
+            ))}
           </dl>
         </div>
       ) : null}
@@ -147,35 +175,35 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
         <div className="studio-ai-card">
           <div className="admin-section-head">
             <div>
-              <p className="dialog-kicker">Icon</p>
-              <h4>Icon candidates</h4>
+              <p className="dialog-kicker">アイコン生成</p>
+              <h4>PNG候補</h4>
             </div>
             <button className="secondary-button" type="button" onClick={() => onAdopt({ iconPrompt: icon.promptRevision || icon.promptInitial || undefined })}>
               <CheckCircle2 size={17} aria-hidden="true" />
-              Prompt採用
+              Promptを採用
             </button>
           </div>
           <div className="studio-icon-preview-row">
-            {icon.candidatePngDataUrl ? <img className="studio-icon-preview primary-icon-preview" src={icon.candidatePngDataUrl} alt="AI PNG icon candidate" /> : null}
-            {icon.finalPngDataUrl ? <img className="studio-icon-preview" src={icon.finalPngDataUrl} alt="Fallback PNG icon" /> : null}
+            {icon.candidatePngDataUrl ? <img className="studio-icon-preview primary-icon-preview" src={icon.candidatePngDataUrl} alt="AI PNGアイコン候補" /> : null}
+            {icon.finalPngDataUrl ? <img className="studio-icon-preview" src={icon.finalPngDataUrl} alt="フォールバックPNGアイコン" /> : null}
           </div>
           <div className="studio-action-row">
-            <span className="admin-status-pill">selected: {selected}</span>
+            <span className="admin-status-pill">採用中: {selectedIconLabel(selected)}</span>
             <button className="secondary-button" type="button" onClick={() => adoptPng("candidate_png", icon.candidatePngDataUrl)} disabled={!icon.candidatePngDataUrl}>
               <CheckCircle2 size={17} aria-hidden="true" />
-              Use PNG candidate
+              このPNGを採用
             </button>
             <button className="secondary-button" type="button" onClick={() => adoptPng("final_png", icon.finalPngDataUrl)} disabled={!icon.finalPngDataUrl}>
               <CheckCircle2 size={17} aria-hidden="true" />
-              Use fallback PNG
+              フォールバックPNGを使用
             </button>
             <button className="secondary-button" type="button" onClick={adoptFallbackPng}>
               <CheckCircle2 size={17} aria-hidden="true" />
-              Clear PNG adoption
+              アイコン採用を解除
             </button>
           </div>
-          <p className="admin-muted">PNG is the standard icon output. API PNG candidates are not used until you adopt one and run Apply.</p>
-          {icon.candidateUrl ? <p className="admin-muted">PNG URL candidate: {icon.candidateUrl}</p> : null}
+          <p className="admin-muted">PNGが標準アイコンです。採用前のPNG候補は final_app/icon.png には反映されません。</p>
+          {icon.candidateUrl ? <p className="admin-muted">PNG URL候補: {icon.candidateUrl}</p> : null}
           {icon.fallbackSvg ? (
             <div className="studio-icon-fallback">
               <p className="dialog-kicker">SVG fallback</p>
@@ -183,10 +211,9 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
             </div>
           ) : null}
           <dl className="studio-ai-fields">
-            <ReportFields title="Image AI status" report={icon.aiReport} />
-            <Field label="initial_prompt" value={icon.promptInitial} />
-            <Field label="revision_prompt" value={icon.promptRevision} />
-            <Field label="ai_report" value={icon.aiReport} />
+            <ReportFields title="画像生成状態" report={icon.aiReport} />
+            {!compact ? <Field label="初回Prompt" value={icon.promptInitial} /> : null}
+            {!compact ? <Field label="修正Prompt" value={icon.promptRevision} /> : null}
           </dl>
         </div>
       ) : null}
@@ -219,12 +246,12 @@ function Field({ label, value }: { label: string; value?: string | null }) {
 function DiagnosticsPanel({ diagnostics }: { diagnostics: AppStudioAiDiagnostics }) {
   return (
     <div className="studio-ai-status-grid">
-      <StatusItem label="AI enabled" value={diagnostics.aiEnabled ? "yes" : "no"} />
-      <StatusItem label="API key source" value={diagnostics.apiKeySource} />
-      <StatusItem label="Text model" value={diagnostics.textModel || "not configured"} />
-      <StatusItem label="Image model" value={diagnostics.imageModel || "not configured"} />
-      <StatusItem label="CLI env ready" value={diagnostics.cliEnvReady ? "yes" : "no"} />
-      <StatusItem label="Message" value={diagnostics.message} />
+      <StatusItem label="AI機能" value={diagnostics.aiEnabled ? "有効" : "無効"} />
+      <StatusItem label="APIキー" value={apiKeyLabel(diagnostics)} />
+      <StatusItem label="Text model" value={diagnostics.textModel || "未設定"} />
+      <StatusItem label="Image model" value={diagnostics.imageModel || "未設定"} />
+      <StatusItem label="CLI環境" value={diagnostics.cliEnvReady ? "準備済み" : "未準備"} />
+      <StatusItem label="状態" value={diagnostics.message} />
     </div>
   );
 }
@@ -259,20 +286,77 @@ function ReportFields({ title, report }: { title: string; report?: string | null
   );
 }
 
+function fieldValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.filter(Boolean).join(" / ");
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  return "";
+}
+
 function reportSummary(report?: string | null): Array<[string, string]> {
   if (!report) {
     return [];
   }
-  const keys = ["api", "status", "model", "parse_status", "content_type", "saved_candidate", "fallback_reason"];
+  const labels: Record<string, string> = {
+    api: "API",
+    status: "状態",
+    model: "モデル",
+    parse_status: "JSON解析",
+    content_type: "形式",
+    saved_candidate: "保存候補",
+    fallback_reason: "理由",
+  };
   const lines = report.split(/\r?\n/);
-  return keys
+  return Object.keys(labels)
     .map((key): [string, string] | null => {
       const prefix = `${key}:`;
       const line = lines.find((item) => item.trim().startsWith(prefix));
       const value = line?.slice(prefix.length).trim();
-      return value ? [key, value] : null;
+      return value ? [labels[key], statusValue(value)] : null;
     })
     .filter((item): item is [string, string] => Boolean(item));
+}
+
+function statusValue(value: string): string {
+  if (value === "success") {
+    return "成功";
+  }
+  if (value === "fallback") {
+    return "フォールバック";
+  }
+  if (value === "skipped") {
+    return "スキップ";
+  }
+  if (value === "failed") {
+    return "失敗";
+  }
+  return value;
+}
+
+function apiKeyLabel(diagnostics: AppStudioAiDiagnostics): string {
+  if (!diagnostics.apiKeyPresent) {
+    return "未設定";
+  }
+  if (diagnostics.apiKeySource === "credential") {
+    return "Credential Manager";
+  }
+  if (diagnostics.apiKeySource === "environment") {
+    return "環境変数";
+  }
+  return "設定済み";
+}
+
+function selectedIconLabel(source: AppStudioSelectedIconSource | string): string {
+  if (source === "candidate_png") {
+    return "AI PNG候補";
+  }
+  if (source === "final_png") {
+    return "フォールバックPNG";
+  }
+  return "未採用";
 }
 
 function IconSvg({ title, svg }: { title: string; svg: string }) {

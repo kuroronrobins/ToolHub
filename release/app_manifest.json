@@ -37,6 +37,15 @@
       "required_runner": ">=0.1.0",
       "required_runtime": null,
       "enabled": false
+    },
+    "test": {
+      "version": "0.1.0",
+      "package": "app_packs/test-0.1.0.zip",
+      "sha256": "9ea16285370d7ea40a435af5c4a7b8019ae49c7a78f9d418b17f0c5df8925928",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": "python-embedded-toolhub-001",
+      "enabled": true
     }
   }
 }

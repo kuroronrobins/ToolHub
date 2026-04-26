@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "tools" / "app_studio"))
 sys.path.insert(0, str(ROOT / "runner"))
 
-from app_studio.ai_metadata_suggester import suggest_metadata
+from app_studio.ai_metadata_suggester import metadata_prompt, suggest_metadata
+from app_studio.icon_generator import image_api_prompt
 from app_studio.app_env_builder import create_app_env
 from app_studio.approval import approve_app
 from app_studio.build_planner import make_build_plan
@@ -338,19 +339,37 @@ class OpenAIFallbackTests(unittest.TestCase):
 
             self.assertIn("high severity secret", metadata["_ai_generation_report"])
 
+    def test_metadata_prompt_requests_japanese_output(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            prompt = metadata_prompt(context)
+            data = json.loads(prompt)
+
+            self.assertEqual(data["language"], "ja-JP")
+            self.assertIn("日本語", json.dumps(data, ensure_ascii=False))
+
+    def test_metadata_fallback_is_japanese(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "false"}, clear=True):
+                metadata = suggest_metadata(context)
+
+            self.assertIn("起動", metadata["short_description"])
+            self.assertIn("業務ツール", metadata["categories"])
+
     def test_responses_api_success_parses_metadata_json(self) -> None:
         with workspace_tempdir() as root:
             context = make_context(root)
             payload = {
-                "short_description": "AI short",
-                "description": "AI long",
-                "categories": ["AI"],
-                "use_cases": ["Use"],
-                "inputs": ["Input"],
-                "outputs": ["Output"],
-                "notes": ["Note"],
-                "keywords": ["ai"],
-                "examples": ["example"],
+                "short_description": "AIが作成した一言説明です。",
+                "description": "AIが作成した詳細説明です。",
+                "categories": ["開発支援"],
+                "use_cases": ["登録内容の確認"],
+                "inputs": ["コマンドライン引数"],
+                "outputs": ["標準出力"],
+                "notes": ["正式登録前に確認してください。"],
+                "keywords": ["AI", "登録"],
+                "examples": ["ToolHubへの登録内容を確認する"],
             }
 
             class Responses:
@@ -364,7 +383,7 @@ class OpenAIFallbackTests(unittest.TestCase):
                 with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
                     metadata = suggest_metadata(context)
 
-            self.assertEqual(metadata["short_description"], "AI short")
+            self.assertEqual(metadata["short_description"], "AIが作成した一言説明です。")
             self.assertEqual(responses.kwargs["model"], "text-model")
             self.assertIn("api: responses.create", metadata["_ai_generation_report"])
             self.assertIn("status: success", metadata["_ai_generation_report"])
@@ -446,6 +465,12 @@ class OpenAIFallbackTests(unittest.TestCase):
 
         self.assertFalse(result.ok)
         self.assertIn("model is not configured", result.report)
+
+    def test_image_api_prompt_keeps_japanese_and_adds_rendering_guidance(self) -> None:
+        prompt = image_api_prompt("日本語のアイコン指示")
+
+        self.assertIn("日本語のアイコン指示", prompt)
+        self.assertIn("English rendering guidance", prompt)
 
 
 class IconCandidateExportTests(unittest.TestCase):

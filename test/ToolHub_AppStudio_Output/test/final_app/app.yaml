@@ -1,0 +1,61 @@
+id: test
+name: Test
+
+display:
+  icon: icon.png
+  icon_fallback: icon.svg
+  short_description: Test app for ToolHub metadata validation.
+  categories:
+    - utility
+    - testing
+
+detail:
+  description: >
+    A minimal test application entry used to verify ToolHub app metadata structure and ingestion.
+  use_cases:
+    - Validate app registration and metadata parsing.
+    - Serve as a placeholder app for development workflows.
+  inputs:
+    - Command-line or runtime invocation of the app.
+  outputs:
+    - Application execution result or placeholder output.
+  notes:
+    - No additional readme content provided.
+    - No secrets or local absolute paths included.
+
+search:
+  keywords:
+    - test
+    - utility
+    - metadata
+    - validation
+    - placeholder
+  examples:
+    - Run the app entry point specified by the package or launcher.
+
+run:
+  runner: python_app_env
+  entry: src/main.py
+  mode: gui
+
+admin:
+  version: 0.1.0
+  owner: admin
+  requirements: requirements.txt
+  log_dir: logs
+
+runtime:
+  distribution_mode: app_env
+  app_env: test
+  required_runtime: python-embedded-toolhub-001
+  requirements_lock: requirements.lock
+
+build:
+  managed_by: toolhub_app_studio
+  build_mode: app-env
+  source_entry: C:\Users\kuroron\Documents\RD\20260426_Toolhub\test\main.py
+  output_mirror: C:\Users\kuroron\Documents\RD\20260426_Toolhub\test\ToolHub_AppStudio_Output\test
+
+quality:
+  approval_required: true
+  execution_test_required: true

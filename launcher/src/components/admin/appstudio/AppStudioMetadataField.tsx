@@ -30,24 +30,24 @@ export function AppStudioMetadataField({
     <div className="studio-metadata-field">
       <div className="studio-metadata-field-head">
         <strong>{label}</strong>
-        <span className={`studio-metadata-status ${statusClass(status)}`}>{status}</span>
+        <span className={`studio-metadata-status ${statusClass(status)}`}>{statusLabel(status)}</span>
       </div>
       <div className="studio-metadata-columns">
         <label className="admin-field">
-          <span>Current</span>
+          <span>編集中</span>
           <textarea className="studio-textarea" rows={rows} value={value ?? ""} onChange={(event) => onChange(event.target.value)} />
         </label>
         <div className="studio-proposal-cell">
-          <span>AI proposal</span>
+          <span>AI提案</span>
           <pre>{proposedValue || "-"}</pre>
           <div className="studio-action-row">
             <button className="secondary-button" type="button" onClick={onAdopt} disabled={!proposedValue}>
               <CheckCircle2 size={16} aria-hidden="true" />
-              Adopt
+              採用
             </button>
             <button className="secondary-button" type="button" onClick={onRevert} disabled={!canRevert}>
               <RotateCcw size={16} aria-hidden="true" />
-              Revert
+              元に戻す
             </button>
           </div>
         </div>
@@ -65,4 +65,20 @@ function statusClass(status: string): string {
     return "warn";
   }
   return "";
+}
+
+function statusLabel(status: string): string {
+  if (status === "adopted") {
+    return "採用済み";
+  }
+  if (status === "diff") {
+    return "差分あり";
+  }
+  if (status === "empty") {
+    return "未入力";
+  }
+  if (status === "no proposal") {
+    return "提案なし";
+  }
+  return status;
 }
