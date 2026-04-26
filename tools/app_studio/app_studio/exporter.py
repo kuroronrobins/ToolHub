@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 from .file_classifier import inventory_markdown
+from .icon_generator import generate_local_png
 from .models import BuildPlan, DependencyReport, GeneratedArtifacts, SecretScanReport, SourceInventory, StudioContext
 from .secret_scanner import secret_report_markdown
 from .util import copy_file_preserving_root, reset_output_dir, write_bytes, write_json, write_text
@@ -31,8 +32,10 @@ def export_suggestion(
     icon_work = output_dir / "icon_work"
     write_text(icon_work / "icon_prompt_initial.md", artifacts.icon_prompt_initial)
     write_text(icon_work / "icon_prompt_revision.md", artifacts.icon_prompt_revision)
-    write_text(icon_work / "icon_candidate_1.svg", artifacts.icon_svg)
+    write_text(icon_work / "icon_fallback.svg", artifacts.icon_svg)
     write_text(icon_work / "icon_final.svg", artifacts.icon_svg)
+    icon_final_png = artifacts.icon_final_png or generate_local_png(context, artifacts.icon_prompt_revision or artifacts.icon_prompt_initial, "")
+    write_bytes(icon_work / "icon_final.png", icon_final_png)
     if artifacts.icon_ai_report:
         write_text(icon_work / "ai_generation_report.md", artifacts.icon_ai_report)
     if artifacts.icon_candidate_png:
@@ -44,6 +47,7 @@ def export_suggestion(
     write_text(final_app / "app.yaml", artifacts.app_yaml)
     write_text(final_app / "README.md", artifacts.readme)
     write_text(final_app / "requirements.txt", artifacts.requirements)
+    write_bytes(final_app / "icon.png", icon_final_png)
     write_text(final_app / "icon.svg", artifacts.icon_svg)
     source_lock = context.source_root / "requirements.lock"
     if source_lock.is_file():

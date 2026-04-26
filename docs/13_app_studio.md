@@ -9,7 +9,7 @@ App Studio GUI の Build mode には hover の `title` と選択中説明、Entr
 
 Entryが `.exe` の場合、GUIは `existing-exe` を推奨します。Entryが `main.py` / `app.py` の場合は `auto` を推奨し、固有名の単一 `.py` では `app-env` を推奨します。不明なEntryでは `auto` で Suggest し、判定結果を確認してください。
 
-GUIでは、Suggest が生成した `proposed_app.yaml` と `icon_work/` をAI/fallback提案として読み込めます。表示対象は、表示名、short_description、detail.description、categories、search keywords、examples、use_cases、inputs、outputs、notes、icon prompt、更新時の release notes 草案、`icon_candidate_1.svg`、`icon_candidate_1.png`、`icon_candidate_1.url.txt`、`icon_final.svg` です。AI提案は自動確定せず、採用ボタンで表示名やicon promptなど編集可能な入力欄へ反映します。APIキー未設定、AI無効、OpenAI packageなし、API失敗時も CLI 側の deterministic fallback で動きます。high secret 検出時はAI送信しません。
+GUIでは、Suggest が生成した `proposed_app.yaml` と `icon_work/` をAI/fallback提案として読み込めます。表示対象は、表示名、short_description、detail.description、categories、search keywords、examples、use_cases、inputs、outputs、notes、icon prompt、更新時の release notes 草案、`icon_candidate_1.png`、`icon_final.png`、`icon_candidate_1.url.txt`、`icon_fallback.svg`、互換用の `icon_final.svg` です。AI提案は自動確定せず、採用ボタンで表示名やicon promptなど編集可能な入力欄へ反映します。APIキー未設定、AI無効、OpenAI packageなし、API失敗時も CLI 側の deterministic fallback で動きます。high secret 検出時はAI送信しません。
 
 GUIでは CLI process の `exit_code` / `process_ok` と、`execution_test_result.json` の `overall_status` / `approval_allowed` を分けて表示します。`existing-exe` や `frozen-folder` では runner dry execution がスキップされ、`overall_status: warn` になることがあります。`approval_allowed: true` で、他のチェックが pass の場合は致命的失敗ではありません。GUIはこの状態を `warn / approval OK` と表示し、AllowWarnings で承認できるようにします。App Packが見つからない場合は App Pack 欄だけ `not found` と表示します。Apply後はGUIが `app_studio_read_result` を再実行し、生成済みJSONの内容を表示へ反映します。
 
@@ -23,7 +23,7 @@ GUIで編集できる metadata は `short_description`、`description`、`catego
 
 metadata_override は CLI の metadata 生成後に merge され、`proposed_app.yaml`、`final_app/app.yaml`、Apply 後の `apps/<app_id>/app.yaml` に反映されます。反映先は `display.short_description`、`detail.description`、`display.categories`、`search.keywords`、`search.examples`、`detail.use_cases`、`detail.inputs`、`detail.outputs`、`detail.notes`、`release.release_notes`、`release.change_summary` です。結果パネルには metadata_override の使用有無と反映キーを表示します。
 
-Icon候補は `final_svg`、`candidate_svg`、`fallback` の選択状態をGUIで明示できます。現時点ではレビュー用状態であり、Apply が実際に保存する `final_app/icon.svg` は CLI が生成した final SVG です。
+Icon候補はPNGを主表示にします。GUIで `candidate_png` または `final_png` を採用すると、管理者認証済みの Tauri command が `%LOCALAPPDATA%\ToolHub\data\app_studio\icon_overrides\` に一時JSONを書き、CLIへ `--icon-override <path>` を渡します。採用前のPNG候補はレビュー用だけで、Apply時に自動確定しません。fallback SVGを選ぶ場合はPNG overrideを渡さず、CLIの deterministic fallback PNG と互換用SVGを使います。
 
 # ToolHub App Studio
 
@@ -130,9 +130,9 @@ AgendaSnap 級の複雑アプリ、音声/GUI/外部DLL/重い依存を含むア
 
 ## アイコン修正プロンプト
 
-`-IconPrompt` を指定すると、`icon_work/icon_prompt_revision.md` に修正指示を保存し、ローカルの deterministic SVG 生成で `icon_candidate_1.svg` と `icon_final.svg` を更新します。
+`-IconPrompt` を指定すると、`icon_work/icon_prompt_revision.md` に修正指示を保存します。App Studio の標準アイコン成果物はPNGです。AI画像生成APIが b64 PNG を返した場合は `icon_work/icon_candidate_1.png` に保存し、GUIで人間が採用したPNGだけを `icon_work/icon_final.png`、`final_app/icon.png`、Apply後の `apps/<app_id>/icon.png` に反映します。
 
-OpenAI API 実呼び出しは MVP では必須ではありません。将来差し替えるため、`ai_metadata_suggester.py` と `icon_generator.py` はインターフェースを分けています。モデル名は `TOOLHUB_APP_STUDIO_TEXT_MODEL` と `TOOLHUB_APP_STUDIO_IMAGE_MODEL` から読みます。
+APIキー未設定、AI無効、OpenAI packageなし、API失敗、high secret検出時はAI送信せず deterministic fallback PNG を生成します。fallback/互換用SVGは `icon_work/icon_fallback.svg` と `final_app/icon.svg` に残します。モデル名はコードに固定せず、GUIでは管理者画面の Image model 設定、CLIでは `TOOLHUB_APP_STUDIO_IMAGE_MODEL` から読みます。既定候補は `gpt-image-2` ですが、設定で変更できます。
 
 ## 実行確認と人間承認
 
@@ -356,10 +356,11 @@ $env:OPENAI_API_KEY="..."
 - `openai` Python package がない場合もfallbackします。
 - high severity の秘密情報が検出された場合はAI送信しません。
 - Entry全文は送らず、ファイル名、README抜粋、既存カテゴリなどの限定情報だけを使います。
-- 最終 `icon.svg` は常にローカル生成SVGを保存し、ToolHubのSVG表示互換性を保ちます。
+- 標準アイコンは `icon.png` です。`app.yaml` は `display.icon: icon.png` と `display.icon_fallback: icon.svg` を出力します。
+- 最終 `icon.svg` はfallback/互換用として保存し、既存SVGアイコンの表示互換性を保ちます。
 - 画像APIが b64 PNG を返した場合は `icon_work/icon_candidate_1.png` に保存します。
 - 画像APIが URL を返した場合は、ダウンロードせず `icon_work/icon_candidate_1.url.txt` に保存します。
-- PNG/URL は人間レビュー用候補であり、ランチャー表示の標準は `icon.svg` です。
+- PNG/URL は人間レビュー用候補であり、PNG候補は人間がGUIで採用した場合だけ `icon.png` に反映します。
 
 ## 実運用推奨コマンド
 
@@ -408,4 +409,5 @@ AI利用時:
 - `TOOLHUB_APP_STUDIO_AI_ENABLED=true` を明示する。
 - `OPENAI_API_KEY` が設定されていることを確認する。
 - high secret がある場合はAI送信されないことを確認する。
-- 生成アイコン候補PNG/URLは人間レビュー用であり、最終採用は `icon.svg` であることを確認する。
+- 生成アイコン候補PNG/URLは人間レビュー用であり、採用したPNGだけが `icon.png` に反映されることを確認する。
+- 既存 `display.icon: icon.svg` のアプリが引き続き表示できることを確認する。

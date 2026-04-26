@@ -8,6 +8,7 @@ export interface AppStudioImportRequest {
   buildMode: AppStudioBuildMode;
   iconPrompt?: string;
   metadata?: AppStudioEditableMetadata;
+  iconOverride?: AppStudioIconOverride;
   createAppEnv: boolean;
   rebuildAppEnv: boolean;
   generateLock: boolean;
@@ -24,6 +25,7 @@ export interface AppStudioUpdateRequest {
   buildMode: AppStudioBuildMode;
   iconPrompt?: string;
   metadata?: AppStudioEditableMetadata;
+  iconOverride?: AppStudioIconOverride;
   createAppEnv: boolean;
   rebuildAppEnv: boolean;
   generateLock: boolean;
@@ -61,6 +63,8 @@ export interface AppStudioRunResult {
   newVersion?: string | null;
   metadataOverrideUsed?: boolean;
   metadataOverrideKeys?: string[];
+  iconOverrideUsed?: boolean;
+  selectedIconSource?: AppStudioSelectedIconSource | string | null;
 }
 
 export interface AppStudioPreflightResult {
@@ -87,6 +91,8 @@ export interface AppStudioResultSummary {
   version?: string | null;
   metadataOverrideUsed?: boolean;
   metadataOverrideKeys?: string[];
+  iconOverrideUsed?: boolean;
+  selectedIconSource?: AppStudioSelectedIconSource | string | null;
 }
 
 export interface AppStudioEditableMetadata {
@@ -101,6 +107,13 @@ export interface AppStudioEditableMetadata {
   notes?: string[];
   releaseNotes?: string[];
   changeSummary?: string;
+}
+
+export type AppStudioSelectedIconSource = "candidate_png" | "final_png" | "fallback_png";
+
+export interface AppStudioIconOverride {
+  selectedIconSource: AppStudioSelectedIconSource;
+  pngDataUrl?: string;
 }
 
 export interface AppStudioAiMetadataSuggestion {
@@ -125,7 +138,9 @@ export interface AppStudioAiIconSuggestion {
   promptRevision?: string | null;
   candidateSvg?: string | null;
   finalSvg?: string | null;
+  fallbackSvg?: string | null;
   candidatePngDataUrl?: string | null;
+  finalPngDataUrl?: string | null;
   candidateUrl?: string | null;
   aiReport?: string | null;
 }

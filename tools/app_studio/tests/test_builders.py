@@ -338,7 +338,9 @@ class IconCandidateExportTests(unittest.TestCase):
             output = export_suggestion(context, SourceInventory([]), DependencyReport("test", [], [], []), SecretScanReport([]), BuildPlan("app-env", "python_app_env", "src/main.py", None, []), artifacts)
 
             self.assertTrue((output / "icon_work" / "icon_candidate_1.png").is_file())
-            self.assertTrue((output / "icon_work" / "icon_final.svg").is_file())
+            self.assertTrue((output / "icon_work" / "icon_final.png").is_file())
+            self.assertTrue((output / "final_app" / "icon.png").is_file())
+            self.assertTrue((output / "final_app" / "icon.svg").is_file())
 
     def test_url_candidate_is_saved(self) -> None:
         with workspace_tempdir() as root:
@@ -348,7 +350,7 @@ class IconCandidateExportTests(unittest.TestCase):
             output = export_suggestion(context, SourceInventory([]), DependencyReport("test", [], [], []), SecretScanReport([]), BuildPlan("app-env", "python_app_env", "src/main.py", None, []), artifacts)
 
             self.assertEqual((output / "icon_work" / "icon_candidate_1.url.txt").read_text(encoding="utf-8").strip(), "https://example.com/icon.png")
-            self.assertTrue((output / "icon_work" / "icon_final.svg").is_file())
+            self.assertTrue((output / "icon_work" / "icon_final.png").is_file())
 
     def test_api_failure_still_leaves_final_svg(self) -> None:
         with workspace_tempdir() as root:
@@ -357,7 +359,8 @@ class IconCandidateExportTests(unittest.TestCase):
 
             output = export_suggestion(context, SourceInventory([]), DependencyReport("test", [], [], []), SecretScanReport([]), BuildPlan("app-env", "python_app_env", "src/main.py", None, []), artifacts)
 
-            self.assertTrue((output / "icon_work" / "icon_final.svg").is_file())
+            self.assertTrue((output / "icon_work" / "icon_final.png").is_file())
+            self.assertTrue((output / "icon_work" / "icon_fallback.svg").is_file())
 
 
 class RuntimeCheckerTests(unittest.TestCase):
@@ -406,6 +409,7 @@ def minimal_artifacts(context, icon_candidate_png: bytes | None = None, icon_can
         build_plan_md="# Build\n",
         import_plan={"app_id": context.app_id},
         icon_ai_report="report",
+        icon_final_png=b"\x89PNG\r\n\x1a\n",
         icon_candidate_png=icon_candidate_png,
         icon_candidate_url=icon_candidate_url,
     )

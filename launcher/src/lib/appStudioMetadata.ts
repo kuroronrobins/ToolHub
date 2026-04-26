@@ -1,4 +1,4 @@
-import type { AppStudioAiMetadataSuggestion, AppStudioEditableMetadata } from "./appStudioTypes";
+import type { AppStudioAiMetadataSuggestion, AppStudioEditableMetadata, AppStudioIconOverride } from "./appStudioTypes";
 
 export const EMPTY_APP_STUDIO_METADATA: AppStudioEditableMetadata = {
   shortDescription: "",
@@ -122,4 +122,21 @@ export function cleanList(value?: string[]): string[] {
 
 export function cleanString(value?: string | null): string {
   return String(value ?? "").trim();
+}
+
+export function cleanIconOverride(iconOverride?: AppStudioIconOverride): AppStudioIconOverride | undefined {
+  if (!iconOverride || iconOverride.selectedIconSource === "fallback_png") {
+    return undefined;
+  }
+  if (iconOverride.selectedIconSource !== "candidate_png" && iconOverride.selectedIconSource !== "final_png") {
+    return undefined;
+  }
+  const pngDataUrl = cleanString(iconOverride.pngDataUrl);
+  if (!pngDataUrl.startsWith("data:image/png;base64,")) {
+    return undefined;
+  }
+  return {
+    selectedIconSource: iconOverride.selectedIconSource,
+    pngDataUrl,
+  };
 }

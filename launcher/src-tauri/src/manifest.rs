@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
 use std::env;
@@ -10,6 +11,7 @@ pub struct AppInfo {
     pub id: String,
     pub name: String,
     pub icon_svg: Option<String>,
+    pub icon_data_url: Option<String>,
     pub short_description: String,
     pub categories: Vec<String>,
     pub detail: AppDetail,
@@ -60,6 +62,7 @@ struct RawManifest {
 #[derive(Debug, Deserialize)]
 struct RawDisplay {
     icon: String,
+    icon_fallback: Option<String>,
     short_description: String,
     categories: Vec<String>,
 }
@@ -192,18 +195,28 @@ fn load_one_app(app_dir: &Path, manifest_path: &Path) -> Result<AppInfo, Box<dyn
     validate_run(&raw.run)?;
 
     let icon_path = app_dir.join(&raw.display.icon);
-    let icon_svg = if icon_path.is_file()
-        && icon_path.extension().and_then(|value| value.to_str()) == Some("svg")
-    {
-        Some(std::fs::read_to_string(icon_path)?)
+    let icon_data_url = read_icon_data_url(&icon_path)?;
+    let icon_svg = if icon_data_url.is_none() {
+        read_icon_svg(&icon_path)?.or_else(|| {
+            raw.display
+                .icon_fallback
+                .as_deref()
+                .and_then(|fallback| read_icon_svg(&app_dir.join(fallback)).ok())
+                .flatten()
+        })
     } else {
-        None
+        raw.display
+            .icon_fallback
+            .as_deref()
+            .and_then(|fallback| read_icon_svg(&app_dir.join(fallback)).ok())
+            .flatten()
     };
 
     Ok(AppInfo {
         id: raw.id,
         name: raw.name,
         icon_svg,
+        icon_data_url,
         short_description: raw.display.short_description,
         categories: raw.display.categories,
         detail: AppDetail {
@@ -252,6 +265,36 @@ fn validate_run(run: &RawRun) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn read_icon_data_url(path: &Path) -> Result<Option<String>, Box<dyn Error>> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("");
+    if extension.eq_ignore_ascii_case("png") {
+        let bytes = std::fs::read(path)?;
+        return Ok(Some(format!(
+            "data:image/png;base64,{}",
+            general_purpose::STANDARD.encode(bytes)
+        )));
+    }
+    Ok(None)
+}
+
+fn read_icon_svg(path: &Path) -> Result<Option<String>, Box<dyn Error>> {
+    if path.is_file()
+        && path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("svg"))
+    {
+        return Ok(Some(std::fs::read_to_string(path)?));
+    }
+    Ok(None)
+}
+
 fn disabled_app(app_dir: &Path, reason: String) -> AppInfo {
     let id = app_dir
         .file_name()
@@ -262,6 +305,7 @@ fn disabled_app(app_dir: &Path, reason: String) -> AppInfo {
         id: id.clone(),
         name: id,
         icon_svg: None,
+        icon_data_url: None,
         short_description: "このアプリ定義を読み込めませんでした。".to_string(),
         categories: vec!["未分類".to_string()],
         detail: AppDetail {
@@ -299,6 +343,7 @@ pub fn collect_categories(apps: &[AppInfo]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn collect_categories_includes_all_first() {
@@ -306,6 +351,7 @@ mod tests {
             id: "a".to_string(),
             name: "A".to_string(),
             icon_svg: None,
+            icon_data_url: None,
             short_description: "desc".to_string(),
             categories: vec!["CSV".to_string()],
             detail: AppDetail {
@@ -328,5 +374,55 @@ mod tests {
             collect_categories(&apps),
             vec!["すべて".to_string(), "CSV".to_string()]
         );
+    }
+
+    #[test]
+    fn load_one_app_reads_png_icon_and_svg_fallback() {
+        let root = temp_app_dir();
+        std::fs::write(root.join("icon.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        std::fs::write(root.join("icon.svg"), "<svg viewBox=\"0 0 64 64\"></svg>").unwrap();
+        let manifest = root.join("app.yaml");
+        std::fs::write(
+            &manifest,
+            "id: png_app\nname: PNG App\ndisplay:\n  icon: icon.png\n  icon_fallback: icon.svg\n  short_description: desc\n  categories:\n    - CSV\ndetail:\n  description: desc\nrun:\n  runner: cli\n  entry: main.py\n  mode: cli\n",
+        )
+        .unwrap();
+
+        let app = load_one_app(&root, &manifest).unwrap();
+
+        assert!(app
+            .icon_data_url
+            .unwrap()
+            .starts_with("data:image/png;base64,"));
+        assert!(app.icon_svg.unwrap().contains("<svg"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn load_one_app_keeps_existing_svg_icon() {
+        let root = temp_app_dir();
+        std::fs::write(root.join("icon.svg"), "<svg viewBox=\"0 0 64 64\"></svg>").unwrap();
+        let manifest = root.join("app.yaml");
+        std::fs::write(
+            &manifest,
+            "id: svg_app\nname: SVG App\ndisplay:\n  icon: icon.svg\n  short_description: desc\n  categories:\n    - CSV\ndetail:\n  description: desc\nrun:\n  runner: cli\n  entry: main.py\n  mode: cli\n",
+        )
+        .unwrap();
+
+        let app = load_one_app(&root, &manifest).unwrap();
+
+        assert!(app.icon_data_url.is_none());
+        assert!(app.icon_svg.unwrap().contains("<svg"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn temp_app_dir() -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("toolhub_manifest_icon_{stamp}"));
+        std::fs::create_dir_all(&root).unwrap();
+        root
     }
 }

@@ -162,6 +162,7 @@ class GeneratedArtifacts:
     build_plan_md: str
     import_plan: dict[str, Any]
     icon_ai_report: str = ""
+    icon_final_png: bytes | None = None
     icon_candidate_png: bytes | None = None
     icon_candidate_url: str = ""
 

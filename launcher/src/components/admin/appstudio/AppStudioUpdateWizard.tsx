@@ -10,11 +10,12 @@ import {
   appStudioUpdatePreflight,
   appStudioUpdateSuggest,
 } from "../../../lib/appStudioApi";
-import { cleanEditableMetadata, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
+import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
 import type {
   AppStudioAiProposal,
   AppStudioApprovalMode,
   AppStudioBuildMode,
+  AppStudioIconOverride,
   AppStudioImportRequest,
   AppStudioPreflightResult,
   AppStudioRegisteredApp,
@@ -284,6 +285,11 @@ export function AppStudioUpdateWizard() {
     setMessage("AI proposal was copied into the editable fields. Review before Apply update.");
   }
 
+  function adoptIconOverride(iconOverride: AppStudioIconOverride) {
+    update({ iconOverride });
+    setMessage("PNG icon candidate was selected. It will be used on the next Apply update.");
+  }
+
   return (
     <div className="studio-wizard-layout">
       <section className="studio-wizard-main">
@@ -382,6 +388,8 @@ export function AppStudioUpdateWizard() {
           busy={busy}
           onGenerate={() => run("suggest")}
           onAdopt={adoptAiProposal}
+          onIconAdopt={adoptIconOverride}
+          selectedIconSource={request.iconOverride?.selectedIconSource}
           onProposalLoaded={setAiProposal}
         />
 
@@ -446,6 +454,7 @@ function cleanRequest(request: AppStudioUpdateRequest, newVersion: string): AppS
     newVersion: newVersion.trim(),
     iconPrompt: request.iconPrompt?.trim() || undefined,
     metadata: cleanEditableMetadata(request.metadata),
+    iconOverride: cleanIconOverride(request.iconOverride),
   };
 }
 

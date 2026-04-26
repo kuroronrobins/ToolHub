@@ -15,7 +15,7 @@ import { formatAdminError } from "./adminUi";
 const DEFAULT_SETTINGS: AiSettings = {
   aiEnabled: false,
   textModel: "",
-  imageModel: "",
+  imageModel: "gpt-image-2",
   apiKeySource: "windows_credential_manager",
   updatedAt: null,
 };
@@ -167,7 +167,7 @@ export function AiSettingsPanel() {
             <input
               type="text"
               value={settings.imageModel}
-              placeholder="環境に合わせて設定"
+              placeholder="gpt-image-2"
               onChange={(event) => setSettings((current) => ({ ...current, imageModel: event.target.value }))}
             />
           </label>

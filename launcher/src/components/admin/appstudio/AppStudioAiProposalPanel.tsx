@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Bot, CheckCircle2, RefreshCw } from "lucide-react";
 import { appStudioReadAiProposal } from "../../../lib/appStudioApi";
-import type { AppStudioAiProposal, AppStudioRunResult } from "../../../lib/appStudioTypes";
+import type { AppStudioAiProposal, AppStudioIconOverride, AppStudioRunResult, AppStudioSelectedIconSource } from "../../../lib/appStudioTypes";
 import { formatAdminError } from "../adminUi";
 
 interface Props {
@@ -11,12 +11,14 @@ interface Props {
   busy: boolean;
   onGenerate: () => Promise<AppStudioRunResult | null>;
   onAdopt: (values: { name?: string; iconPrompt?: string }) => void;
+  onIconAdopt: (iconOverride: AppStudioIconOverride) => void;
+  selectedIconSource?: AppStudioSelectedIconSource;
   onProposalLoaded?: (proposal: AppStudioAiProposal) => void;
 }
 
-export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGenerate, onAdopt, onProposalLoaded }: Props) {
+export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGenerate, onAdopt, onIconAdopt, selectedIconSource, onProposalLoaded }: Props) {
   const [proposal, setProposal] = useState<AppStudioAiProposal | null>(null);
-  const [selectedIconSource, setSelectedIconSource] = useState<"final_svg" | "candidate_svg" | "fallback">("fallback");
+  const [localSelectedIconSource, setLocalSelectedIconSource] = useState<AppStudioSelectedIconSource>("fallback_png");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -55,6 +57,22 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
 
   const metadata = proposal?.metadata;
   const icon = proposal?.icon;
+  const selected = selectedIconSource ?? localSelectedIconSource;
+
+  function adoptPng(source: "candidate_png" | "final_png", pngDataUrl?: string | null) {
+    if (!pngDataUrl) {
+      return;
+    }
+    setLocalSelectedIconSource(source);
+    onIconAdopt({ selectedIconSource: source, pngDataUrl });
+    setMessage("PNG icon candidate was selected. Review it before Apply.");
+  }
+
+  function adoptFallbackPng() {
+    setLocalSelectedIconSource("fallback_png");
+    onIconAdopt({ selectedIconSource: "fallback_png" });
+    setMessage("Fallback PNG was selected. Apply will use the local fallback icon.");
+  }
 
   return (
     <section className="studio-step">
@@ -121,27 +139,32 @@ export function AppStudioAiProposalPanel({ appId, outputDir, result, busy, onGen
             </button>
           </div>
           <div className="studio-icon-preview-row">
-            {icon.candidateSvg ? <IconSvg title="candidate svg" svg={icon.candidateSvg} /> : null}
-            {icon.finalSvg ? <IconSvg title="final svg" svg={icon.finalSvg} /> : null}
-            {icon.candidatePngDataUrl ? <img className="studio-icon-preview" src={icon.candidatePngDataUrl} alt="AI PNG icon candidate" /> : null}
+            {icon.candidatePngDataUrl ? <img className="studio-icon-preview primary-icon-preview" src={icon.candidatePngDataUrl} alt="AI PNG icon candidate" /> : null}
+            {icon.finalPngDataUrl ? <img className="studio-icon-preview" src={icon.finalPngDataUrl} alt="Fallback PNG icon" /> : null}
           </div>
           <div className="studio-action-row">
-            <span className="admin-status-pill">selected: {selectedIconSource}</span>
-            <button className="secondary-button" type="button" onClick={() => setSelectedIconSource("final_svg")} disabled={!icon.finalSvg}>
+            <span className="admin-status-pill">selected: {selected}</span>
+            <button className="secondary-button" type="button" onClick={() => adoptPng("candidate_png", icon.candidatePngDataUrl)} disabled={!icon.candidatePngDataUrl}>
               <CheckCircle2 size={17} aria-hidden="true" />
-              Use final SVG
+              Use PNG candidate
             </button>
-            <button className="secondary-button" type="button" onClick={() => setSelectedIconSource("candidate_svg")} disabled={!icon.candidateSvg}>
+            <button className="secondary-button" type="button" onClick={() => adoptPng("final_png", icon.finalPngDataUrl)} disabled={!icon.finalPngDataUrl}>
               <CheckCircle2 size={17} aria-hidden="true" />
-              Use candidate SVG
+              Use fallback PNG
             </button>
-            <button className="secondary-button" type="button" onClick={() => setSelectedIconSource("fallback")}>
+            <button className="secondary-button" type="button" onClick={adoptFallbackPng}>
               <CheckCircle2 size={17} aria-hidden="true" />
-              Use fallback
+              Clear PNG adoption
             </button>
           </div>
-          <p className="admin-muted">Icon source selection is visible for review; Apply still writes the CLI-generated final_app/icon.svg.</p>
+          <p className="admin-muted">PNG is the standard icon output. API PNG candidates are not used until you adopt one and run Apply.</p>
           {icon.candidateUrl ? <p className="admin-muted">PNG URL candidate: {icon.candidateUrl}</p> : null}
+          {icon.fallbackSvg ? (
+            <div className="studio-icon-fallback">
+              <p className="dialog-kicker">SVG fallback</p>
+              <IconSvg title="fallback svg" svg={icon.fallbackSvg} />
+            </div>
+          ) : null}
           <dl className="studio-ai-fields">
             <Field label="initial_prompt" value={icon.promptInitial} />
             <Field label="revision_prompt" value={icon.promptRevision} />

@@ -17,6 +17,7 @@ from app_studio.exporter import export_suggestion
 from app_studio.file_classifier import classify_files
 from app_studio.frozen_folder_builder import build_frozen_folder
 from app_studio.icon_generator import generate_icon_assets_with_candidates
+from app_studio.icon_override import apply_icon_override, load_icon_override
 from app_studio.lock_generator import generate_lock
 from app_studio.manifest_generator import generate_app_yaml
 from app_studio.metadata_override import apply_metadata_override, load_metadata_override
@@ -57,6 +58,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--skip-frozen-build", action="store_true")
     parser.add_argument("--verify-runtime", action="store_true")
     parser.add_argument("--metadata-override")
+    parser.add_argument("--icon-override")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--suggest", action="store_true")
@@ -116,11 +118,17 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         metadata, metadata_override_applied, metadata_override_warnings = apply_metadata_override(metadata, override)
     app_yaml = generate_app_yaml(context, plan, metadata)
     readme = generate_readme(context, plan)
-    icon_prompt_initial, icon_prompt_revision, icon_svg, style_reference, icon_ai_report, icon_candidate_png, icon_candidate_url = generate_icon_assets_with_candidates(
+    icon_prompt_initial, icon_prompt_revision, icon_svg, fallback_png, style_reference, icon_ai_report, icon_candidate_png, icon_candidate_url = generate_icon_assets_with_candidates(
         context,
         args.icon_prompt,
         allow_ai=not secret_report.has_high,
     )
+    icon_override_warnings: list[str] = []
+    selected_icon_source = "fallback_png"
+    icon_final_png = fallback_png
+    if args.icon_override:
+        icon_override = load_icon_override(Path(args.icon_override))
+        icon_final_png, selected_icon_source, icon_override_warnings = apply_icon_override(fallback_png, icon_override)
     build_plan_md = build_plan_markdown(plan, context)
     import_plan = {
         "app_id": context.app_id,
@@ -136,6 +144,9 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "required_runtime": plan.required_runtime,
         "secret_high_findings": secret_report.has_high,
         "icon_style_reference": style_reference,
+        "selected_icon_source": selected_icon_source,
+        "icon_override_used": selected_icon_source != "fallback_png",
+        "icon_override_warnings": icon_override_warnings,
         "metadata_ai_report": metadata.get("_ai_generation_report", ""),
         "metadata_override_used": bool(metadata_override_applied),
         "metadata_override_keys": metadata_override_applied,
@@ -156,6 +167,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         build_plan_md=build_plan_md,
         import_plan=import_plan,
         icon_ai_report=icon_ai_report,
+        icon_final_png=icon_final_png,
         icon_candidate_png=icon_candidate_png,
         icon_candidate_url=icon_candidate_url,
     )
@@ -165,6 +177,10 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         print(f"- metadata_override_keys: {', '.join(metadata_override_applied) if metadata_override_applied else 'none'}")
         if metadata_override_warnings:
             print(f"- metadata_override_warnings: {len(metadata_override_warnings)}")
+    if args.icon_override:
+        print(f"- selected_icon_source: {selected_icon_source}")
+        if icon_override_warnings:
+            print(f"- icon_override_warnings: {len(icon_override_warnings)}")
     if action == "dry-run":
         return 0
 

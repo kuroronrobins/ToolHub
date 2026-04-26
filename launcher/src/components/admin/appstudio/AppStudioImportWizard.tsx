@@ -10,8 +10,8 @@ import {
   appStudioSuggest,
 } from "../../../lib/appStudioApi";
 import { suggestAppIdentity } from "../../../lib/appStudioIdentity";
-import { cleanEditableMetadata, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
-import type { AppStudioAiProposal, AppStudioApprovalMode, AppStudioImportRequest, AppStudioPreflightResult, AppStudioRunResult } from "../../../lib/appStudioTypes";
+import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
+import type { AppStudioAiProposal, AppStudioApprovalMode, AppStudioIconOverride, AppStudioImportRequest, AppStudioPreflightResult, AppStudioRunResult } from "../../../lib/appStudioTypes";
 import { formatAdminError } from "../adminUi";
 import { AppStudioAiProposalPanel } from "./AppStudioAiProposalPanel";
 import { AppStudioBuildOptions } from "./AppStudioBuildOptions";
@@ -213,6 +213,11 @@ export function AppStudioImportWizard() {
     setMessage("AI proposal was copied into the editable fields. Review before Apply.");
   }
 
+  function adoptIconOverride(iconOverride: AppStudioIconOverride) {
+    update({ iconOverride });
+    setMessage("PNG icon candidate was selected. It will be used on the next Apply.");
+  }
+
   return (
     <div className="studio-wizard-layout">
       <section className="studio-wizard-main">
@@ -291,6 +296,8 @@ export function AppStudioImportWizard() {
           busy={busy}
           onGenerate={() => run("suggest")}
           onAdopt={adoptAiProposal}
+          onIconAdopt={adoptIconOverride}
+          selectedIconSource={request.iconOverride?.selectedIconSource}
           onProposalLoaded={setAiProposal}
         />
 
@@ -335,6 +342,7 @@ function cleanRequest(request: AppStudioImportRequest): AppStudioImportRequest {
     name: request.name?.trim() || undefined,
     iconPrompt: request.iconPrompt?.trim() || undefined,
     metadata: cleanEditableMetadata(request.metadata),
+    iconOverride: cleanIconOverride(request.iconOverride),
   };
 }
 

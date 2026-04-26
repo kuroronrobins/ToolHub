@@ -76,9 +76,11 @@ def package_app_pack(repo_root: Path, app_id: str) -> Path:
     app_dir = repo_root / "apps" / app_id
     if not app_dir.is_dir():
         raise FileNotFoundError(f"App directory is missing: {app_dir}")
-    for required in ("app.yaml", "README.md", "requirements.txt", "icon.svg"):
+    for required in ("app.yaml", "README.md", "requirements.txt"):
         if not (app_dir / required).is_file():
             raise FileNotFoundError(f"Required app file is missing: {app_dir / required}")
+    if not (app_dir / "icon.png").is_file() and not (app_dir / "icon.svg").is_file():
+        raise FileNotFoundError(f"Required app icon is missing: {app_dir / 'icon.png'} or {app_dir / 'icon.svg'}")
 
     staging_base = repo_root / "release" / "staging" / "app_studio_pack"
     reset_directory(staging_base, repo_root / "release" / "staging")
@@ -123,4 +125,3 @@ def remove_generated_cache(path: Path) -> None:
     for file in path.rglob("*"):
         if file.is_file() and file.suffix.lower() in {".pyc", ".pyo"}:
             file.unlink()
-

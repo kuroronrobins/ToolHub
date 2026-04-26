@@ -24,6 +24,7 @@ export interface ToolApp {
   id: string;
   name: string;
   iconSvg?: string;
+  iconDataUrl?: string;
   shortDescription: string;
   categories: string[];
   detail: AppDetail;

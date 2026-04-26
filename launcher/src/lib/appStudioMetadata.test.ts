@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanEditableMetadata, splitMetadataText } from "./appStudioMetadata";
+import { cleanEditableMetadata, cleanIconOverride, splitMetadataText } from "./appStudioMetadata";
 
 describe("appStudioMetadata", () => {
   it("splits newline and comma separated metadata", () => {
@@ -30,5 +30,14 @@ describe("appStudioMetadata", () => {
       releaseNotes: [],
       changeSummary: "",
     });
+  });
+
+  it("keeps adopted png icon overrides only when data is present", () => {
+    expect(cleanIconOverride({ selectedIconSource: "candidate_png", pngDataUrl: "data:image/png;base64,AAAA" })).toEqual({
+      selectedIconSource: "candidate_png",
+      pngDataUrl: "data:image/png;base64,AAAA",
+    });
+    expect(cleanIconOverride({ selectedIconSource: "fallback_png" })).toBeUndefined();
+    expect(cleanIconOverride({ selectedIconSource: "candidate_png" })).toBeUndefined();
   });
 });
