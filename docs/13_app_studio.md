@@ -17,6 +17,7 @@ OpenAI APIキーは管理者画面の AI/APIキー管理で扱います。キー
 GUI で入力できる項目:
 
 - Entry ファイルパス
+- Entry 参照ボタン: Windows ではファイル選択ダイアログから `.py` / `.exe` / 任意ファイルを選択できます。非対応環境では手入力で続行します。
 - App ID
 - 表示名
 - BuildMode: `auto`, `app-env`, `frozen-folder`, `existing-exe`
@@ -32,7 +33,31 @@ GUI で実行できる操作:
 - `Apply`: `apps/<app_id>/` へ仮登録し、`release/app_manifest.json` へ `enabled=false` で登録
 - `Approve`: 実行確認結果を確認し、承認可能な場合に `enabled=true` へ変更
 
-Apply 後は `execution_test_result.json`、`runtime_check_result.json`、App Pack、`enabled` 状態を GUI に表示します。`fail` がある場合は承認できません。Strict承認のGUI切替は次フェーズで追加予定です。
+Apply 後は `execution_test_result.json`、`runtime_check_result.json`、App Pack、`enabled` 状態を GUI に表示します。`fail` がある場合は承認できません。GUIでは `AllowWarnings` と `StrictApproval` を選択できます。
+
+AppId / Name 自動提案:
+
+- `main.py`, `app.py`, `__main__.py`, `launcher.py`, `run.py` のような汎用Entry名では親フォルダ名から提案します。
+- それ以外はファイル名の stem から提案します。
+- AppId は英小文字、数字、`_`、`-` に正規化し、空になった場合は `app` を使います。
+- Name は `snake_case` / `kebab-case` を空白区切りの表示名へ変換します。
+
+Preflight表示:
+
+- Entry の存在
+- AppId 形式
+- BuildMode
+- `runtime/python/python.exe` の有無
+- App Studio 実行に使う Python の種類: `runtime`, `python`, `py`, `missing`
+
+`runtime/python/python.exe` が未配置でも、開発環境 Python fallback が見つかる場合は警告として扱います。Python が見つからない場合は Suggest / Apply を実行できませんが、通常ランチャー機能には影響しません。
+
+承認モード:
+
+- `AllowWarnings`: `fail` がなければ承認可能です。
+- `StrictApproval`: `pass` のみ承認可能です。`warn` がある場合は承認できません。
+
+結果サマリーでは `selected_build_mode`、`exit_code`、最後に実行した action、次に必要な操作も表示します。
 
 GUI実行ログ:
 
@@ -47,8 +72,6 @@ GUI未対応の機能:
 - 既存アプリ更新の本実装
 - 削除/アンインストールの本実装
 - publish の本実装
-- ファイルダイアログによる Entry 選択
-- StrictApproval / AllowWarnings のGUI切替
 
 ## 対応する登録方式
 

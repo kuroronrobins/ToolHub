@@ -122,6 +122,12 @@ Python実行優先順位:
 
 Python が見つからない場合、App Studio GUI は分かりやすいエラーを表示します。通常ランチャー画面と通常アプリ起動は影響を受けません。
 
+App Studio GUI には実行前 Preflight があり、Entry存在、AppId形式、BuildMode、runtime Python、開発環境 Python fallback の状態を確認できます。`runtime/python/python.exe` が未配置でも開発中は fallback を使えますが、正式配布前は runtime 配置後に再確認してください。
+
+Entry は Windows では参照ボタンから選択できます。非対応環境やダイアログ失敗時は手入力で続行します。
+
+承認時は `AllowWarnings` と `StrictApproval` を選べます。`AllowWarnings` は `fail` がなければ承認可能、`StrictApproval` は `pass` のみ承認可能です。
+
 GUI実行ログ:
 
 ```text

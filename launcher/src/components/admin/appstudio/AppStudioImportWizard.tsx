@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 import { FileSearch, Play, Rocket } from "lucide-react";
-import { appStudioApply, appStudioApprove, appStudioReadResult, appStudioSuggest } from "../../../lib/appStudioApi";
-import type { AppStudioImportRequest, AppStudioRunResult } from "../../../lib/appStudioTypes";
+import { appStudioApply, appStudioApprove, appStudioPickEntryFile, appStudioPreflight, appStudioReadResult, appStudioSuggest } from "../../../lib/appStudioApi";
+import { suggestAppIdentity } from "../../../lib/appStudioIdentity";
+import type { AppStudioImportRequest, AppStudioPreflightResult, AppStudioRunResult } from "../../../lib/appStudioTypes";
 import { formatAdminError } from "../adminUi";
 import { AppStudioBuildOptions } from "./AppStudioBuildOptions";
+import { AppStudioPreflightPanel } from "./AppStudioPreflightPanel";
 import { AppStudioResultPanel } from "./AppStudioResultPanel";
 import { AppStudioRunLog } from "./AppStudioRunLog";
 
@@ -27,6 +29,8 @@ export function AppStudioImportWizard() {
   const [request, setRequest] = useState<AppStudioImportRequest>(INITIAL_REQUEST);
   const [busy, setBusy] = useState(false);
   const [lastAction, setLastAction] = useState<StudioAction | null>(null);
+  const [approvalMode, setApprovalMode] = useState<"allowWarnings" | "strict">("allowWarnings");
+  const [preflight, setPreflight] = useState<AppStudioPreflightResult | null>(null);
   const [result, setResult] = useState<AppStudioRunResult | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -35,20 +39,53 @@ export function AppStudioImportWizard() {
 
   function update(partial: Partial<AppStudioImportRequest>) {
     setRequest((current) => ({ ...current, ...partial }));
+    setPreflight(null);
   }
 
   function handleEntryChange(event: ChangeEvent<HTMLInputElement>) {
-    const entry = event.target.value;
+    setEntry(event.target.value);
+  }
+
+  function setEntry(entry: string) {
     setRequest((current) => {
+      const suggestion = suggestAppIdentity(entry);
       const next: AppStudioImportRequest = { ...current, entry };
       if (!current.appId?.trim()) {
-        next.appId = suggestAppId(entry);
+        next.appId = suggestion.appId;
       }
       if (!current.name?.trim()) {
-        next.name = suggestName(entry);
+        next.name = suggestion.name;
       }
       return next;
     });
+    setPreflight(null);
+  }
+
+  async function browseEntry() {
+    setError("");
+    try {
+      const selected = await appStudioPickEntryFile();
+      if (selected) {
+        setEntry(selected);
+      }
+    } catch (browseError) {
+      setError(formatAdminError(browseError, "ファイル選択ダイアログを開けませんでした。手入力で続行してください。"));
+    }
+  }
+
+  async function runPreflight(candidate: AppStudioImportRequest = request): Promise<AppStudioPreflightResult | null> {
+    setError("");
+    try {
+      const result = await appStudioPreflight(cleanRequest(candidate));
+      setPreflight(result);
+      if (!result.ok) {
+        setError("Preflightでエラーがあります。内容を確認してください。");
+      }
+      return result;
+    } catch (preflightError) {
+      setError(formatAdminError(preflightError, "Preflightを実行できませんでした。"));
+      return null;
+    }
   }
 
   async function run(action: "suggest" | "apply") {
@@ -57,7 +94,12 @@ export function AppStudioImportWizard() {
     setMessage("");
     setLastAction(action);
     try {
-      const runResult = action === "suggest" ? await appStudioSuggest(cleanRequest(request)) : await appStudioApply(cleanRequest(request));
+      const cleaned = cleanRequest(request);
+      const check = await runPreflight(cleaned);
+      if (!check?.ok) {
+        return;
+      }
+      const runResult = action === "suggest" ? await appStudioSuggest(cleaned) : await appStudioApply(cleaned);
       setResult(runResult);
       setMessage(runResult.userMessage);
       if (!runResult.ok) {
@@ -81,7 +123,7 @@ export function AppStudioImportWizard() {
     setMessage("");
     setLastAction("approve");
     try {
-      const approveResult = await appStudioApprove(appId);
+      const approveResult = await appStudioApprove(appId, approvalMode === "strict");
       setResult(approveResult);
       setMessage(approveResult.userMessage);
       if (!approveResult.ok) {
@@ -112,6 +154,7 @@ export function AppStudioImportWizard() {
         userMessage: current?.userMessage ?? "結果を再読込しました。",
         outputDir: summary.outputDir,
         appId: summary.appId,
+        selectedBuildMode: summary.selectedBuildMode,
         executionStatus: summary.executionStatus,
         approvalAllowed: summary.approvalAllowed,
         runtimeStatus: summary.runtimeStatus,
@@ -147,7 +190,7 @@ export function AppStudioImportWizard() {
               <span>Entryファイルパス</span>
               <input type="text" value={request.entry} placeholder="C:\\work\\mytool\\main.py" onChange={handleEntryChange} />
             </label>
-            <button className="secondary-button" type="button" disabled title="ファイルダイアログは次フェーズで追加予定">
+            <button className="secondary-button" type="button" onClick={() => void browseEntry()} disabled={busy} title="Entryファイルを選択">
               <FileSearch size={17} aria-hidden="true" />
               参照
             </button>
@@ -171,7 +214,13 @@ export function AppStudioImportWizard() {
           </div>
         </section>
 
-        <AppStudioBuildOptions request={request} onChange={setRequest} />
+        <AppStudioBuildOptions
+          request={request}
+          onChange={(next) => {
+            setRequest(next);
+            setPreflight(null);
+          }}
+        />
 
         <section className="studio-step">
           <div>
@@ -188,6 +237,8 @@ export function AppStudioImportWizard() {
             />
           </label>
         </section>
+
+        <AppStudioPreflightPanel result={preflight} busy={busy} onRun={() => void runPreflight()} />
 
         <div className="studio-action-row">
           <button className="secondary-button" type="button" onClick={() => void run("suggest")} disabled={!canRun}>
@@ -209,6 +260,8 @@ export function AppStudioImportWizard() {
         <AppStudioResultPanel
           result={result}
           lastAction={lastAction}
+          approvalMode={approvalMode}
+          onApprovalModeChange={setApprovalMode}
           busy={busy}
           onApprove={() => void approve()}
           onRefresh={() => void refreshResult()}
@@ -226,28 +279,4 @@ function cleanRequest(request: AppStudioImportRequest): AppStudioImportRequest {
     name: request.name?.trim() || undefined,
     iconPrompt: request.iconPrompt?.trim() || undefined,
   };
-}
-
-function suggestAppId(entry: string): string {
-  const base = basename(entry).replace(/\.[^.]+$/, "");
-  return base
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 64);
-}
-
-function suggestName(entry: string): string {
-  const base = basename(entry).replace(/\.[^.]+$/, "");
-  return base
-    .split(/[_\-\s]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function basename(path: string): string {
-  const normalized = path.replace(/\\/g, "/");
-  return normalized.split("/").filter(Boolean).pop() ?? "";
 }

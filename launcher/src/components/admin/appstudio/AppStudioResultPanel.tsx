@@ -5,19 +5,23 @@ import type { AppStudioRunResult } from "../../../lib/appStudioTypes";
 interface Props {
   result: AppStudioRunResult | null;
   lastAction: "suggest" | "apply" | "approve" | null;
+  approvalMode: "allowWarnings" | "strict";
+  onApprovalModeChange: (mode: "allowWarnings" | "strict") => void;
   busy: boolean;
   onApprove: () => void;
   onRefresh: () => void;
 }
 
-export function AppStudioResultPanel({ result, lastAction, busy, onApprove, onRefresh }: Props) {
+export function AppStudioResultPanel({ result, lastAction, approvalMode, onApprovalModeChange, busy, onApprove, onRefresh }: Props) {
   const canApprove = Boolean(
     result?.appId &&
       lastAction === "apply" &&
       result.ok &&
       result.executionStatus !== "fail" &&
-      result.approvalAllowed !== false,
+      result.approvalAllowed !== false &&
+      (approvalMode === "allowWarnings" || result.executionStatus === "pass"),
   );
+  const nextAction = nextActionText(result, lastAction, approvalMode);
 
   return (
     <section className="studio-side-section">
@@ -31,14 +35,38 @@ export function AppStudioResultPanel({ result, lastAction, busy, onApprove, onRe
 
       <div className="studio-result-list">
         <ResultRow icon={<CheckCircle2 size={18} />} label="app_id" value={result?.appId ?? "-"} />
+        <ResultRow icon={<CheckCircle2 size={18} />} label="build_mode" value={result?.selectedBuildMode ?? "-"} />
+        <ResultRow icon={<CheckCircle2 size={18} />} label="exit_code" value={result ? String(result.exitCode) : "-"} />
+        <ResultRow icon={<CheckCircle2 size={18} />} label="last_action" value={lastAction ?? "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="output_dir" value={result?.outputDir ?? "-"} />
         <ResultRow icon={<CircleAlert size={18} />} label="execution" value={result?.executionStatus ?? "unknown"} />
         <ResultRow icon={<CircleAlert size={18} />} label="approval_allowed" value={formatBool(result?.approvalAllowed)} />
         <ResultRow icon={<CircleAlert size={18} />} label="runtime" value={result?.runtimeStatus ?? "unknown"} />
         <ResultRow icon={<PackageCheck size={18} />} label="App Pack" value={result?.appPack ?? "-"} />
+        <ResultRow icon={<ShieldCheck size={18} />} label="next" value={nextAction} />
       </div>
 
-      <p className="admin-muted">Strict承認は次フェーズで追加予定です。failがある場合は承認できません。</p>
+      <fieldset className="studio-approval-mode">
+        <legend>承認モード</legend>
+        <label>
+          <input
+            type="radio"
+            name="studio-approval-mode"
+            checked={approvalMode === "allowWarnings"}
+            onChange={() => onApprovalModeChange("allowWarnings")}
+          />
+          <span>AllowWarnings</span>
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="studio-approval-mode"
+            checked={approvalMode === "strict"}
+            onChange={() => onApprovalModeChange("strict")}
+          />
+          <span>StrictApproval</span>
+        </label>
+      </fieldset>
       <div className="admin-form-actions">
         <button className="secondary-button" type="button" onClick={onRefresh} disabled={busy || !result?.appId}>
           再読込
@@ -70,4 +98,33 @@ function formatBool(value: boolean | null | undefined): string {
     return "false";
   }
   return "unknown";
+}
+
+function nextActionText(
+  result: AppStudioRunResult | null,
+  lastAction: "suggest" | "apply" | "approve" | null,
+  approvalMode: "allowWarnings" | "strict",
+): string {
+  if (!result) {
+    return "Preflight後にSuggestまたはApplyを実行してください";
+  }
+  if (!result.ok) {
+    return "ログとレポートを確認してください";
+  }
+  if (result.enabled) {
+    return "承認済みです";
+  }
+  if (lastAction === "suggest") {
+    return "Applyしてください";
+  }
+  if (lastAction === "apply") {
+    if (result.executionStatus === "fail" || result.approvalAllowed === false) {
+      return "failの解消が必要です";
+    }
+    if (approvalMode === "strict" && result.executionStatus !== "pass") {
+      return "StrictApprovalではwarnを解消してください";
+    }
+    return "Approveできます";
+  }
+  return "結果を確認してください";
 }

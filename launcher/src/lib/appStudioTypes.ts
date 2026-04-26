@@ -21,11 +21,24 @@ export interface AppStudioRunResult {
   userMessage: string;
   outputDir?: string | null;
   appId?: string | null;
+  selectedBuildMode?: string | null;
   executionStatus?: "pass" | "warn" | "fail" | "unknown" | string | null;
   approvalAllowed?: boolean | null;
   runtimeStatus?: "pass" | "warn" | "fail" | "unknown" | string | null;
   appPack?: string | null;
   enabled?: boolean | null;
+}
+
+export interface AppStudioPreflightResult {
+  ok: boolean;
+  entryExists: boolean;
+  appIdValid: boolean;
+  buildModeValid: boolean;
+  pythonSource: "runtime" | "python" | "py" | "missing" | string;
+  pythonPath?: string | null;
+  runtimePythonExists: boolean;
+  warnings: string[];
+  errors: string[];
 }
 
 export interface AppStudioResultSummary {
