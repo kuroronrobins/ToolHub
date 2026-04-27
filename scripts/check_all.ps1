@@ -219,6 +219,7 @@ try {
     Require-Path "scripts/package_app_pack.ps1"
     Require-Path "scripts/prepare_runtime.ps1"
     Require-Path "scripts/verify_release.ps1"
+    Require-Path "scripts/diagnose_app_studio_import.ps1"
     Require-Path "docs/07_installer_distribution.md"
     Require-Path "docs/08_update_design.md"
     Require-Path "docs/09_app_pack_spec.md"
@@ -248,6 +249,10 @@ try {
 
     Run-Step "main.py py_compile" {
         & $Python "-m" "py_compile" "main.py"
+    }
+
+    Run-Step "App Studio diagnostic script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\diagnose_app_studio_import.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
     }
 
     Run-Step "Python runner tests" {

@@ -19,7 +19,7 @@ from app_studio.ai_metadata_suggester import metadata_prompt, suggest_metadata
 from app_studio.build_profile import analyze_exe_readiness, default_build_profile
 from app_studio.icon_generator import image_api_prompt
 from app_studio.app_env_builder import create_app_env, create_build_env
-from app_studio.approval import approve_app
+from app_studio.approval import approve_app, validate_approval_inputs
 from app_studio.build_planner import make_build_plan
 from app_studio.execution_tester import build_execution_result, record_blocked_execution, run_execution_checks
 from app_studio.exporter import export_suggestion
@@ -252,6 +252,8 @@ class FrozenFolderTests(unittest.TestCase):
             command = pyinstaller_command(Path("python"), context, Path("dist"), Path("build"), Path("spec"))
 
             self.assertIn("--onedir", command)
+            self.assertIn("--contents-directory", command)
+            self.assertEqual(command[command.index("--contents-directory") + 1], ".")
             self.assertNotIn("--onefile", command)
 
     def test_frozen_plan_entry_matches_folder_exe_layout(self) -> None:
@@ -402,6 +404,36 @@ class ExecutionAndApprovalTests(unittest.TestCase):
             manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
             self.assertFalse(manifest["apps"][app_id]["enabled"])
 
+    def test_approval_rejects_stale_execution_result_with_context(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            write_execution_result(repo, app_id, "pass", True)
+            result_path = repo / "data" / "logs" / "app_studio" / f"{app_id}_execution_test_result.json"
+            app_yaml = repo / "apps" / app_id / "app.yaml"
+            newer = result_path.stat().st_mtime + 10
+            os.utime(app_yaml, (newer, newer))
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+
+            with self.assertRaisesRegex(ValueError, "stale.*result_path"):
+                validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+    def test_approval_failure_reports_result_path_and_fail_checks(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            write_execution_result(repo, app_id, "fail", False)
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+
+            with self.assertRaises(ValueError) as cm:
+                validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+            message = str(cm.exception)
+            self.assertIn("result_path=", message)
+            self.assertIn("fail_checks=", message)
+
     def test_blocked_execution_writes_failed_result(self) -> None:
         with workspace_tempdir() as root:
             context = make_context(root)
@@ -413,6 +445,7 @@ class ExecutionAndApprovalTests(unittest.TestCase):
             data = json.loads((context.output_dir / "execution_test_result.json").read_text(encoding="utf-8"))
             self.assertEqual(data["checks"][0]["name"], "frozen-folder build")
             self.assertEqual(data["checks"][0]["status"], "fail")
+            self.assertIn("evidence", data)
 
 
 class OpenAIFallbackTests(unittest.TestCase):
@@ -653,6 +686,57 @@ class RuntimeCheckerTests(unittest.TestCase):
             self.assertEqual(checks["required add-data files"], "pass")
             self.assertEqual(checks["forbidden payload files"], "pass")
             self.assertEqual(checks["frozen-folder size"], "pass")
+
+    def test_frozen_distribution_check_accepts_internal_add_data_with_warning(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            plan = BuildPlan("frozen-folder", "exe", f"bin/{context.app_id}/{context.app_id}.exe", None, [])
+            final_app = context.output_dir / "final_app"
+            bin_root = final_app / "bin" / context.app_id
+            internal_root = bin_root / "_internal"
+            internal_root.mkdir(parents=True)
+            write_text(final_app / "app.yaml", f"run:\n  runner: exe\n  entry: {plan.entry}\n")
+            write_text(bin_root / f"{context.app_id}.exe", "fake exe")
+            write_text(internal_root / "config.yaml", "ok: true\n")
+            write_text(context.output_dir / "frozen_folder_build_report.md", "- command: python -m PyInstaller --onedir --contents-directory . main.py\n")
+            (context.output_dir / "build_env").mkdir()
+
+            result = verify_runtime(context, context.output_dir, plan, {"add_data": [{"source": "config.yaml", "destination": "."}]})
+
+            required = next(check for check in result.checks if check.name == "required add-data files")
+            self.assertEqual(required.status, "warn")
+            self.assertIn("_internal", required.detail)
+
+    def test_directory_add_data_does_not_require_double_nested_source_name(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            plan = BuildPlan("frozen-folder", "exe", f"bin/{context.app_id}/{context.app_id}.exe", None, [])
+            asset = context.source_root / "xcgate_flows" / "config.yaml"
+            asset.parent.mkdir()
+            write_text(asset, "ok: true\n")
+            final_app = context.output_dir / "final_app"
+            bin_root = final_app / "bin" / context.app_id
+            bin_root.mkdir(parents=True)
+            write_text(final_app / "app.yaml", f"run:\n  runner: exe\n  entry: {plan.entry}\n")
+            write_text(bin_root / f"{context.app_id}.exe", "fake exe")
+            (bin_root / "xcgate_flows").mkdir()
+            write_text(bin_root / "xcgate_flows" / "config.yaml", "ok: true\n")
+            write_text(context.output_dir / "frozen_folder_build_report.md", "- command: python -m PyInstaller --onedir --contents-directory . main.py\n")
+            (context.output_dir / "build_env").mkdir()
+
+            result = verify_runtime(
+                context,
+                context.output_dir,
+                plan,
+                {
+                    "add_data": [{"source": "xcgate_flows", "destination": "xcgate_flows"}],
+                    "required_files": ["xcgate_flows/config.yaml"],
+                },
+            )
+
+            required = next(check for check in result.checks if check.name == "required add-data files")
+            self.assertEqual(required.status, "pass")
+            self.assertNotIn("xcgate_flows/xcgate_flows", required.detail)
 
     def test_frozen_distribution_check_blocks_user_auth_files_without_blocking_playwright_internals(self) -> None:
         with workspace_tempdir() as root:

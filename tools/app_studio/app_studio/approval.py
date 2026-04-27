@@ -65,15 +65,68 @@ def validate_approval_inputs(repo_root: Path, manifest: dict[str, Any], app_id: 
     checks = result.get("checks") or []
     fail_checks = [item for item in checks if item.get("status") == "fail"]
     warn_checks = [item for item in checks if item.get("status") == "warn"]
+    stale_signals = stale_execution_result_signals(repo_root, app_id, app_yaml, result_path)
+    if stale_signals:
+        raise ValueError(
+            "Execution test result is stale. "
+            f"result_path={result_path}; stale_against={'; '.join(stale_signals)}"
+        )
     if result.get("approval_allowed") is not True:
-        raise ValueError("Execution test result does not allow approval.")
+        raise ValueError(
+            "Execution test result does not allow approval. "
+            f"result_path={result_path}; overall_status={result.get('overall_status')}; "
+            f"fail_checks={format_check_summaries(fail_checks)}; warn_checks={format_check_summaries(warn_checks)}"
+        )
     if fail_checks:
-        raise ValueError("Execution test result contains fail checks.")
+        raise ValueError(f"Execution test result contains fail checks. result_path={result_path}; fail_checks={format_check_summaries(fail_checks)}")
     if strict and warn_checks:
-        raise ValueError("StrictApproval rejects warning checks.")
+        raise ValueError(f"StrictApproval rejects warning checks. result_path={result_path}; warn_checks={format_check_summaries(warn_checks)}")
     if not allow_warnings and warn_checks:
-        raise ValueError("Warnings are not allowed for this approval.")
+        raise ValueError(f"Warnings are not allowed for this approval. result_path={result_path}; warn_checks={format_check_summaries(warn_checks)}")
     return entry, result
+
+
+def stale_execution_result_signals(repo_root: Path, app_id: str, app_yaml: Path, result_path: Path) -> list[str]:
+    result_mtime = result_path.stat().st_mtime
+    signals: list[str] = []
+    compare_target(result_mtime, app_yaml, "app.yaml", signals)
+    compare_target(result_mtime, repo_root / "apps" / app_id / "build_profile.json", "build_profile.json", signals)
+    compare_target(result_mtime, repo_root / "data" / "logs" / "app_studio" / f"{app_id}_frozen_folder_build_report.md", "frozen_folder_build_report.md", signals)
+
+    entry = app_yaml_run_entry(app_yaml) or f"bin/{app_id}/{app_id}.exe"
+    compare_target(result_mtime, repo_root / "apps" / app_id / entry, "frozen exe", signals)
+    return signals
+
+
+def compare_target(result_mtime: float, path: Path, label: str, signals: list[str]) -> None:
+    if not path.is_file():
+        return
+    if path.stat().st_mtime > result_mtime:
+        signals.append(f"{label} is newer than execution_test_result.json ({path})")
+
+
+def app_yaml_run_entry(path: Path) -> str | None:
+    try:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.strip().startswith("entry:"):
+                return line.split(":", 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        return None
+    return None
+
+
+def format_check_summaries(checks: list[dict[str, Any]]) -> str:
+    if not checks:
+        return "none"
+    summaries = []
+    for item in checks[:5]:
+        name = str(item.get("name") or "-")
+        status = str(item.get("status") or "-")
+        detail = str(item.get("detail") or "-")
+        summaries.append(f"[{status}] {name}: {detail}")
+    if len(checks) > 5:
+        summaries.append(f"... +{len(checks) - 5} more")
+    return " | ".join(summaries)
 
 
 def run_verify_release(repo_root: Path) -> dict[str, Any]:

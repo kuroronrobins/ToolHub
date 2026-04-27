@@ -1,0 +1,34 @@
+{
+  "app_id": "officetopdf_toc",
+  "overall_status": "warn",
+  "checks": [
+    {
+      "name": "build mode",
+      "status": "pass",
+      "detail": "frozen-folder uses PyInstaller --onedir."
+    },
+    {
+      "name": "managed build python",
+      "status": "warn",
+      "detail": "build_env is not present yet. Apply creates a managed build environment under the App Studio output directory."
+    },
+    {
+      "name": "requirements.lock",
+      "status": "warn",
+      "detail": "No requirements.lock was found. GenerateLock is recommended before formal distribution."
+    },
+    {
+      "name": "profile data files",
+      "status": "warn",
+      "detail": "No data files were inferred. Confirm this app does not need config/assets at runtime."
+    },
+    {
+      "name": "hidden imports",
+      "status": "warn",
+      "detail": "No hidden imports were inferred. Dynamic imports may need manual profile entries."
+    }
+  ],
+  "manual_checks": [
+    "OfficeToPDF_TOC.py: open - call uses a dynamic path expression"
+  ]
+}

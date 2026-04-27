@@ -218,7 +218,10 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     if action == "suggest":
         return 0
 
+    record_blocked_execution(context, output_dir, "apply started", "Apply started and has not reached final execution checks yet.", plan)
+
     if secret_report.has_high:
+        record_blocked_execution(context, output_dir, "secret scan", "Apply was blocked because high severity secret findings exist.", plan)
         print("Apply was blocked because high severity secret findings exist. Review secret_scan_report.md.", file=sys.stderr)
         return 1
 
@@ -227,26 +230,26 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     build_env_python = None
 
     if plan.mode != NORMAL_REGISTRATION_BUILD_MODE:
-        record_blocked_execution(context, output_dir, "registration policy", f"Normal registration requires {NORMAL_REGISTRATION_BUILD_MODE}, got {plan.mode}.")
+        record_blocked_execution(context, output_dir, "registration policy", f"Normal registration requires {NORMAL_REGISTRATION_BUILD_MODE}, got {plan.mode}.", plan)
         return 1
 
     build_env_result = create_build_env(context, requirements_path, rebuild=True)
     print(f"build_env status: ok={build_env_result.ok}, skipped={build_env_result.skipped}, path={build_env_result.app_env_path}")
     if not build_env_result.ok:
-        record_blocked_execution(context, output_dir, "build_env", build_env_result.error or "build_env creation failed.")
+        record_blocked_execution(context, output_dir, "build_env", build_env_result.error or "build_env creation failed.", plan)
         return 1
     build_env_python = build_env_result.python_path
 
     lock_result = generate_lock(context, requirements_path, app_env_python=build_env_python)
     print(f"requirements.lock status: ok={lock_result.ok}, source={lock_result.source}")
     if not lock_result.ok:
-        record_blocked_execution(context, output_dir, "requirements.lock", lock_result.error or "requirements.lock generation failed.")
+        record_blocked_execution(context, output_dir, "requirements.lock", lock_result.error or "requirements.lock generation failed.", plan)
         return 1
 
     build_tool_result = install_build_tools(context, build_env_result.app_env_path, ["PyInstaller>=6,<7", "pyinstaller-hooks-contrib>=2024.0"])
     print(f"build tool install status: ok={build_tool_result.ok}, skipped={build_tool_result.skipped}")
     if not build_tool_result.ok:
-        record_blocked_execution(context, output_dir, "build tools", build_tool_result.error or "Build tool install failed.")
+        record_blocked_execution(context, output_dir, "build tools", build_tool_result.error or "Build tool install failed.", plan)
         return 1
 
     frozen_result = build_frozen_folder(context, plan, output_dir, rebuild=True, build_profile=build_profile)
@@ -257,16 +260,21 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
             output_dir,
             "frozen-folder build",
             frozen_result.error or "Frozen-folder build failed before temporary registration.",
+            plan,
         )
         return 1
 
     runtime_result = verify_runtime(context, output_dir, plan, build_profile)
     print(f"distribution check status: {runtime_result.overall_status}")
     if runtime_result.overall_status == "fail":
-        record_blocked_execution(context, output_dir, "frozen-folder distribution check", "Distribution verification failed. Review runtime_check_report.md.")
+        record_blocked_execution(context, output_dir, "frozen-folder distribution check", "Distribution verification failed. Review runtime_check_report.md.", plan)
         return 1
 
-    package_path = apply_registration(context, plan, final_app, output_dir)
+    try:
+        package_path = apply_registration(context, plan, final_app, output_dir)
+    except Exception as exc:
+        record_blocked_execution(context, output_dir, "registration copy", f"Registration copy or app pack generation failed: {exc!r}", plan)
+        raise
     execution_result = run_execution_checks(context, plan, output_dir, secret_report)
     print(f"Temporary registration completed: apps/{context.app_id}")
     print(f"App Pack was generated: {package_path}")

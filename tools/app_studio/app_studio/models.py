@@ -257,6 +257,7 @@ class ExecutionTestResult:
     overall_status: str
     approval_allowed: bool
     checks: list[ExecutionCheck]
+    evidence: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -265,4 +266,5 @@ class ExecutionTestResult:
             "overall_status": self.overall_status,
             "approval_allowed": self.approval_allowed,
             "checks": [check.to_dict() for check in self.checks],
+            "evidence": self.evidence,
         }
