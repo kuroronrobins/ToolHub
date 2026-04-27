@@ -17,7 +17,7 @@ export const OPERATION_LABELS: Record<StudioOperationKind, string> = {
   preflight: "事前確認を実行しています",
   aiProposal: "AI提案を生成しています",
   suggest: "登録内容を作成しています",
-  apply: "テスト登録と起動確認を実行しています",
+  apply: "テスト登録と配布物検証を実行しています",
   approve: "承認して有効化しています",
   refresh: "結果を再読み込みしています",
 };

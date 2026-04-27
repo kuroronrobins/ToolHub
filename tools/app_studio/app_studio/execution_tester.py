@@ -9,6 +9,7 @@ from typing import Any
 
 from .models import BuildPlan, ExecutionCheck, ExecutionTestResult, SecretScanReport, StudioContext
 from .runtime_checker import is_forbidden_payload_path, required_data_findings
+from .trace import trace_with_import_plan
 from .util import now_iso, write_json, write_text
 
 
@@ -57,6 +58,7 @@ def build_execution_result(context: StudioContext, plan: BuildPlan, output_dir: 
     if plan.mode == "frozen-folder":
         checks.append(check("frozen-folder executable", "pass" if app_entry.is_file() else "fail", str(app_entry)))
         checks.append(check(".py run.entry blocked", "fail" if plan.entry.lower().endswith(".py") else "pass", plan.entry))
+        checks.append(registered_build_required_check(context))
         checks.extend(frozen_profile_checks(context))
         checks.append(forbidden_registered_payload_check(context))
     else:
@@ -199,6 +201,13 @@ def forbidden_registered_payload_check(context: StudioContext) -> ExecutionCheck
     return check("forbidden registered payload", "pass", "No forbidden credential, log, cache, temp, or build_env files were registered.")
 
 
+def registered_build_required_check(context: StudioContext) -> ExecutionCheck:
+    marker = context.repo_root / "apps" / context.app_id / "bin" / "BUILD_REQUIRED.txt"
+    if marker.exists():
+        return check("registered BUILD_REQUIRED marker", "fail", f"BUILD_REQUIRED.txt remains after registration: {marker}")
+    return check("registered BUILD_REQUIRED marker", "pass", "BUILD_REQUIRED.txt is not present in apps/<app_id>/bin.")
+
+
 def execution_report_markdown(result: ExecutionTestResult) -> str:
     lines = [
         "# Execution Test Report",
@@ -228,6 +237,7 @@ def execution_evidence(context: StudioContext, output_dir: Path, plan: BuildPlan
     frozen_exe = app_dir / entry
     output_frozen_exe = output_dir / "final_app" / entry
     return {
+        **trace_with_import_plan(context, output_dir),
         "output_dir": str(output_dir),
         "frozen_build_report": file_evidence(output_dir / "frozen_folder_build_report.md"),
         "frozen_exe": file_evidence(frozen_exe),

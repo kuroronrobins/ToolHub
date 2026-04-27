@@ -35,6 +35,7 @@ from app_studio.registrar import apply_registration
 from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import scan_secrets
+from app_studio.trace import app_studio_trace, merge_trace_into_import_plan
 from app_studio.util import find_repo_root
 
 
@@ -77,7 +78,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(list(sys.argv[1:] if argv is None else argv))
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args = parse_args(raw_argv)
+    args._raw_argv = raw_argv
     repo_root = find_repo_root(Path.cwd())
     try:
         if args.command == "approve":
@@ -181,6 +184,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "exe_readiness_status": exe_readiness.get("overall_status"),
         "manual_checks": exe_readiness.get("manual_checks", []),
     }
+    import_plan.update(app_studio_trace(context, args))
     artifacts = GeneratedArtifacts(
         metadata=metadata,
         app_yaml=app_yaml,
@@ -213,6 +217,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
 
     output_dir = export_suggestion(context, inventory, dependency_report, secret_report, plan, artifacts)
     write_build_profile_files(context, output_dir, build_profile, exe_readiness)
+    merge_trace_into_import_plan(output_dir, app_studio_trace(context, args))
     print(f"Suggestion artifacts were saved: {output_dir}")
 
     if action == "suggest":
@@ -239,6 +244,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         record_blocked_execution(context, output_dir, "build_env", build_env_result.error or "build_env creation failed.", plan)
         return 1
     build_env_python = build_env_result.python_path
+    merge_trace_into_import_plan(output_dir, app_studio_trace(context, args, build_env_python=build_env_python))
 
     lock_result = generate_lock(context, requirements_path, app_env_python=build_env_python)
     print(f"requirements.lock status: ok={lock_result.ok}, source={lock_result.source}")
@@ -253,6 +259,16 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         return 1
 
     frozen_result = build_frozen_folder(context, plan, output_dir, rebuild=True, build_profile=build_profile)
+    merge_trace_into_import_plan(
+        output_dir,
+        app_studio_trace(
+            context,
+            args,
+            build_env_python=build_env_python,
+            pyinstaller_probe_python=build_env_python,
+            pyinstaller_build_python=build_env_python,
+        ),
+    )
     print(f"frozen-folder build status: ok={frozen_result.ok}, skipped={frozen_result.skipped}")
     if not frozen_result.ok:
         record_blocked_execution(

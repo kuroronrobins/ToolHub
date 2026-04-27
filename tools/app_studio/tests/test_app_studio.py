@@ -104,6 +104,18 @@ class AppStudioTests(unittest.TestCase):
             details = "\n".join(finding.detail for finding in report.findings)
             self.assertIn("api", details.lower())
 
+    def test_secret_scanner_does_not_block_excluded_auth_directory(self) -> None:
+        with workspace_tempdir() as temp:
+            root = Path(temp)
+            (root / ".auth").mkdir()
+            (root / ".auth" / "storage_state.json").write_text('{"token": "secret"}\n', encoding="utf-8")
+            (root / "main.py").write_text("print('ok')\n", encoding="utf-8")
+
+            report = scan_secrets(root)
+
+            self.assertFalse(report.has_high)
+            self.assertTrue(any(finding.kind == "excluded-sensitive-directory" for finding in report.findings))
+
     def test_nested_runtime_files_and_requirements_are_detected(self) -> None:
         with workspace_tempdir() as temp:
             root = Path(temp)

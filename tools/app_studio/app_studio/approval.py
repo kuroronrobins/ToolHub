@@ -74,7 +74,7 @@ def validate_approval_inputs(repo_root: Path, manifest: dict[str, Any], app_id: 
     if result.get("approval_allowed") is not True:
         raise ValueError(
             "Execution test result does not allow approval. "
-            f"result_path={result_path}; overall_status={result.get('overall_status')}; "
+            f"result_path={result_path}; generated_at={result.get('generated_at')}; overall_status={result.get('overall_status')}; "
             f"fail_checks={format_check_summaries(fail_checks)}; warn_checks={format_check_summaries(warn_checks)}"
         )
     if fail_checks:

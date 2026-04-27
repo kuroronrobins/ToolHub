@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .build_profile import managed_build_python, pyinstaller_profile_args
 from .models import BuildPlan, FrozenBuildResult, StudioContext
+from .trace import app_studio_trace, is_runtime_app_env_path, planned_build_env_python
 from .util import assert_within, reset_directory, write_text
 
 
@@ -35,11 +36,21 @@ def build_frozen_folder(
         result = FrozenBuildResult(False, False, None, build_report(context, plan, [], error, None), [], error)
         write_frozen_report(context, result)
         return result
+    expected_python = planned_build_env_python(context)
+    if python.resolve() != expected_python.resolve() or is_runtime_app_env_path(context.repo_root, python):
+        error = (
+            "Refusing to run PyInstaller with a non-build_env Python. "
+            f"selected_python={python}; expected_build_env_python={expected_python}; "
+            "reason=normal registration must use build_env, not runtime/app_envs."
+        )
+        result = FrozenBuildResult(False, False, None, build_report(context, plan, [[str(python), "-m", "PyInstaller", "--version"]], error, None), [], error)
+        write_frozen_report(context, result)
+        return result
     probe_command = [str(python), "-m", "PyInstaller", "--version"]
     probe, no_user_site, probe_stdout, probe_stderr = probe_pyinstaller(python, context.source_root)
     if probe.returncode != 0:
-        error = "PyInstaller is not available in build_env. Build-only dependencies must be installed before the frozen-folder build."
-        result = FrozenBuildResult(False, False, None, build_report(context, plan, [probe_command], error, None, probe_stdout, probe_stderr), [], error)
+        error = f"PyInstaller is not available in build_env Python: {python}. Build-only dependencies must be installed before the frozen-folder build."
+        result = FrozenBuildResult(False, False, None, build_report(context, plan, [probe_command], error, None, probe_stdout, probe_stderr, probe_stdout=probe_stdout, no_user_site=no_user_site), probe_command, error)
         write_frozen_report(context, result)
         return result
 
@@ -62,7 +73,7 @@ def build_frozen_folder(
     completed = run_pyinstaller_command(command, context.source_root, no_user_site=no_user_site)
     if completed.returncode != 0:
         error = "PyInstaller --onedir build failed."
-        result = FrozenBuildResult(False, False, None, build_report(context, plan, [command], error, None, completed.stdout, completed.stderr), command, error)
+        result = FrozenBuildResult(False, False, None, build_report(context, plan, [probe_command, command], error, None, completed.stdout, completed.stderr, probe_stdout=probe_stdout, no_user_site=no_user_site), command, error)
         write_frozen_report(context, result)
         return result
 
@@ -70,7 +81,7 @@ def build_frozen_folder(
     built_exe = built_dir / exe_name(context.app_id)
     if not built_exe.is_file():
         error = f"Expected frozen executable was not found: {built_exe}"
-        result = FrozenBuildResult(False, False, None, build_report(context, plan, [command], error, None, completed.stdout, completed.stderr), command, error)
+        result = FrozenBuildResult(False, False, None, build_report(context, plan, [probe_command, command], error, None, completed.stdout, completed.stderr, probe_stdout=probe_stdout, no_user_site=no_user_site), command, error)
         write_frozen_report(context, result)
         return result
 
@@ -82,7 +93,7 @@ def build_frozen_folder(
     if build_required.is_file():
         build_required.unlink()
     exe_path = final_bin / exe_name(context.app_id)
-    result = FrozenBuildResult(True, False, exe_path, build_report(context, plan, [command], "", exe_path, completed.stdout, completed.stderr), command, "")
+    result = FrozenBuildResult(True, False, exe_path, build_report(context, plan, [probe_command, command], "", exe_path, completed.stdout, completed.stderr, probe_stdout=probe_stdout, no_user_site=no_user_site), command, "")
     write_frozen_report(context, result)
     return result
 
@@ -167,17 +178,50 @@ def detect_pyinstaller_environment_issue(stdout: str, stderr: str) -> list[str]:
     return findings
 
 
-def build_report(context: StudioContext, plan: BuildPlan, commands: list[list[str]], error: str, exe_path: Path | None, stdout: str = "", stderr: str = "") -> str:
+def build_report(
+    context: StudioContext,
+    plan: BuildPlan,
+    commands: list[list[str]],
+    error: str,
+    exe_path: Path | None,
+    stdout: str = "",
+    stderr: str = "",
+    probe_stdout: str = "",
+    no_user_site: bool = False,
+) -> str:
     status = "FAIL" if error else "PASS"
+    selected_python = Path(commands[0][0]) if commands and commands[0] else None
+    build_env_python = planned_build_env_python(context)
+    trace = app_studio_trace(
+        context,
+        build_env_python=build_env_python,
+        pyinstaller_probe_python=selected_python,
+        pyinstaller_build_python=selected_python,
+    )
     lines = [
         "# Frozen Folder Build Report",
         "",
         f"- app_id: `{context.app_id}`",
         f"- status: `{status}`",
         f"- expected_entry: `{plan.entry}`",
+        f"- expected_exe: `{context.output_dir / 'final_app' / plan.entry}`",
+        f"- actual_exe: `{exe_path}`",
         f"- exe_path: `{exe_path}`",
+        f"- selected_python: `{selected_python}`",
+        f"- build_env_python: `{build_env_python}`",
+        f"- pyinstaller_probe_python: `{selected_python}`",
+        f"- pyinstaller_build_python: `{selected_python}`",
+        f"- pyinstaller_version: `{probe_stdout.strip() or 'unknown'}`",
+        f"- working_directory: `{context.source_root}`",
         f"- pyinstaller_layout: `--onedir --contents-directory .`",
         f"- contents_directory_dot: `{any('--contents-directory' == arg and index + 1 < len(command) and command[index + 1] == '.' for command in commands for index, arg in enumerate(command))}`",
+        f"- no_user_site: `{str(no_user_site).lower()}`",
+        "",
+        "## Execution Trace",
+        "",
+        "```json",
+        __import__("json").dumps(trace, ensure_ascii=False, indent=2),
+        "```",
         "",
         "## Commands",
         "",
@@ -188,6 +232,15 @@ def build_report(context: StudioContext, plan: BuildPlan, commands: list[list[st
         lines.append("- No command was run.")
     if stdout or stderr:
         lines.extend(["", "## Output", "", "```text", stdout[-4000:].strip(), stderr[-4000:].strip(), "```"])
+    lines.extend(
+        [
+            "",
+            "## Environment Summary",
+            "",
+            f"- PYTHONNOUSERSITE: `{str(no_user_site).lower()}`",
+            f"- PATH entries: `{len(os.environ.get('PATH', '').split(os.pathsep))}`",
+        ]
+    )
     issues = detect_pyinstaller_environment_issue(stdout, stderr)
     if issues:
         lines.extend(["", "## Environment Issue Hints", ""])

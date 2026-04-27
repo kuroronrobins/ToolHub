@@ -28,10 +28,12 @@ from app_studio.frozen_folder_builder import detect_pyinstaller_environment_issu
 from app_studio.frozen_folder_builder import probe_pyinstaller
 from app_studio.lock_generator import generate_lock
 from app_studio.models import BuildPlan, DependencyReport, FileRecord, GeneratedArtifacts, ImportOptions, SecretFinding, SecretScanReport, SourceInventory
+from app_studio.models import AppEnvBuildResult, LockGenerationResult
 from app_studio.openai_client import generate_image
 from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.util import write_json, write_text
+from main import parse_args as parse_app_studio_args, run_import
 
 
 @contextmanager
@@ -352,6 +354,135 @@ class FrozenFolderTests(unittest.TestCase):
             self.assertTrue(readiness["manual_checks"])
             check_names = {item["name"] for item in readiness["checks"]}
             self.assertIn("playwright browser dependency", check_names)
+
+
+class NormalRegistrationFlowTests(unittest.TestCase):
+    def test_xcgate_like_apply_uses_build_env_for_pyinstaller_and_registers_exe(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "xcgate_upload"
+            source = root / "s"
+            flows = source / "xcgate_flows" / "flows"
+            src = source / "xcgate_flows" / "src"
+            flows.mkdir(parents=True)
+            src.mkdir(parents=True)
+            entry = source / "run_xcgate_upload.py"
+            write_text(entry, "from xcgate_flows.src import main\nmain.run()\n")
+            write_text(source / "xcgate_flows" / "config.yaml", "headless: true\n")
+            write_text(flows / "xcgate_upload.flow", "goto https://example.com\n")
+            write_text(flows / "3dx_create_ids.flow", "goto https://example.com/3dx\n")
+            write_text(src / "__init__.py", "")
+            write_text(src / "main.py", "def run():\n    print('ok')\n")
+            profile_path = source / "build_profile_override.json"
+            write_json(
+                profile_path,
+                {
+                    "paths": ["xcgate_flows"],
+                    "hidden_imports": ["src.main"],
+                    "collect_all": ["playwright"],
+                    "add_data": [
+                        {"source": "xcgate_flows/config.yaml", "destination": "xcgate_flows"},
+                        {"source": "xcgate_flows/flows/3dx_create_ids.flow", "destination": "xcgate_flows/flows"},
+                        {"source": "xcgate_flows/flows/xcgate_upload.flow", "destination": "xcgate_flows/flows"},
+                    ],
+                    "required_files": [
+                        "xcgate_flows/config.yaml",
+                        "xcgate_flows/flows/3dx_create_ids.flow",
+                        "xcgate_flows/flows/xcgate_upload.flow",
+                    ],
+                },
+            )
+            argv = [
+                "--entry",
+                str(entry),
+                "--app-id",
+                app_id,
+                "--name",
+                "Run XCgate Upload",
+                "--build-profile",
+                str(profile_path),
+                "--apply",
+            ]
+            args = parse_app_studio_args(argv)
+            args._raw_argv = argv
+            pyinstaller_commands: list[list[str]] = []
+
+            def fake_create_build_env(context, requirements_path, rebuild=True):
+                build_env = context.output_dir / "build_env"
+                python = build_env / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
+                write_text(python, "fake python\n")
+                return AppEnvBuildResult(True, False, build_env, python, "test_build_env", "ok\n", "")
+
+            def fake_generate_lock(context, requirements_path, app_env_python=None, skip=False):
+                self.assertTrue(str(app_env_python).startswith(str(context.output_dir / "build_env")))
+                lock = requirements_path.parent / "requirements.lock"
+                write_text(lock, "")
+                return LockGenerationResult(True, False, lock, "test", "ok\n", "")
+
+            def fake_install_build_tools(context, build_env_path, packages):
+                self.assertTrue(build_env_path.is_relative_to(context.output_dir))
+                self.assertIn("PyInstaller>=6,<7", packages)
+                return AppEnvBuildResult(True, False, build_env_path, build_env_path / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python"), "test_build_env", "ok\n", "")
+
+            def fake_pyinstaller(command, cwd, no_user_site=False):
+                pyinstaller_commands.append(command)
+                self.assertIn("build_env", command[0])
+                self.assertNotIn("runtime\\app_envs", command[0].replace("/", "\\"))
+                if "--version" in command:
+                    return types.SimpleNamespace(returncode=0, stdout="6.10.0\n", stderr="")
+                dist = Path(command[command.index("--distpath") + 1])
+                app_id = command[command.index("--name") + 1]
+                built_dir = dist / app_id
+                built_dir.mkdir(parents=True)
+                write_text(built_dir / (app_id + ".exe"), "fake exe\n")
+                for index, value in enumerate(command):
+                    if value != "--add-data":
+                        continue
+                    source_text, destination = command[index + 1].split(os.pathsep, 1)
+                    source_path = Path(source_text)
+                    target = built_dir / destination / source_path.name
+                    if target.parent.exists() and target.parent.is_file():
+                        target.parent.unlink()
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(source_path.read_text(encoding="utf-8"), encoding="utf-8")
+                return types.SimpleNamespace(returncode=0, stdout="build ok\n", stderr="")
+
+            with patch("main.create_build_env", side_effect=fake_create_build_env), patch("main.generate_lock", side_effect=fake_generate_lock), patch("main.install_build_tools", side_effect=fake_install_build_tools), patch("app_studio.frozen_folder_builder.run_pyinstaller_command", side_effect=fake_pyinstaller):
+                exit_code = run_import(args, repo)
+
+            self.assertEqual(exit_code, 0)
+            output_dir = source / "ToolHub_AppStudio_Output" / app_id
+            final_exe = output_dir / "final_app" / "bin" / app_id / f"{app_id}.exe"
+            registered_exe = repo / "apps" / app_id / "bin" / app_id / f"{app_id}.exe"
+            self.assertTrue(final_exe.is_file())
+            self.assertTrue(registered_exe.is_file())
+            self.assertFalse((output_dir / "final_app" / "bin" / "BUILD_REQUIRED.txt").exists())
+            self.assertFalse((repo / "apps" / "run_xcgate_upload_fixture" / "bin" / "BUILD_REQUIRED.txt").exists())
+            self.assertGreaterEqual(len(pyinstaller_commands), 2)
+            build_command = pyinstaller_commands[-1]
+            self.assertIn("--onedir", build_command)
+            self.assertIn("--contents-directory", build_command)
+            self.assertEqual(build_command[build_command.index("--contents-directory") + 1], ".")
+
+            import_plan = json.loads((output_dir / "import_plan.json").read_text(encoding="utf-8"))
+            self.assertEqual(import_plan["app_studio_policy_id"], "normal_python_source_to_frozen_folder_build_env_v2")
+            self.assertFalse(import_plan["create_app_env"])
+            self.assertIn("build_env", import_plan["build_env_python"])
+            self.assertIn("build_env", import_plan["pyinstaller_probe_python"])
+            self.assertIn("build_env", import_plan["pyinstaller_build_python"])
+            self.assertNotIn("runtime\\app_envs", json.dumps(import_plan).replace("/", "\\"))
+
+            app_yaml = (repo / "apps" / app_id / "app.yaml").read_text(encoding="utf-8")
+            self.assertIn(f"entry: bin/{app_id}/{app_id}.exe", app_yaml)
+            execution = json.loads((output_dir / "execution_test_result.json").read_text(encoding="utf-8"))
+            self.assertTrue(execution["approval_allowed"])
+            self.assertIn("app_studio_policy_id", execution["evidence"])
+            runtime = json.loads((output_dir / "runtime_check_result.json").read_text(encoding="utf-8"))
+            self.assertNotEqual(runtime["overall_status"], "fail")
+            self.assertIn("app_studio_policy_id", runtime["evidence"])
+            frozen_report = (output_dir / "frozen_folder_build_report.md").read_text(encoding="utf-8")
+            self.assertIn("build_env", frozen_report)
+            self.assertIn("--contents-directory .", frozen_report)
 
 
 class ExecutionAndApprovalTests(unittest.TestCase):

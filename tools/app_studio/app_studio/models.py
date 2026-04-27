@@ -200,12 +200,14 @@ class RuntimeCheckResult:
     app_id: str
     overall_status: str
     checks: list[RuntimeCheck]
+    evidence: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "app_id": self.app_id,
             "overall_status": self.overall_status,
             "checks": [check.to_dict() for check in self.checks],
+            "evidence": self.evidence,
         }
 
 

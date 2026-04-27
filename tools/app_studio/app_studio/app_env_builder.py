@@ -13,6 +13,7 @@ from .util import assert_within, timestamp, write_text
 def create_app_env(context: StudioContext, requirements_path: Path, rebuild: bool = False, extra_packages: list[str] | None = None) -> AppEnvBuildResult:
     app_env_root = context.repo_root / "runtime" / "app_envs"
     app_env_path = app_env_root / context.app_id
+    temp_dir = context.repo_root / "data" / "tmp" / "app_studio_env"
     assert_within(app_env_path, app_env_root, "app_env target")
 
     if app_env_path.exists() and not rebuild:
@@ -44,21 +45,11 @@ def create_app_env(context: StudioContext, requirements_path: Path, rebuild: boo
     notes = [f"Base Python source: {source}", f"Base Python: {base_python}"]
     app_env_path.parent.mkdir(parents=True, exist_ok=True)
 
-    create_command = [str(base_python), "-m", "venv", str(app_env_path)]
-    create = run_command(create_command, context.repo_root)
-    notes.append(command_summary("venv create", create_command, create))
-    if create.returncode != 0:
-        install_path = install_requirements_path(requirements_path)
-        if "ensurepip" in create.stderr and not (install_path and has_installable_requirements(install_path)):
-            if app_env_path.exists():
-                shutil.rmtree(app_env_path, ignore_errors=True)
-            retry_command = [str(base_python), "-m", "venv", "--without-pip", str(app_env_path)]
-            create = run_command(retry_command, context.repo_root)
-            notes.append(command_summary("venv create without pip", retry_command, create))
-        if create.returncode != 0:
-            result = AppEnvBuildResult(False, False, app_env_path, base_python, source, build_report(context, app_env_path, base_python, source, notes, "venv creation failed"), "venv creation failed")
-            write_app_env_report(context, result)
-            return result
+    create_error = create_venv_with_pip(base_python, app_env_path, context.repo_root, temp_dir, notes)
+    if create_error:
+        result = AppEnvBuildResult(False, False, app_env_path, base_python, source, build_report(context, app_env_path, base_python, source, notes, create_error), create_error)
+        write_app_env_report(context, result)
+        return result
 
     env_python = app_env_python(app_env_path)
     if not env_python.is_file():
@@ -68,14 +59,14 @@ def create_app_env(context: StudioContext, requirements_path: Path, rebuild: boo
 
     install_path = install_requirements_path(requirements_path)
     if install_path and has_installable_requirements(install_path):
-        pip_probe = run_command([str(env_python), "-m", "pip", "--version"], context.repo_root)
+        pip_probe = run_command([str(env_python), "-m", "pip", "--version"], context.repo_root, temp_dir)
         notes.append(command_summary("pip probe", [str(env_python), "-m", "pip", "--version"], pip_probe))
         if pip_probe.returncode != 0:
             result = AppEnvBuildResult(False, False, app_env_path, env_python, source, build_report(context, app_env_path, env_python, source, notes, "pip is not available in the app_env"), "pip missing")
             write_app_env_report(context, result)
             return result
         install_command = [str(env_python), "-m", "pip", "install", "--disable-pip-version-check", "-r", str(install_path)]
-        install = run_command(install_command, context.repo_root)
+        install = run_command(install_command, context.repo_root, temp_dir)
         notes.append(command_summary("pip install", install_command, install))
         if install.returncode != 0:
             cleanup_cache(app_env_path)
@@ -87,14 +78,14 @@ def create_app_env(context: StudioContext, requirements_path: Path, rebuild: boo
 
     packages = [package for package in (extra_packages or []) if package.strip()]
     if packages:
-        pip_probe = run_command([str(env_python), "-m", "pip", "--version"], context.repo_root)
+        pip_probe = run_command([str(env_python), "-m", "pip", "--version"], context.repo_root, temp_dir)
         notes.append(command_summary("pip probe for build tools", [str(env_python), "-m", "pip", "--version"], pip_probe))
         if pip_probe.returncode != 0:
             result = AppEnvBuildResult(False, False, app_env_path, env_python, source, build_report(context, app_env_path, env_python, source, notes, "pip is not available for build tool install"), "pip missing")
             write_app_env_report(context, result)
             return result
         install_tools_command = [str(env_python), "-m", "pip", "install", "--disable-pip-version-check", *packages]
-        install_tools = run_command(install_tools_command, context.repo_root)
+        install_tools = run_command(install_tools_command, context.repo_root, temp_dir)
         notes.append(command_summary("pip install build tools", install_tools_command, install_tools))
         if install_tools.returncode != 0:
             cleanup_cache(app_env_path)
@@ -110,6 +101,7 @@ def create_app_env(context: StudioContext, requirements_path: Path, rebuild: boo
 
 def create_build_env(context: StudioContext, requirements_path: Path, rebuild: bool = True) -> AppEnvBuildResult:
     build_env_path = context.output_dir / "build_env"
+    temp_dir = context.output_dir / "build_tmp"
     assert_within(build_env_path, context.output_dir, "build_env target")
 
     if build_env_path.exists():
@@ -143,21 +135,11 @@ def create_build_env(context: StudioContext, requirements_path: Path, rebuild: b
     ]
     build_env_path.parent.mkdir(parents=True, exist_ok=True)
 
-    create_command = [str(base_python), "-m", "venv", str(build_env_path)]
-    create = run_command(create_command, context.repo_root)
-    notes.append(command_summary("venv create", create_command, create))
-    if create.returncode != 0:
-        install_path = install_requirements_path(requirements_path)
-        if "ensurepip" in create.stderr and not (install_path and has_installable_requirements(install_path)):
-            if build_env_path.exists():
-                shutil.rmtree(build_env_path, ignore_errors=True)
-            retry_command = [str(base_python), "-m", "venv", "--without-pip", str(build_env_path)]
-            create = run_command(retry_command, context.repo_root)
-            notes.append(command_summary("venv create without pip", retry_command, create))
-        if create.returncode != 0:
-            result = AppEnvBuildResult(False, False, build_env_path, base_python, source, build_report(context, build_env_path, base_python, source, notes, "build_env venv creation failed", title="Build Env Report"), "build_env venv creation failed")
-            write_build_env_report(context, result)
-            return result
+    create_error = create_venv_with_pip(base_python, build_env_path, context.repo_root, temp_dir, notes)
+    if create_error:
+        result = AppEnvBuildResult(False, False, build_env_path, base_python, source, build_report(context, build_env_path, base_python, source, notes, create_error, title="Build Env Report"), create_error)
+        write_build_env_report(context, result)
+        return result
 
     env_python = app_env_python(build_env_path)
     if not env_python.is_file():
@@ -167,14 +149,14 @@ def create_build_env(context: StudioContext, requirements_path: Path, rebuild: b
 
     install_path = install_requirements_path(requirements_path)
     if install_path and has_installable_requirements(install_path):
-        pip_probe = run_command([str(env_python), "-m", "pip", "--version"], context.repo_root)
+        pip_probe = run_command([str(env_python), "-m", "pip", "--version"], context.repo_root, temp_dir)
         notes.append(command_summary("pip probe", [str(env_python), "-m", "pip", "--version"], pip_probe))
         if pip_probe.returncode != 0:
             result = AppEnvBuildResult(False, False, build_env_path, env_python, source, build_report(context, build_env_path, env_python, source, notes, "pip is not available in the build_env", title="Build Env Report"), "pip missing")
             write_build_env_report(context, result)
             return result
         install_command = [str(env_python), "-m", "pip", "install", "--disable-pip-version-check", "-r", str(install_path)]
-        install = run_command(install_command, context.repo_root)
+        install = run_command(install_command, context.repo_root, temp_dir)
         notes.append(command_summary("pip install app requirements", install_command, install))
         if install.returncode != 0:
             cleanup_cache(build_env_path)
@@ -192,6 +174,7 @@ def create_build_env(context: StudioContext, requirements_path: Path, rebuild: b
 
 def install_build_tools(context: StudioContext, build_env_path: Path, packages: list[str]) -> AppEnvBuildResult:
     assert_within(build_env_path, context.output_dir, "build_env target")
+    temp_dir = context.output_dir / "build_tmp"
     env_python = app_env_python(build_env_path)
     notes = [
         "Installing build-only dependencies into internal build_env.",
@@ -203,7 +186,7 @@ def install_build_tools(context: StudioContext, build_env_path: Path, packages: 
         write_build_env_tools_report(context, result)
         return result
 
-    pip_probe = run_command([str(env_python), "-m", "pip", "--version"], context.repo_root)
+    pip_probe = run_command([str(env_python), "-m", "pip", "--version"], context.repo_root, temp_dir)
     notes.append(command_summary("pip probe for build tools", [str(env_python), "-m", "pip", "--version"], pip_probe))
     if pip_probe.returncode != 0:
         result = AppEnvBuildResult(False, False, build_env_path, env_python, "build_env", build_report(context, build_env_path, env_python, "build_env", notes, "pip is not available for build tool install", title="Build Tool Install Report"), "pip missing")
@@ -211,7 +194,7 @@ def install_build_tools(context: StudioContext, build_env_path: Path, packages: 
         return result
 
     install_tools_command = [str(env_python), "-m", "pip", "install", "--disable-pip-version-check", *packages]
-    install_tools = run_command(install_tools_command, context.repo_root)
+    install_tools = run_command(install_tools_command, context.repo_root, temp_dir)
     notes.append(command_summary("pip install build tools", install_tools_command, install_tools))
     if install_tools.returncode != 0:
         cleanup_cache(build_env_path)
@@ -249,6 +232,37 @@ def install_requirements_path(requirements_path: Path) -> Path | None:
     return None
 
 
+def create_venv_with_pip(base_python: Path, env_path: Path, cwd: Path, temp_dir: Path, notes: list[str]) -> str:
+    create_command = [str(base_python), "-m", "venv", str(env_path)]
+    create = run_command(create_command, cwd, temp_dir)
+    notes.append(command_summary("venv create", create_command, create))
+    if create.returncode == 0:
+        return ""
+
+    combined = f"{create.stdout}\n{create.stderr}"
+    if "ensurepip" not in combined:
+        return "venv creation failed"
+
+    if env_path.exists():
+        shutil.rmtree(env_path, ignore_errors=True)
+    retry_command = [str(base_python), "-m", "venv", "--without-pip", str(env_path)]
+    retry = run_command(retry_command, cwd, temp_dir)
+    notes.append(command_summary("venv create without pip", retry_command, retry))
+    if retry.returncode != 0:
+        return "venv creation failed"
+
+    env_python = app_env_python(env_path)
+    if not env_python.is_file():
+        return "venv python missing after --without-pip fallback"
+
+    ensurepip_command = [str(env_python), "-m", "ensurepip", "--upgrade", "--default-pip"]
+    ensurepip = run_command(ensurepip_command, cwd, temp_dir)
+    notes.append(command_summary("ensurepip bootstrap", ensurepip_command, ensurepip))
+    if ensurepip.returncode != 0:
+        return "pip bootstrap failed"
+    return ""
+
+
 def has_installable_requirements(path: Path) -> bool:
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         stripped = line.strip().lstrip("\ufeff")
@@ -257,10 +271,44 @@ def has_installable_requirements(path: Path) -> bool:
     return False
 
 
-def run_command(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+def run_command(command: list[str], cwd: Path, temp_dir: Path | None = None) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PYTHONNOUSERSITE"] = "1"
+    if temp_dir is not None:
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        env["TEMP"] = str(temp_dir)
+        env["TMP"] = str(temp_dir)
+        env["TMPDIR"] = str(temp_dir)
+        env["PIP_NO_CACHE_DIR"] = "1"
+        patch_dir = python_startup_patch_dir(temp_dir)
+        existing_pythonpath = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = str(patch_dir) if not existing_pythonpath else str(patch_dir) + os.pathsep + existing_pythonpath
     return subprocess.run(command, cwd=str(cwd), text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, env=env)
+
+
+def python_startup_patch_dir(temp_dir: Path) -> Path:
+    patch_dir = temp_dir / "python_startup_patch"
+    patch_dir.mkdir(parents=True, exist_ok=True)
+    patch = patch_dir / "sitecustomize.py"
+    if os.name == "nt":
+        patch.write_text(
+            "\n".join(
+                [
+                    "import os",
+                    "_toolhub_original_mkdir = os.mkdir",
+                    "",
+                    "def _toolhub_mkdir(path, mode=0o777, *args, **kwargs):",
+                    "    return _toolhub_original_mkdir(path, 0o777, *args, **kwargs)",
+                    "",
+                    "os.mkdir = _toolhub_mkdir",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+    elif not patch.exists():
+        patch.write_text("# ToolHub App Studio build_env startup hook.\n", encoding="utf-8")
+    return patch_dir
 
 
 def command_summary(label: str, command: list[str], completed: subprocess.CompletedProcess[str]) -> str:

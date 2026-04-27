@@ -43,7 +43,7 @@ export function AppStudioPreflightPanel({ result, busy, onRun }: Props) {
       </div>
 
       <p className="admin-muted">
-        Python: {result ? pythonLabel(result) : "未確認"}。通常ランチャー機能には影響しませんが、配布前の再現性確認ではruntime検証を行ってください。
+        Python: {result ? pythonLabel(result) : "未確認"}。Apply時に内部build_envを作成し、配布用exeのビルドと配布物検証を行います。
       </p>
 
       {result?.warnings.length ? (
@@ -101,13 +101,6 @@ function preflightSummary(result: AppStudioPreflightResult | null): { severity: 
   if (result.errors.length || !result.entryExists || !result.appIdValid || !result.buildModeValid) {
     return { severity: "fail", title: "進行不可", message: "修正が必要です。このまま登録処理には進めません。" };
   }
-  if (!result.runtimePythonExists) {
-    return {
-      severity: "warn",
-      title: "要注意",
-      message: "開発機のPythonで続行できますが、正式配布前にはToolHub同梱runtimeで再確認が必要です。",
-    };
-  }
   if (result.warnings.length) {
     return { severity: "fix", title: "配布前に要確認", message: "登録作業は続行できますが、正式配布前に警告内容を確認してください。" };
   }
@@ -131,22 +124,18 @@ function preflightItems(result: AppStudioPreflightResult | null): PreflightDispl
       next: result?.appIdValid === false ? "小文字英数字、ハイフン、アンダースコア中心のIDにしてください。" : "表示名とは別に管理されます。",
     },
     {
-      label: "実行方式",
+      label: "登録方式",
       severity: severityFor(result?.buildModeValid),
       judgement: judgementFor(result?.buildModeValid, "問題なし", "進行不可"),
-      reason: result?.buildModeValid === false ? "指定された実行方式を扱えません。" : "選択した方式で登録処理を進めます。",
-      next: result?.buildModeValid === false ? "autoまたは推奨方式を選び直してください。" : "迷う場合はautoのままで問題ありません。",
+      reason: result?.buildModeValid === false ? "通常新規登録で扱えない方式が指定されています。" : "配布用exeを作成する固定方式です。",
+      next: result?.buildModeValid === false ? "Pythonソースからの通常登録に戻してください。" : "このまま進めます。",
     },
     {
-      label: "同梱runtime",
-      severity: result ? (result.runtimePythonExists ? "ok" : "warn") : "pending",
-      judgement: result ? (result.runtimePythonExists ? "問題なし" : "要注意") : "未確認",
-      reason: result?.runtimePythonExists
-        ? "ToolHub同梱runtimeで確認できます。"
-        : "runtime/python/python.exe は未配置です。開発機のPythonで続行できます。",
-      next: result?.runtimePythonExists
-        ? "正式配布前のruntime検証に使えます。"
-        : "正式配布前にruntimeを同梱し、runtime検証を再実行してください。",
+      label: "ビルド用Python",
+      severity: result ? (result.pythonSource === "missing" ? "fail" : "ok") : "pending",
+      judgement: result ? (result.pythonSource === "missing" ? "進行不可" : "問題なし") : "未確認",
+      reason: result?.pythonSource === "missing" ? "App Studioを実行できるPythonが見つかりません。" : "内部build_env作成に使うPythonを確認します。",
+      next: result?.pythonSource === "missing" ? "Pythonを導入するか、ToolHub同梱runtimeを配置してください。" : "Apply時にbuild_envを作成します。",
     },
   ];
 }
@@ -167,7 +156,7 @@ function judgementFor(ok: boolean | undefined, okLabel: string, failLabel: strin
 
 function friendlyWarning(warning: string): string {
   if (warning.includes("runtime/python/python.exe") || warning.toLowerCase().includes("runtime")) {
-    return "開発機のPythonで続行できますが、正式配布前にはToolHub同梱runtimeで再確認が必要です。";
+    return "通常新規登録では内部build_envで配布用exeを作成します。";
   }
   return warning;
 }
