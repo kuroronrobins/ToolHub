@@ -20,6 +20,10 @@ def export_suggestion(
 ) -> Path:
     output_dir = reset_output_dir(context.entry, context.app_id)
     write_json(output_dir / "import_plan.json", artifacts.import_plan)
+    if artifacts.build_profile:
+        write_json(output_dir / "build_profile.json", artifacts.build_profile)
+    if artifacts.exe_readiness:
+        write_json(output_dir / "exe_readiness.json", artifacts.exe_readiness)
     write_text(output_dir / "file_inventory.md", inventory_markdown(inventory))
     write_json(output_dir / "file_inventory.json", inventory.to_dict())
     write_json(output_dir / "dependency_report.json", dependency_report.to_dict())
@@ -49,6 +53,10 @@ def export_suggestion(
     write_text(final_app / "requirements.txt", artifacts.requirements)
     write_bytes(final_app / "icon.png", icon_final_png)
     write_text(final_app / "icon.svg", artifacts.icon_svg)
+    if artifacts.build_profile:
+        write_json(final_app / "build_profile.json", artifacts.build_profile)
+    if artifacts.exe_readiness:
+        write_json(final_app / "exe_readiness.json", artifacts.exe_readiness)
     source_lock = context.source_root / "requirements.lock"
     if source_lock.is_file():
         shutil.copy2(source_lock, final_app / "requirements.lock")
@@ -73,6 +81,7 @@ def populate_final_app_sources(context: StudioContext, inventory: SourceInventor
             bin_dir / "BUILD_REQUIRED.txt",
             "Build this app with a folder-based frozen output such as PyInstaller --onedir. Do not use --onefile as the standard ToolHub packaging mode.\n",
         )
+        return
 
     src_dir = final_app / "src"
     for source in inventory.included_files:

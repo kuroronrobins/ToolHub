@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "tools" / "app_studio"))
 sys.path.insert(0, str(ROOT / "runner"))
 
 from app_studio.build_planner import make_build_plan
+from app_studio.dependency_analyzer import analyze_dependencies
 from app_studio.file_classifier import classify_files
 from app_studio.manifest_generator import generate_app_yaml
 from app_studio.metadata_override import apply_metadata_override, load_metadata_override
@@ -21,6 +22,7 @@ from app_studio.scanner import create_context
 from app_studio.secret_scanner import scan_secrets
 from app_studio.util import default_app_id_for_entry, reset_output_dir
 from toolhub_runner.manifest import manifest_from_dict, load_yaml_mapping
+from main import normalize_normal_registration_args
 from main import parse_args as parse_app_studio_args
 
 
@@ -37,6 +39,26 @@ def workspace_tempdir():
 
 
 class AppStudioTests(unittest.TestCase):
+    def test_normal_registration_policy_forces_frozen_folder_pipeline(self) -> None:
+        args = parse_app_studio_args(["--entry", "main.py", "--apply"])
+
+        normalize_normal_registration_args(args)
+
+        self.assertEqual(args.build_mode, "frozen-folder")
+        self.assertTrue(args.generate_lock)
+        self.assertTrue(args.build_frozen_folder)
+        self.assertTrue(args.rebuild_frozen_folder)
+        self.assertTrue(args.verify_runtime)
+        self.assertFalse(args.create_app_env)
+        self.assertFalse(args.rebuild_app_env)
+        self.assertFalse(args.skip_app_env_build)
+
+    def test_normal_registration_policy_rejects_existing_exe_entry(self) -> None:
+        args = parse_app_studio_args(["--entry", "tool.exe", "--apply"])
+
+        with self.assertRaises(ValueError):
+            normalize_normal_registration_args(args)
+
     def test_app_id_auto_generation_uses_parent_for_main(self) -> None:
         with workspace_tempdir() as temp:
             entry = Path(temp) / "My Agenda App" / "main.py"
@@ -82,6 +104,94 @@ class AppStudioTests(unittest.TestCase):
             details = "\n".join(finding.detail for finding in report.findings)
             self.assertIn("api", details.lower())
 
+    def test_nested_runtime_files_and_requirements_are_detected(self) -> None:
+        with workspace_tempdir() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            (repo / "apps").mkdir(parents=True)
+            (repo / "release").mkdir()
+            (repo / "runner").mkdir()
+            source = root / "source"
+            flows = source / "xcgate_flows"
+            (flows / "flows").mkdir(parents=True)
+            (flows / ".auth").mkdir()
+            (flows / "src").mkdir()
+            entry = source / "run_xcgate_upload.py"
+            entry.write_text("import subprocess\n", encoding="utf-8")
+            (flows / "requirements.txt").write_text("\ufeff# --- runtime ---\nplaywright>=1.46,<2.0\nPyYAML>=6.0,<7.0\n", encoding="utf-8")
+            (flows / "config.yaml").write_text("options:\n  headless: false\n", encoding="utf-8")
+            (flows / "flows" / "xcgate_upload.flow").write_text("goto https://example.com\n", encoding="utf-8")
+            (flows / ".auth" / "mega_state.json").write_text('{"token": "secret"}\n', encoding="utf-8")
+            (flows / "src" / "main.py").write_text("print('main')\n", encoding="utf-8")
+
+            context = create_context(ImportOptions(entry=entry, action="suggest", app_id="xcgate", name="XCgate"), repo)
+            inventory = classify_files(context)
+            included = {Path(record.relative_path).as_posix() for record in inventory.records if record.include}
+            dependency_report, requirements = analyze_dependencies(context, inventory)
+
+            self.assertIn("xcgate_flows/requirements.txt", included)
+            self.assertIn("xcgate_flows/config.yaml", included)
+            self.assertIn("xcgate_flows/flows/xcgate_upload.flow", included)
+            self.assertIn("xcgate_flows/src/main.py", included)
+            self.assertNotIn("xcgate_flows/.auth/mega_state.json", included)
+            self.assertEqual(dependency_report.source, "nested-requirements.txt")
+            self.assertIn("playwright>=1.46,<2.0", requirements)
+            self.assertIn("PyYAML>=6.0,<7.0", requirements)
+            self.assertNotIn("--- runtime ---", requirements)
+
+    def test_code_referenced_runtime_files_are_included_without_extension_whitelist(self) -> None:
+        with workspace_tempdir() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            (repo / "apps").mkdir(parents=True)
+            (repo / "release").mkdir()
+            (repo / "runner").mkdir()
+            source = root / "source"
+            (source / "flows").mkdir(parents=True)
+            entry = source / "main.py"
+            entry.write_text(
+                "\n".join(
+                    [
+                        "from pathlib import Path",
+                        "import os",
+                        "import helpers",
+                        "open('data.json').read()",
+                        "Path(__file__).parent / 'config.yaml'",
+                        "open(os.path.join('flows', 'upload.flow')).read()",
+                        "input_name = 'dynamic.csv'",
+                        "open(input_name).read()",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (source / "helpers.py").write_text(
+                "\n".join(
+                    [
+                        "from pathlib import Path",
+                        "Path('table.csv').read_text()",
+                        "Path('settings.toml').read_text()",
+                        "Path('app.ini').read_text()",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            for name in ["data.json", "config.yaml", "table.csv", "settings.toml", "app.ini", "unused.csv"]:
+                (source / name).write_text("x\n", encoding="utf-8")
+            (source / "flows" / "upload.flow").write_text("goto https://example.com\n", encoding="utf-8")
+            (source / ".env").write_text("TOKEN=x\n", encoding="utf-8")
+
+            context = create_context(ImportOptions(entry=entry, action="suggest", app_id="asset_app", name="Asset App"), repo)
+            inventory = classify_files(context)
+            included = {Path(record.relative_path).as_posix() for record in inventory.records if record.include}
+            records = {Path(record.relative_path).as_posix(): record for record in inventory.records}
+
+            for name in ["data.json", "config.yaml", "table.csv", "settings.toml", "app.ini", "flows/upload.flow"]:
+                self.assertIn(name, included)
+                self.assertIn(records[name].detected_from, {"code_reference", "resource_directory", "well_known_config"})
+            self.assertNotIn("unused.csv", included)
+            self.assertEqual(records[".env"].status, "blocked")
+            self.assertTrue(inventory.manual_checks)
+
     def test_manifest_generator_outputs_runner_compatible_yaml(self) -> None:
         with workspace_tempdir() as temp:
             root = Path(temp)
@@ -107,7 +217,8 @@ class AppStudioTests(unittest.TestCase):
             manifest = manifest_from_dict(data, app_dir)
 
             self.assertEqual(manifest.id, "demo_app")
-            self.assertEqual(manifest.run.runner, "python_app_env")
+            self.assertEqual(manifest.run.runner, "exe")
+            self.assertEqual(manifest.run.entry, "bin/demo_app/demo_app.exe")
             self.assertEqual(data["display"]["icon"], "icon.png")
             self.assertEqual(data["display"]["icon_fallback"], "icon.svg")
 
@@ -174,12 +285,15 @@ class AppStudioTests(unittest.TestCase):
                 "override.json",
                 "--icon-override",
                 "icon_override.json",
+                "--build-profile",
+                "build_profile.json",
                 "--suggest",
             ]
         )
 
         self.assertEqual(args.metadata_override, "override.json")
         self.assertEqual(args.icon_override, "icon_override.json")
+        self.assertEqual(args.build_profile, "build_profile.json")
 
     def test_metadata_override_invalid_json_fails_clearly(self) -> None:
         with workspace_tempdir() as temp:

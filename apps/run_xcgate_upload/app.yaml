@@ -1,0 +1,69 @@
+id: run_xcgate_upload
+name: Run Xcgate Upload
+
+display:
+  icon: icon.png
+  icon_fallback: icon.svg
+  short_description: "XC-Gateへのチェックシート登録を自動化するアプリです。"
+  categories:
+    - "業務自動化"
+    - "画面操作"
+    - "ファイル登録"
+
+detail:
+  description: >
+    Playwrightを使って、XC-Gate（社内システム）のチェックシート登録作業を順次実行するためのアプリです。人手でログインや画面遷移を済ませた後に実行し、複数のExcelファイルを1件ずつアップロードする流れを支援します。詳細ログやスクリーンショットの出力にも対応します。
+  use_cases:
+    - "XC-Gateへのチェックシート登録をまとめて進めたい"
+    - "人手での定型アップロード作業を減らしたい"
+    - "アップロード結果をログや画面記録で確認したい"
+  inputs:
+    - "アップロード対象のExcelファイル群"
+    - "実行設定ファイル"
+    - "ブラウザ上のログイン済み画面"
+  outputs:
+    - "XC-Gateへの登録結果"
+    - "詳細ログ"
+    - "スクリーンショットやCSVログ"
+  notes:
+    - "実行前にログインと対象画面への移動を済ませてください。"
+    - "1件ずつ処理する前提のため、ファイル数が多い場合は時間がかかることがあります。"
+    - "社内システムの画面構成変更により、動作調整が必要になる場合があります。"
+
+search:
+  keywords:
+    - XC-Gate
+    - "チェックシート登録"
+    - "Excelアップロード"
+    - Playwright
+    - "業務自動化"
+    - "画面操作"
+  examples:
+    - "ログイン後のXC-Gate画面で実行し、指定したExcelファイルを順次登録する。"
+
+run:
+  runner: exe
+  entry: bin/run_xcgate_upload/run_xcgate_upload.exe
+  mode: cli
+
+admin:
+  version: 0.1.0
+  owner: admin
+  requirements: requirements.txt
+  log_dir: logs
+
+runtime:
+  distribution_mode: frozen_folder
+  app_env: null
+  required_runtime: null
+  requirements_lock: requirements.lock
+
+build:
+  managed_by: toolhub_app_studio
+  build_mode: frozen-folder
+  source_entry: C:\Users\kuroron\Downloads\XCgate_AutoUpload-main\XCgate_AutoUpload-main\run_xcgate_upload.py
+  output_mirror: C:\Users\kuroron\Downloads\XCgate_AutoUpload-main\XCgate_AutoUpload-main\ToolHub_AppStudio_Output\run_xcgate_upload
+
+quality:
+  approval_required: true
+  execution_test_required: true

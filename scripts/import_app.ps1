@@ -5,7 +5,7 @@ param(
     [string]$Name,
     [string]$Version,
     [ValidateSet("auto", "app-env", "frozen-folder", "existing-exe")]
-    [string]$BuildMode = "auto",
+    [string]$BuildMode = "frozen-folder",
     [string]$IconPrompt,
     [switch]$CreateAppEnv,
     [switch]$RebuildAppEnv,
@@ -45,26 +45,31 @@ try {
     if ($ModeCount -ne 1) {
         throw "Specify exactly one of -DryRun, -Suggest, or -Apply."
     }
+    if ([System.IO.Path]::GetExtension($Entry).ToLowerInvariant() -eq ".exe") {
+        throw "Normal App Studio registration accepts Python source only. Existing exe registration is not available in this flow."
+    }
+    if ($CreateAppEnv -or $RebuildAppEnv -or $SkipAppEnvBuild) {
+        throw "Normal App Studio registration uses an internal build_env, not runtime/app_envs options."
+    }
+    if ($SkipLock -or $SkipFrozenBuild) {
+        throw "Normal App Studio registration always generates requirements.lock and builds the frozen-folder."
+    }
 
     $Python = Find-Python
     if (-not $Python) {
         throw "python or py was not found. App Studio requires a development Python to run."
     }
 
-    $ArgsList = @($StudioMain, "import", "--entry", $Entry, "--build-mode", $BuildMode)
+    if ($BuildMode -ne "auto" -and $BuildMode -ne "frozen-folder") {
+        Write-Host "BuildMode '$BuildMode' is a legacy option and will be ignored. Using frozen-folder."
+    }
+
+    $ArgsList = @($StudioMain, "import", "--entry", $Entry, "--build-mode", "frozen-folder", "--generate-lock", "--build-frozen-folder", "--verify-runtime")
     if ($AppId) { $ArgsList += @("--app-id", $AppId) }
     if ($Name) { $ArgsList += @("--name", $Name) }
     if ($Version) { $ArgsList += @("--version", $Version) }
     if ($IconPrompt) { $ArgsList += @("--icon-prompt", $IconPrompt) }
-    if ($CreateAppEnv) { $ArgsList += "--create-app-env" }
-    if ($RebuildAppEnv) { $ArgsList += "--rebuild-app-env" }
-    if ($SkipAppEnvBuild) { $ArgsList += "--skip-app-env-build" }
-    if ($GenerateLock) { $ArgsList += "--generate-lock" }
-    if ($SkipLock) { $ArgsList += "--skip-lock" }
-    if ($BuildFrozenFolder) { $ArgsList += "--build-frozen-folder" }
     if ($RebuildFrozenFolder) { $ArgsList += "--rebuild-frozen-folder" }
-    if ($SkipFrozenBuild) { $ArgsList += "--skip-frozen-build" }
-    if ($VerifyRuntime) { $ArgsList += "--verify-runtime" }
     if ($DryRun) { $ArgsList += "--dry-run" }
     if ($Suggest) { $ArgsList += "--suggest" }
     if ($Apply) { $ArgsList += "--apply" }

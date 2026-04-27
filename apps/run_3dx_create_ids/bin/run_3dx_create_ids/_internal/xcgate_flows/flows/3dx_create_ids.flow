@@ -1,0 +1,60 @@
+﻿# 3Dexperience: simplified hamburger-click flow
+vars:
+  site: "https://cps2ap01p.terumo.co.jp/3dpassport/login"
+  timeout_ms: 30000
+  theme_value: "ME"
+
+selectors:
+  ready_marker:       css:"#topbar span.topbar-app-name" | text:"Collaboration and Approvals"
+
+  btn_menu:           { frame_name:"detailsDisplay", css:"#divToolbar td.icon-button.menu-button[title='Actions']" }
+                      | { frame_name:"detailsDisplay", css:"#divToolbar > div:nth-child(1) > table > tbody > tr > td.icon-button.menu-button[title='Actions'] > img:nth-child(1)" }
+                      | { frame_name:"detailsDisplay", css:"#divToolbar img[src*='iconActionActions']" }
+  btn_menu_arrow:     { frame_name:"detailsDisplay", css:"#divToolbar img[src*='utilMenuArrow']" }
+  create_new_label:   { frame_name:"detailsDisplay", css:"#TMCContentSummaryCreateNew label" }
+  quality_dc_label:   { frame_name:"detailsDisplay", css:"div.menu-panel.page[style*='visibility: visible'] div.group-body ul li:nth-child(1) > a > label" }
+  popup_ready_marker: text:"Fields in red italics are required"
+  title_input:        css:"#Title" | css:"input[name='Title']"
+  theme_dropdown:     css:"select[name='Theme ID']"
+  ok_button:          css:"#divDialogButtons button.btn-primary" | text:"OK"
+  checkin_cancel_button: css:"#divPageFoot button.btn-default" | text:"Cancel"
+
+start:
+  goto ${site}
+
+whens:
+  - condition: ready_marker:
+    steps:
+      foreach title in ${files}:
+        log "READY: attempt hamburger click for ${title}"
+        retry 5 every 500:
+          try:
+            wait btn_menu timeout:${timeout_ms}
+            click btn_menu
+          catch:
+            wait btn_menu_arrow timeout:${timeout_ms}
+            click btn_menu_arrow
+        try:
+          wait quality_dc_label timeout:1500
+        catch:
+          wait create_new_label timeout:${timeout_ms}
+          click create_new_label
+          wait quality_dc_label timeout:${timeout_ms}
+        click quality_dc_label
+        retry 10 every 1000:
+          wait popup_ready_marker timeout:5000
+        retry 15 every 1000:
+          try:
+            wait title_input timeout:5000
+            fill title_input, value:"${title}"
+            wait theme_dropdown timeout:${timeout_ms}
+            select_option theme_dropdown, value:"${theme_value}"
+            wait ok_button timeout:${timeout_ms}
+            click ok_button
+            wait checkin_cancel_button timeout:${timeout_ms}
+            click checkin_cancel_button
+            screenshot path:"logs/menu_create_new.png"
+            log "DONE (Title filled and submitted for ${title})"
+            retry 10 every 1000:
+              wait ready_marker timeout:5000
+      log "ALL TITLES PROCESSED"

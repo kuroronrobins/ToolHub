@@ -1,5 +1,13 @@
 # Build and Release
 
+## App Studio 由来アプリの配布検証
+
+App Studio の通常新規登録で追加された Python アプリは、通常ユーザー向け配布として frozen-folder / exe で登録します。`requirements.lock` 生成、PyInstaller `--onedir` build、frozen-folder 配布物検証は常に実行され、`.py` を `run.entry` とする登録は通常フローでは行いません。
+
+App Pack には `apps/<app_id>/bin/<app_id>/<app_id>.exe` と、その frozen-folder に必要な同梱ファイルだけを含めます。`build_env`、`.auth/`、logs、screenshots、tmp/temp、仮想環境、build/dist、node_modules、認証状態、個人データらしいファイルは含めません。配布物サイズと add-data 合計サイズは App Studio の検証レポートで確認します。大容量ファイルや Playwright を含む場合は警告または manual check として扱います。
+
+既存 exe 登録は通常新規登録フローでは扱いません。環境依存 exe や不完全な exe を誤って App Pack に含めるリスクを避けるため、通常フローは ToolHub が Python ソースから生成した exe のみを登録対象にします。
+
 ToolHubの正式配布方式はインストーラー型配布です。
 
 開発者はリポジトリ直下で `python main.py` を使います。利用者には `ToolHub_Setup.exe` を配布し、インストール後はデスクトップショートカットまたはスタートメニューの `ToolHub` から起動してもらいます。

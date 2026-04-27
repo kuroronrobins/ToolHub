@@ -200,6 +200,10 @@ export function AppStudioUpdateWizard() {
         newVersion: summary.version ?? newVersion,
         metadataOverrideUsed: summary.metadataOverrideUsed ?? runResult.metadataOverrideUsed,
         metadataOverrideKeys: summary.metadataOverrideKeys ?? runResult.metadataOverrideKeys,
+        iconOverrideUsed: summary.iconOverrideUsed ?? runResult.iconOverrideUsed,
+        selectedIconSource: summary.selectedIconSource ?? runResult.selectedIconSource,
+        exeReadinessStatus: summary.exeReadinessStatus ?? runResult.exeReadinessStatus,
+        manualChecks: summary.manualChecks ?? runResult.manualChecks,
       };
     } catch {
       return runResult;
@@ -270,6 +274,7 @@ export function AppStudioUpdateWizard() {
     name: request.name,
     buildMode: request.buildMode,
     iconPrompt: request.iconPrompt,
+    buildProfile: request.buildProfile,
     createAppEnv: request.createAppEnv,
     rebuildAppEnv: request.rebuildAppEnv,
     generateLock: request.generateLock,
@@ -361,6 +366,7 @@ export function AppStudioUpdateWizard() {
               generateLock: next.generateLock,
               buildFrozenFolder: next.buildFrozenFolder,
               verifyRuntime: next.verifyRuntime,
+              buildProfile: next.buildProfile,
             });
           }}
         />

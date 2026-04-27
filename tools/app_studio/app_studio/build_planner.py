@@ -25,7 +25,10 @@ ASSET_SUFFIXES = {".dll", ".so", ".dylib", ".wav", ".mp3", ".m4a", ".onnx", ".bi
 
 def make_build_plan(context: StudioContext, inventory: SourceInventory) -> BuildPlan:
     requested = context.requested_build_mode
-    mode, reasons = select_build_mode(context, inventory) if requested == "auto" else (requested, [f"BuildMode was explicitly set to {requested}."])
+    if requested == "auto":
+        mode, reasons = select_build_mode(context, inventory)
+    else:
+        mode, reasons = (requested, [f"BuildMode was explicitly set to {requested}."])
 
     if mode == "existing-exe":
         runner = "exe"
@@ -54,19 +57,7 @@ def select_build_mode(context: StudioContext, inventory: SourceInventory) -> tup
     if context.entry.suffix.lower() == ".exe":
         return "existing-exe", ["Entry is already an executable."]
 
-    included = inventory.included_files
-    python_files = [path for path in included if path.suffix.lower() == ".py"]
-    asset_files = [path for path in included if has_asset_or_binary_signal(path)]
-    complex_imports = sorted(set(inventory.import_roots) & COMPLEX_IMPORTS)
-
-    if len(python_files) > 10:
-        return "frozen-folder", [f"Many Python modules were detected: {len(python_files)}."]
-    if asset_files:
-        return "frozen-folder", ["Assets, binary files, audio files, or config folders were detected."]
-    if complex_imports:
-        return "frozen-folder", ["Complex dependencies were detected: " + ", ".join(complex_imports)]
-
-    return "app-env", ["Simple Python entry and dependency profile."]
+    return "frozen-folder", ["Normal App Studio registration always builds a PyInstaller frozen-folder for user distribution."]
 
 
 def has_asset_or_binary_signal(path: Path) -> bool:

@@ -17,6 +17,9 @@ HIGH_NAME_PATTERNS = [
     "*api_key*",
     "*credentials*",
     "*client_secret*",
+    "*storage_state*",
+    "*cookie*",
+    "*session*",
 ]
 HIGH_CONTENT_PATTERNS = [
     re.compile(r"OPENAI_API_KEY", re.IGNORECASE),
@@ -30,6 +33,8 @@ HIGH_CONTENT_PATTERNS = [
 WARNING_PATTERNS = ["*.log", "*.wav", "*.mp3", "*.m4a"]
 LARGE_FILE_BYTES = 25 * 1024 * 1024
 SKIP_DIRS = {".git", ".venv", "venv", "env", "__pycache__", "node_modules", "toolhub_appstudio_output"}
+HIGH_DIRS = {".auth"}
+WARNING_DIRS = {"logs", "log", "screenshots", "tmp", "temp"}
 
 
 def scan_secrets(source_root: Path) -> SecretScanReport:
@@ -37,6 +42,12 @@ def scan_secrets(source_root: Path) -> SecretScanReport:
     for path in sorted(source_root.rglob("*")):
         if not path.is_file() or should_skip(path, source_root):
             continue
+        lower_parts = {part.lower() for part in path.relative_to(source_root).parts}
+        if lower_parts & HIGH_DIRS:
+            findings.append(SecretFinding(path.resolve(), "sensitive-directory", "high", "Sensitive auth/session directory must not be bundled."))
+            continue
+        if lower_parts & WARNING_DIRS:
+            findings.append(SecretFinding(path.resolve(), "runtime-user-data", "medium", "Runtime output, logs, screenshots, or temp files should not be bundled."))
         name = path.name
         lower_name = name.lower()
         for pattern in HIGH_NAME_PATTERNS:

@@ -10,7 +10,7 @@ import {
   appStudioReadResult,
   appStudioSuggest,
 } from "../../../lib/appStudioApi";
-import { BUILD_MODE_INFO, recommendBuildMode } from "../../../lib/appStudioBuildInfo";
+import { BUILD_MODE_INFO } from "../../../lib/appStudioBuildInfo";
 import { suggestAppIdentity } from "../../../lib/appStudioIdentity";
 import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
 import type {
@@ -38,14 +38,14 @@ const INITIAL_REQUEST: AppStudioImportRequest = {
   entry: "",
   appId: "",
   name: "",
-  buildMode: "auto",
+  buildMode: "frozen-folder",
   iconPrompt: "",
   metadata: createEmptyAppStudioMetadata(),
   createAppEnv: false,
   rebuildAppEnv: false,
-  generateLock: false,
-  buildFrozenFolder: false,
-  verifyRuntime: false,
+  generateLock: true,
+  buildFrozenFolder: true,
+  verifyRuntime: true,
 };
 
 type StudioAction = "suggest" | "apply" | "approve";
@@ -65,7 +65,13 @@ export function AppStudioImportWizard() {
   const [iconRevisionPrompt, setIconRevisionPrompt] = useState("");
 
   const canRun = useMemo(() => request.entry.trim().length > 0 && !busy, [busy, request.entry]);
-  const recommendation = useMemo(() => recommendBuildMode(request.entry), [request.entry]);
+  const recommendation = useMemo(
+    () => ({
+      mode: "frozen-folder",
+      reason: "通常ユーザー向け配布として、Pythonソースからfrozen-folder exeを作成して登録します。",
+    }),
+    [],
+  );
   const canApprove = useMemo(
     () =>
       Boolean(
@@ -299,6 +305,8 @@ export function AppStudioImportWizard() {
         metadataOverrideKeys: summary.metadataOverrideKeys ?? runResult.metadataOverrideKeys,
         iconOverrideUsed: summary.iconOverrideUsed ?? runResult.iconOverrideUsed,
         selectedIconSource: summary.selectedIconSource ?? runResult.selectedIconSource,
+        exeReadinessStatus: summary.exeReadinessStatus ?? runResult.exeReadinessStatus,
+        manualChecks: summary.manualChecks ?? runResult.manualChecks,
       };
     } catch {
       return runResult;
@@ -650,6 +658,12 @@ function cleanRequest(request: AppStudioImportRequest): AppStudioImportRequest {
     entry: request.entry.trim(),
     appId: request.appId?.trim() || undefined,
     name: request.name?.trim() || undefined,
+    buildMode: "frozen-folder",
+    createAppEnv: false,
+    rebuildAppEnv: false,
+    generateLock: true,
+    buildFrozenFolder: true,
+    verifyRuntime: true,
     iconPrompt: request.iconPrompt?.trim() || undefined,
     metadata: cleanEditableMetadata(request.metadata),
     iconOverride: cleanIconOverride(request.iconOverride),

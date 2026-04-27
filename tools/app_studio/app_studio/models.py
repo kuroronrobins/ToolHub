@@ -6,6 +6,8 @@ from typing import Any
 
 
 BUILD_MODES = {"auto", "app-env", "frozen-folder", "existing-exe"}
+NORMAL_REGISTRATION_BUILD_MODE = "frozen-folder"
+NORMAL_REGISTRATION_POLICY = "user-distribution"
 
 
 @dataclass
@@ -27,6 +29,7 @@ class ImportOptions:
     skip_frozen_build: bool = False
     verify_runtime: bool = False
     metadata_override_path: Path | None = None
+    build_profile_path: Path | None = None
 
 
 @dataclass
@@ -54,15 +57,26 @@ class FileRecord:
     include: bool
     reason: str
     category: str
+    status: str = ""
+    detected_from: str = ""
+    code_reference_file: str = ""
+    detection_pattern: str = ""
+    secret_scan: str = "not_scanned"
 
     def to_dict(self) -> dict[str, Any]:
+        status = self.status or ("include" if self.include else "exclude")
         return {
             "path": str(self.path),
             "relative_path": self.relative_path,
             "size": self.size,
             "include": self.include,
+            "status": status,
             "reason": self.reason,
             "category": self.category,
+            "detected_from": self.detected_from,
+            "code_reference_file": self.code_reference_file,
+            "detection_pattern": self.detection_pattern,
+            "secret_scan": self.secret_scan,
         }
 
 
@@ -71,6 +85,7 @@ class SourceInventory:
     records: list[FileRecord]
     local_import_files: list[Path] = field(default_factory=list)
     import_roots: list[str] = field(default_factory=list)
+    manual_checks: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def included_files(self) -> list[Path]:
@@ -81,6 +96,7 @@ class SourceInventory:
             "files": [record.to_dict() for record in self.records],
             "local_import_files": [str(path) for path in self.local_import_files],
             "import_roots": self.import_roots,
+            "manual_checks": self.manual_checks,
         }
 
 
@@ -165,6 +181,8 @@ class GeneratedArtifacts:
     icon_final_png: bytes | None = None
     icon_candidate_png: bytes | None = None
     icon_candidate_url: str = ""
+    build_profile: dict[str, Any] | None = None
+    exe_readiness: dict[str, Any] | None = None
 
 
 @dataclass

@@ -1,0 +1,1 @@
+Build this app with a folder-based frozen output such as PyInstaller --onedir. Do not use --onefile as the standard ToolHub packaging mode.
