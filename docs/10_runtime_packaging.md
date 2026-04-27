@@ -1,5 +1,13 @@
 # Runtime Packaging
 
+## App Studio 通常新規登録と runtime の扱い
+
+App Studio の通常新規登録フローでは、通常ユーザー向け配布として Python ソースから frozen-folder / exe を作成します。配布時に `.py` を直接実行する方式は使いません。生成される `app.yaml` は `run.runner: exe` と `run.entry: bin/<app_id>/<app_id>.exe` を指し、`required_runtime` は原則 `null` です。
+
+この通常フローでは、利用者向け `app_env` を `runtime/app_envs/<app_id>` に作成しません。PyInstaller build のために必要な Python 環境は、App Studio 出力ディレクトリ配下の内部 `build_env` として扱います。`build_env` は build-only の作業環境であり、App Pack、release、runtime、`final_app` には含めません。
+
+`runtime/app_envs/` と app-env 実行方式は既存アプリとの互換性のために残ります。ただし通常新規登録 GUI では選択肢として露出せず、新規の通常ユーザー向け配布は frozen-folder / exe に固定します。
+
 ToolHubは、利用者がPython、Node.js、Rust、各アプリの依存関係、Web自動化用ランタイムを手動導入しなくても動作することを目標にします。
 
 ## Runtime Layout

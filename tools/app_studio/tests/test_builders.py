@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import json
+import os
 import shutil
 import unittest
 import uuid
@@ -15,16 +16,18 @@ sys.path.insert(0, str(ROOT / "tools" / "app_studio"))
 sys.path.insert(0, str(ROOT / "runner"))
 
 from app_studio.ai_metadata_suggester import metadata_prompt, suggest_metadata
+from app_studio.build_profile import analyze_exe_readiness, default_build_profile
 from app_studio.icon_generator import image_api_prompt
-from app_studio.app_env_builder import create_app_env
+from app_studio.app_env_builder import create_app_env, create_build_env
 from app_studio.approval import approve_app
 from app_studio.build_planner import make_build_plan
-from app_studio.execution_tester import build_execution_result, run_execution_checks
+from app_studio.execution_tester import build_execution_result, record_blocked_execution, run_execution_checks
 from app_studio.exporter import export_suggestion
 from app_studio.frozen_folder_builder import build_report as frozen_build_report
 from app_studio.frozen_folder_builder import detect_pyinstaller_environment_issue, pyinstaller_command
+from app_studio.frozen_folder_builder import probe_pyinstaller
 from app_studio.lock_generator import generate_lock
-from app_studio.models import BuildPlan, DependencyReport, GeneratedArtifacts, ImportOptions, SecretFinding, SecretScanReport, SourceInventory
+from app_studio.models import BuildPlan, DependencyReport, FileRecord, GeneratedArtifacts, ImportOptions, SecretFinding, SecretScanReport, SourceInventory
 from app_studio.openai_client import generate_image
 from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
@@ -164,6 +167,19 @@ class AppEnvBuilderTests(unittest.TestCase):
             backups = list((context.repo_root / "backups" / "app_studio").glob(f"*/{context.app_id}/app_env"))
             self.assertTrue(backups)
 
+    def test_build_env_is_created_under_output_dir_not_runtime_app_envs(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            requirements = context.source_root / "requirements.txt"
+            requirements.write_text("", encoding="utf-8")
+
+            result = create_build_env(context, requirements)
+
+            self.assertTrue(result.ok)
+            self.assertTrue(result.app_env_path.is_relative_to(context.output_dir))
+            self.assertFalse((context.repo_root / "runtime" / "app_envs" / context.app_id).exists())
+            self.assertIn("internal build environment", result.report)
+
 
 class LockGeneratorTests(unittest.TestCase):
     def test_existing_requirements_lock_is_copied_first(self) -> None:
@@ -180,6 +196,26 @@ class LockGeneratorTests(unittest.TestCase):
             self.assertTrue(result.ok)
             self.assertEqual((final / "requirements.lock").read_text(encoding="utf-8"), "requests==2.0.0\n")
             self.assertEqual(result.source, "existing requirements.lock")
+
+    def test_build_env_python_updates_lock_even_when_source_lock_exists(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            (context.source_root / "requirements.lock").write_text("requests==2.0.0\n", encoding="utf-8")
+            final = context.output_dir / "final_app"
+            final.mkdir()
+            requirements = final / "requirements.txt"
+            requirements.write_text("requests>=2\n", encoding="utf-8")
+            fake_python = context.output_dir / "build_env" / "Scripts" / "python.exe"
+            fake_python.parent.mkdir(parents=True)
+            fake_python.write_text("fake", encoding="utf-8")
+
+            completed = types.SimpleNamespace(returncode=0, stdout="requests==2.31.0\n", stderr="")
+            with patch("app_studio.lock_generator.subprocess.run", return_value=completed):
+                result = generate_lock(context, requirements, app_env_python=fake_python)
+
+            self.assertTrue(result.ok)
+            self.assertEqual((final / "requirements.lock").read_text(encoding="utf-8"), "requests==2.31.0\n")
+            self.assertEqual(result.source, "pip freeze")
 
     def test_requirements_txt_generates_lock_report(self) -> None:
         with workspace_tempdir() as root:
@@ -252,6 +288,69 @@ class FrozenFolderTests(unittest.TestCase):
             self.assertIn("obsolete pathlib backport", report)
             self.assertIn("did not uninstall", report)
 
+    def test_pyinstaller_probe_retries_without_user_site_for_pathlib_issue(self) -> None:
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append(kwargs.get("env", {}))
+            if len(calls) == 1:
+                return type("Completed", (), {"returncode": 1, "stdout": "", "stderr": "obsolete backport pathlib package"})()
+            return type("Completed", (), {"returncode": 0, "stdout": "6.0.0", "stderr": ""})()
+
+        with patch("app_studio.frozen_folder_builder.subprocess.run", side_effect=fake_run):
+            result, no_user_site, _, stderr = probe_pyinstaller(Path("python"), Path("."))
+
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue(no_user_site)
+        self.assertEqual(calls[1]["PYTHONNOUSERSITE"], "1")
+        self.assertIn("PYTHONNOUSERSITE=1", stderr)
+
+    def test_pyinstaller_command_adds_nested_paths_hidden_imports_and_data(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            source = context.source_root
+            package_main = source / "xcgate_flows" / "src" / "main.py"
+            flow_file = source / "xcgate_flows" / "flows" / "xcgate_upload.flow"
+            package_main.parent.mkdir(parents=True)
+            flow_file.parent.mkdir(parents=True)
+            package_main.write_text("print('main')\n", encoding="utf-8")
+            flow_file.write_text("goto https://example.com\n", encoding="utf-8")
+            inventory = SourceInventory(
+                [
+                    FileRecord(package_main, "xcgate_flows/src/main.py", 12, True, "project source package", "source"),
+                    FileRecord(flow_file, "xcgate_flows/flows/xcgate_upload.flow", 24, True, "runtime definition file", "asset"),
+                ]
+            )
+            profile = default_build_profile(context, inventory, DependencyReport("test", ["playwright>=1.46,<2.0"], [], []))
+
+            command = pyinstaller_command(Path("python"), context, Path("dist"), Path("build"), Path("spec"), profile)
+
+            self.assertIn("--paths", command)
+            self.assertIn(str(source / "xcgate_flows"), command)
+            self.assertIn("--hidden-import", command)
+            self.assertIn("src.main", command)
+            self.assertIn("--add-data", command)
+            self.assertIn(f"{flow_file}{os.pathsep}xcgate_flows/flows", command)
+            self.assertIn("--collect-all", command)
+            self.assertIn("playwright", command)
+
+    def test_exe_readiness_reports_profile_and_manual_checks(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            flow_file = context.source_root / "flows" / "main.flow"
+            flow_file.parent.mkdir()
+            flow_file.write_text("goto https://example.com\n", encoding="utf-8")
+            inventory = SourceInventory([FileRecord(flow_file, "flows/main.flow", 24, True, "runtime definition file", "asset")])
+            dependency_report = DependencyReport("requirements.txt", ["playwright>=1.46,<2.0"], [], [])
+            profile = default_build_profile(context, inventory, dependency_report)
+
+            readiness = analyze_exe_readiness(context, BuildPlan("frozen-folder", "exe", "bin/demo_app/demo_app.exe", None, []), inventory, dependency_report, SecretScanReport([]), profile)
+
+            self.assertEqual(readiness["overall_status"], "warn")
+            self.assertTrue(readiness["manual_checks"])
+            check_names = {item["name"] for item in readiness["checks"]}
+            self.assertIn("playwright browser dependency", check_names)
+
 
 class ExecutionAndApprovalTests(unittest.TestCase):
     def test_app_yaml_parse_fail_blocks_approval(self) -> None:
@@ -302,6 +401,18 @@ class ExecutionAndApprovalTests(unittest.TestCase):
                 approve_app(repo, app_id)
             manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
             self.assertFalse(manifest["apps"][app_id]["enabled"])
+
+    def test_blocked_execution_writes_failed_result(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+
+            result = record_blocked_execution(context, context.output_dir, "frozen-folder build", "PyInstaller failed")
+
+            self.assertEqual(result.overall_status, "fail")
+            self.assertFalse(result.approval_allowed)
+            data = json.loads((context.output_dir / "execution_test_result.json").read_text(encoding="utf-8"))
+            self.assertEqual(data["checks"][0]["name"], "frozen-folder build")
+            self.assertEqual(data["checks"][0]["status"], "fail")
 
 
 class OpenAIFallbackTests(unittest.TestCase):
@@ -508,31 +619,63 @@ class IconCandidateExportTests(unittest.TestCase):
 
 
 class RuntimeCheckerTests(unittest.TestCase):
-    def test_missing_runtime_records_fail(self) -> None:
+    def test_frozen_distribution_check_fails_without_exe(self) -> None:
         with workspace_tempdir() as root:
             context = make_context(root)
+            plan = BuildPlan("frozen-folder", "exe", f"bin/{context.app_id}/{context.app_id}.exe", None, [])
+            final_app = context.output_dir / "final_app"
+            final_app.mkdir(parents=True)
+            write_text(final_app / "app.yaml", f"run:\n  runner: exe\n  entry: {plan.entry}\n")
 
-            result = verify_runtime(context, context.output_dir)
+            result = verify_runtime(context, context.output_dir, plan, {"add_data": []})
 
-            self.assertIn(result.overall_status, {"warn", "fail"})
+            self.assertEqual(result.overall_status, "fail")
             self.assertTrue((context.output_dir / "runtime_check_report.md").is_file())
             self.assertTrue((context.output_dir / "runtime_check_result.json").is_file())
             self.assertTrue((context.repo_root / "data" / "logs" / "app_studio" / "demo_app_runtime_check_result.json").is_file())
 
-    def test_app_env_python_checks_pass_when_present(self) -> None:
+    def test_frozen_distribution_check_detects_packaged_data_and_size(self) -> None:
         with workspace_tempdir() as root:
             context = make_context(root)
-            app_env_python = context.repo_root / "runtime" / "app_envs" / context.app_id / "Scripts" / "python.exe"
-            app_env_python.parent.mkdir(parents=True, exist_ok=True)
-            app_env_python.write_bytes(b"fake")
+            plan = BuildPlan("frozen-folder", "exe", f"bin/{context.app_id}/{context.app_id}.exe", None, [])
+            final_app = context.output_dir / "final_app"
+            bin_root = final_app / "bin" / context.app_id
+            bin_root.mkdir(parents=True)
+            write_text(final_app / "app.yaml", f"run:\n  runner: exe\n  entry: {plan.entry}\n")
+            write_text(bin_root / f"{context.app_id}.exe", "fake exe")
+            write_text(bin_root / "config.yaml", "ok: true\n")
+            (context.output_dir / "build_env").mkdir()
 
-            with patch("app_studio.runtime_checker.subprocess.run") as run:
-                run.return_value = type("Completed", (), {"returncode": 0, "stdout": "Python 3.13", "stderr": ""})()
-                result = verify_runtime(context, context.output_dir)
+            result = verify_runtime(context, context.output_dir, plan, {"add_data": [{"source": "config.yaml", "destination": "."}]})
 
             checks = {check.name: check.status for check in result.checks}
-            self.assertEqual(checks["app_env python exists"], "pass")
-            self.assertEqual(checks["app_env python --version"], "pass")
+            self.assertEqual(checks["frozen-folder executable exists"], "pass")
+            self.assertEqual(checks["required add-data files"], "pass")
+            self.assertEqual(checks["forbidden payload files"], "pass")
+            self.assertEqual(checks["frozen-folder size"], "pass")
+
+    def test_frozen_distribution_check_blocks_user_auth_files_without_blocking_playwright_internals(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            plan = BuildPlan("frozen-folder", "exe", f"bin/{context.app_id}/{context.app_id}.exe", None, [])
+            final_app = context.output_dir / "final_app"
+            bin_root = final_app / "bin" / context.app_id
+            playwright_root = bin_root / "_internal" / "playwright"
+            (playwright_root / "_impl").mkdir(parents=True)
+            (playwright_root / "driver" / "package" / "lib" / "server").mkdir(parents=True)
+            write_text(final_app / "app.yaml", f"run:\n  runner: exe\n  entry: {plan.entry}\n")
+            write_text(bin_root / f"{context.app_id}.exe", "fake exe")
+            write_text(playwright_root / "_impl" / "_cdp_session.py", "ok")
+            write_text(playwright_root / "driver" / "package" / "lib" / "server" / "cookieStore.js", "ok")
+            write_text(bin_root / "credentials.json", "{}")
+
+            result = verify_runtime(context, context.output_dir, plan, {"add_data": []})
+
+            forbidden = next(check for check in result.checks if check.name == "forbidden payload files")
+            self.assertEqual(forbidden.status, "fail")
+            self.assertIn("credentials.json", forbidden.detail)
+            self.assertNotIn("cookieStore.js", forbidden.detail)
+            self.assertNotIn("_cdp_session.py", forbidden.detail)
 
 
 class DocsTests(unittest.TestCase):

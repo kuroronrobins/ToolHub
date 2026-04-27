@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import BuildPlan, ExecutionCheck, ExecutionTestResult, SecretScanReport, StudioContext
+from .runtime_checker import is_forbidden_payload_path
 from .util import now_iso, write_json, write_text
 
 
@@ -15,15 +16,30 @@ SUPPORTED_RUNNERS = {"python", "cli", "exe", "playwright_python", "python_app_en
 
 def run_execution_checks(context: StudioContext, plan: BuildPlan, output_dir: Path, secret_report: SecretScanReport | None = None) -> ExecutionTestResult:
     result = build_execution_result(context, plan, secret_report)
-    report = execution_report_markdown(result)
+    write_execution_result(context, output_dir, result)
+    return result
 
+
+def record_blocked_execution(context: StudioContext, output_dir: Path, check_name: str, detail: str) -> ExecutionTestResult:
+    result = ExecutionTestResult(
+        app_id=context.app_id,
+        generated_at=now_iso(),
+        overall_status="fail",
+        approval_allowed=False,
+        checks=[check(check_name, "fail", detail)],
+    )
+    write_execution_result(context, output_dir, result)
+    return result
+
+
+def write_execution_result(context: StudioContext, output_dir: Path, result: ExecutionTestResult) -> None:
+    report = execution_report_markdown(result)
     write_text(output_dir / "execution_test_report.md", report)
     write_json(output_dir / "execution_test_result.json", result.to_dict())
 
     log_dir = context.repo_root / "data" / "logs" / "app_studio"
     write_text(log_dir / f"{context.app_id}_execution_test_report.md", report)
     write_json(log_dir / f"{context.app_id}_execution_test_result.json", result.to_dict())
-    return result
 
 
 def build_execution_result(context: StudioContext, plan: BuildPlan, secret_report: SecretScanReport | None = None) -> ExecutionTestResult:
@@ -37,6 +53,9 @@ def build_execution_result(context: StudioContext, plan: BuildPlan, secret_repor
 
     if plan.mode == "frozen-folder":
         checks.append(check("frozen-folder executable", "pass" if app_entry.is_file() else "fail", str(app_entry)))
+        checks.append(check(".py run.entry blocked", "fail" if plan.entry.lower().endswith(".py") else "pass", plan.entry))
+        checks.extend(frozen_profile_checks(context))
+        checks.append(forbidden_registered_payload_check(context))
     else:
         checks.append(check("run.entry exists", "pass" if app_entry.is_file() else "fail", str(app_entry)))
 
@@ -138,6 +157,49 @@ def attempt_runner(context: StudioContext, plan: BuildPlan, app_entry: Path) -> 
     return check("runner dry execution", status, json.dumps(detail, ensure_ascii=False))
 
 
+def frozen_profile_checks(context: StudioContext) -> list[ExecutionCheck]:
+    profile_path = context.repo_root / "apps" / context.app_id / "build_profile.json"
+    if not profile_path.is_file():
+        return [check("frozen build profile", "warn", "build_profile.json was not found; data-file gate was skipped.")]
+    try:
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return [check("frozen build profile", "fail", f"build_profile.json could not be parsed: {exc!r}")]
+
+    add_data = profile.get("add_data") if isinstance(profile, dict) else None
+    if not isinstance(add_data, list) or not add_data:
+        return [check("frozen data files", "warn", "No add_data entries are listed in build_profile.json.")]
+
+    missing: list[str] = []
+    bin_root = context.repo_root / "apps" / context.app_id / "bin" / context.app_id
+    for item in add_data:
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("source") or "")
+        destination = str(item.get("destination") or "")
+        if not source or not destination:
+            continue
+        expected = bin_root / destination / Path(source).name
+        if not expected.is_file():
+            missing.append(expected.as_posix())
+    if missing:
+        return [check("frozen data files", "fail", "Missing packaged data files: " + ", ".join(missing[:10]))]
+    return [check("frozen data files", "pass", f"{len(add_data)} packaged data file(s) were found.")]
+
+
+def forbidden_registered_payload_check(context: StudioContext) -> ExecutionCheck:
+    app_dir = context.repo_root / "apps" / context.app_id
+    if not app_dir.is_dir():
+        return check("forbidden registered payload", "fail", f"App directory is missing: {app_dir}")
+    findings: list[str] = []
+    for path in sorted(app_dir.rglob("*")):
+        if is_forbidden_payload_path(path, app_dir):
+            findings.append(path.relative_to(app_dir).as_posix())
+    if findings:
+        return check("forbidden registered payload", "fail", "Forbidden files were registered: " + ", ".join(findings[:10]))
+    return check("forbidden registered payload", "pass", "No forbidden credential, log, cache, temp, or build_env files were registered.")
+
+
 def execution_report_markdown(result: ExecutionTestResult) -> str:
     lines = [
         "# Execution Test Report",
@@ -154,4 +216,3 @@ def execution_report_markdown(result: ExecutionTestResult) -> str:
     lines.append("")
     lines.append("Human approval is required before enabling this app in release/app_manifest.json.")
     return "\n".join(lines) + "\n"
-

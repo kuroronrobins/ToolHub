@@ -55,6 +55,24 @@
       "required_runner": ">=0.1.0",
       "required_runtime": "python-embedded-toolhub-001",
       "enabled": false
+    },
+    "run_3dx_create_ids": {
+      "version": "0.1.0",
+      "package": "app_packs/run_3dx_create_ids-0.1.0.zip",
+      "sha256": "57d068ec7e607f1afa2fcf714cbf9ee2d2862923094f31c0940dd5789e6ae5cd",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": null,
+      "enabled": false
+    },
+    "run_xcgate_upload": {
+      "version": "0.1.0",
+      "package": "app_packs/run_xcgate_upload-0.1.0.zip",
+      "sha256": "55492c7b239a731385bb87f92ba4fdecf661f74c8b2ae5c8cabcccf7973bbf1b",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": null,
+      "enabled": false
     }
   }
 }

@@ -3,14 +3,20 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
+from .build_profile import managed_build_python, pyinstaller_profile_args
 from .models import BuildPlan, FrozenBuildResult, StudioContext
 from .util import assert_within, reset_directory, write_text
 
 
-def build_frozen_folder(context: StudioContext, plan: BuildPlan, output_dir: Path, rebuild: bool = False) -> FrozenBuildResult:
+def build_frozen_folder(
+    context: StudioContext,
+    plan: BuildPlan,
+    output_dir: Path,
+    rebuild: bool = False,
+    build_profile: dict | None = None,
+) -> FrozenBuildResult:
     if plan.mode != "frozen-folder":
         result = FrozenBuildResult(True, True, None, build_report(context, plan, [], "Skipped because build mode is not frozen-folder.", None), [], "")
         write_frozen_report(context, result)
@@ -24,10 +30,16 @@ def build_frozen_folder(context: StudioContext, plan: BuildPlan, output_dir: Pat
         return result
 
     python = select_python(context)
-    probe = subprocess.run([str(python), "-m", "PyInstaller", "--version"], cwd=str(context.source_root), text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    if python is None:
+        error = "Managed build Python is not available. Apply must create output_dir/build_env before the frozen-folder build."
+        result = FrozenBuildResult(False, False, None, build_report(context, plan, [], error, None), [], error)
+        write_frozen_report(context, result)
+        return result
+    probe_command = [str(python), "-m", "PyInstaller", "--version"]
+    probe, no_user_site, probe_stdout, probe_stderr = probe_pyinstaller(python, context.source_root)
     if probe.returncode != 0:
-        error = "PyInstaller is not available. Install it in the app_env or development environment, then rerun with -BuildFrozenFolder."
-        result = FrozenBuildResult(False, False, None, build_report(context, plan, [[str(python), "-m", "PyInstaller", "--version"]], error, None, probe.stdout, probe.stderr), [], error)
+        error = "PyInstaller is not available in build_env. Build-only dependencies must be installed before the frozen-folder build."
+        result = FrozenBuildResult(False, False, None, build_report(context, plan, [probe_command], error, None, probe_stdout, probe_stderr), [], error)
         write_frozen_report(context, result)
         return result
 
@@ -40,14 +52,14 @@ def build_frozen_folder(context: StudioContext, plan: BuildPlan, output_dir: Pat
     work.mkdir(parents=True, exist_ok=True)
     spec.mkdir(parents=True, exist_ok=True)
 
-    command = pyinstaller_command(python, context, dist, work, spec)
+    command = pyinstaller_command(python, context, dist, work, spec, build_profile)
     if any("--onefile" in arg for arg in command):
         error = "Refusing to run PyInstaller with --onefile."
         result = FrozenBuildResult(False, False, None, build_report(context, plan, [command], error, None), command, error)
         write_frozen_report(context, result)
         return result
 
-    completed = subprocess.run(command, cwd=str(context.source_root), text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    completed = run_pyinstaller_command(command, context.source_root, no_user_site=no_user_site)
     if completed.returncode != 0:
         error = "PyInstaller --onedir build failed."
         result = FrozenBuildResult(False, False, None, build_report(context, plan, [command], error, None, completed.stdout, completed.stderr), command, error)
@@ -66,29 +78,59 @@ def build_frozen_folder(context: StudioContext, plan: BuildPlan, output_dir: Pat
     if final_bin.exists():
         shutil.rmtree(final_bin)
     shutil.copytree(built_dir, final_bin)
+    build_required = output_dir / "final_app" / "bin" / "BUILD_REQUIRED.txt"
+    if build_required.is_file():
+        build_required.unlink()
     exe_path = final_bin / exe_name(context.app_id)
     result = FrozenBuildResult(True, False, exe_path, build_report(context, plan, [command], "", exe_path, completed.stdout, completed.stderr), command, "")
     write_frozen_report(context, result)
     return result
 
 
-def select_python(context: StudioContext) -> Path:
-    app_env = context.repo_root / "runtime" / "app_envs" / context.app_id / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
-    if app_env.is_file():
-        return app_env
-    runtime = context.repo_root / "runtime" / "python" / ("python.exe" if os.name == "nt" else "python")
-    if runtime.is_file():
-        return runtime
-    return Path(sys.executable)
+def select_python(context: StudioContext) -> Path | None:
+    return managed_build_python(context)
 
 
-def pyinstaller_command(python: Path, context: StudioContext, dist: Path, work: Path, spec: Path) -> list[str]:
-    return [
+def probe_pyinstaller(python: Path, cwd: Path) -> tuple[subprocess.CompletedProcess[str], bool, str, str]:
+    command = [str(python), "-m", "PyInstaller", "--version"]
+    first = run_pyinstaller_command(command, cwd)
+    if first.returncode == 0:
+        return first, False, first.stdout, first.stderr
+
+    if not detect_pyinstaller_environment_issue(first.stdout, first.stderr):
+        return first, False, first.stdout, first.stderr
+
+    retry = run_pyinstaller_command(command, cwd, no_user_site=True)
+    stdout = "\n".join(part for part in [first.stdout, retry.stdout] if part)
+    stderr = "\n".join(
+        part
+        for part in [
+            first.stderr,
+            "Retried with PYTHONNOUSERSITE=1 to ignore user site-packages.",
+            retry.stderr,
+        ]
+        if part
+    )
+    return retry, retry.returncode == 0, stdout, stderr
+
+
+def run_pyinstaller_command(command: list[str], cwd: Path, no_user_site: bool = False) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    if no_user_site:
+        env["PYTHONNOUSERSITE"] = "1"
+    return subprocess.run(command, cwd=str(cwd), text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, env=env)
+
+
+def pyinstaller_command(python: Path, context: StudioContext, dist: Path, work: Path, spec: Path, build_profile: dict | None = None) -> list[str]:
+    command = [
         str(python),
         "-m",
         "PyInstaller",
         "--noconfirm",
         "--onedir",
+        "--clean",
+        "--contents-directory",
+        ".",
         "--name",
         context.app_id,
         "--distpath",
@@ -97,8 +139,11 @@ def pyinstaller_command(python: Path, context: StudioContext, dist: Path, work: 
         str(work),
         "--specpath",
         str(spec),
-        str(context.entry),
     ]
+    if build_profile:
+        command.extend(pyinstaller_profile_args(context, build_profile))
+    command.append(str(context.entry))
+    return command
 
 
 def exe_name(app_id: str) -> str:

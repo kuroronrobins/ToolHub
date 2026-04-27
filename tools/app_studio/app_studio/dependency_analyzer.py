@@ -59,6 +59,22 @@ def analyze_dependencies(context: StudioContext, inventory: SourceInventory) -> 
         report = DependencyReport("requirements.lock", lines, inventory.import_roots, third_party_candidates=[], notes=["requirements.lock was used as a reference because requirements.txt was not found."])
         return report, "\n".join(lines) + "\n"
 
+    nested_requirements = included_requirements_files(context, inventory)
+    if nested_requirements:
+        lines = merged_requirement_lines(nested_requirements)
+        source_list = ", ".join(path.relative_to(context.source_root).as_posix() for path in nested_requirements)
+        report = DependencyReport(
+            "nested-requirements.txt",
+            lines,
+            inventory.import_roots,
+            third_party_candidates=[],
+            notes=[
+                "Nested requirements.txt files were found in included project files.",
+                f"Sources: {source_list}",
+            ],
+        )
+        return report, "\n".join(lines).rstrip() + "\n"
+
     stdlib = set(getattr(sys, "stdlib_module_names", FALLBACK_STDLIB)) | FALLBACK_STDLIB
     local_roots = local_module_roots(context)
     candidates = sorted(root for root in inventory.import_roots if root not in stdlib and root not in local_roots)
@@ -92,7 +108,41 @@ def parse_pyproject_dependencies(path: Path) -> list[str]:
 
 
 def normalize_requirement_lines(lines: list[str]) -> list[str]:
-    return [line.strip() for line in lines if line.strip() and not line.strip().startswith("#")]
+    normalized: list[str] = []
+    for line in lines:
+        stripped = line.strip().lstrip("\ufeff")
+        if not stripped or stripped.startswith("#"):
+            continue
+        normalized.append(stripped)
+    return normalized
+
+
+def included_requirements_files(context: StudioContext, inventory: SourceInventory) -> list[Path]:
+    root_requirements = (context.source_root / "requirements.txt").resolve()
+    paths = []
+    for record in inventory.records:
+        if not record.include:
+            continue
+        if record.path.name.lower() != "requirements.txt":
+            continue
+        resolved = record.path.resolve()
+        if resolved == root_requirements:
+            continue
+        paths.append(resolved)
+    return sorted(paths)
+
+
+def merged_requirement_lines(paths: list[Path]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        for line in normalize_requirement_lines(path.read_text(encoding="utf-8", errors="replace").splitlines()):
+            key = line.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(line)
+    return merged
 
 
 def local_module_roots(context: StudioContext) -> set[str]:
@@ -103,4 +153,3 @@ def local_module_roots(context: StudioContext) -> set[str]:
         elif path.is_dir() and (path / "__init__.py").is_file():
             roots.add(path.name)
     return roots
-

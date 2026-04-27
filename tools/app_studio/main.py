@@ -8,11 +8,19 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app_studio.ai_metadata_suggester import suggest_metadata
-from app_studio.app_env_builder import create_app_env
+from app_studio.app_env_builder import create_build_env, install_build_tools
 from app_studio.approval import approve_app
+from app_studio.build_profile import (
+    analyze_exe_readiness,
+    default_build_profile,
+    load_build_profile,
+    merge_build_profiles,
+    saved_build_profile_path,
+    write_build_profile_files,
+)
 from app_studio.build_planner import build_plan_markdown, make_build_plan
 from app_studio.dependency_analyzer import analyze_dependencies
-from app_studio.execution_tester import run_execution_checks
+from app_studio.execution_tester import record_blocked_execution, run_execution_checks
 from app_studio.exporter import export_suggestion
 from app_studio.file_classifier import classify_files
 from app_studio.frozen_folder_builder import build_frozen_folder
@@ -21,7 +29,7 @@ from app_studio.icon_override import apply_icon_override, load_icon_override
 from app_studio.lock_generator import generate_lock
 from app_studio.manifest_generator import generate_app_yaml
 from app_studio.metadata_override import apply_metadata_override, load_metadata_override
-from app_studio.models import BUILD_MODES, GeneratedArtifacts, ImportOptions
+from app_studio.models import BUILD_MODES, NORMAL_REGISTRATION_BUILD_MODE, NORMAL_REGISTRATION_POLICY, GeneratedArtifacts, ImportOptions
 from app_studio.readme_generator import generate_readme
 from app_studio.registrar import apply_registration
 from app_studio.runtime_checker import verify_runtime
@@ -59,6 +67,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--verify-runtime", action="store_true")
     parser.add_argument("--metadata-override")
     parser.add_argument("--icon-override")
+    parser.add_argument("--build-profile")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--suggest", action="store_true")
@@ -84,6 +93,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     validate_flag_combination(args)
+    normalize_normal_registration_args(args)
     action = "dry-run" if args.dry_run else "suggest" if args.suggest else "apply"
     options = ImportOptions(
         entry=Path(args.entry),
@@ -103,6 +113,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         skip_frozen_build=args.skip_frozen_build,
         verify_runtime=args.verify_runtime,
         metadata_override_path=Path(args.metadata_override) if args.metadata_override else None,
+        build_profile_path=Path(args.build_profile) if args.build_profile else None,
     )
     context = create_context(options, repo_root)
     inventory = classify_files(context)
@@ -110,6 +121,13 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     dependency_report, proposed_requirements = analyze_dependencies(context, inventory)
     plan = make_build_plan(context, inventory)
     context.build_mode = plan.mode
+    build_profile = default_build_profile(context, inventory, dependency_report)
+    existing_profile_path = saved_build_profile_path(context)
+    if existing_profile_path.is_file():
+        build_profile = merge_build_profiles(build_profile, load_build_profile(existing_profile_path), "saved+auto")
+    if options.build_profile_path:
+        build_profile = merge_build_profiles(build_profile, load_build_profile(options.build_profile_path), "manual+auto")
+    exe_readiness = analyze_exe_readiness(context, plan, inventory, dependency_report, secret_report, build_profile)
     metadata = suggest_metadata(context, secret_report)
     metadata_override_applied: list[str] = []
     metadata_override_warnings: list[str] = []
@@ -141,6 +159,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "output_dir": str(context.output_dir),
         "requested_build_mode": context.requested_build_mode,
         "selected_build_mode": plan.mode,
+        "registration_policy": NORMAL_REGISTRATION_POLICY,
         "runner": plan.runner,
         "run_entry": plan.entry,
         "required_runtime": plan.required_runtime,
@@ -157,6 +176,10 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "generate_lock": options.generate_lock,
         "build_frozen_folder": options.build_frozen_folder,
         "verify_runtime": options.verify_runtime,
+        "build_env": str(context.output_dir / "build_env"),
+        "build_profile_source": build_profile.get("source"),
+        "exe_readiness_status": exe_readiness.get("overall_status"),
+        "manual_checks": exe_readiness.get("manual_checks", []),
     }
     artifacts = GeneratedArtifacts(
         metadata=metadata,
@@ -172,6 +195,8 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         icon_final_png=icon_final_png,
         icon_candidate_png=icon_candidate_png,
         icon_candidate_url=icon_candidate_url,
+        build_profile=build_profile,
+        exe_readiness=exe_readiness,
     )
 
     print_summary(context.app_id, context.name, action, plan.mode, len(inventory.included_files), len(secret_report.findings), context.output_dir)
@@ -187,6 +212,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         return 0
 
     output_dir = export_suggestion(context, inventory, dependency_report, secret_report, plan, artifacts)
+    write_build_profile_files(context, output_dir, build_profile, exe_readiness)
     print(f"Suggestion artifacts were saved: {output_dir}")
 
     if action == "suggest":
@@ -198,34 +224,47 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
 
     final_app = output_dir / "final_app"
     requirements_path = final_app / "requirements.txt"
-    app_env_python = None
+    build_env_python = None
 
-    should_build_app_env = plan.mode == "app-env" and (args.create_app_env or args.rebuild_app_env) and not args.skip_app_env_build
-    if should_build_app_env:
-        app_env_result = create_app_env(context, requirements_path, rebuild=args.rebuild_app_env)
-        print(f"app_env build status: ok={app_env_result.ok}, skipped={app_env_result.skipped}")
-        if not app_env_result.ok:
-            return 1
-        app_env_python = app_env_result.python_path
+    if plan.mode != NORMAL_REGISTRATION_BUILD_MODE:
+        record_blocked_execution(context, output_dir, "registration policy", f"Normal registration requires {NORMAL_REGISTRATION_BUILD_MODE}, got {plan.mode}.")
+        return 1
 
-    if args.skip_lock:
-        generate_lock(context, requirements_path, app_env_python=app_env_python, skip=True)
-    elif args.generate_lock:
-        lock_result = generate_lock(context, requirements_path, app_env_python=app_env_python)
-        print(f"requirements.lock status: ok={lock_result.ok}, source={lock_result.source}")
-        if not lock_result.ok:
-            return 1
+    build_env_result = create_build_env(context, requirements_path, rebuild=True)
+    print(f"build_env status: ok={build_env_result.ok}, skipped={build_env_result.skipped}, path={build_env_result.app_env_path}")
+    if not build_env_result.ok:
+        record_blocked_execution(context, output_dir, "build_env", build_env_result.error or "build_env creation failed.")
+        return 1
+    build_env_python = build_env_result.python_path
 
-    if args.verify_runtime:
-        runtime_result = verify_runtime(context, output_dir)
-        print(f"runtime check status: {runtime_result.overall_status}")
+    lock_result = generate_lock(context, requirements_path, app_env_python=build_env_python)
+    print(f"requirements.lock status: ok={lock_result.ok}, source={lock_result.source}")
+    if not lock_result.ok:
+        record_blocked_execution(context, output_dir, "requirements.lock", lock_result.error or "requirements.lock generation failed.")
+        return 1
 
-    should_build_frozen = plan.mode == "frozen-folder" and (args.build_frozen_folder or args.rebuild_frozen_folder) and not args.skip_frozen_build
-    if should_build_frozen:
-        frozen_result = build_frozen_folder(context, plan, output_dir, rebuild=args.rebuild_frozen_folder)
-        print(f"frozen-folder build status: ok={frozen_result.ok}, skipped={frozen_result.skipped}")
-        if not frozen_result.ok:
-            return 1
+    build_tool_result = install_build_tools(context, build_env_result.app_env_path, ["PyInstaller>=6,<7", "pyinstaller-hooks-contrib>=2024.0"])
+    print(f"build tool install status: ok={build_tool_result.ok}, skipped={build_tool_result.skipped}")
+    if not build_tool_result.ok:
+        record_blocked_execution(context, output_dir, "build tools", build_tool_result.error or "Build tool install failed.")
+        return 1
+
+    frozen_result = build_frozen_folder(context, plan, output_dir, rebuild=True, build_profile=build_profile)
+    print(f"frozen-folder build status: ok={frozen_result.ok}, skipped={frozen_result.skipped}")
+    if not frozen_result.ok:
+        record_blocked_execution(
+            context,
+            output_dir,
+            "frozen-folder build",
+            frozen_result.error or "Frozen-folder build failed before temporary registration.",
+        )
+        return 1
+
+    runtime_result = verify_runtime(context, output_dir, plan, build_profile)
+    print(f"distribution check status: {runtime_result.overall_status}")
+    if runtime_result.overall_status == "fail":
+        record_blocked_execution(context, output_dir, "frozen-folder distribution check", "Distribution verification failed. Review runtime_check_report.md.")
+        return 1
 
     package_path = apply_registration(context, plan, final_app, output_dir)
     execution_result = run_execution_checks(context, plan, output_dir, secret_report)
@@ -243,6 +282,32 @@ def validate_flag_combination(args: argparse.Namespace) -> None:
         raise ValueError("-CreateAppEnv and -SkipAppEnvBuild cannot be used together.")
     if args.build_frozen_folder and args.skip_frozen_build:
         raise ValueError("-BuildFrozenFolder and -SkipFrozenBuild cannot be used together.")
+
+
+def normalize_normal_registration_args(args: argparse.Namespace) -> None:
+    entry = Path(args.entry)
+    if entry.suffix.lower() == ".exe":
+        raise ValueError("Normal App Studio registration accepts Python source only. Existing exe registration is not available in the normal flow.")
+    if args.skip_lock:
+        raise ValueError("Normal App Studio registration always generates or updates requirements.lock; --skip-lock is not allowed.")
+    if args.skip_frozen_build:
+        raise ValueError("Normal App Studio registration always builds a frozen-folder; --skip-frozen-build is not allowed.")
+    if args.skip_app_env_build:
+        raise ValueError("Normal App Studio registration uses an internal build_env, not user-facing app_env; --skip-app-env-build is not allowed.")
+    if args.create_app_env or args.rebuild_app_env:
+        raise ValueError("Normal App Studio registration does not create runtime/app_envs. A temporary build_env is created internally.")
+    if args.build_mode not in {"auto", NORMAL_REGISTRATION_BUILD_MODE}:
+        print(f"Normal registration ignores legacy BuildMode={args.build_mode}; using {NORMAL_REGISTRATION_BUILD_MODE}.")
+    args.build_mode = NORMAL_REGISTRATION_BUILD_MODE
+    args.generate_lock = True
+    args.build_frozen_folder = True
+    args.verify_runtime = True
+    args.create_app_env = False
+    args.rebuild_app_env = False
+    args.rebuild_frozen_folder = True
+    args.skip_lock = False
+    args.skip_frozen_build = False
+    args.skip_app_env_build = False
 
 
 def print_summary(app_id: str, name: str, action: str, build_mode: str, included_count: int, finding_count: int, output_dir: Path) -> None:

@@ -29,6 +29,22 @@ Icon候補はPNGを主表示にします。GUIで `candidate_png` または `fin
 
 # ToolHub App Studio
 
+## 通常新規登録フローの固定ポリシー
+
+App Studio の通常新規登録フローは、通常ユーザー向け配布専用です。入力は Python ソースを基本とし、既存 exe 登録、Python 直接実行、利用者向け app_env 実行方式は通常 GUI から選択できません。
+
+通常フローは、Python ソース入力 → 解析 → 内部 `build_env` 作成 → 依存インストール → `requirements.lock` 生成/更新 → PyInstaller frozen-folder build → frozen-folder 配布物検証 → `app.yaml` 生成/仮登録、の一本道です。`requirements.lock` 生成、frozen-folder build、配布物検証は常に ON です。
+
+`app.yaml` の `run.entry` は `bin/<app_id>/<app_id>.exe` を指し、通常ユーザー向け配布で `.py` を実行入口にしません。`--onefile` は標準にせず、ToolHub の標準は PyInstaller `--onedir --clean --contents-directory .` の folder-based frozen output です。
+
+`build_env` は exe 作成のためだけに使う内部作業環境です。`runtime/app_envs/<app_id>` には作らず、App Studio 出力ディレクトリ配下に作成します。利用者 PC に要求せず、`final_app`、App Pack、release、runtime には含めません。
+
+非 Python 資産は拡張子だけで一律に除外しません。メイン Python ファイルとローカル import 先を再帰的に解析し、`open(...)`、`Path(...)`、`Path(__file__).parent / ...`、`os.path.join(...)`、`read_text()`、`read_bytes()`、`pandas.read_csv(...)`、`pandas.read_excel(...)`、設定ファイル読み込みなどの固定パス参照から JSON / CSV / XLSX / YAML / TOML / INI / flow / txt / md を add-data 候補にします。`config`、`config.default`、`assets`、`templates`、`static`、`icons`、`images`、`flows` などの定番リソースフォルダも候補になります。
+
+`.auth/`、logs、screenshots、tmp/temp、仮想環境、build/dist、node_modules、`.git`、`.env`、pem/key、token/secret/password/api_key/credentials、storage_state/cookie/session らしいファイルは同梱しません。機微情報の可能性がある場合は blocked または manual check とし、`file_inventory.json` / `file_inventory.md` / `build_profile_report.md` / `runtime_check_report.md` で理由を確認できるようにします。動的パス参照は無理に全フォルダを同梱せず manual check とします。
+
+配布物検証では、exe の存在、`run.entry` が exe を指すこと、build_profile の add-data が frozen-folder 内に存在すること、禁止ファイルが混入していないこと、`build_env` が混入していないこと、frozen-folder と add-data のサイズを確認します。Playwright を含むアプリでは `--collect-all playwright` を自動反映しますが、ブラウザバイナリ、ログイン、社内サイト操作、認証済み storage state は自動検証済みとは扱わず manual check とします。
+
 ## 目的
 
 ToolHub App Studio は、開発者が既存アプリのメインファイルを指定するだけで、ToolHub が検出できる `apps/<app_id>/app.yaml` 形式へ変換するための開発者向け CLI です。

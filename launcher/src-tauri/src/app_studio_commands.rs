@@ -18,6 +18,7 @@ pub struct AppStudioImportRequest {
     pub icon_prompt: Option<String>,
     pub metadata: Option<AppStudioEditableMetadata>,
     pub icon_override: Option<AppStudioIconOverride>,
+    pub build_profile: Option<Value>,
     pub create_app_env: bool,
     pub rebuild_app_env: bool,
     pub generate_lock: bool,
@@ -37,6 +38,7 @@ pub struct AppStudioUpdateRequest {
     pub icon_prompt: Option<String>,
     pub metadata: Option<AppStudioEditableMetadata>,
     pub icon_override: Option<AppStudioIconOverride>,
+    pub build_profile: Option<Value>,
     pub create_app_env: bool,
     pub rebuild_app_env: bool,
     pub generate_lock: bool,
@@ -97,6 +99,8 @@ pub struct AppStudioResultSummary {
     pub metadata_override_keys: Vec<String>,
     pub icon_override_used: bool,
     pub selected_icon_source: Option<String>,
+    pub exe_readiness_status: Option<String>,
+    pub manual_checks: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -121,6 +125,8 @@ pub struct AppStudioRunResult {
     pub metadata_override_keys: Vec<String>,
     pub icon_override_used: bool,
     pub selected_icon_source: Option<String>,
+    pub exe_readiness_status: Option<String>,
+    pub manual_checks: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -452,10 +458,11 @@ fn run_update_action(
 }
 
 fn run_import_action(
-    request: AppStudioImportRequest,
+    mut request: AppStudioImportRequest,
     action: &str,
 ) -> Result<AppStudioRunResult, String> {
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    normalize_normal_import_request(&mut request)?;
     validate_request(&request)?;
     let python_candidate = find_python_candidate(&root).ok_or_else(python_missing_message)?;
     let python = python_candidate.path.clone();
@@ -474,6 +481,13 @@ fn run_import_action(
         .as_ref()
         .map(|(_, source)| source.clone())
         .unwrap_or_default();
+    let build_profile_override = write_build_profile_override_file(&request)?;
+    let build_profile_source = if build_profile_override.is_some() {
+        "manual"
+    } else {
+        ""
+    }
+    .to_string();
     let ai_env = build_ai_env_plan();
 
     append_app_studio_gui_log(
@@ -484,6 +498,7 @@ fn run_import_action(
             ("python_source", python_candidate.source.clone()),
             ("metadata_override_keys", metadata_override_keys.clone()),
             ("icon_override_source", icon_override_source.clone()),
+            ("build_profile_source", build_profile_source.clone()),
             ("ai_enabled", ai_env.diagnostics.ai_enabled.to_string()),
             ("api_key_source", ai_env.diagnostics.api_key_source.clone()),
             (
@@ -523,6 +538,9 @@ fn run_import_action(
     }
     if let Some((path, _)) = icon_override.as_ref() {
         command.arg("--icon-override").arg(path);
+    }
+    if let Some(path) = build_profile_override.as_ref() {
+        command.arg("--build-profile").arg(path);
     }
     if request.create_app_env {
         command.arg("--create-app-env");
@@ -576,6 +594,7 @@ fn run_import_action(
             ("python_source", python_candidate.source),
             ("metadata_override_keys", metadata_override_keys),
             ("icon_override_source", icon_override_source),
+            ("build_profile_source", build_profile_source),
             ("ai_enabled", ai_env.diagnostics.ai_enabled.to_string()),
             ("api_key_source", ai_env.diagnostics.api_key_source),
             (
@@ -743,6 +762,8 @@ fn result_from_process(
         metadata_override_keys: summary.metadata_override_keys,
         icon_override_used: summary.icon_override_used,
         selected_icon_source: summary.selected_icon_source,
+        exe_readiness_status: summary.exe_readiness_status,
+        manual_checks: summary.manual_checks,
     }
 }
 
@@ -762,6 +783,28 @@ fn validate_request(request: &AppStudioImportRequest) -> Result<(), String> {
     if let Some(app_id) = clean_optional(&request.app_id) {
         validate_app_id(app_id)?;
     }
+    Ok(())
+}
+
+fn normalize_normal_import_request(request: &mut AppStudioImportRequest) -> Result<(), String> {
+    let entry = PathBuf::from(request.entry.trim());
+    if entry
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.eq_ignore_ascii_case("exe"))
+        .unwrap_or(false)
+    {
+        return Err("Normal App Studio registration accepts Python source only. Existing exe registration is not available in this flow.".to_string());
+    }
+    if request.create_app_env || request.rebuild_app_env {
+        return Err("Normal App Studio registration uses an internal build_env, not runtime/app_envs options.".to_string());
+    }
+    request.build_mode = "frozen-folder".to_string();
+    request.generate_lock = true;
+    request.build_frozen_folder = true;
+    request.verify_runtime = true;
+    request.create_app_env = false;
+    request.rebuild_app_env = false;
     Ok(())
 }
 
@@ -889,11 +932,22 @@ fn preflight_for_request(
     } else if let Err(error) = validate_entry_path(&entry) {
         errors.push(error);
     }
+    if entry
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.eq_ignore_ascii_case("exe"))
+        .unwrap_or(false)
+    {
+        errors.push("Normal App Studio registration accepts Python source only. Existing exe registration is not available in this flow.".to_string());
+    }
 
-    let build_mode_valid =
-        ["auto", "app-env", "frozen-folder", "existing-exe"].contains(&request.build_mode.as_str());
+    let build_mode_valid = ["auto", "frozen-folder"].contains(&request.build_mode.as_str());
     if !build_mode_valid {
         errors.push("BuildModeが不正です。".to_string());
+    }
+
+    if request.create_app_env || request.rebuild_app_env {
+        errors.push("Normal App Studio registration uses an internal build_env, not runtime/app_envs options.".to_string());
     }
 
     let app_id_valid = match clean_optional(&request.app_id) {
@@ -1213,6 +1267,16 @@ fn read_import_plan(output_dir: &Path, summary: &mut AppStudioResultSummary) {
     if let Some(value) = json.get("selected_icon_source").and_then(Value::as_str) {
         summary.selected_icon_source = Some(value.to_string());
     }
+    if let Some(value) = json.get("exe_readiness_status").and_then(Value::as_str) {
+        summary.exe_readiness_status = Some(value.to_string());
+    }
+    if let Some(items) = json.get("manual_checks").and_then(Value::as_array) {
+        summary.manual_checks = items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect();
+    }
 }
 
 fn read_execution_result(output_dir: &Path, summary: &mut AppStudioResultSummary) {
@@ -1397,6 +1461,7 @@ fn import_request_from_update(request: &AppStudioUpdateRequest) -> AppStudioImpo
         icon_prompt: request.icon_prompt.clone(),
         metadata: request.metadata.clone(),
         icon_override: request.icon_override.clone(),
+        build_profile: request.build_profile.clone(),
         create_app_env: request.create_app_env,
         rebuild_app_env: request.rebuild_app_env,
         generate_lock: request.generate_lock,
@@ -1543,6 +1608,37 @@ fn write_icon_override_file(
     std::fs::write(&path, text)
         .map_err(|_| "Could not write App Studio icon override file.".to_string())?;
     Ok(Some((path, source)))
+}
+
+fn write_build_profile_override_file(
+    request: &AppStudioImportRequest,
+) -> Result<Option<PathBuf>, String> {
+    let Some(payload) = build_profile_payload(&request.build_profile) else {
+        return Ok(None);
+    };
+    let dir = crate::setup::user_data_root()
+        .join("data")
+        .join("app_studio")
+        .join("build_profile_overrides");
+    std::fs::create_dir_all(&dir)
+        .map_err(|_| "Could not create App Studio build profile override directory.".to_string())?;
+    let app_stem = clean_optional(&request.app_id).unwrap_or("pending");
+    let stamp = chrono::Local::now().timestamp_millis();
+    let path = dir.join(format!("{}_{}.json", safe_file_stem(app_stem), stamp));
+    let text = serde_json::to_string_pretty(&payload)
+        .map_err(|_| "Could not serialize App Studio build profile override.".to_string())?;
+    std::fs::write(&path, text)
+        .map_err(|_| "Could not write App Studio build profile override file.".to_string())?;
+    Ok(Some(path))
+}
+
+fn build_profile_payload(build_profile: &Option<Value>) -> Option<Value> {
+    let value = build_profile.as_ref()?;
+    match value {
+        Value::Object(map) if map.is_empty() => None,
+        Value::Null => None,
+        _ => Some(value.clone()),
+    }
 }
 
 fn icon_override_payload(
@@ -1794,7 +1890,7 @@ Add-Type -AssemblyName System.Windows.Forms
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $dialog = New-Object System.Windows.Forms.OpenFileDialog
 $dialog.Title = 'ToolHub App Studio Entry'
-$dialog.Filter = 'Python or executable (*.py;*.exe)|*.py;*.exe|Python files (*.py)|*.py|Executable files (*.exe)|*.exe|All files (*.*)|*.*'
+$dialog.Filter = 'Python source (*.py)|*.py|All files (*.*)|*.*'
 $dialog.CheckFileExists = $true
 $dialog.Multiselect = $false
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
@@ -1921,6 +2017,7 @@ mod tests {
             icon_prompt: None,
             metadata: None,
             icon_override: None,
+            build_profile: None,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,
@@ -1950,6 +2047,7 @@ mod tests {
             icon_prompt: None,
             metadata: None,
             icon_override: None,
+            build_profile: None,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,
@@ -2106,6 +2204,7 @@ mod tests {
                 ..AppStudioEditableMetadata::default()
             }),
             icon_override: None,
+            build_profile: None,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,
@@ -2288,6 +2387,7 @@ mod tests {
             icon_prompt: None,
             metadata: None,
             icon_override: None,
+            build_profile: None,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,

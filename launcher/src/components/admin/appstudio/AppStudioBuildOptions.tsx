@@ -1,123 +1,101 @@
-import { Info } from "lucide-react";
-import { BUILD_MODE_INFO, buildModeTitle, recommendBuildMode } from "../../../lib/appStudioBuildInfo";
-import type { AppStudioBuildMode, AppStudioImportRequest } from "../../../lib/appStudioTypes";
+import { useEffect } from "react";
+import { Hammer, LockKeyhole, PackageCheck, ShieldCheck } from "lucide-react";
+import type { AppStudioImportRequest } from "../../../lib/appStudioTypes";
 
 interface Props {
   request: AppStudioImportRequest;
   onChange: (next: AppStudioImportRequest) => void;
 }
 
-type BuildOptionKey = "generateLock" | "createAppEnv" | "rebuildAppEnv" | "buildFrozenFolder" | "verifyRuntime";
-
-interface BuildOptionInfo {
-  key: BuildOptionKey;
+interface FixedPolicyInfo {
   label: string;
   summary: string;
-  when: string;
   detail: string;
+  icon: typeof LockKeyhole;
 }
 
-const BUILD_MODES: AppStudioBuildMode[] = ["auto", "app-env", "frozen-folder", "existing-exe"];
-
-const BUILD_OPTIONS: BuildOptionInfo[] = [
+const FIXED_POLICIES: FixedPolicyInfo[] = [
   {
-    key: "generateLock",
     label: "requirements.lock生成",
-    summary: "依存関係を固定して再現性を高めます",
-    when: "Python依存を後から再現したい時にON",
-    detail: "現在解析できる依存関係をlockファイルとして残します。配布後に同じ環境を作り直しやすくなります。",
+    summary: "常にON",
+    detail: "依存関係を固定し、ビルド再現性を高めます。依存がない場合も空または最小lockとして扱います。",
+    icon: LockKeyhole,
   },
   {
-    key: "createAppEnv",
-    label: "app_env作成",
-    summary: "このアプリ専用の実行環境を作ります",
-    when: "app-env方式で初回登録する時にON",
-    detail: "runtime/app_envs/<app_id> に専用環境を作ります。他アプリの依存関係と混ざりにくくなります。",
-  },
-  {
-    key: "rebuildAppEnv",
-    label: "app_env再作成",
-    summary: "壊れた/変わった環境を作り直します",
-    when: "依存関係を変えた時や環境不調時にON",
-    detail: "既存のapp_envを作り直します。通常の初回登録では不要ですが、依存更新や環境破損の切り分けに使います。",
-  },
-  {
-    key: "buildFrozenFolder",
     label: "frozen-folder build",
-    summary: "Python不要で配れる実行フォルダを作ります",
-    when: "配布先にPython環境を意識させたくない時にON",
-    detail: "PyInstaller onedir相当の実行フォルダを作成します。GUIアプリや複数ファイル構成の配布に向いています。",
+    summary: "常にON",
+    detail: "Python不要で配布できるPyInstaller --onedir形式の実行フォルダを作成します。--onefileは標準にしません。",
+    icon: PackageCheck,
   },
   {
-    key: "verifyRuntime",
-    label: "runtime検証",
-    summary: "ToolHub同梱runtimeで動くか確認します",
-    when: "正式配布前の最終確認でON",
-    detail: "開発機のPythonではなく、ToolHub同梱runtimeで実行可能か確認します。配布前の再現性確認に使います。",
+    label: "配布物検証",
+    summary: "常にON",
+    detail: "exe、run.entry、同梱ファイル、禁止ファイル混入、build_env分離、サイズを確認します。",
+    icon: ShieldCheck,
+  },
+  {
+    label: "ビルド用環境",
+    summary: "内部処理",
+    detail: "exe作成のために一時的なbuild_envを使用します。利用者PCやruntime/app_envsには要求しません。",
+    icon: Hammer,
   },
 ];
 
 export function AppStudioBuildOptions({ request, onChange }: Props) {
-  const selectedInfo = BUILD_MODE_INFO[request.buildMode];
-  const recommendation = recommendBuildMode(request.entry);
+  const fixedRequest: AppStudioImportRequest = {
+    ...request,
+    buildMode: "frozen-folder",
+    createAppEnv: false,
+    rebuildAppEnv: false,
+    generateLock: true,
+    buildFrozenFolder: true,
+    verifyRuntime: true,
+  };
 
-  function update(partial: Partial<AppStudioImportRequest>) {
-    onChange({ ...request, ...partial });
-  }
+  const needsNormalization =
+    request.buildMode !== fixedRequest.buildMode ||
+    request.createAppEnv ||
+    request.rebuildAppEnv ||
+    !request.generateLock ||
+    !request.buildFrozenFolder ||
+    !request.verifyRuntime;
+
+  useEffect(() => {
+    if (needsNormalization) {
+      onChange(fixedRequest);
+    }
+  }, [fixedRequest, needsNormalization, onChange]);
 
   return (
     <section className="studio-step studio-build-options">
       <div>
         <span className="studio-step-index">B</span>
-        <h4>実行方式</h4>
-      </div>
-      <div className="studio-segmented" role="radiogroup" aria-label="実行方式">
-        {BUILD_MODES.map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            className={`${request.buildMode === mode ? "active" : ""} ${recommendation.mode === mode ? "recommended" : ""}`.trim()}
-            title={buildModeTitle(mode)}
-            onClick={() => update({ buildMode: mode })}
-          >
-            {mode}
-          </button>
-        ))}
+        <h4>配布用exeを作成して登録</h4>
       </div>
 
       <div className="studio-build-help">
-        <strong>{selectedInfo.title}</strong>
-        <p>{selectedInfo.description}</p>
-        <div className="studio-build-recommendation">
-          <span>推奨: {recommendation.mode}</span>
-          <p>{recommendation.reason}</p>
-        </div>
-        {recommendation.entryKind === "exe" ? (
-          <ul>
-            <li>既存exeとして登録します。</li>
-            <li>Python依存解析は基本的に不要です。</li>
-            <li>exeと同じフォルダのDLLや設定ファイルもbin配下にコピーされます。</li>
-            <li>dry executionがスキップされてwarnになる場合があります。警告許容モードなら承認できます。</li>
-          </ul>
-        ) : null}
+        <strong>通常ユーザー向け配布に固定</strong>
+        <p>Pythonソースを解析し、必要ファイルだけを同梱したfrozen-folderを作成して登録します。既存exe登録、Python直接実行、app_env実行方式は通常新規登録では選べません。</p>
       </div>
 
-      <div className="studio-option-grid">
-        {BUILD_OPTIONS.map((option) => (
-          <label className="studio-option-card" key={option.key}>
-            <input type="checkbox" checked={Boolean(request[option.key])} onChange={(event) => update({ [option.key]: event.target.checked })} />
-            <span className="studio-option-text">
-              <span className="studio-option-title">
-                <strong>{option.label}</strong>
-                <span className="studio-info-icon" title={option.detail} aria-label={`${option.label}の補足`}>
-                  <Info size={15} aria-hidden="true" />
-                </span>
+      <div className="studio-option-grid fixed-policy-grid">
+        {FIXED_POLICIES.map((policy) => {
+          const Icon = policy.icon;
+          return (
+            <div className="studio-option-card fixed" key={policy.label}>
+              <span className="studio-option-icon" aria-hidden="true">
+                <Icon size={17} />
               </span>
-              <small>{option.summary}</small>
-              <em>{option.when}</em>
-            </span>
-          </label>
-        ))}
+              <span className="studio-option-text">
+                <span className="studio-option-title">
+                  <strong>{policy.label}</strong>
+                  <em>{policy.summary}</em>
+                </span>
+                <small>{policy.detail}</small>
+              </span>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

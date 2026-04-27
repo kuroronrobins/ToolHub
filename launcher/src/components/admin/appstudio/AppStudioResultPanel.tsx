@@ -76,12 +76,24 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
         <OutputDirRow value={result?.outputDir ?? ""} disabled={busy || !result?.outputDir} onOpen={() => void openOutputDir()} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="メタデータ上書き" value={metadataOverrideText(result)} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="アイコン上書き" value={iconOverrideText(result)} />
+        <ResultRow icon={<CircleAlert size={18} />} label="exe化準備" value={executionLabel(result?.exeReadinessStatus)} />
         <ResultRow icon={<CircleAlert size={18} />} label="実行確認" value={executionLabel(result?.executionStatus)} />
         <ResultRow icon={<CircleAlert size={18} />} label="承認可否" value={formatBool(result?.approvalAllowed)} />
         <ResultRow icon={<CircleAlert size={18} />} label="実行環境" value={executionLabel(result?.runtimeStatus)} />
         <ResultRow icon={<PackageCheck size={18} />} label="App Pack" value={result?.appPack ?? "未作成"} />
         <ResultRow icon={<ShieldCheck size={18} />} label="次の操作" value={nextAction} />
       </div>
+
+      {result?.manualChecks?.length ? (
+        <div className="studio-manual-checks">
+          <strong>手動確認</strong>
+          <ul>
+            {result.manualChecks.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {openMessage ? <p className="admin-success">{openMessage}</p> : null}
       {openError ? <p className="admin-error">{openError}</p> : null}

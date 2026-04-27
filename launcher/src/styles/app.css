@@ -1578,6 +1578,69 @@ button {
   padding-top: 0;
 }
 
+.studio-build-profile {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #dfe5ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.studio-build-profile summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #111827;
+}
+
+.studio-build-profile p {
+  margin: 0;
+  color: #5b6675;
+  line-height: 1.55;
+}
+
+.studio-build-profile label {
+  display: grid;
+  gap: 6px;
+}
+
+.studio-build-profile label span {
+  color: #344054;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.studio-build-profile textarea {
+  min-height: 70px;
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #cfd7e3;
+  border-radius: 8px;
+  padding: 9px;
+  color: #111827;
+  font: inherit;
+}
+
+.studio-manual-checks {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #dfe5ee;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.studio-manual-checks strong {
+  color: #111827;
+}
+
+.studio-manual-checks ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #5b6675;
+  line-height: 1.5;
+}
+
 .studio-launcher-preview {
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr);
