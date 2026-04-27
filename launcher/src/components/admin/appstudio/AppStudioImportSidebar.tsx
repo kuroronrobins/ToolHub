@@ -45,8 +45,8 @@ export function AppStudioImportSidebar({ step, operation, request, preflight, re
           <dd>{request.version || result?.newVersion || result?.currentVersion || "-"}</dd>
         </div>
         <div>
-          <dt>実行方式</dt>
-          <dd>{result?.selectedBuildMode || request.buildMode}</dd>
+          <dt>登録方式</dt>
+          <dd>{result?.selectedBuildMode === "frozen-folder" || request.buildMode === "frozen-folder" ? "配布用exe" : result?.selectedBuildMode || request.buildMode}</dd>
         </div>
         <div>
           <dt>事前確認</dt>
@@ -96,13 +96,13 @@ function nextAction(
     return "説明文、カテゴリ、アイコンを確認し、必要ならAIアイコンを再生成してください。";
   }
   if (!result) {
-    return preflight?.ok ? "登録内容を作成し、続けてテスト登録と起動確認を行ってください。" : "まず事前確認を実行してください。";
+    return preflight?.ok ? "登録内容を作成し、続けてテスト登録と配布物検証を行ってください。" : "まず事前確認を実行してください。";
   }
   if (result.enabled) {
     return "承認済みです。通常ランチャーで表示と起動を確認してください。";
   }
   if (result.executionStatus === "fail" || result.approvalAllowed === false) {
-    return "起動確認の失敗を解消してから承認してください。";
+    return "配布物検証の失敗を解消してから承認してください。";
   }
   return "テスト登録結果を確認し、問題なければ承認して有効化してください。";
 }
@@ -112,7 +112,7 @@ function collectWarnings(preflight: AppStudioPreflightResult | null, result: App
   preflight?.warnings.forEach((warning) => warnings.add(friendlyWarning(warning)));
   aiProposal?.warnings.forEach((warning) => warnings.add(warning));
   if (result?.executionStatus === "warn") {
-    warnings.add("起動確認が警告扱いです。ログとレポートを確認してください。");
+    warnings.add("配布物検証が警告扱いです。ログとレポートを確認してください。");
   }
   if (reportStatus(aiProposal?.icon.aiReport) === "フォールバック") {
     warnings.add("画像生成はフォールバックPNGを使用しています。");
@@ -127,7 +127,7 @@ function preflightStatus(preflight: AppStudioPreflightResult | null): string {
   if (!preflight.entryExists || !preflight.appIdValid || !preflight.buildModeValid || preflight.errors.length) {
     return "進行不可";
   }
-  if (!preflight.runtimePythonExists || preflight.warnings.length) {
+  if (preflight.warnings.length) {
     return "要注意";
   }
   return "問題なし";
@@ -135,7 +135,7 @@ function preflightStatus(preflight: AppStudioPreflightResult | null): string {
 
 function friendlyWarning(warning: string): string {
   if (warning.includes("runtime/python/python.exe") || warning.toLowerCase().includes("runtime")) {
-    return "開発機のPythonで続行できますが、正式配布前にはToolHub同梱runtimeで再確認が必要です。";
+    return "通常新規登録では内部build_envで配布用exeを作成します。";
   }
   return warning;
 }

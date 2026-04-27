@@ -1,19 +1,14 @@
 # GUI Build方式・AI提案・結果表示補足
 
-App Studio GUI の Build mode には hover の `title` と選択中説明、Entryに応じた推奨表示があります。
+通常新規登録 GUI は BuildMode を選ばせません。Python ソースから配布用 frozen-folder exe を作成して登録する固定フローです。
 
-- `auto`: 通常はこれを選びます。Entryの種類から App Studio が自動判定します。.exe なら `existing-exe`、軽量Pythonなら `app-env`、複雑Pythonなら `frozen-folder` を提案します。
-- `app-env`: Pythonソースを ToolHub 同梱Pythonと `runtime/app_envs/<app_id>` で起動します。単一スクリプトや中規模Pythonツール向けです。
-- `frozen-folder`: 複雑なPythonアプリを PyInstaller `--onedir` 相当の展開済みフォルダで配布します。GUI、音声、外部依存、複数ファイル構成向けです。
-- `existing-exe`: すでに `.exe` があるアプリを登録します。exeと同じフォルダのDLL、設定ファイル、補助ファイルも `bin` 配下へコピーする想定です。
-
-Entryが `.exe` の場合、GUIは `existing-exe` を推奨します。Entryが `main.py` / `app.py` の場合は `auto` を推奨し、固有名の単一 `.py` では `app-env` を推奨します。不明なEntryでは `auto` で Suggest し、判定結果を確認してください。
+旧来の `auto` / `app-env` / `existing-exe` / Python 直接実行は、既存 manifest 互換や古いログを読むための概念として残っていますが、通常新規登録 GUI の選択肢ではありません。Entry が `.exe` の場合は、既存 exe 登録ではなく Python ソースを選び直す必要があります。
 
 GUIでは、Suggest が生成した `proposed_app.yaml` と `icon_work/` をAI/fallback提案として読み込めます。表示対象は、表示名、short_description、detail.description、categories、search keywords、examples、use_cases、inputs、outputs、notes、icon prompt、更新時の release notes 草案、`icon_candidate_1.png`、`icon_final.png`、`icon_candidate_1.url.txt`、`icon_fallback.svg`、互換用の `icon_final.svg` です。AI提案は自動確定せず、採用ボタンで表示名やicon promptなど編集可能な入力欄へ反映します。APIキー未設定、AI無効、OpenAI packageなし、API失敗時も CLI 側の deterministic fallback で動きます。high secret 検出時はAI送信しません。
 
 AI提案パネルはCLIへ渡すAI環境の診断も表示します。表示対象は AI enabled、API key source、Text model、Image model、CLI env ready です。APIキー本文は表示しません。`metadata_ai_report` と `icon_work/ai_generation_report.md` から、metadata/image それぞれの `status`、`model`、`parse_status`、`content_type`、`saved_candidate`、`fallback_reason` も確認できます。
 
-GUIでは CLI process の `exit_code` / `process_ok` と、`execution_test_result.json` の `overall_status` / `approval_allowed` を分けて表示します。`existing-exe` や `frozen-folder` では runner dry execution がスキップされ、`overall_status: warn` になることがあります。`approval_allowed: true` で、他のチェックが pass の場合は致命的失敗ではありません。GUIはこの状態を `warn / approval OK` と表示し、AllowWarnings で承認できるようにします。App Packが見つからない場合は App Pack 欄だけ `not found` と表示します。Apply後はGUIが `app_studio_read_result` を再実行し、生成済みJSONの内容を表示へ反映します。
+GUIでは CLI process の `exit_code` / `process_ok` と、`execution_test_result.json` の `overall_status` / `approval_allowed` を分けて表示します。通常新規登録の frozen-folder では runner dry execution がスキップされ、`overall_status: warn` になることがあります。`approval_allowed: true` で、他のチェックが pass の場合は致命的失敗ではありません。GUIはこの状態を `warn / approval OK` と表示し、AllowWarnings で承認できるようにします。App Packが見つからない場合は App Pack 欄だけ `not found` と表示します。Apply後はGUIが `app_studio_read_result` を再実行し、生成済みJSONの内容を表示へ反映します。
 
 ## AI提案メタデータとmetadata_override
 
@@ -62,15 +57,19 @@ OpenAI APIキーは管理者画面の AI/APIキー管理で扱います。キー
 GUI で入力できる項目:
 
 - Entry ファイルパス
-- Entry 参照ボタン: Windows ではファイル選択ダイアログから `.py` / `.exe` / 任意ファイルを選択できます。非対応環境では手入力で続行します。
+- Entry 参照ボタン: Windows ではファイル選択ダイアログから Python ソースを選択します。`.exe` は通常新規登録の入力として扱いません。
 - App ID
 - 表示名
-- BuildMode: `auto`, `app-env`, `frozen-folder`, `existing-exe`
 - Icon Prompt
-- `requirements.lock` 生成
-- app_env 作成/再作成
-- frozen-folder build
-- runtime 検証
+
+GUI で固定表示される実行予定:
+
+- `requirements.lock` 生成/更新
+- 内部 `build_env` 作成と依存インストール
+- PyInstaller `--onedir --clean --contents-directory .` による frozen-folder build
+- frozen-folder 配布物検証
+
+app_env 作成/再作成、BuildMode 選択、既存 exe 登録、Python 直接実行は通常新規登録 GUI から選べません。
 
 GUI で実行できる操作:
 
@@ -91,11 +90,10 @@ Preflight表示:
 
 - Entry の存在
 - AppId 形式
-- BuildMode
-- `runtime/python/python.exe` の有無
-- App Studio 実行に使う Python の種類: `runtime`, `python`, `py`, `missing`
+- Entry が Python ソースであること
+- App Studio 実行に使う開発環境 Python の有無
 
-`runtime/python/python.exe` が未配置でも、開発環境 Python fallback が見つかる場合は警告として扱います。Python が見つからない場合は Suggest / Apply を実行できませんが、通常ランチャー機能には影響しません。
+通常新規登録の配布物検証は `runtime/python/python.exe` や `runtime/app_envs/<app_id>` の有無を承認ブロック理由にしません。exe 作成には出力ディレクトリ配下の内部 `build_env` を使います。Python が見つからない場合は Suggest / Apply を実行できませんが、通常ランチャー機能には影響しません。
 
 承認モード:
 
@@ -110,7 +108,7 @@ GUI実行ログ:
 %LOCALAPPDATA%\ToolHub\data\logs\admin\app_studio_gui.log
 ```
 
-ログには action、exit code、app_id、build_mode、output_dir を記録します。APIキー、パスワード、secret値は記録しません。stdout/stderr 表示前にも `sk-` 形式のキーらしい文字列をマスクします。
+ログには action、exit code、app_id、固定 build mode、output_dir、CLI path、argv を記録します。APIキー、パスワード、secret値は記録しません。stdout/stderr 表示前にも `sk-` 形式のキーらしい文字列をマスクします。
 
 GUI未対応またはMVPに留めている機能:
 
@@ -122,23 +120,21 @@ GUI未対応またはMVPに留めている機能:
 - 配布済みランチャーへの自動更新配信
 - manifest署名
 
-## 対応する登録方式
+## 通常フローと legacy 方式
 
-- `app-env`: 標準方式。`runtime/app_envs/<app_id>/Scripts/python.exe` を優先し、なければ `runtime/python/python.exe` を使います。
-- `frozen-folder`: 複雑な Python アプリ向け。PyInstaller `--onedir` 相当のフォルダ配布を想定します。
-- `existing-exe`: 既存 exe と周辺ファイルを `bin/` に置く方式です。
+通常新規登録 GUI は `frozen-folder` 固定です。`app.yaml` は `run.runner: exe` と `run.entry: bin/<app_id>/<app_id>.exe` を使います。
 
-`auto` を指定した場合、単純な Python スクリプトは `app-env`、多数のモジュール、assets/config、音声、外部 DLL、複雑な依存がある場合は `frozen-folder`、Entry が exe の場合は `existing-exe` を選びます。
+`app-env`、`existing-exe`、Python 直接実行、旧 `auto` 判定は legacy / 既存互換の説明です。既存登録済み app や古い manifest を読むために内部型が残る場合がありますが、通常新規登録 GUI では露出しません。
 
-## app-env方式
+## app-env方式 legacy
 
-`app-env` は ToolHub 標準の Python アプリ登録方式です。利用者 PC の PATH 上の Python には依存せず、ToolHub インストール時に `%LOCALAPPDATA%\Programs\ToolHub\` 配下へ展開済みの runtime を使う前提です。
+`app-env` は既存 app / 互換用の方式です。通常新規登録 GUI では利用者向け実行方式として使いません。
 
 生成される `app.yaml` は `run.runner: python_app_env` を使います。
 
 ## frozen-folder方式
 
-`frozen-folder` は PyInstaller `--onedir` 相当を前提にした方式です。通常は plan 生成だけでも利用できますが、`-BuildFrozenFolder` を指定すると PyInstaller `--onedir` の実ビルドを行います。
+`frozen-folder` は通常新規登録の固定方式です。PyInstaller `--onedir --clean --contents-directory .` で実ビルドを行います。
 
 PyInstaller が未導入、またはビルド環境に問題がある場合は、Apply を成功扱いにせず `frozen_folder_build_report.md` に理由と対処案を残します。実ビルド成果物は `bin/<app_id>/<app_id>.exe` を `run.entry` として扱います。
 
@@ -241,10 +237,10 @@ app_id と名称を指定:
 .\scripts\import_app.ps1 -Entry "C:\path\to\main.py" -AppId "agendasnap" -Name "AgendaSnap" -Apply
 ```
 
-frozen-folder 方式:
+通常新規登録:
 
 ```powershell
-.\scripts\import_app.ps1 -Entry "C:\path\to\main.py" -AppId "agendasnap" -Name "AgendaSnap" -BuildMode "frozen-folder" -Apply
+.\scripts\import_app.ps1 -Entry "C:\path\to\main.py" -AppId "agendasnap" -Name "AgendaSnap" -Apply
 ```
 
 アイコン修正プロンプト:
@@ -253,9 +249,9 @@ frozen-folder 方式:
 .\scripts\import_app.ps1 -Entry "C:\path\to\main.py" -AppId "agendasnap" -Name "AgendaSnap" -IconPrompt "マイクとメモ帳を組み合わせ、ToolHub既存アイコンに合うシンプルな線画にする" -Suggest
 ```
 
-## app_env実体作成
+## app_env実体作成 legacy
 
-`app-env` 方式では、開発時に `runtime/app_envs/<app_id>/` を作成できます。利用者PCでは、この作成済み app_env が ToolHub インストール先へ展開される前提であり、利用者に Python や pip の導入を要求しません。
+`app-env` 作成は通常新規登録 GUI の機能ではありません。以下は legacy / 既存互換フローの説明です。
 
 ```powershell
 .\scripts\import_app.ps1 -Entry "C:\work\tool\main.py" -AppId "my_tool" -Name "My Tool" -BuildMode "app-env" -Apply -GenerateLock -CreateAppEnv
@@ -272,46 +268,46 @@ frozen-folder 方式:
 `-GenerateLock` を指定すると、`requirements.lock` を生成またはコピーします。
 
 - 既存 `requirements.lock` がある場合はコピーを優先します。
-- app_env Python がある場合は `pip freeze` を使います。
+- 通常新規登録では内部 `build_env` の `pip freeze` を使います。
 - それ以外は `requirements.txt` の正規化結果を lock として保存します。
-- `-SkipLock` では lock 生成をスキップします。
+- 通常新規登録では lock 生成をスキップしません。
 
 レポートは `lock_generation_report.md` と `data/logs/app_studio/<app_id>_lock_generation_report.md` に保存されます。`pip freeze` は過剰依存が混ざる可能性があるため、人間レビューを前提にします。
 
 ## frozen-folder実ビルド
 
-複雑な Python アプリは `frozen-folder` 方式で PyInstaller `--onedir` 相当のフォルダビルドを行えます。
+通常新規登録では、Python アプリを常に `frozen-folder` 方式で PyInstaller `--onedir` 相当のフォルダビルドにします。
 
 ```powershell
-.\scripts\import_app.ps1 -Entry "C:\work\AgendaSnap\agendasnap\app.py" -AppId "agendasnap" -Name "AgendaSnap" -BuildMode "frozen-folder" -Apply -BuildFrozenFolder
+.\scripts\import_app.ps1 -Entry "C:\work\AgendaSnap\agendasnap\app.py" -AppId "agendasnap" -Name "AgendaSnap" -Apply
 ```
 
-- `-BuildFrozenFolder`: PyInstaller `--onedir` でビルドします。
-- `-RebuildFrozenFolder`: 既存出力を再作成します。
-- `-SkipFrozenBuild`: ビルドをスキップし、plan のみ残します。
+- frozen-folder build は常に実行します。
+- `-RebuildFrozenFolder` は互換用に残る場合がありますが、通常 Apply は毎回ビルドします。
+- `-SkipFrozenBuild` は通常新規登録では使えません。
 
 `--onefile` は標準では使いません。App Studio の frozen build は `bin/<app_id>/<app_id>.exe` を `run.entry` として扱います。PyInstaller が見つからない場合は失敗し、`frozen_folder_build_report.md` に理由を残します。
 
 PyInstaller probe や build が obsolete `pathlib` backport の影響で失敗した場合、レポートに原因候補と対処案を出します。App Studio はユーザー環境を壊さないため、自動で `pip uninstall pathlib` は実行しません。
 
-## runtime検証
+## frozen-folder配布物検証
 
-正式配布前には、開発環境 Python ではなく ToolHub 同梱 runtime で確認してください。
+通常新規登録では、旧 runtime/app_env 検証ではなく frozen-folder 配布物検証を実行します。
 
 ```powershell
 .\scripts\import_app.ps1 -Entry "C:\work\tool\main.py" -AppId "my_tool" -Apply -VerifyRuntime
 ```
 
-`-VerifyRuntime` は次を確認し、`runtime_check_report.md` と `runtime_check_result.json` を元フォルダ側および `data/logs/app_studio/` に保存します。
+`-VerifyRuntime` は互換名として残っていますが、通常新規登録では次を確認し、`runtime_check_report.md` と `runtime_check_result.json` を元フォルダ側および `data/logs/app_studio/` に保存します。
 
-- `runtime/python/python.exe` の存在
-- `runtime/python/python.exe --version`
-- `runtime/python/python.exe -m pip --version`
-- `runtime/app_envs/<app_id>/Scripts/python.exe` の存在
-- app_env Python の `--version`
-- app_env Python の `-m pip --version`
+- `final_app/bin/<app_id>/<app_id>.exe` の存在
+- `app.yaml` の `run.entry` が exe を指すこと
+- build_profile の add-data / required_files が frozen-folder 内に存在すること
+- `BUILD_REQUIRED.txt` が残っていないこと
+- `.auth`、logs、screenshots、tmp、credentials、token、secret、storage_state、`build_env` が配布物に混入していないこと
+- frozen-folder と add-data のサイズ
 
-開発中に `runtime/python/python.exe` が未配置でも通常フローは壊しません。ただし正式配布前は `runtime/python/python.exe` を配置し、app_env を再作成してから次を通すことを推奨します。
+開発中に `runtime/python/python.exe` や `runtime/app_envs/<app_id>` が未配置でも通常フローは壊しません。
 
 ```powershell
 .\scripts\verify_release.ps1 -RequireRuntime -Strict
@@ -386,16 +382,16 @@ $env:OPENAI_API_KEY="..."
 
 ## 実運用推奨コマンド
 
-軽量アプリ:
+通常新規登録:
 
 ```powershell
-.\scripts\import_app.ps1 -Entry "C:\work\tool\main.py" -AppId "my_tool" -Name "My Tool" -BuildMode "app-env" -Apply -GenerateLock -CreateAppEnv
+.\scripts\import_app.ps1 -Entry "C:\work\tool\main.py" -AppId "my_tool" -Name "My Tool" -Apply
 ```
 
-複雑アプリ:
+Playwright や複数ファイルを含むアプリも同じ通常フロー:
 
 ```powershell
-.\scripts\import_app.ps1 -Entry "C:\work\AgendaSnap\agendasnap\app.py" -AppId "agendasnap" -Name "AgendaSnap" -BuildMode "frozen-folder" -Apply -BuildFrozenFolder
+.\scripts\import_app.ps1 -Entry "C:\work\XCgate_AutoUpload\run_xcgate_upload.py" -AppId "run_xcgate_upload" -Name "Run XCgate Upload" -Apply
 ```
 
 厳格承認:
@@ -406,24 +402,20 @@ $env:OPENAI_API_KEY="..."
 
 ## 実アプリ適用前チェックリスト
 
-app-env方式:
+通常新規登録:
 
-- `requirements.txt` を確認する。
-- `-GenerateLock` で `requirements.lock` を生成する。
-- `-CreateAppEnv` で `runtime/app_envs/<app_id>/` を作成する。
-- `-VerifyRuntime` を実行し、runtime/app_env の状態を確認する。
-- `execution_test_result.json` が `pass` または許容できる `warn` であることを確認する。
-- `runtime/python/python.exe` 配置後に app_env を再作成する。
-- `.\scripts\approve_imported_app.ps1 -AppId "<app_id>" -StrictApproval` を実行する。
-
-frozen-folder方式:
-
-- PyInstaller が使える環境であることを確認する。
+- `requirements.txt` または `pyproject.toml`、必要な nested requirements を確認する。
+- `requirements.lock` が生成/更新されることを確認する。
+- `build_env` が App Studio 出力ディレクトリ配下に作成され、`runtime/app_envs/<app_id>` が PyInstaller に使われていないことを確認する。
+- PyInstaller / pyinstaller-hooks-contrib が `build_env` に導入されることを確認する。
 - obsolete `pathlib` backport が入っていないことを確認する。
-- `-BuildFrozenFolder` で `bin/<app_id>/<app_id>.exe` が生成されることを確認する。
+- `final_app/bin/<app_id>/<app_id>.exe` と `apps/<app_id>/bin/<app_id>/<app_id>.exe` が生成されることを確認する。
+- `BUILD_REQUIRED.txt` が残っていないことを確認する。
+- build_profile の add-data / required_files が frozen-folder 内に存在することを確認する。
 - `execution_test_result.json` の `frozen-folder executable` が `pass` であることを確認する。
+- `execution_test_result.json` が今回の Apply で更新され、`approval_allowed` が配布物検証結果に基づいていることを確認する。
 - `--onefile` を使っていないことを確認する。
-- 起動速度を実機で確認する。
+- Playwright のブラウザ操作、ログイン、社内サイト操作は manual check として実機で確認する。
 - `.\scripts\approve_imported_app.ps1 -AppId "<app_id>" -StrictApproval` を実行する。
 
 AI利用時:

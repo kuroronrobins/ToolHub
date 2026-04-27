@@ -489,12 +489,71 @@ fn run_import_action(
     }
     .to_string();
     let ai_env = build_ai_env_plan();
+    let mut cli_args: Vec<String> = vec![
+        script.display().to_string(),
+        "import".to_string(),
+        "--entry".to_string(),
+        request.entry.clone(),
+        "--build-mode".to_string(),
+        request.build_mode.clone(),
+    ];
+    if let Some(app_id) = clean_optional(&request.app_id) {
+        cli_args.push("--app-id".to_string());
+        cli_args.push(app_id.to_string());
+    }
+    if let Some(name) = clean_optional(&request.name) {
+        cli_args.push("--name".to_string());
+        cli_args.push(name.to_string());
+    }
+    if let Some(version) = clean_optional(&request.version) {
+        cli_args.push("--version".to_string());
+        cli_args.push(version.to_string());
+    }
+    if let Some(icon_prompt) = clean_optional(&request.icon_prompt) {
+        cli_args.push("--icon-prompt".to_string());
+        cli_args.push(icon_prompt.to_string());
+    }
+    if let Some((path, _)) = metadata_override.as_ref() {
+        cli_args.push("--metadata-override".to_string());
+        cli_args.push(path.display().to_string());
+    }
+    if let Some((path, _)) = icon_override.as_ref() {
+        cli_args.push("--icon-override".to_string());
+        cli_args.push(path.display().to_string());
+    }
+    if let Some(path) = build_profile_override.as_ref() {
+        cli_args.push("--build-profile".to_string());
+        cli_args.push(path.display().to_string());
+    }
+    if request.create_app_env {
+        cli_args.push("--create-app-env".to_string());
+    }
+    if request.rebuild_app_env {
+        cli_args.push("--rebuild-app-env".to_string());
+    }
+    if request.generate_lock {
+        cli_args.push("--generate-lock".to_string());
+    }
+    if request.build_frozen_folder {
+        cli_args.push("--build-frozen-folder".to_string());
+    }
+    if request.verify_runtime {
+        cli_args.push("--verify-runtime".to_string());
+    }
+    cli_args.push(if action == "apply" {
+        "--apply".to_string()
+    } else {
+        "--suggest".to_string()
+    });
+    let cli_argv = command_line_for_log(&python, &cli_args);
 
     append_app_studio_gui_log(
         &format!("{action} started"),
         &[
             ("app_id", request.app_id.clone().unwrap_or_default()),
             ("build_mode", request.build_mode.clone()),
+            ("cli_path", script.display().to_string()),
+            ("argv", cli_argv.clone()),
             ("python_source", python_candidate.source.clone()),
             ("metadata_override_keys", metadata_override_keys.clone()),
             ("icon_override_source", icon_override_source.clone()),
@@ -514,54 +573,9 @@ fn run_import_action(
     );
 
     let mut command = Command::new(&python);
-    command
-        .arg(script)
-        .arg("import")
-        .arg("--entry")
-        .arg(&request.entry)
-        .arg("--build-mode")
-        .arg(&request.build_mode);
-    if let Some(app_id) = clean_optional(&request.app_id) {
-        command.arg("--app-id").arg(app_id);
+    for arg in &cli_args {
+        command.arg(arg);
     }
-    if let Some(name) = clean_optional(&request.name) {
-        command.arg("--name").arg(name);
-    }
-    if let Some(version) = clean_optional(&request.version) {
-        command.arg("--version").arg(version);
-    }
-    if let Some(icon_prompt) = clean_optional(&request.icon_prompt) {
-        command.arg("--icon-prompt").arg(icon_prompt);
-    }
-    if let Some((path, _)) = metadata_override.as_ref() {
-        command.arg("--metadata-override").arg(path);
-    }
-    if let Some((path, _)) = icon_override.as_ref() {
-        command.arg("--icon-override").arg(path);
-    }
-    if let Some(path) = build_profile_override.as_ref() {
-        command.arg("--build-profile").arg(path);
-    }
-    if request.create_app_env {
-        command.arg("--create-app-env");
-    }
-    if request.rebuild_app_env {
-        command.arg("--rebuild-app-env");
-    }
-    if request.generate_lock {
-        command.arg("--generate-lock");
-    }
-    if request.build_frozen_folder {
-        command.arg("--build-frozen-folder");
-    }
-    if request.verify_runtime {
-        command.arg("--verify-runtime");
-    }
-    command.arg(if action == "apply" {
-        "--apply"
-    } else {
-        "--suggest"
-    });
     apply_ai_environment(&mut command, &ai_env);
 
     let output = command
@@ -590,6 +604,8 @@ fn run_import_action(
                     .unwrap_or_default(),
             ),
             ("build_mode", request.build_mode.clone()),
+            ("cli_path", script.display().to_string()),
+            ("argv", cli_argv),
             ("output_dir", summary.output_dir.clone().unwrap_or_default()),
             ("python_source", python_candidate.source),
             ("metadata_override_keys", metadata_override_keys),
@@ -965,23 +981,9 @@ fn preflight_for_request(
     };
 
     let runtime_python_exists = runtime_python_path(root).is_file();
-    if !runtime_python_exists {
-        warnings.push(
-            "runtime/python/python.exe は未配置です。開発環境Python fallbackになる可能性があります。"
-                .to_string(),
-        );
-    }
 
     let (python_source, python_path) = match python_candidate {
-        Some(candidate) => {
-            if candidate.source != "runtime" {
-                warnings.push(
-                    "開発環境Python fallbackを使用します。正式配布前はToolHub同梱runtimeで再確認してください。"
-                        .to_string(),
-                );
-            }
-            (candidate.source, Some(candidate.path.display().to_string()))
-        }
+        Some(candidate) => (candidate.source, Some(candidate.path.display().to_string())),
         None => {
             errors.push(python_missing_message());
             ("missing".to_string(), None)
@@ -1979,6 +1981,20 @@ fn append_app_studio_gui_log(event: &str, attrs: &[(&str, String)]) {
             }
         }
         let _ = writeln!(file, "{line}");
+    }
+}
+
+fn command_line_for_log(program: &Path, args: &[String]) -> String {
+    let mut parts = vec![quote_log_arg(&program.display().to_string())];
+    parts.extend(args.iter().map(|arg| quote_log_arg(arg)));
+    parts.join(" ")
+}
+
+fn quote_log_arg(value: &str) -> String {
+    if value.chars().any(|ch| ch.is_whitespace()) {
+        format!("\"{}\"", value.replace('"', "\\\""))
+    } else {
+        value.to_string()
     }
 }
 

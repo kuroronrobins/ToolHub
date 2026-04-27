@@ -55,19 +55,13 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
 
       {warningOnly ? (
         <p className="admin-muted">
-          CLIの終了コードは0以外ですが、実行確認結果は「警告」かつ承認可能です。ログを確認してから承認してください。
-        </p>
-      ) : null}
-
-      {result?.selectedBuildMode === "existing-exe" ? (
-        <p className="admin-muted">
-          existing-exe は既存の実行ファイルと関連ファイルを使います。dry execution が警告でスキップされる場合があります。
+          CLIの終了コードは0以外ですが、配布物検証結果は「警告」かつ承認可能です。ログを確認してから承認してください。
         </p>
       ) : null}
 
       <div className="studio-result-list">
         <ResultRow icon={<CheckCircle2 size={18} />} label="アプリID" value={result?.appId ?? "-"} />
-        <ResultRow icon={<CheckCircle2 size={18} />} label="実行方式" value={result?.selectedBuildMode ?? "-"} />
+        <ResultRow icon={<CheckCircle2 size={18} />} label="登録方式" value={result?.selectedBuildMode === "frozen-folder" ? "配布用exe" : result?.selectedBuildMode ?? "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="現在版" value={result?.currentVersion ?? "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="新しい版" value={result?.newVersion ?? "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="終了コード" value={result ? String(result.exitCode) : "-"} />
@@ -77,9 +71,9 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
         <ResultRow icon={<CheckCircle2 size={18} />} label="メタデータ上書き" value={metadataOverrideText(result)} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="アイコン上書き" value={iconOverrideText(result)} />
         <ResultRow icon={<CircleAlert size={18} />} label="exe化準備" value={executionLabel(result?.exeReadinessStatus)} />
-        <ResultRow icon={<CircleAlert size={18} />} label="実行確認" value={executionLabel(result?.executionStatus)} />
+        <ResultRow icon={<CircleAlert size={18} />} label="配布物検証" value={executionLabel(result?.executionStatus)} />
         <ResultRow icon={<CircleAlert size={18} />} label="承認可否" value={formatBool(result?.approvalAllowed)} />
-        <ResultRow icon={<CircleAlert size={18} />} label="実行環境" value={executionLabel(result?.runtimeStatus)} />
+        <ResultRow icon={<CircleAlert size={18} />} label="配布物" value={executionLabel(result?.runtimeStatus)} />
         <ResultRow icon={<PackageCheck size={18} />} label="App Pack" value={result?.appPack ?? "未作成"} />
         <ResultRow icon={<ShieldCheck size={18} />} label="次の操作" value={nextAction} />
       </div>
@@ -236,7 +230,7 @@ function nextActionText(
     return "承認済みです。";
   }
   if (lastAction === "suggest") {
-    return "テスト登録して起動確認してください。";
+    return "テスト登録して配布物検証してください。";
   }
   if (lastAction === "apply") {
     if (result.executionStatus === "fail" || result.approvalAllowed === false) {

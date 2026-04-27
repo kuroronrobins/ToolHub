@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import fnmatch
+import json
 from pathlib import Path
 from typing import Any
 
 from .models import BuildPlan, RuntimeCheck, RuntimeCheckResult, StudioContext
+from .trace import trace_with_import_plan
 from .util import write_json, write_text
 
 
@@ -94,6 +96,7 @@ def verify_frozen_folder_distribution(
         file_check("frozen-folder executable exists", exe_path),
         app_yaml_entry_check(final_app / "app.yaml", plan.entry),
         run_entry_policy_check(plan.entry),
+        build_required_removed_check(final_app),
         pyinstaller_layout_check(output_dir),
         required_data_files_check(bin_root, build_profile, context.source_root),
         forbidden_payload_check(final_app),
@@ -114,7 +117,7 @@ def verify_frozen_folder_distribution(
                 "Playwright was collected for the build. Browser binaries and login state must be verified manually; authenticated storage state is not packaged.",
             )
         )
-    return RuntimeCheckResult(context.app_id, overall_status(checks), checks)
+    return RuntimeCheckResult(context.app_id, overall_status(checks), checks, trace_with_import_plan(context, output_dir))
 
 
 def verify_legacy_runtime(context: StudioContext, output_dir: Path) -> RuntimeCheckResult:
@@ -125,7 +128,7 @@ def verify_legacy_runtime(context: StudioContext, output_dir: Path) -> RuntimeCh
             "Normal App Studio registration now verifies frozen-folder distribution output. Legacy app_env runtime probing is skipped for this path.",
         )
     ]
-    return RuntimeCheckResult(context.app_id, overall_status(checks), checks)
+    return RuntimeCheckResult(context.app_id, overall_status(checks), checks, trace_with_import_plan(context, output_dir))
 
 
 def file_check(name: str, path: Path, missing_status: str = "fail") -> RuntimeCheck:
@@ -149,6 +152,13 @@ def run_entry_policy_check(entry: str) -> RuntimeCheck:
     if entry.lower().endswith(".exe") or "." not in Path(entry).name:
         return RuntimeCheck("distribution run.entry policy", "pass", entry)
     return RuntimeCheck("distribution run.entry policy", "warn", f"Entry is not a .py file, but review unusual executable name: {entry}")
+
+
+def build_required_removed_check(final_app: Path) -> RuntimeCheck:
+    marker = final_app / "bin" / "BUILD_REQUIRED.txt"
+    if marker.exists():
+        return RuntimeCheck("BUILD_REQUIRED marker removed", "fail", f"BUILD_REQUIRED.txt remains after frozen build: {marker}")
+    return RuntimeCheck("BUILD_REQUIRED marker removed", "pass", "BUILD_REQUIRED.txt is not present in final_app/bin.")
 
 
 def pyinstaller_layout_check(output_dir: Path) -> RuntimeCheck:
@@ -416,6 +426,8 @@ def runtime_report_markdown(result: RuntimeCheckResult) -> str:
         "| --- | --- | --- |",
     ]
     lines.extend(f"| {check.status} | {check.name} | {check.detail} |" for check in result.checks)
+    if result.evidence:
+        lines.extend(["", "## Evidence", "", "```json", json.dumps(result.evidence, ensure_ascii=False, indent=2), "```"])
     lines.extend(["", "Normal App Studio registration verifies the generated exe/frozen-folder payload, not runtime/app_env."])
     return "\n".join(lines) + "\n"
 

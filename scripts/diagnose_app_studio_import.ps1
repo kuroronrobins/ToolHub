@@ -379,22 +379,44 @@ function Find-OutputDirFromLogs {
 
 function Resolve-OutputDir {
     if (-not [string]::IsNullOrWhiteSpace($OutputDir)) {
-        return [System.IO.Path]::GetFullPath($OutputDir)
+        return Resolve-FullPathSafe -Value $OutputDir
     }
     if (-not [string]::IsNullOrWhiteSpace($Entry)) {
-        $EntryFull = [System.IO.Path]::GetFullPath($Entry)
+        $EntryFull = Resolve-FullPathSafe -Value $Entry
+        if ([string]::IsNullOrWhiteSpace($EntryFull)) {
+            return $null
+        }
         $EntryParent = Split-Path -Parent $EntryFull
         return (Join-Path (Join-Path $EntryParent "ToolHub_AppStudio_Output") $AppId)
     }
     $Mirror = Get-YamlScalar -Path $AppYamlPath -Key "output_mirror"
     if (-not [string]::IsNullOrWhiteSpace($Mirror)) {
-        return [System.IO.Path]::GetFullPath($Mirror)
+        return Resolve-FullPathSafe -Value $Mirror
     }
     $FromLogs = Find-OutputDirFromLogs -Directory $LogDir -Id $AppId
     if (-not [string]::IsNullOrWhiteSpace($FromLogs)) {
-        return [System.IO.Path]::GetFullPath($FromLogs)
+        return Resolve-FullPathSafe -Value $FromLogs
     }
     return $null
+}
+
+function Resolve-FullPathSafe {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+    $Clean = $Value.Trim().Trim('"').Trim("'").Trim('`')
+    if ([string]::IsNullOrWhiteSpace($Clean)) {
+        return $null
+    }
+    if ($Clean.IndexOfAny([System.IO.Path]::GetInvalidPathChars()) -ge 0) {
+        return $null
+    }
+    try {
+        return [System.IO.Path]::GetFullPath($Clean)
+    } catch {
+        return $null
+    }
 }
 
 $ResolvedOutputDir = Resolve-OutputDir
@@ -486,6 +508,10 @@ $ExecutionState = Read-JsonFile -Path $ExecutionJsonPath
 $OutputExecutionState = Read-JsonFile -Path $OutputExecutionJsonPath
 $RuntimeState = Read-JsonFile -Path $RuntimeJsonPath
 $ImportPlanState = Read-JsonFile -Path $OutputImportPlanPath
+$TracePolicyId = if ($ImportPlanState.status -eq "ok") { [string](Get-Prop -Object $ImportPlanState.data -Name "app_studio_policy_id") } else { "" }
+$TraceBuildEnvPython = if ($ImportPlanState.status -eq "ok") { [string](Get-Prop -Object $ImportPlanState.data -Name "build_env_python") } else { "" }
+$TraceProbePython = if ($ImportPlanState.status -eq "ok") { [string](Get-Prop -Object $ImportPlanState.data -Name "pyinstaller_probe_python") } else { "" }
+$TraceBuildPython = if ($ImportPlanState.status -eq "ok") { [string](Get-Prop -Object $ImportPlanState.data -Name "pyinstaller_build_python") } else { "" }
 $ManifestPath = Join-Path (Join-Path $Root "release") "app_manifest.json"
 $ManifestState = Read-JsonFile -Path $ManifestPath
 
@@ -723,6 +749,9 @@ $AppEnvTextState = Read-TextFile -Path (Select-NewestExistingFile -Paths @($Outp
 $CombinedOldText = (($FrozenTextState.text, $AppEnvTextState.text) -join "`n")
 if (Contains-Text -Text $CombinedOldText -Needle ("runtime/app_envs/" + $AppId)) {
     $OldSignals += "runtime/app_envs/<app_id> appears in reports"
+    if ($TracePolicyId -eq "normal_python_source_to_frozen_folder_build_env_v2") {
+        $OldSignals += "current import_plan uses build_env policy; runtime/app_envs in reports is likely stale output from an older run"
+    }
 }
 if (Contains-Text -Text $CombinedOldText -Needle "No module named PyInstaller") {
     $OldSignals += "No module named PyInstaller appears in reports"
@@ -979,6 +1008,15 @@ $ReportLines += @("", "### Old app_env / PyInstaller Signals")
 $ReportLines += Format-ArrayLines -Items $OldSignals
 $ReportLines += @(
     "",
+    "### Current Import Plan Trace",
+    "",
+    "- app_studio_policy_id: $(if ($TracePolicyId) { $TracePolicyId } else { "missing" })",
+    "- build_env_python: $(if ($TraceBuildEnvPython) { $TraceBuildEnvPython } else { "missing" })",
+    "- pyinstaller_probe_python: $(if ($TraceProbePython) { $TraceProbePython } else { "missing" })",
+    "- pyinstaller_build_python: $(if ($TraceBuildPython) { $TraceBuildPython } else { "missing" })"
+)
+$ReportLines += @(
+    "",
     "## Registration / Manifest",
     "",
     "- app.yaml exists: $(Test-Path -LiteralPath $AppYamlPath -PathType Leaf)",
@@ -1082,6 +1120,12 @@ $Summary = [ordered]@{
         missing_packaged_data_count = $MissingPackagedData.Count
         internal_only_data_count = $InternalOnlyData.Count
         included_assets_not_in_add_data_count = $IncludedAssetsNotInAddData.Count
+    }
+    import_plan_trace = [ordered]@{
+        app_studio_policy_id = $TracePolicyId
+        build_env_python = $TraceBuildEnvPython
+        pyinstaller_probe_python = $TraceProbePython
+        pyinstaller_build_python = $TraceBuildPython
     }
     manifest = [ordered]@{
         registered = [bool]$ManifestEntry

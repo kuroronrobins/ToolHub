@@ -10,7 +10,6 @@ import {
   appStudioReadResult,
   appStudioSuggest,
 } from "../../../lib/appStudioApi";
-import { BUILD_MODE_INFO } from "../../../lib/appStudioBuildInfo";
 import { suggestAppIdentity } from "../../../lib/appStudioIdentity";
 import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
 import type {
@@ -212,7 +211,7 @@ export function AppStudioImportWizard() {
       }
       return freshResult;
     } catch (runError) {
-      const fallback = action === "suggest" ? "登録内容の作成に失敗しました。" : "テスト登録と起動確認に失敗しました。";
+      const fallback = action === "suggest" ? "登録内容の作成に失敗しました。" : "テスト登録と配布物検証に失敗しました。";
       setError(formatAdminError(runError, fallback));
       finishOperation("error", fallback);
       return null;
@@ -427,11 +426,11 @@ export function AppStudioImportWizard() {
         </div>
 
         <div className="studio-build-summary">
-          <strong>推奨実行方式: {recommendation.mode}</strong>
+          <strong>登録方式: 配布用exe固定</strong>
           <p>{recommendation.reason}</p>
         </div>
 
-        <AppStudioCollapsibleSection title="詳細設定" summary="実行方式や環境作成オプションを調整できます。">
+        <AppStudioCollapsibleSection title="実行予定" summary="requirements.lock、build_env、frozen-folder build、配布物検証を固定で実行します。">
           <AppStudioBuildOptions
             request={request}
             onChange={(next) => {
@@ -594,11 +593,11 @@ export function AppStudioImportWizard() {
         </div>
 
         <div className="studio-build-summary">
-          <strong>選択中の実行方式: {request.buildMode}</strong>
-          <p>{BUILD_MODE_INFO[request.buildMode].description}</p>
+          <strong>配布用exeを作成して登録します</strong>
+          <p>Pythonソースを解析し、内部build_envでPyInstaller frozen-folderを作成してから配布物を検証します。</p>
         </div>
 
-        <AppStudioCollapsibleSection title="詳細オプション" summary="requirements.lock、app_env、runtime検証を変更できます。">
+        <AppStudioCollapsibleSection title="実行予定" summary="固定ポリシーを確認できます。通常新規登録では旧オプションを変更できません。">
           <AppStudioBuildOptions
             request={request}
             onChange={(next) => {
@@ -621,8 +620,8 @@ export function AppStudioImportWizard() {
           <button className="studio-register-action primary" type="button" onClick={() => void run("apply", "apply")} disabled={!canRun} title={!canRun ? "アプリのメインファイルを選択してください" : undefined}>
             {operation.kind === "apply" && busy ? <Loader2 className="studio-spinner" size={18} aria-hidden="true" /> : <Rocket size={18} aria-hidden="true" />}
             <span>
-              <strong>{operation.kind === "apply" && busy ? "起動確認を実行しています..." : "テスト登録して起動確認"}</strong>
-              <small>一時的に登録し、実際に起動できるか確認します。</small>
+              <strong>{operation.kind === "apply" && busy ? "配布物検証を実行しています..." : "テスト登録して配布物検証"}</strong>
+              <small>一時的に登録し、exeと同梱ファイルが揃っているか確認します。</small>
             </span>
           </button>
           <button className="studio-register-action primary" type="button" onClick={() => void approve()} disabled={busy || !canApprove}>
@@ -685,7 +684,7 @@ function messageForResult(result: AppStudioRunResult, action: StudioAction): str
     return "承認して有効化しました。通常ランチャーで表示を確認してください。";
   }
   if (action === "apply") {
-    return "テスト登録と起動確認が完了しました。問題なければ承認してください。";
+    return "テスト登録と配布物検証が完了しました。問題なければ承認してください。";
   }
   return "登録内容を作成しました。内容を確認して次へ進んでください。";
 }
