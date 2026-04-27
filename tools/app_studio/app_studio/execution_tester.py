@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .models import BuildPlan, ExecutionCheck, ExecutionTestResult, SecretScanReport, StudioContext
-from .runtime_checker import is_forbidden_payload_path
+from .runtime_checker import is_forbidden_payload_path, required_data_findings
 from .util import now_iso, write_json, write_text
 
 
@@ -15,18 +16,19 @@ SUPPORTED_RUNNERS = {"python", "cli", "exe", "playwright_python", "python_app_en
 
 
 def run_execution_checks(context: StudioContext, plan: BuildPlan, output_dir: Path, secret_report: SecretScanReport | None = None) -> ExecutionTestResult:
-    result = build_execution_result(context, plan, secret_report)
+    result = build_execution_result(context, plan, output_dir, secret_report)
     write_execution_result(context, output_dir, result)
     return result
 
 
-def record_blocked_execution(context: StudioContext, output_dir: Path, check_name: str, detail: str) -> ExecutionTestResult:
+def record_blocked_execution(context: StudioContext, output_dir: Path, check_name: str, detail: str, plan: BuildPlan | None = None) -> ExecutionTestResult:
     result = ExecutionTestResult(
         app_id=context.app_id,
         generated_at=now_iso(),
         overall_status="fail",
         approval_allowed=False,
         checks=[check(check_name, "fail", detail)],
+        evidence=execution_evidence(context, output_dir, plan),
     )
     write_execution_result(context, output_dir, result)
     return result
@@ -42,7 +44,8 @@ def write_execution_result(context: StudioContext, output_dir: Path, result: Exe
     write_json(log_dir / f"{context.app_id}_execution_test_result.json", result.to_dict())
 
 
-def build_execution_result(context: StudioContext, plan: BuildPlan, secret_report: SecretScanReport | None = None) -> ExecutionTestResult:
+def build_execution_result(context: StudioContext, plan: BuildPlan, output_dir: Path | None = None, secret_report: SecretScanReport | None = None) -> ExecutionTestResult:
+    output_dir = output_dir or context.output_dir
     checks: list[ExecutionCheck] = []
     app_yaml = context.repo_root / "apps" / context.app_id / "app.yaml"
     app_entry = context.repo_root / "apps" / context.app_id / plan.entry
@@ -78,6 +81,7 @@ def build_execution_result(context: StudioContext, plan: BuildPlan, secret_repor
         overall_status=overall,
         approval_allowed=overall != "fail",
         checks=checks,
+        evidence=execution_evidence(context, output_dir, plan),
     )
 
 
@@ -166,25 +170,20 @@ def frozen_profile_checks(context: StudioContext) -> list[ExecutionCheck]:
     except Exception as exc:
         return [check("frozen build profile", "fail", f"build_profile.json could not be parsed: {exc!r}")]
 
-    add_data = profile.get("add_data") if isinstance(profile, dict) else None
-    if not isinstance(add_data, list) or not add_data:
+    findings = required_data_findings(context.repo_root / "apps" / context.app_id / "bin" / context.app_id, profile, context.source_root)
+    if findings["status"] == "no_data":
         return [check("frozen data files", "warn", "No add_data entries are listed in build_profile.json.")]
-
-    missing: list[str] = []
-    bin_root = context.repo_root / "apps" / context.app_id / "bin" / context.app_id
-    for item in add_data:
-        if not isinstance(item, dict):
-            continue
-        source = str(item.get("source") or "")
-        destination = str(item.get("destination") or "")
-        if not source or not destination:
-            continue
-        expected = bin_root / destination / Path(source).name
-        if not expected.is_file():
-            missing.append(expected.as_posix())
-    if missing:
-        return [check("frozen data files", "fail", "Missing packaged data files: " + ", ".join(missing[:10]))]
-    return [check("frozen data files", "pass", f"{len(add_data)} packaged data file(s) were found.")]
+    if findings["missing"]:
+        return [check("frozen data files", "fail", "Missing packaged data files: " + ", ".join(item["relative"] for item in findings["missing"][:10]))]
+    if findings["internal_only"]:
+        return [
+            check(
+                "frozen data files",
+                "warn",
+                f"{findings['found_count']} packaged data file(s) were found, but {len(findings['internal_only'])} are only under _internal. Rebuild with --contents-directory . to normalize layout.",
+            )
+        ]
+    return [check("frozen data files", "pass", f"{findings['found_count']} packaged data file(s) were found.")]
 
 
 def forbidden_registered_payload_check(context: StudioContext) -> ExecutionCheck:
@@ -213,6 +212,37 @@ def execution_report_markdown(result: ExecutionTestResult) -> str:
         "| --- | --- | --- |",
     ]
     lines.extend(f"| {item.status} | {item.name} | {item.detail} |" for item in result.checks)
+    if result.evidence:
+        lines.extend(["", "## Evidence", "", "```json", json.dumps(result.evidence, ensure_ascii=False, indent=2), "```"])
     lines.append("")
     lines.append("Human approval is required before enabling this app in release/app_manifest.json.")
     return "\n".join(lines) + "\n"
+
+
+def execution_evidence(context: StudioContext, output_dir: Path, plan: BuildPlan | None) -> dict[str, Any]:
+    app_dir = context.repo_root / "apps" / context.app_id
+    app_yaml = app_dir / "app.yaml"
+    build_profile = app_dir / "build_profile.json"
+    output_build_profile = output_dir / "build_profile.json"
+    entry = plan.entry if plan else f"bin/{context.app_id}/{context.app_id}.exe"
+    frozen_exe = app_dir / entry
+    output_frozen_exe = output_dir / "final_app" / entry
+    return {
+        "output_dir": str(output_dir),
+        "frozen_build_report": file_evidence(output_dir / "frozen_folder_build_report.md"),
+        "frozen_exe": file_evidence(frozen_exe),
+        "output_frozen_exe": file_evidence(output_frozen_exe),
+        "app_yaml": file_evidence(app_yaml),
+        "build_profile": file_evidence(build_profile if build_profile.is_file() else output_build_profile),
+    }
+
+
+def file_evidence(path: Path) -> dict[str, Any]:
+    exists = path.exists()
+    stat = path.stat() if exists else None
+    return {
+        "path": str(path),
+        "exists": exists,
+        "last_write_time": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds") if stat else None,
+        "size": stat.st_size if stat and path.is_file() else None,
+    }

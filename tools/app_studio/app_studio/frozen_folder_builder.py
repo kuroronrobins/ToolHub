@@ -160,7 +160,7 @@ def detect_pyinstaller_environment_issue(stdout: str, stderr: str) -> list[str]:
                 "PyInstaller output suggests an obsolete pathlib backport is installed.",
                 "Python 3 includes pathlib in the standard library; the backport can break PyInstaller.",
                 "Remove the backport from the build environment manually, for example: `python -m pip uninstall pathlib`.",
-                "Recreate the app_env if needed, then rerun with `-BuildFrozenFolder`.",
+                "Recreate the internal build_env if needed, then rerun Apply.",
                 "ToolHub App Studio did not uninstall anything automatically.",
             ]
         )
@@ -176,6 +176,8 @@ def build_report(context: StudioContext, plan: BuildPlan, commands: list[list[st
         f"- status: `{status}`",
         f"- expected_entry: `{plan.entry}`",
         f"- exe_path: `{exe_path}`",
+        f"- pyinstaller_layout: `--onedir --contents-directory .`",
+        f"- contents_directory_dot: `{any('--contents-directory' == arg and index + 1 < len(command) and command[index + 1] == '.' for command in commands for index, arg in enumerate(command))}`",
         "",
         "## Commands",
         "",

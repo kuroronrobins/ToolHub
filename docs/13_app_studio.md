@@ -433,3 +433,52 @@ AI利用時:
 - high secret がある場合はAI送信されないことを確認する。
 - 生成アイコン候補PNG/URLは人間レビュー用であり、採用したPNGだけが `icon.png` に反映されることを確認する。
 - 既存 `display.icon: icon.svg` のアプリが引き続き表示できることを確認する。
+
+## App Studio Import Diagnostic Script
+
+When App Studio approval shows only `Execution test result does not allow approval.`,
+use the read-only diagnostic script to separate the direct approval gate from the
+root cause in Apply/build artifacts.
+
+```powershell
+.\scripts\diagnose_app_studio_import.ps1 -AppId <app_id>
+```
+
+Useful options:
+
+- `-Entry <main.py>`: also checks `ToolHub_AppStudio_Output/<app_id>` under the entry parent.
+- `-OutputDir <path>`: explicitly points to an App Studio output mirror.
+- `-NoWrite`: prints the report without saving `data/logs/app_studio/<app_id>_diagnostic_report.md`.
+- `-AsJson`: prints a JSON summary.
+- `-VerboseFiles`: includes detailed file evidence.
+
+The script does not run Apply, Approve, PyInstaller, or any app. It only reads
+logs, `apps/<app_id>`, output mirror files, and `release/app_manifest.json`, then
+classifies likely causes such as stale `execution_test_result.json`, frozen build
+failure, registration copy not reached, missing add-data files, old app_env-based
+PyInstaller logs, or manifest registration gaps.
+
+## App Studio normal registration policy
+
+This section is authoritative for the current normal new-registration GUI.
+
+The normal App Studio registration flow is distribution-only for ordinary users:
+
+```text
+Python source -> analyze -> build_env -> install dependencies -> requirements.lock
+-> PyInstaller frozen-folder build -> distribution check -> app.yaml/register
+```
+
+The normal GUI does not let users choose BuildMode, app_env execution, Python direct execution, or existing-exe registration. Those names may still appear in legacy code paths, old logs, or compatibility documentation for existing apps, but they are not user-facing choices in the normal new-registration GUI.
+
+Normal registration always generates or refreshes `requirements.lock`, always builds a PyInstaller frozen folder, and always runs a frozen-folder distribution/execution check before approval. `app.yaml` must point `run.entry` at the generated executable, usually `bin/<app_id>/<app_id>.exe`; it must not point at a `.py` file for normal distribution.
+
+The build environment is internal. App Studio may create `build_env` under the output workspace to run PyInstaller and build tools, but this is separate from `runtime/app_envs/<app_id>`, is not a user runtime, and must not be copied into `final_app`, App Packs, `release`, or `runtime`.
+
+PyInstaller uses folder output (`--onedir --clean --contents-directory .`) as the ToolHub standard. The verifier accepts older PyInstaller 6 `_internal` add-data placement as a compatibility warning when files are present there, but a current build using `--contents-directory .` is expected to place required add-data beside the executable. If an old failed `execution_test_result.json` is older than `app.yaml`, `build_profile.json`, or the generated exe, approval reports a stale execution result instead of hiding the reason behind a generic approval failure.
+
+Legacy/compatibility notes:
+
+- `app-env`, `existing-exe`, and Python direct execution are compatibility concepts for existing manifests, historical CLI paths, or old registered apps.
+- The normal new-registration GUI intentionally does not expose existing-exe registration because ToolHub cannot verify that a user-provided exe is portable and complete.
+- Any other section that lists BuildMode choices should be read as legacy background unless it explicitly says it applies to the current normal GUI.

@@ -73,6 +73,15 @@
       "required_runner": ">=0.1.0",
       "required_runtime": null,
       "enabled": false
+    },
+    "officetopdf_toc": {
+      "version": "0.1.0",
+      "package": "app_packs/officetopdf_toc-0.1.0.zip",
+      "sha256": "40c62dbd9383cfda2972332cfcd558c38b3a059088d0bced4eca906daa1cd477",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": null,
+      "enabled": true
     }
   }
 }

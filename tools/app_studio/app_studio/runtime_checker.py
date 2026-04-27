@@ -94,7 +94,8 @@ def verify_frozen_folder_distribution(
         file_check("frozen-folder executable exists", exe_path),
         app_yaml_entry_check(final_app / "app.yaml", plan.entry),
         run_entry_policy_check(plan.entry),
-        required_data_files_check(bin_root, build_profile),
+        pyinstaller_layout_check(output_dir),
+        required_data_files_check(bin_root, build_profile, context.source_root),
         forbidden_payload_check(final_app),
         build_env_separation_check(context, final_app),
         size_check("frozen-folder size", bin_root),
@@ -150,24 +151,156 @@ def run_entry_policy_check(entry: str) -> RuntimeCheck:
     return RuntimeCheck("distribution run.entry policy", "warn", f"Entry is not a .py file, but review unusual executable name: {entry}")
 
 
-def required_data_files_check(bin_root: Path, build_profile: dict[str, Any]) -> RuntimeCheck:
-    add_data = build_profile.get("add_data") if isinstance(build_profile, dict) else None
-    if not isinstance(add_data, list) or not add_data:
+def pyinstaller_layout_check(output_dir: Path) -> RuntimeCheck:
+    report_path = output_dir / "frozen_folder_build_report.md"
+    if not report_path.is_file():
+        return RuntimeCheck("pyinstaller layout command", "warn", f"Build report was not found: {report_path}")
+    text = report_path.read_text(encoding="utf-8", errors="replace")
+    if command_uses_contents_directory_dot(text):
+        return RuntimeCheck("pyinstaller layout command", "pass", "PyInstaller command includes --contents-directory . for old-style onedir layout.")
+    if "--contents-directory" in text:
+        return RuntimeCheck("pyinstaller layout command", "warn", "PyInstaller command uses --contents-directory but not with '.'. Review onedir data placement.")
+    return RuntimeCheck("pyinstaller layout command", "warn", "PyInstaller command does not show --contents-directory .; _internal data placement may be from an old build.")
+
+
+def command_uses_contents_directory_dot(text: str) -> bool:
+    tokens = text.replace("`", "").replace('"', "").replace("'", "").split()
+    for index, token in enumerate(tokens[:-1]):
+        if token == "--contents-directory" and tokens[index + 1] == ".":
+            return True
+    return False
+
+
+def required_data_files_check(bin_root: Path, build_profile: dict[str, Any], source_root: Path | None = None) -> RuntimeCheck:
+    findings = required_data_findings(bin_root, build_profile, source_root)
+    if findings["status"] == "no_data":
         return RuntimeCheck("required add-data files", "warn", "No add_data entries are listed in build_profile.json.")
-    missing: list[str] = []
-    for item in add_data:
-        if not isinstance(item, dict):
+    if findings["missing"]:
+        return RuntimeCheck("required add-data files", "fail", "Missing packaged data files: " + ", ".join(item["relative"] for item in findings["missing"][:10]))
+    if findings["internal_only"]:
+        detail = (
+            f"{findings['found_count']} packaged data item(s) were found, but "
+            f"{len(findings['internal_only'])} item(s) are only under _internal. "
+            "This is acceptable for existing PyInstaller 6 onedir artifacts, but with --contents-directory . new builds should place them beside the exe."
+        )
+        return RuntimeCheck("required add-data files", "warn", detail)
+    return RuntimeCheck("required add-data files", "pass", f"{findings['found_count']} packaged data item(s) were found.")
+
+
+def required_data_findings(bin_root: Path, build_profile: dict[str, Any], source_root: Path | None = None) -> dict[str, Any]:
+    add_data = build_profile.get("add_data") if isinstance(build_profile, dict) else None
+    required_files = build_profile.get("required_files") if isinstance(build_profile, dict) else None
+    mappings = [item for item in add_data if isinstance(item, dict)] if isinstance(add_data, list) else []
+    required = [str(item) for item in required_files if str(item).strip()] if isinstance(required_files, list) else []
+    if not mappings and not required:
+        return {"status": "no_data", "expected": [], "found": [], "missing": [], "internal_only": [], "found_count": 0}
+
+    expected = expected_data_relatives(mappings, required, source_root)
+    found: list[dict[str, str]] = []
+    missing: list[dict[str, str]] = []
+    internal_only: list[dict[str, str]] = []
+    for relative in expected:
+        primary = bin_root / relative
+        internal = bin_root / "_internal" / relative
+        item = {"relative": relative.as_posix(), "primary": primary.as_posix(), "internal": internal.as_posix()}
+        if primary.exists():
+            found.append({**item, "location": "primary"})
+        elif internal.exists():
+            found.append({**item, "location": "internal"})
+            internal_only.append(item)
+        else:
+            missing.append(item)
+    return {
+        "status": "ok",
+        "expected": [item.as_posix() for item in expected],
+        "found": found,
+        "missing": missing,
+        "internal_only": internal_only,
+        "found_count": len(found),
+    }
+
+
+def expected_data_relatives(mappings: list[dict[str, Any]], required_files: list[str], source_root: Path | None) -> list[Path]:
+    expected: list[Path] = []
+    if required_files:
+        for required in required_files:
+            relative = expected_relative_for_required_file(required, mappings, source_root)
+            if relative is not None:
+                expected.append(relative)
+        return unique_paths(expected)
+
+    for mapping in mappings:
+        source = str(mapping.get("source") or "").strip()
+        destination = str(mapping.get("destination") or ".").strip() or "."
+        if not source:
             continue
-        source = str(item.get("source") or "")
-        destination = str(item.get("destination") or "")
-        if not source or not destination:
+        source_path = resolve_source(source_root, source)
+        if source_path and source_path.is_dir():
+            files = sorted(path for path in source_path.rglob("*") if path.is_file())
+            if not files:
+                expected.append(clean_relative(destination))
+                continue
+            for file in files:
+                expected.append(clean_relative(destination) / file.relative_to(source_path))
+        else:
+            expected.append(clean_relative(destination) / Path(source).name)
+    return unique_paths(expected)
+
+
+def expected_relative_for_required_file(required: str, mappings: list[dict[str, Any]], source_root: Path | None) -> Path | None:
+    required_relative = clean_relative(required)
+    for mapping in mappings:
+        source = str(mapping.get("source") or "").strip()
+        destination = str(mapping.get("destination") or ".").strip() or "."
+        if not source:
             continue
-        expected = bin_root / destination / Path(source).name
-        if not expected.exists():
-            missing.append(expected.as_posix())
-    if missing:
-        return RuntimeCheck("required add-data files", "fail", "Missing packaged data files: " + ", ".join(missing[:10]))
-    return RuntimeCheck("required add-data files", "pass", f"{len(add_data)} packaged data item(s) were found.")
+        source_relative = clean_relative(source)
+        source_path = resolve_source(source_root, source)
+        if source_relative == required_relative:
+            if source_path and source_path.is_dir():
+                return clean_relative(destination)
+            return clean_relative(destination) / source_relative.name
+        nested = relative_to_or_none(required_relative, source_relative)
+        if nested is not None:
+            return clean_relative(destination) / nested
+    return required_relative
+
+
+def resolve_source(source_root: Path | None, source: str) -> Path | None:
+    if not source_root:
+        return None
+    path = Path(source)
+    return path if path.is_absolute() else source_root / path
+
+
+def clean_relative(value: str) -> Path:
+    normalized = str(value).replace("\\", "/").strip()
+    if not normalized or normalized == ".":
+        return Path(".")
+    return Path(normalized)
+
+
+def relative_to_or_none(path: Path, base: Path) -> Path | None:
+    path_parts = path.parts
+    base_parts = base.parts
+    if len(base_parts) > len(path_parts):
+        return None
+    if tuple(part.lower() for part in path_parts[: len(base_parts)]) != tuple(part.lower() for part in base_parts):
+        return None
+    rest = path_parts[len(base_parts) :]
+    return Path(*rest) if rest else Path(".")
+
+
+def unique_paths(paths: list[Path]) -> list[Path]:
+    result: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        key = path.as_posix().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(path)
+    return result
 
 
 def forbidden_payload_check(final_app: Path) -> RuntimeCheck:

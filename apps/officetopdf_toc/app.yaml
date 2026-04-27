@@ -1,0 +1,71 @@
+id: officetopdf_toc
+name: OfficeToPDF TOC
+
+display:
+  icon: icon.png
+  icon_fallback: icon.svg
+  short_description: "Office文書のPDF変換と目次関連の処理を行う業務向けツールです。"
+  categories:
+    - "文書処理"
+    - "業務支援"
+
+detail:
+  description: >
+    Office文書をPDFとして扱う際の補助処理を行う業務アプリです。文書の変換や目次に関する作業をまとめて扱いやすくし、手作業の負担を減らすことを目的としています。ファイル名や入力内容に応じて処理を行い、変換結果や関連情報を出力します。
+  use_cases:
+    - "Office文書をPDFに変換して配布用資料を作成する"
+    - "目次関連の処理を含む文書整形を行う"
+    - "定型の文書変換作業をまとめて実行する"
+  inputs:
+    - "対象のOffice文書ファイル"
+    - "処理対象のフォルダやファイル指定"
+    - "必要に応じた実行条件の指定"
+  outputs:
+    - "変換後のPDFファイル"
+    - "処理結果のメッセージ"
+    - "必要に応じた補助情報"
+  notes:
+    - "入力ファイルの形式や内容によっては処理できない場合があります。"
+    - "既存ファイルの上書きには注意してください。"
+    - "機密情報を含む文書は取り扱いに注意してください。"
+
+search:
+  keywords:
+    - OfficeToPDF
+    - "PDF変換"
+    - "目次"
+    - "文書処理"
+    - "業務効率化"
+    - AddNum_PDF
+    - OfficeToPDF_TOC
+  examples:
+    - "Office文書をPDFに変換して保存する"
+    - "目次付き資料の処理をまとめて実行する"
+    - "文書変換の結果を確認する"
+
+run:
+  runner: exe
+  entry: bin/officetopdf_toc/officetopdf_toc.exe
+  mode: gui
+
+admin:
+  version: 0.1.0
+  owner: admin
+  requirements: requirements.txt
+  log_dir: logs
+
+runtime:
+  distribution_mode: frozen_folder
+  app_env: null
+  required_runtime: null
+  requirements_lock: requirements.lock
+
+build:
+  managed_by: toolhub_app_studio
+  build_mode: frozen-folder
+  source_entry: C:\Users\kuroron\Downloads\drive-download-20260427T120504Z-3-001\OfficeToPDF_TOC.py
+  output_mirror: C:\Users\kuroron\Downloads\drive-download-20260427T120504Z-3-001\ToolHub_AppStudio_Output\officetopdf_toc
+
+quality:
+  approval_required: true
+  execution_test_required: true
