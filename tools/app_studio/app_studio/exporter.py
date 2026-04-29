@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .file_classifier import inventory_markdown
 from .icon_generator import generate_local_png
-from .models import BuildPlan, DependencyReport, GeneratedArtifacts, SecretScanReport, SourceInventory, StudioContext
+from .models import BuildPlan, DependencyReport, GeneratedArtifacts, IconCandidateAsset, SecretScanReport, SourceInventory, StudioContext
 from .secret_scanner import secret_report_markdown
 from .util import copy_file_preserving_root, reset_output_dir, write_bytes, write_json, write_text
 
@@ -47,6 +47,7 @@ def export_suggestion(
         write_bytes(icon_work / "icon_candidate_1.png", artifacts.icon_candidate_png)
     if artifacts.icon_candidate_url:
         write_text(icon_work / "icon_candidate_1.url.txt", artifacts.icon_candidate_url + "\n")
+    write_icon_candidates(icon_work, artifacts)
 
     final_app = output_dir / "final_app"
     write_text(final_app / "app.yaml", artifacts.app_yaml)
@@ -66,6 +67,61 @@ def export_suggestion(
     write_text(output_dir / "execution_test_report.md", "# Execution Test Report\n\nNot run yet. Apply must run execution checks.\n")
     write_text(output_dir / "approval_record.md", "# Approval Record\n\nNot approved yet.\n")
     return output_dir
+
+
+def write_icon_candidates(icon_work: Path, artifacts: GeneratedArtifacts) -> None:
+    candidates = artifacts.icon_candidates or legacy_icon_candidates(artifacts)
+    for candidate in candidates:
+        if candidate.png and candidate.file_name:
+            write_bytes(icon_work / candidate.file_name, candidate.png)
+        if candidate.url and candidate.url_file_name:
+            write_text(icon_work / candidate.url_file_name, candidate.url + "\n")
+    write_json(
+        icon_work / "candidate_manifest.json",
+        {
+            "schema_version": 1,
+            "standard_icon_size": "512x512",
+            "api_icon_size": "1024x1024",
+            "legacy_candidate_png": "icon_candidate_1.png",
+            "candidates": [candidate.manifest_entry() for candidate in candidates],
+        },
+    )
+
+
+def legacy_icon_candidates(artifacts: GeneratedArtifacts) -> list[IconCandidateAsset]:
+    if artifacts.icon_candidate_png:
+        return [
+            IconCandidateAsset(
+                candidate_id="icon_candidate_1",
+                number=1,
+                source="api_or_legacy",
+                prompt=artifacts.icon_prompt_revision or artifacts.icon_prompt_initial,
+                model="unknown",
+                status="legacy",
+                resolution="unknown",
+                is_fallback=False,
+                png=artifacts.icon_candidate_png,
+                file_name="icon_candidate_1.png",
+                notes="Legacy single PNG candidate.",
+            )
+        ]
+    if artifacts.icon_candidate_url:
+        return [
+            IconCandidateAsset(
+                candidate_id="icon_candidate_1",
+                number=1,
+                source="api_or_legacy",
+                prompt=artifacts.icon_prompt_revision or artifacts.icon_prompt_initial,
+                model="unknown",
+                status="legacy",
+                resolution="unknown",
+                is_fallback=False,
+                url=artifacts.icon_candidate_url,
+                url_file_name="icon_candidate_1.url.txt",
+                notes="Legacy single URL candidate.",
+            )
+        ]
+    return []
 
 
 def populate_final_app_sources(context: StudioContext, inventory: SourceInventory, plan: BuildPlan, final_app: Path) -> None:

@@ -216,6 +216,8 @@ export type AppStudioSelectedIconSource = "candidate_png" | "final_png" | "fallb
 export interface AppStudioIconOverride {
   selectedIconSource: AppStudioSelectedIconSource;
   pngDataUrl?: string;
+  candidateId?: string;
+  sourcePrompt?: string;
 }
 
 export interface AppStudioAiMetadataSuggestion {
@@ -245,7 +247,25 @@ export interface AppStudioAiIconSuggestion {
   candidatePngDataUrl?: string | null;
   finalPngDataUrl?: string | null;
   candidateUrl?: string | null;
+  candidates: AppStudioAiIconCandidate[];
   aiReport?: string | null;
+}
+
+export interface AppStudioAiIconCandidate {
+  candidateId: string;
+  number: number;
+  source: string;
+  prompt?: string | null;
+  model?: string | null;
+  status?: string | null;
+  resolution?: string | null;
+  fallback: boolean;
+  fileName?: string | null;
+  urlFileName?: string | null;
+  pngDataUrl?: string | null;
+  url?: string | null;
+  notes?: string | null;
+  revisionOf?: string | null;
 }
 
 export interface AppStudioAiProposal {

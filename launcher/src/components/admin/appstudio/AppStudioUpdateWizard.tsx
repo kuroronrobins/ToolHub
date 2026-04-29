@@ -432,6 +432,7 @@ export function AppStudioUpdateWizard() {
           onAdopt={adoptAiProposal}
           onIconAdopt={adoptIconOverride}
           selectedIconSource={request.iconOverride?.selectedIconSource}
+          selectedIconCandidateId={request.iconOverride?.candidateId}
           onProposalLoaded={setAiProposal}
         />
 

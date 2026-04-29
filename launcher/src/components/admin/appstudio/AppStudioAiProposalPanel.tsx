@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Bot, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { appStudioAiDiagnostics, appStudioReadAiProposal } from "../../../lib/appStudioApi";
-import type { AppStudioAiDiagnostics, AppStudioAiProposal, AppStudioIconOverride, AppStudioRunResult, AppStudioSelectedIconSource } from "../../../lib/appStudioTypes";
+import type { AppStudioAiDiagnostics, AppStudioAiIconCandidate, AppStudioAiProposal, AppStudioIconOverride, AppStudioRunResult, AppStudioSelectedIconSource } from "../../../lib/appStudioTypes";
 import { formatAdminError } from "../adminUi";
 
 interface Props {
@@ -14,6 +14,7 @@ interface Props {
   onAdopt: (values: { name?: string; iconPrompt?: string }) => void;
   onIconAdopt: (iconOverride: AppStudioIconOverride) => void;
   selectedIconSource?: AppStudioSelectedIconSource;
+  selectedIconCandidateId?: string;
   onProposalLoaded?: (proposal: AppStudioAiProposal) => void;
   onLoadStart?: () => void;
   onLoadComplete?: (ok: boolean, message?: string) => void;
@@ -45,6 +46,7 @@ export function AppStudioAiProposalPanel({
   onAdopt,
   onIconAdopt,
   selectedIconSource,
+  selectedIconCandidateId,
   onProposalLoaded,
   onLoadStart,
   onLoadComplete,
@@ -111,14 +113,15 @@ export function AppStudioAiProposalPanel({
   const metadata = proposal?.metadata;
   const icon = proposal?.icon;
   const selected = selectedIconSource ?? localSelectedIconSource;
+  const iconCandidates = icon ? normalizedIconCandidates(icon) : [];
   const metadataFields = compact ? METADATA_FIELDS.filter((field) => field.compact) : METADATA_FIELDS;
 
-  function adoptPng(source: "candidate_png" | "final_png", pngDataUrl?: string | null) {
+  function adoptPng(source: "candidate_png" | "final_png", pngDataUrl?: string | null, candidate?: AppStudioAiIconCandidate) {
     if (!pngDataUrl) {
       return;
     }
     setLocalSelectedIconSource(source);
-    onIconAdopt({ selectedIconSource: source, pngDataUrl });
+    onIconAdopt({ selectedIconSource: source, pngDataUrl, candidateId: candidate?.candidateId, sourcePrompt: candidate?.prompt ?? undefined });
     setMessage("PNGアイコン候補を採用しました。内容確認後、テスト登録で反映されます。");
   }
 
@@ -195,6 +198,16 @@ export function AppStudioAiProposalPanel({
               Promptを採用
             </button>
           </div>
+          <div className="studio-icon-candidate-grid">
+            {iconCandidates.map((candidate) => (
+              <IconCandidateCard
+                key={candidate.candidateId}
+                candidate={candidate}
+                adopted={selectedIconSource === "candidate_png" && selectedIconCandidateId === candidate.candidateId}
+                onAdopt={() => adoptPng("candidate_png", candidate.pngDataUrl, candidate)}
+              />
+            ))}
+          </div>
           <div className="studio-icon-preview-row">
             {icon.candidatePngDataUrl ? <img className="studio-icon-preview primary-icon-preview" src={icon.candidatePngDataUrl} alt="AI PNGアイコン候補" /> : null}
             {icon.finalPngDataUrl ? <img className="studio-icon-preview" src={icon.finalPngDataUrl} alt="フォールバックPNGアイコン" /> : null}
@@ -241,6 +254,67 @@ export function AppStudioAiProposalPanel({
       {error ? <p className="admin-error" role="alert">{error}</p> : null}
     </section>
   );
+}
+
+function IconCandidateCard({ candidate, adopted, onAdopt }: { candidate: AppStudioAiIconCandidate; adopted: boolean; onAdopt: () => void }) {
+  return (
+    <article className={`studio-icon-candidate-card${adopted ? " selected" : ""}`}>
+      <div className="studio-icon-candidate-head">
+        <strong>候補 {candidate.number || candidate.candidateId}</strong>
+        <span className={candidate.fallback ? "admin-status-pill warn" : "admin-status-pill"}>{candidate.fallback ? "fallback" : sourceLabel(candidate.source)}</span>
+      </div>
+      {candidate.pngDataUrl ? (
+        <img className="studio-icon-preview primary-icon-preview" src={candidate.pngDataUrl} alt={`PNGアイコン候補 ${candidate.number}`} />
+      ) : (
+        <div className="studio-icon-empty">PNGなし</div>
+      )}
+      <div className="studio-icon-candidate-meta">
+        <span>model: {candidate.model || "unknown"}</span>
+        <span>resolution: {candidate.resolution || "unknown"}</span>
+        <span>status: {statusValue(candidate.status || "unknown")}</span>
+        {adopted ? <span>採用中</span> : null}
+      </div>
+      <button className="secondary-button" type="button" onClick={onAdopt} disabled={!candidate.pngDataUrl}>
+        <CheckCircle2 size={17} aria-hidden="true" />
+        このPNGを採用
+      </button>
+    </article>
+  );
+}
+
+function normalizedIconCandidates(icon: AppStudioAiProposal["icon"]): AppStudioAiIconCandidate[] {
+  if (Array.isArray(icon.candidates) && icon.candidates.length) {
+    return icon.candidates;
+  }
+  const candidates: AppStudioAiIconCandidate[] = [];
+  if (icon.candidatePngDataUrl || icon.candidateUrl) {
+    candidates.push({
+      candidateId: "icon_candidate_1",
+      number: 1,
+      source: "legacy",
+      prompt: icon.promptRevision || icon.promptInitial,
+      model: "unknown",
+      status: "legacy",
+      resolution: "unknown",
+      fallback: false,
+      pngDataUrl: icon.candidatePngDataUrl,
+      url: icon.candidateUrl,
+    });
+  }
+  return candidates;
+}
+
+function sourceLabel(source?: string | null): string {
+  if (!source) {
+    return "unknown";
+  }
+  if (source.includes("fallback")) {
+    return "fallback";
+  }
+  if (source === "api") {
+    return "API生成";
+  }
+  return source;
 }
 
 function Field({ label, value }: { label: string; value?: string | null }) {
