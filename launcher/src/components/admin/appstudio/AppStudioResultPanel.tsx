@@ -96,6 +96,10 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
         <ResultRow icon={<CircleAlert size={18} />} label="runtime検証" value={executionLabel(result?.runtimeStatus)} />
         <ResultRow icon={<CircleAlert size={18} />} label="秘密情報ブロック" value={String(result?.secretBlockingCount ?? 0)} />
         <ResultRow icon={<CircleAlert size={18} />} label="処理時間" value={timingSummary(result)} />
+        <ResultRow icon={<ShieldCheck size={18} />} label="App Studio承認記録" value={approvalRecordSummary(result)} />
+        <ResultRow icon={<ShieldCheck size={18} />} label="manifest enabled" value={triStateLabel(result?.manifestEnabled)} />
+        <ResultRow icon={<ShieldCheck size={18} />} label="ホーム表示判定" value={catalogSummary(result)} />
+        <ResultRow icon={<ShieldCheck size={18} />} label="catalog root" value={result?.catalogRoot ?? "-"} />
         <ResultRow icon={<PackageCheck size={18} />} label="App Pack" value={result?.appPack ?? "未作成"} />
         <ResultRow icon={<ShieldCheck size={18} />} label="次の操作" value={nextAction} />
       </div>
@@ -110,6 +114,7 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
       {result?.timingPhases?.length ? (
         <div className="studio-manual-checks">
           <strong>工程別時間</strong>
+          <p>{timingDetailSummary(result)}</p>
           <ul>
             {result.timingPhases.slice(-10).map((item, index) => (
               <li key={`${item.phase}-${index}`}>
@@ -118,6 +123,17 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
             ))}
           </ul>
           {result.timingReport ? <p>Report: {result.timingReport}</p> : null}
+        </div>
+      ) : null}
+      {result?.approvalFailureSummary || result?.verifyReleaseFailureSummary || result?.catalogDisabledReason || result?.catalogLoadError ? (
+        <div className="studio-manual-checks">
+          <strong>承認後の表示診断</strong>
+          {result.approvalFailureSummary ? <p>承認失敗理由: {result.approvalFailureSummary}</p> : null}
+          {result.verifyReleaseStatus ? <p>verify_release: {result.verifyReleaseStatus}</p> : null}
+          {result.verifyReleaseFailureSummary ? <p>verify_release詳細: {result.verifyReleaseFailureSummary}</p> : null}
+          {result.catalogDisabledReason ? <p>ホームに表示されない理由: {result.catalogDisabledReason}</p> : null}
+          {result.catalogLoadError ? <p>catalog読込エラー: {result.catalogLoadError}</p> : null}
+          {result.approvalRecordPath ? <p>承認記録: {result.approvalRecordPath}</p> : null}
         </div>
       ) : null}
 
@@ -275,6 +291,57 @@ function timingSummary(result: AppStudioRunResult | null): string {
   return `${formatSeconds(result.timingTotalSeconds)}${estimate}`;
 }
 
+function timingDetailSummary(result: AppStudioRunResult): string {
+  const actual = result.timingActualTotalSeconds ?? result.timingWallClockTotalSeconds ?? result.timingTotalSeconds;
+  const estimate = result.timingEstimatedTotalSeconds;
+  const error = result.timingPredictionErrorSeconds;
+  const cli = result.timingCliMeasuredTotalSeconds;
+  const overhead = result.timingUnmeasuredOverheadSeconds;
+  const process = result.processWallClockSeconds;
+  const parts = [
+    `実績: ${formatSeconds(actual)}`,
+    estimate != null ? `予測: ${formatSeconds(estimate)}` : "",
+    error != null ? `差分: ${formatSignedSeconds(error)}` : "",
+    process != null ? `Tauri子プロセス: ${formatSeconds(process)}` : "",
+    cli != null ? `工程計: ${formatSeconds(cli)}` : "",
+    overhead != null ? `未計測/待機: ${formatSeconds(overhead)}` : "",
+    result.timingPredictionSource ? `予測根拠: ${result.timingPredictionSource}` : "",
+  ].filter(Boolean);
+  return parts.join(" / ") || "-";
+}
+
+function approvalRecordSummary(result: AppStudioRunResult | null): string {
+  if (!result) {
+    return "-";
+  }
+  const status = result.approvalRecordStatus ?? "missing";
+  const verify = result.verifyReleaseStatus ? ` / verify_release=${result.verifyReleaseStatus}` : "";
+  return `${status}${verify}`;
+}
+
+function catalogSummary(result: AppStudioRunResult | null): string {
+  if (!result) {
+    return "-";
+  }
+  if (result.catalogVisible === true) {
+    return "ホーム表示対象です";
+  }
+  if (result.catalogVisible === false) {
+    return result.catalogDisabledReason || result.catalogLoadError || "ホーム表示対象ではありません";
+  }
+  return "未確認";
+}
+
+function triStateLabel(value: boolean | null | undefined): string {
+  if (value === true) {
+    return "true";
+  }
+  if (value === false) {
+    return "false";
+  }
+  return "unknown";
+}
+
 function formatSeconds(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) {
     return "-";
@@ -285,4 +352,9 @@ function formatSeconds(value: number | null | undefined): string {
   const minutes = Math.floor(value / 60);
   const seconds = Math.round(value % 60);
   return `${minutes}分${seconds}秒`;
+}
+
+function formatSignedSeconds(value: number): string {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${formatSeconds(Math.abs(value))}`;
 }

@@ -342,6 +342,36 @@ function Contains-Text {
     return $Text.IndexOf($Needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
 }
 
+function Get-ApprovalRecordScalar {
+    param([string]$Text, [string]$Key)
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return "missing"
+    }
+    foreach ($Line in ($Text -split "`r?`n")) {
+        if ($Line -match ("^\s*-\s*" + [regex]::Escape($Key) + "\s*:\s*(.*)$")) {
+            return $Matches[1].Trim().Trim([char]0x60)
+        }
+    }
+    return "missing"
+}
+
+function Get-ApprovalRecordFailures {
+    param([string]$Text)
+    $Failures = @()
+    $InSection = $false
+    foreach ($Line in ($Text -split "`r?`n")) {
+        $Trim = $Line.Trim()
+        if ($Trim.StartsWith("## ")) {
+            $InSection = ($Trim -eq "## Failures")
+            continue
+        }
+        if ($InSection -and $Trim.StartsWith("- ")) {
+            $Failures += $Trim.Substring(2).Trim()
+        }
+    }
+    return $Failures
+}
+
 function Select-NewestExistingFile {
     param([string[]]$Paths)
     $Items = @()
@@ -526,6 +556,7 @@ $ExecutionState = Read-JsonFile -Path $ExecutionJsonPath
 $OutputExecutionState = Read-JsonFile -Path $OutputExecutionJsonPath
 $RuntimeState = Read-JsonFile -Path $RuntimeJsonPath
 $ImportPlanState = Read-JsonFile -Path $OutputImportPlanPath
+$ApprovalRecordState = Read-TextFile -Path $ApprovalRecordPath
 $SecretJsonState = Read-JsonFile -Path $OutputSecretJsonPath
 $SecretTextState = Read-TextFile -Path $OutputSecretReportPath
 $FileInventoryState = Read-JsonFile -Path $OutputFileInventoryPath
@@ -941,6 +972,52 @@ if (-not $ManifestEntry) {
     Add-Action "If output mirror has artifacts but release/app_manifest.json has no app entry, Apply likely stopped before registration."
 }
 
+$ApprovalRecordStatus = Get-ApprovalRecordScalar -Text $ApprovalRecordState.text -Key "status"
+$ApprovalRecordTargetedStatus = Get-ApprovalRecordScalar -Text $ApprovalRecordState.text -Key "targeted_verification_status"
+$ApprovalRecordVerifyBefore = Get-ApprovalRecordScalar -Text $ApprovalRecordState.text -Key "verify_release_before"
+$ApprovalRecordVerifyAfter = Get-ApprovalRecordScalar -Text $ApprovalRecordState.text -Key "verify_release_after"
+$ApprovalRecordManifestEnabledAfter = Get-ApprovalRecordScalar -Text $ApprovalRecordState.text -Key "manifest_enabled_after"
+$ApprovalRecordFailures = @(Get-ApprovalRecordFailures -Text $ApprovalRecordState.text)
+if ($ApprovalRecordStatus -eq "failed" -or $ApprovalRecordStatus -eq "rolled_back") {
+    Add-Classification "approval_rolled_back_or_failed"
+    Add-Action "Open approval_record.md; approval did not complete and release/app_manifest.json may have been restored."
+}
+if ($ApprovalRecordStatus -eq "approved_with_global_warnings") {
+    Add-Classification "approval_succeeded_with_global_verify_warnings"
+    Add-Action "The app was approved, but verify_release still has pre-existing unrelated failures. Fix release manifest separately before production release."
+}
+if (($ManifestEnabled -eq "False" -or $ManifestEnabled -eq "false") -and ($ApprovalRecordStatus -eq "failed" -or $ApprovalRecordStatus -eq "rolled_back")) {
+    Add-Classification "manifest_disabled_after_approval_failure"
+}
+if (($ManifestEnabled -eq "True" -or $ManifestEnabled -eq "true") -and ($AppYamlPath -and -not (Test-Path -LiteralPath $AppYamlPath -PathType Leaf))) {
+    Add-Classification "catalog_app_yaml_missing"
+}
+
+$CatalogVisible = "unknown"
+$CatalogEnabled = "unknown"
+$CatalogDisabledReason = "unknown"
+$AppYamlExists = Test-Path -LiteralPath $AppYamlPath -PathType Leaf
+$YamlRunEntry = Get-YamlScalar -Path $AppYamlPath -Key "entry"
+$YamlRunner = Get-YamlScalar -Path $AppYamlPath -Key "runner"
+$YamlMode = Get-YamlScalar -Path $AppYamlPath -Key "mode"
+if ($ManifestEnabled -eq "True" -or $ManifestEnabled -eq "true") {
+    $CatalogEnabled = "true"
+    if (-not $AppYamlExists) {
+        $CatalogVisible = "false"
+        $CatalogDisabledReason = "app_yaml_missing"
+    } elseif ([string]::IsNullOrWhiteSpace($YamlRunEntry) -or [string]::IsNullOrWhiteSpace($YamlRunner) -or [string]::IsNullOrWhiteSpace($YamlMode)) {
+        $CatalogVisible = "false"
+        $CatalogDisabledReason = "app_yaml_parse_or_required_field_error"
+    } else {
+        $CatalogVisible = "true"
+        $CatalogDisabledReason = "none"
+    }
+} elseif ($ManifestEnabled -eq "False" -or $ManifestEnabled -eq "false") {
+    $CatalogEnabled = "false"
+    $CatalogVisible = "false"
+    $CatalogDisabledReason = "disabled_by_manifest"
+}
+
 if ($Classifications.Count -eq 0) {
     Add-Classification "inconclusive"
     Add-Action "Provide -Entry or -OutputDir, then rerun the diagnostic to include the output mirror."
@@ -961,6 +1038,9 @@ switch -Regex (($Classifications -join "|")) {
     "secret_scan_overblocking_suspected" { Add-Action "Documentation-only OPENAI_API_KEY or placeholder values should not block Apply after rerunning with the updated scanner." }
     "secret_scan_packaged_secret_risk" { Add-Action "A secret finding appears packaged or not safely excluded; remove it before distribution." }
     "secret_scan_ai_only_block" { Add-Action "AI fallback is expected; Apply can continue when apply_blocked_by_secret_scan=false." }
+    "approval_rolled_back_or_failed" { Add-Action "Approval did not complete; compare targeted verification failures and verify_release_before/after in approval_record.md." }
+    "approval_succeeded_with_global_verify_warnings" { Add-Action "Home visibility should depend on manifest enabled=true and catalog parsing; global verify warnings are pre-existing release debt." }
+    "manifest_disabled_after_approval_failure" { Add-Action "release/app_manifest.json still has enabled=false because approval failed or rolled back." }
 }
 
 $Conclusion = "Diagnostic completed."
@@ -1125,6 +1205,16 @@ $ReportLines += @(
     "- sha256: $ManifestSha",
     "- app pack path: $(if ($AppPackPath) { $AppPackPath } else { "missing" })",
     "- app pack exists: $AppPackExists",
+    "- approval_record path: $ApprovalRecordPath",
+    "- approval_record status: $ApprovalRecordStatus",
+    "- approval_record manifest_enabled_after: $ApprovalRecordManifestEnabledAfter",
+    "- targeted_verification_status: $ApprovalRecordTargetedStatus",
+    "- verify_release_before: $ApprovalRecordVerifyBefore",
+    "- verify_release_after: $ApprovalRecordVerifyAfter",
+    "- approval failures: $(if ($ApprovalRecordFailures.Count -gt 0) { $ApprovalRecordFailures -join ' | ' } else { 'none' })",
+    "- catalog_visible: $CatalogVisible",
+    "- catalog_enabled: $CatalogEnabled",
+    "- catalog_disabled_reason: $CatalogDisabledReason",
     "",
     "## Output Mirror vs Registered App",
     "",
@@ -1242,6 +1332,16 @@ $Summary = [ordered]@{
         version = $ManifestVersion
         package = $ManifestPackage
         app_pack_exists = $AppPackExists
+        approval_record_status = $ApprovalRecordStatus
+        approval_record_path = $ApprovalRecordPath
+        approval_record_manifest_enabled_after = $ApprovalRecordManifestEnabledAfter
+        targeted_verification_status = $ApprovalRecordTargetedStatus
+        verify_release_before = $ApprovalRecordVerifyBefore
+        verify_release_after = $ApprovalRecordVerifyAfter
+        approval_failures = @($ApprovalRecordFailures)
+        catalog_visible = $CatalogVisible
+        catalog_enabled = $CatalogEnabled
+        catalog_disabled_reason = $CatalogDisabledReason
     }
 }
 

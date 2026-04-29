@@ -85,7 +85,26 @@ export interface AppStudioRunResult {
   timingReport?: string | null;
   timingTotalSeconds?: number | null;
   timingEstimatedTotalSeconds?: number | null;
+  timingActualTotalSeconds?: number | null;
+  timingPredictionErrorSeconds?: number | null;
+  timingPredictionSource?: string | null;
+  timingWallClockTotalSeconds?: number | null;
+  timingCliMeasuredTotalSeconds?: number | null;
+  timingUnmeasuredOverheadSeconds?: number | null;
   timingPhases?: AppStudioTimingPhase[];
+  processWallClockSeconds?: number | null;
+  manifestEnabled?: boolean | null;
+  approvalRecordStatus?: string | null;
+  approvalRecordPath?: string | null;
+  approvalFailureSummary?: string | null;
+  verifyReleaseStatus?: string | null;
+  verifyReleaseFailureSummary?: string | null;
+  catalogVisible?: boolean | null;
+  catalogEnabled?: boolean | null;
+  catalogDisabledReason?: string | null;
+  catalogLoadError?: string | null;
+  catalogRoot?: string | null;
+  appStudioRepoRoot?: string | null;
 }
 
 export interface AppStudioPreflightResult {
@@ -132,7 +151,26 @@ export interface AppStudioResultSummary {
   timingReport?: string | null;
   timingTotalSeconds?: number | null;
   timingEstimatedTotalSeconds?: number | null;
+  timingActualTotalSeconds?: number | null;
+  timingPredictionErrorSeconds?: number | null;
+  timingPredictionSource?: string | null;
+  timingWallClockTotalSeconds?: number | null;
+  timingCliMeasuredTotalSeconds?: number | null;
+  timingUnmeasuredOverheadSeconds?: number | null;
   timingPhases?: AppStudioTimingPhase[];
+  processWallClockSeconds?: number | null;
+  manifestEnabled?: boolean | null;
+  approvalRecordStatus?: string | null;
+  approvalRecordPath?: string | null;
+  approvalFailureSummary?: string | null;
+  verifyReleaseStatus?: string | null;
+  verifyReleaseFailureSummary?: string | null;
+  catalogVisible?: boolean | null;
+  catalogEnabled?: boolean | null;
+  catalogDisabledReason?: string | null;
+  catalogLoadError?: string | null;
+  catalogRoot?: string | null;
+  appStudioRepoRoot?: string | null;
 }
 
 export interface AppStudioTimingPhase {

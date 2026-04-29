@@ -59,7 +59,9 @@ class TimingRecorder:
         self.generated_at = now_iso()
         self.started_at = time.perf_counter()
         self.phases: list[dict[str, Any]] = []
-        self.estimated_total_seconds = load_previous_total_seconds(context) or estimate_initial_seconds(action)
+        previous_total = load_previous_total_seconds(context)
+        self.prediction_source = "history" if previous_total else "heuristic"
+        self.estimated_total_seconds = previous_total or estimate_initial_seconds(action)
 
     @contextmanager
     def phase(self, name: str, label: str | None = None) -> Iterator[None]:
@@ -101,13 +103,30 @@ class TimingRecorder:
     def total_duration_seconds(self) -> float:
         return round(sum(float(item.get("duration_seconds") or 0.0) for item in self.phases), 3)
 
+    def wall_clock_total_seconds(self) -> float:
+        return round(time.perf_counter() - self.started_at, 3)
+
     def to_dict(self) -> dict[str, Any]:
+        cli_measured = self.total_duration_seconds()
+        wall_clock = self.wall_clock_total_seconds()
+        prediction_error = (
+            round(wall_clock - float(self.estimated_total_seconds), 3)
+            if self.estimated_total_seconds
+            else None
+        )
+        unmeasured = round(max(wall_clock - cli_measured, 0.0), 3)
         return {
             "app_id": self.context.app_id,
             "action": self.action,
             "generated_at": self.generated_at,
             "estimated_total_seconds": self.estimated_total_seconds,
-            "total_duration_seconds": self.total_duration_seconds(),
+            "actual_total_seconds": wall_clock,
+            "prediction_error_seconds": prediction_error,
+            "prediction_source": self.prediction_source,
+            "wall_clock_total_seconds": wall_clock,
+            "cli_measured_total_seconds": cli_measured,
+            "unmeasured_overhead_seconds": unmeasured,
+            "total_duration_seconds": cli_measured,
             "phases": self.phases,
         }
 
@@ -143,7 +162,7 @@ def load_previous_total_seconds(context: StudioContext) -> int | None:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
-    value = data.get("total_duration_seconds")
+    value = data.get("actual_total_seconds") or data.get("wall_clock_total_seconds") or data.get("total_duration_seconds")
     if isinstance(value, (int, float)) and value > 0:
         return max(int(value), 10)
     return None
@@ -184,6 +203,12 @@ def timing_markdown(data: dict[str, Any]) -> str:
         f"- action: `{data.get('action')}`",
         f"- generated_at: `{data.get('generated_at')}`",
         f"- estimated_total_seconds: `{data.get('estimated_total_seconds')}`",
+        f"- actual_total_seconds: `{data.get('actual_total_seconds')}`",
+        f"- prediction_error_seconds: `{data.get('prediction_error_seconds')}`",
+        f"- prediction_source: `{data.get('prediction_source')}`",
+        f"- wall_clock_total_seconds: `{data.get('wall_clock_total_seconds')}`",
+        f"- cli_measured_total_seconds: `{data.get('cli_measured_total_seconds')}`",
+        f"- unmeasured_overhead_seconds: `{data.get('unmeasured_overhead_seconds')}`",
         f"- total_duration_seconds: `{data.get('total_duration_seconds')}`",
         "",
         "| Status | Phase | Duration sec | Detail |",

@@ -316,7 +316,25 @@ export function AppStudioImportWizard() {
         timingReport: summary.timingReport ?? runResult.timingReport,
         timingTotalSeconds: summary.timingTotalSeconds ?? runResult.timingTotalSeconds,
         timingEstimatedTotalSeconds: summary.timingEstimatedTotalSeconds ?? runResult.timingEstimatedTotalSeconds,
+        timingActualTotalSeconds: summary.timingActualTotalSeconds ?? runResult.timingActualTotalSeconds,
+        timingPredictionErrorSeconds: summary.timingPredictionErrorSeconds ?? runResult.timingPredictionErrorSeconds,
+        timingPredictionSource: summary.timingPredictionSource ?? runResult.timingPredictionSource,
+        timingWallClockTotalSeconds: summary.timingWallClockTotalSeconds ?? runResult.timingWallClockTotalSeconds,
+        timingCliMeasuredTotalSeconds: summary.timingCliMeasuredTotalSeconds ?? runResult.timingCliMeasuredTotalSeconds,
+        timingUnmeasuredOverheadSeconds: summary.timingUnmeasuredOverheadSeconds ?? runResult.timingUnmeasuredOverheadSeconds,
         timingPhases: summary.timingPhases ?? runResult.timingPhases,
+        manifestEnabled: summary.manifestEnabled ?? runResult.manifestEnabled,
+        approvalRecordStatus: summary.approvalRecordStatus ?? runResult.approvalRecordStatus,
+        approvalRecordPath: summary.approvalRecordPath ?? runResult.approvalRecordPath,
+        approvalFailureSummary: summary.approvalFailureSummary ?? runResult.approvalFailureSummary,
+        verifyReleaseStatus: summary.verifyReleaseStatus ?? runResult.verifyReleaseStatus,
+        verifyReleaseFailureSummary: summary.verifyReleaseFailureSummary ?? runResult.verifyReleaseFailureSummary,
+        catalogVisible: summary.catalogVisible ?? runResult.catalogVisible,
+        catalogEnabled: summary.catalogEnabled ?? runResult.catalogEnabled,
+        catalogDisabledReason: summary.catalogDisabledReason ?? runResult.catalogDisabledReason,
+        catalogLoadError: summary.catalogLoadError ?? runResult.catalogLoadError,
+        catalogRoot: summary.catalogRoot ?? runResult.catalogRoot,
+        appStudioRepoRoot: summary.appStudioRepoRoot ?? runResult.appStudioRepoRoot,
       };
     } catch {
       return runResult;
@@ -707,7 +725,16 @@ function messageForResult(result: AppStudioRunResult, action: StudioAction): str
   if (!result.ok) {
     return "処理に失敗しました。理由と次の操作を確認してください。";
   }
-  if (action === "approve" || result.enabled) {
+  if (action === "approve") {
+    if (result.manifestEnabled === true && result.catalogVisible === true) {
+      return "承認して有効化しました。ホームの更新後にアプリ一覧へ表示されます。";
+    }
+    if (result.manifestEnabled === true) {
+      return `承認は完了しましたが、ホーム表示の確認が未完了です。理由: ${result.catalogDisabledReason || result.catalogLoadError || "catalog_visible=false"}`;
+    }
+    return `承認は完了していません。理由: ${result.approvalFailureSummary || result.verifyReleaseFailureSummary || "manifest enabled=false"}`;
+  }
+  if (result.enabled) {
     return "承認して有効化しました。通常ランチャーで表示を確認してください。";
   }
   if (action === "apply") {

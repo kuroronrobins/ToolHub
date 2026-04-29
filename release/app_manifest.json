@@ -86,11 +86,11 @@
     "app_20260201_agendasnap": {
       "version": "0.1.0",
       "package": "app_packs/app_20260201_agendasnap-0.1.0.zip",
-      "sha256": "d29279523f562601c942e63adecb6f4b5c7f39f36fa4f0f734be8f5eddbd3530",
+      "sha256": "19901b16388b157839b7e0e581a7735ae7c12639a01f7c8932fd99d9b4f4e914",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": null,
-      "enabled": false
+      "enabled": true
     }
   }
 }
