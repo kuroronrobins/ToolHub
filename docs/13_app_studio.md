@@ -10,6 +10,12 @@ AI提案パネルはCLIへ渡すAI環境の診断も表示します。表示対�
 
 AI/APIキー管理には「画像生成テスト（実API呼び出し）」があります。このボタンは実際に OpenAI 画像生成APIを呼び、APIキー、Image model、`size`、`quality`、`output_format`、`b64_json`/`url` 返却を確認します。結果には ok/failed、model、api、status、content_type、resolution、fallback_reason、error_category、error概要を表示します。APIキー本文は表示しません。
 
+`gpt-image-2` で `Your organization must be verified` または `Verify Organization` を含む 403 系エラーが返る場合、そのOpenAI組織ではモデル利用に組織認証が必要です。App Studio では `error_category: organization_verification_required` として扱い、`gpt-image-2 は現在のOpenAI組織では利用できません。OpenAI Platformで組織認証を完了するか、別のImage modelを設定してください。認証後、反映まで最大15分程度かかる場合があります。` と案内します。組織認証は OpenAI Platform の Organization settings で行い、反映後に画像生成テストを再実行してください。
+
+画像生成テストの直近結果が `ok:false` の間、App Studio GUI はAI画像候補と再生成が使えない状態として警告します。メタデータ編集や手動入力は継続できますが、fallback画像はAI画像ではなくローカル生成の暫定プレースホルダーです。API失敗中は `modern`、`vivid`、`colored_pencil`、`realistic` などの style preset の効果を評価できません。
+
+AI/APIキー管理では候補モデル `gpt-image-2`、`gpt-image-1.5`、`gpt-image-1`、`gpt-image-1-mini` を順番に実APIテストできます。成功したモデルは「このモデルを使用」で Image model 入力欄へ反映し、保存すると以後の App Studio 実行で使われます。候補モデル確認は実API呼び出しのため、OpenAI API利用料金が発生する場合があります。
+
 Icon候補の `source` が `api_generate` または `api_edit` のものだけを通常のAI生成候補として扱います。`fallback` / `fallback_after_api_failure` は API未実行または API失敗時の暫定プレースホルダーであり、AI生成成功とは扱いません。GUIでは API候補数、fallback候補数、使用モデル、スタイル、直近の画像API失敗理由を候補一覧上部に表示します。fallback PNG を使う場合は、候補カード上で明示的に採用する必要があります。
 
 Icon生成には `iconStylePreset` を使います。選択肢は `modern`、`vivid`、`realistic`、`colored_pencil`、`watercolor`、`flat_vector`、`3d_soft`、`glassmorphism`、`clay`、`custom` です。`custom` では自由入力のスタイル指示を優先し、後段の固定 prompt が色鉛筆風・写実風・ビビッド等の指定を汎用の polished/glass/3D 表現で上書きしないようにします。

@@ -896,6 +896,57 @@ button {
   overflow-wrap: anywhere;
 }
 
+.admin-api-guidance,
+.studio-image-api-blocker,
+.admin-image-model-probe {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.admin-api-guidance p,
+.studio-image-api-blocker p,
+.admin-image-model-probe p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.admin-image-model-probe-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.admin-image-model-probe-row.ok {
+  border-color: #b6d4d0;
+  background: #f2fbfa;
+  color: #0f5f58;
+}
+
+.admin-image-model-probe-row .wide {
+  grid-column: 1 / -1;
+}
+
+.admin-image-model-probe-row span {
+  color: #667085;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.admin-image-model-probe-row strong {
+  color: #111827;
+  overflow-wrap: anywhere;
+}
+
 .admin-masked-key {
   font-family: Consolas, "Courier New", monospace;
   color: #111827 !important;

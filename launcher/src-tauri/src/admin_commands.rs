@@ -1,5 +1,8 @@
 use crate::admin_session::{AdminSessionState, AdminSessionStatus};
-use crate::ai_settings::{AiConnectionTestResult, AiImageGenerationTestResult, AiSettings, ApiKeyStatus};
+use crate::ai_settings::{
+    AiConnectionTestResult, AiImageGenerationTestResult, AiImageModelProbeResult, AiSettings,
+    ApiKeyStatus,
+};
 use tauri::State;
 
 #[tauri::command]
@@ -111,6 +114,16 @@ pub fn ai_test_connection(
 ) -> Result<AiConnectionTestResult, String> {
     session.require_authenticated()?;
     crate::ai_settings::test_connection_at(&crate::setup::user_data_root())
+}
+
+#[tauri::command]
+pub async fn ai_probe_image_models(
+    session: State<'_, AdminSessionState>,
+) -> Result<AiImageModelProbeResult, String> {
+    session.require_authenticated()?;
+    tauri::async_runtime::spawn_blocking(crate::app_studio_commands::run_image_model_probe)
+        .await
+        .map_err(|_| "Image model probe could not complete.".to_string())?
 }
 
 #[tauri::command]

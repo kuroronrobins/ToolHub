@@ -78,6 +78,12 @@ Image model の既定候補は `gpt-image-2` です。これは設定値とし�
 
 Image model の表示候補は、推奨 `gpt-image-2`、互換候補 `gpt-image-1.5` / `gpt-image-1` / `gpt-image-1-mini` です。画像生成では `response_format` を渡さず、必要に応じて `output_format` / `quality` を外してリトライします。画像生成テストは実API呼び出しで、結果に model、api、content_type、fallback_reason、error_category を表示します。
 
+`gpt-image-2` の画像生成テストで `Your organization must be verified` または `Verify Organization` を含むエラーが出た場合は、OpenAI組織の認証が必要です。ToolHub はこの状態を `organization_verification_required` と分類し、`gpt-image-2 は現在のOpenAI組織では利用できません。OpenAI Platformで組織認証を完了するか、別のImage modelを設定してください。認証後、反映まで最大15分程度かかる場合があります。` と表示します。APIキー本文は表示・保存しません。
+
+AI/APIキー管理には、`gpt-image-2`、`gpt-image-1.5`、`gpt-image-1`、`gpt-image-1-mini` を順番に実APIテストする「候補モデルを順にテスト（実API呼び出し）」があります。各モデルについて未実行/成功/失敗、`error_category`、`fallback_reason` 概要を確認し、成功したモデルは「このモデルを使用」で Image model 入力欄へ反映できます。手入力モデルも引き続き利用できます。候補モデル確認は実API呼び出しのため、OpenAI API利用料金が発生する場合があります。
+
+画像生成テストの直近結果が `ok:false` の間、App Studio はAI画像候補と再生成が利用できない状態として警告します。メタデータ生成・手動入力は継続できますが、fallback画像はAI画像ではなくローカルfallbackです。API失敗時は `modern`、`vivid`、`colored_pencil`、`realistic` などの style preset の効果を評価できません。
+
 ## APIキー保存場所
 
 Windows では Windows Credential Manager を使います。

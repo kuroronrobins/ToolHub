@@ -53,6 +53,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     if argv and argv[0] == "image-test":
         parser = argparse.ArgumentParser(description="Run a real OpenAI image generation connectivity test.")
         parser.add_argument("command")
+        parser.add_argument("--image-model")
         return parser.parse_args(argv)
 
     if argv and argv[0] == "import":
@@ -99,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Approval record was created: {record_path}")
             return 0
         if args.command == "image-test":
-            return run_image_test()
+            return run_image_test(args.image_model)
         return run_import(args, repo_root)
     except Exception as exc:
         print(f"ToolHub App Studio error: {exc}", file=sys.stderr)
@@ -369,8 +370,8 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     return 0 if execution_result.approval_allowed else 1
 
 
-def run_image_test() -> int:
-    result = test_image_generation_connection()
+def run_image_test(image_model: str | None = None) -> int:
+    result = test_image_generation_connection(image_model)
     payload = {
         "ok": result.ok,
         "status": result.status,

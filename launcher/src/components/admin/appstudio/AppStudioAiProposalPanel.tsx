@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Bot, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { appStudioAiDiagnostics, appStudioReadAiProposal } from "../../../lib/appStudioApi";
 import type { AppStudioAiDiagnostics, AppStudioAiIconCandidate, AppStudioAiProposal, AppStudioIconOverride, AppStudioRunResult, AppStudioSelectedIconSource } from "../../../lib/appStudioTypes";
+import { IMAGE_TEST_UPDATED_EVENT, imageApiFailureGuidance, isOrganizationVerificationRequired, loadImageGenerationTestResult, type StoredImageGenerationTestResult } from "../../../lib/imageApiHealth";
 import { formatAdminError } from "../adminUi";
 
 interface Props {
@@ -57,10 +58,21 @@ export function AppStudioAiProposalPanel({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [diagnostics, setDiagnostics] = useState<AppStudioAiDiagnostics | null>(null);
+  const [imageApiHealth, setImageApiHealth] = useState<StoredImageGenerationTestResult | null>(() => loadImageGenerationTestResult());
   const loading = loadingAction !== null;
 
   useEffect(() => {
     void refreshDiagnostics();
+  }, []);
+
+  useEffect(() => {
+    const reloadHealth = () => setImageApiHealth(loadImageGenerationTestResult());
+    window.addEventListener(IMAGE_TEST_UPDATED_EVENT, reloadHealth);
+    window.addEventListener("storage", reloadHealth);
+    return () => {
+      window.removeEventListener(IMAGE_TEST_UPDATED_EVENT, reloadHealth);
+      window.removeEventListener("storage", reloadHealth);
+    };
   }, []);
 
   async function refreshDiagnostics() {
@@ -118,6 +130,7 @@ export function AppStudioAiProposalPanel({
   const fallbackCandidates = iconCandidates.filter((candidate) => candidate.fallback || candidate.source?.includes("fallback"));
   const primaryPreviewLabel = apiCandidates.length ? "AI PNGアイコン候補" : "fallback PNGプレースホルダー";
   const metadataFields = compact ? METADATA_FIELDS.filter((field) => field.compact) : METADATA_FIELDS;
+  const imageApiBlocked = imageApiHealth?.ok === false;
 
   function adoptPng(source: "candidate_png" | "final_png", pngDataUrl?: string | null, candidate?: AppStudioAiIconCandidate) {
     if (!pngDataUrl) {
@@ -148,6 +161,7 @@ export function AppStudioAiProposalPanel({
         説明文、カテゴリ、PNGアイコン候補を作成します。AI提案は自動確定されず、採用ボタンを押した項目だけ編集欄に反映されます。
       </p>
       {diagnostics ? <DiagnosticsPanel diagnostics={diagnostics} /> : null}
+      {imageApiBlocked ? <ImageApiBlockedNotice result={imageApiHealth} /> : null}
 
       <div className="studio-ai-actions">
         <button className="studio-ai-action-card" type="button" onClick={() => void loadProposal()} disabled={busy || loading}>
@@ -220,7 +234,7 @@ export function AppStudioAiProposalPanel({
           {!apiCandidates.length && fallbackCandidates.length ? (
             <div className="studio-icon-fallback-warning">
               <strong>AI生成失敗のためfallback表示中</strong>
-              <p>OpenAI画像APIのPNG候補は保存されていません。下のfallbackは暫定プレースホルダーです。</p>
+              <p>OpenAI画像APIのPNG候補は保存されていません。下のfallbackはAI画像ではない暫定プレースホルダーです。スタイル指定は反映されていません。</p>
             </div>
           ) : null}
           {fallbackCandidates.length ? (
@@ -229,8 +243,8 @@ export function AppStudioAiProposalPanel({
                 <IconCandidateCard
                   key={candidate.candidateId}
                   candidate={candidate}
-                  adopted={selectedIconSource === "candidate_png" && selectedIconCandidateId === candidate.candidateId}
-                  onAdopt={() => adoptPng("candidate_png", candidate.pngDataUrl, candidate)}
+                  adopted={selectedIconSource === "fallback_png"}
+                  onAdopt={adoptFallbackPng}
                   fallbackAction
                 />
               ))}
@@ -242,7 +256,7 @@ export function AppStudioAiProposalPanel({
           </div>
           <div className="studio-action-row">
             <span className="admin-status-pill">採用中: {selectedIconLabel(selected)}</span>
-            <button className="secondary-button" type="button" onClick={() => adoptPng("candidate_png", icon.candidatePngDataUrl)} disabled={!icon.candidatePngDataUrl}>
+            <button className="secondary-button" type="button" onClick={() => adoptPng("candidate_png", icon.candidatePngDataUrl)} disabled={!icon.candidatePngDataUrl || !apiCandidates.length}>
               <CheckCircle2 size={17} aria-hidden="true" />
               このPNGを採用
             </button>
@@ -281,6 +295,17 @@ export function AppStudioAiProposalPanel({
       {message ? <p className="admin-success">{message}</p> : null}
       {error ? <p className="admin-error" role="alert">{error}</p> : null}
     </section>
+  );
+}
+
+function ImageApiBlockedNotice({ result }: { result: StoredImageGenerationTestResult }) {
+  const guidance = imageApiFailureGuidance(result);
+  return (
+    <div className="studio-image-api-blocker" role="alert">
+      <strong>画像APIテストが失敗しています。AI画像候補と再生成は利用できない状態です。</strong>
+      <p>{guidance}</p>
+      <p>この状態で生成してもAI画像ではなくローカルfallbackになります。スタイル指定の効果はAPI生成候補が1件以上ある場合だけ確認できます。</p>
+    </div>
   );
 }
 
@@ -331,16 +356,22 @@ function ImageApiSummaryPanel({ icon, candidates }: { icon: AppStudioAiProposal[
   const fallbackCount = numberValue(summary?.fallbackCandidateCount ?? summary?.fallback_candidate_count) ?? candidates.filter((candidate) => candidate.fallback).length;
   const failureReasons = candidates.map((candidate) => candidate.fallbackReason || "").filter(Boolean);
   const latestFailure = stringValue(summary?.latestImageApiFailure ?? summary?.latest_image_api_failure) || failureReasons[failureReasons.length - 1] || "";
+  const failureCategories = candidates.map((candidate) => candidate.errorCategory || "").filter(Boolean);
+  const failureCategory = failureCategories[failureCategories.length - 1] || "";
   const model = stringValue(summary?.model) || candidates.find((candidate) => candidate.model && candidate.model !== "local-deterministic-fallback")?.model || "unknown";
   const stylePreset = stringValue(summary?.stylePreset ?? summary?.style_preset);
   const scoreBasis = stringValue(summary?.scoreBasis ?? summary?.score_basis) || "prompt_concept_only";
+  const organizationBlocked = isOrganizationVerificationRequired({ model, errorCategory: failureCategory, fallbackReason: latestFailure, message: latestFailure });
   return (
     <div className={`studio-image-api-summary${apiCount > 0 ? " ok" : " warn"}`}>
       <div><span>API候補</span><strong>{apiCount}</strong></div>
       <div><span>fallback</span><strong>{fallbackCount}</strong></div>
       <div><span>model</span><strong>{model}</strong></div>
       {stylePreset ? <div><span>style</span><strong>{stylePreset}</strong></div> : null}
+      {failureCategory ? <div><span>error_category</span><strong>{failureCategory}</strong></div> : null}
       {latestFailure ? <div className="wide"><span>直近の失敗理由</span><strong>{latestFailure}</strong></div> : null}
+      {organizationBlocked ? <div className="wide"><span>案内</span><strong>{model} は現在のOpenAI組織では利用できません。組織認証を完了するか、別のImage modelを設定してください。</strong></div> : null}
+      {apiCount === 0 ? <div className="wide"><span>style</span><strong>API生成候補がないため、style preset の効果は検証できません。</strong></div> : null}
       <div className="wide"><span>採点</span><strong>{scoreBasis === "prompt_concept_only" ? "画像未確認のprompt/concept採点" : scoreBasis}</strong></div>
     </div>
   );
@@ -373,10 +404,14 @@ function IconCandidateCard({ candidate, adopted, onAdopt, fallbackAction = false
         {adopted ? <span>採用中</span> : null}
       </div>
       {conceptSummary ? <p className="admin-muted">{conceptSummary}</p> : null}
-      {fallbackAction ? <p className="admin-muted">fallbackを明示採用する操作です。</p> : null}
+      {fallbackAction ? (
+        <p className="admin-muted">
+          AI画像ではありません。画像API失敗のためローカルfallbackを表示中です。スタイル指定は反映されていません。
+        </p>
+      ) : null}
       <button className="secondary-button" type="button" onClick={onAdopt} disabled={!candidate.pngDataUrl}>
         <CheckCircle2 size={17} aria-hidden="true" />
-        このPNGを採用
+        {fallbackAction ? "fallbackを採用" : "このPNGを採用"}
       </button>
     </article>
   );

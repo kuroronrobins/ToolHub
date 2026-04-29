@@ -40,3 +40,19 @@ export interface AiImageGenerationTestResult {
   error?: string | null;
   errorCategory?: string | null;
 }
+
+export interface AiImageModelProbeItem {
+  model: string;
+  ok: boolean;
+  status: string;
+  contentType: string;
+  fallbackReason?: string | null;
+  error?: string | null;
+  errorCategory?: string | null;
+}
+
+export interface AiImageModelProbeResult {
+  ok: boolean;
+  message: string;
+  items: AiImageModelProbeItem[];
+}

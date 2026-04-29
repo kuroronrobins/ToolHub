@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 import { ChevronRight, FileSearch, ImagePlus, Loader2, Play, RefreshCw, Rocket, ShieldCheck } from "lucide-react";
 import {
@@ -13,6 +13,7 @@ import {
 import { getAppStudioApprovalDecision } from "../../../lib/appStudioApproval";
 import { suggestAppIdentity } from "../../../lib/appStudioIdentity";
 import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
+import { IMAGE_TEST_UPDATED_EVENT, imageApiFailureGuidance, loadImageGenerationTestResult, type StoredImageGenerationTestResult } from "../../../lib/imageApiHealth";
 import type {
   AppStudioAiProposal,
   AppStudioAiIconCandidate,
@@ -91,8 +92,10 @@ export function AppStudioImportWizard() {
   const [iconRevisionMode, setIconRevisionMode] = useState<IconRevisionMode>("refine");
   const [revisionBaseCandidateId, setRevisionBaseCandidateId] = useState("");
   const [lastRevisionBase, setLastRevisionBase] = useState<AppStudioAiIconCandidate | null>(null);
+  const [imageApiHealth, setImageApiHealth] = useState<StoredImageGenerationTestResult | null>(() => loadImageGenerationTestResult());
 
   const canRun = useMemo(() => request.entry.trim().length > 0 && !busy, [busy, request.entry]);
+  const imageApiBlocked = imageApiHealth?.ok === false;
   const recommendation = useMemo(
     () => ({
       mode: "frozen-folder",
@@ -102,6 +105,16 @@ export function AppStudioImportWizard() {
   );
   const approvalDecision = useMemo(() => getAppStudioApprovalDecision(result, approvalMode, busy), [approvalMode, busy, result]);
   const canApprove = approvalDecision.canApprove;
+
+  useEffect(() => {
+    const reloadHealth = () => setImageApiHealth(loadImageGenerationTestResult());
+    window.addEventListener(IMAGE_TEST_UPDATED_EVENT, reloadHealth);
+    window.addEventListener("storage", reloadHealth);
+    return () => {
+      window.removeEventListener(IMAGE_TEST_UPDATED_EVENT, reloadHealth);
+      window.removeEventListener("storage", reloadHealth);
+    };
+  }, []);
 
   function update(partial: Partial<AppStudioImportRequest>) {
     setRequest((current) => ({ ...current, ...partial }));
@@ -399,6 +412,10 @@ export function AppStudioImportWizard() {
   }
 
   async function regenerateIconProposal() {
+    if (imageApiBlocked) {
+      setError(`画像APIテストが失敗しているため、AI画像の再生成は実行できません。${imageApiFailureGuidance(imageApiHealth)}`);
+      return;
+    }
     const revision = iconRevisionPrompt.trim();
     if (!revision) {
       setError("アイコンの修正指示を入力してください。");
@@ -539,6 +556,7 @@ export function AppStudioImportWizard() {
         </div>
 
         {renderIconStyleControls()}
+        {imageApiBlocked ? <ImageApiBlockedBanner result={imageApiHealth} /> : null}
 
         <AppStudioAiProposalPanel
           appId={request.appId}
@@ -601,6 +619,7 @@ export function AppStudioImportWizard() {
             />
           </label>
         ) : null}
+        {imageApiBlocked ? <p className="admin-warning">画像APIが成功していないため、modern / vivid / colored_pencil / realistic などのスタイル指定はまだ検証できません。効果確認はAPI生成候補が1件以上ある場合に限ります。</p> : null}
       </section>
     );
   }
@@ -651,6 +670,7 @@ export function AppStudioImportWizard() {
           </div>
           <span className="admin-status-pill">採用中: {iconSourceLabel(request.iconOverride?.selectedIconSource)}</span>
         </div>
+        {imageApiBlocked ? <ImageApiBlockedBanner result={imageApiHealth} /> : null}
         <div className="studio-icon-revision-modes" role="group" aria-label="icon revision mode">
           {ICON_REVISION_MODES.map((mode) => (
             <button
@@ -713,7 +733,7 @@ export function AppStudioImportWizard() {
             <ImagePlus size={17} aria-hidden="true" />
             指示を保存
           </button>
-          <button className="primary-button" type="button" onClick={() => void regenerateIconProposal()} disabled={busy || !iconRevisionPrompt.trim()}>
+          <button className="primary-button" type="button" onClick={() => void regenerateIconProposal()} disabled={busy || !iconRevisionPrompt.trim() || imageApiBlocked}>
             {operation.kind === "aiProposal" && busy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <RefreshCw size={17} aria-hidden="true" />}
             この内容で再生成
           </button>
@@ -791,6 +811,19 @@ export function AppStudioImportWizard() {
       </section>
     );
   }
+}
+
+function ImageApiBlockedBanner({ result }: { result: StoredImageGenerationTestResult | null }) {
+  if (!result || result.ok) {
+    return null;
+  }
+  return (
+    <div className="studio-image-api-blocker" role="alert">
+      <strong>画像APIテストが失敗しています。AI画像候補と再生成はブロック中です。</strong>
+      <p>{imageApiFailureGuidance(result)}</p>
+      <p>fallback画像はAI画像ではなく、スタイル指定は反映されません。メタデータ編集と手動入力は継続できます。</p>
+    </div>
+  );
 }
 
 function iconCandidatesForProposal(proposal: AppStudioAiProposal | null): AppStudioAiIconCandidate[] {
