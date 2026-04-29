@@ -79,10 +79,11 @@ def write_icon_candidates(icon_work: Path, artifacts: GeneratedArtifacts) -> Non
     write_json(
         icon_work / "candidate_manifest.json",
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "standard_icon_size": "512x512",
             "api_icon_size": "1024x1024",
             "legacy_candidate_png": "icon_candidate_1.png",
+            "function_interpretation": artifacts.icon_design_brief or artifacts.import_plan.get("icon_function_interpretation", {}),
             "candidates": [candidate.manifest_entry() for candidate in candidates],
         },
     )

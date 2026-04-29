@@ -527,16 +527,44 @@ paths. If the secret scan finds high or medium findings that affect AI
 submission, text and image AI calls are skipped and local fallback candidates are
 used.
 
+The brief is function-first, not noun-only. It records `app_kind`,
+`primary_action`, `secondary_action`, `input_objects`, `output_objects`,
+`action_flow`, `visual_priority`, `avoid_generic`, and
+`composition_template`. App Studio normalizes common verbs such as
+`merge`/`combine`/`join`/`concat` to `merge`, `split`/`separate`/`divide`
+to `split`, and `search`/`find`/`retrieve` to `search`. It also normalizes
+common objects such as PDF/documents, images/photos, audio/microphone/waveform,
+CSV/Excel/tables, mail/calendar/chat, and database/server/cloud.
+
+For common action-object pairs, the prompt prefers a functional composition
+template. For example, PDF merge should show multiple PDFs converging into one
+PDF; PDF split should show one PDF branching into several PDFs; transcription
+should show a microphone or waveform becoming text; comparison should show two
+objects side by side with a visible difference. Templates are intentionally
+limited to a few strong objects so the icon stays readable at small sizes.
+
+Before image generation, App Studio asks the text model for icon concept JSON.
+Concepts are split into `literal`, `balanced`, and `signature` directions and
+include the concept, primary motif, secondary motif, composition, style family,
+why the concept is specific to the app, and elements to avoid. Each image prompt
+is built from one concept so candidates are different ideas rather than minor
+variations of the same generic symbol.
+
 Icon generation writes `icon_work/candidate_manifest.json` in addition to the
 legacy `icon_candidate_1.png` / `icon_candidate_1.url.txt` files. The manifest
 records each candidate id, source (`api`, `fallback`, or
 `fallback_after_api_failure`), prompt, model, status, resolution, and whether it
 is a fallback. The normal fallback PNG is generated at 512x512 instead of 64x64.
 When the image API returns 1024x1024 PNG data, that original candidate is kept in
-`icon_work` for review.
+`icon_work` for review. Manifest schema v2 also stores the function
+interpretation, concept metadata, and rule-based scores for semantic clarity,
+specificity, small-size legibility, aesthetics, and diversity.
 
 The GUI shows each PNG candidate separately with its source, model, resolution,
-status, and adoption state. Pressing "このPNGを採用" stores a PNG override that is
+status, score, concept summary, and adoption state. It also shows the
+AI-interpreted function summary above the candidate list: primary function,
+inputs, outputs, inferred action flow, recommended motif/composition, and
+generic patterns to avoid. Pressing "このPNGを採用" stores a PNG override that is
 applied on the next Suggest/Apply run, so the selected PNG becomes
 `final_app/icon.png`. Removing the adoption returns to the deterministic fallback
 for the current run. Older outputs that only have `icon_candidate_1.png` remain
@@ -545,6 +573,10 @@ readable.
 Icon regeneration is text-revision based. The GUI lets the user choose the
 previous candidate to revise, then sends a revision context containing the
 previous candidate id, previous prompt, previous source/status/resolution,
-adoption state, user instruction, elements to preserve, and elements to change.
-Image editing with the previous PNG as binary input is not implemented in this
-flow; the revision context is used to generate new candidates safely.
+adoption state, user instruction, elements to preserve, elements to change,
+elements to avoid, and a revision mode. The available modes are `tweak`,
+`refine`, `redesign`, and `fresh`; `tweak` preserves more of the previous
+candidate, while `fresh` weakens inheritance and requires a visibly different
+composition, primary motif, or color focus. Image editing with the previous PNG
+as binary input is not implemented in this flow; the revision context is used to
+generate new candidates safely.

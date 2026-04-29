@@ -8,6 +8,39 @@ from .models import DependencyReport, IconDesignBrief, SecretScanReport, StudioC
 from .openai_client import complete_json, ai_enabled, has_api_key, text_model
 
 
+ACTION_NORMALIZATION: dict[str, tuple[str, ...]] = {
+    "merge": ("merge", "combine", "join", "concat", "consolidate", "unify", "結合", "統合", "まとめる", "連結"),
+    "split": ("split", "separate", "divide", "extract", "分割", "切り出し", "分ける"),
+    "upload": ("upload", "sync", "push", "send", "post", "アップロード", "同期", "送信", "登録"),
+    "export/download": ("download", "fetch", "export", "save", "出力", "エクスポート", "ダウンロード", "取得", "保存"),
+    "compare": ("compare", "diff", "差分", "比較", "照合"),
+    "transcribe": ("transcribe", "speech-to-text", "speech to text", "文字起こし", "音声認識"),
+    "summarize": ("summarize", "summary", "要約", "サマリ"),
+    "search": ("search", "find", "retrieve", "lookup", "scan", "検索", "探索", "取得", "抽出"),
+}
+
+OBJECT_NORMALIZATION: dict[str, tuple[str, ...]] = {
+    "pdf/document": ("pdf", "document", "docx", "word", "report", "invoice", "帳票", "文書", "書類", "レポート"),
+    "image/photo": ("image", "photo", "picture", "screenshot", "vision", "画像", "写真", "スクリーンショット"),
+    "audio/mic/waveform": ("audio", "mic", "microphone", "waveform", "voice", "speech", "音声", "マイク", "波形"),
+    "csv/excel/table": ("csv", "excel", "xlsx", "spreadsheet", "table", "dataframe", "pandas", "表", "テーブル", "集計"),
+    "mail/calendar/chat": ("mail", "email", "calendar", "schedule", "chat", "slack", "予定", "日程", "メール", "チャット"),
+    "database/server/cloud": ("database", "db", "server", "cloud", "api", "s3", "storage", "データベース", "サーバー", "クラウド"),
+}
+
+GENERIC_AVOID_ELEMENTS = [
+    "generic abstract shapes only",
+    "document-only icon",
+    "gear-only icon",
+    "checkmark-only icon",
+    "network nodes only",
+    "initial-letter-only icon",
+    "tiny readable text or fake logo letters",
+    "photorealistic image",
+    "crowded UI screenshot",
+]
+
+
 def suggest_metadata(context: StudioContext, secret_report: SecretScanReport | None = None) -> dict[str, Any]:
     if secret_report and secret_report.blocks_ai_submission:
         metadata = fallback_metadata(context)
@@ -79,8 +112,10 @@ def suggest_icon_prompt(
     metadata: dict[str, Any] | None = None,
     dependency_report: DependencyReport | None = None,
     style_reference: str = "",
+    brief: IconDesignBrief | None = None,
 ) -> tuple[str, str]:
-    brief = build_icon_design_brief(context, metadata, dependency_report, style_reference)
+    if brief is None:
+        brief = build_icon_design_brief(context, metadata, dependency_report, style_reference)
     base = icon_prompt_from_brief(brief, revision_prompt)
     if not allow_ai:
         return base, "OpenAI icon prompt generation skipped because AI use was not allowed."
@@ -157,12 +192,32 @@ def build_icon_design_brief(
             " ".join(dependency_signals),
         ]
     )
+    function_text = sanitize_ai_text(motif_source, 5000)
+    actions = normalize_icon_actions(function_text)
+    objects = normalize_icon_objects(function_text)
+    primary_action = actions[0] if actions else "launch"
+    secondary_action = actions[1] if len(actions) > 1 else ""
+    input_objects = normalize_icon_objects(" ".join(inputs)) or objects[:2] or ["app input"]
+    output_objects = normalize_icon_objects(" ".join(outputs)) or objects[:2] or ["app result"]
+    action_flow = describe_action_flow(primary_action, secondary_action, input_objects, output_objects)
+    app_kind = infer_app_kind(primary_action, objects, categories, keywords)
+    visual_priority = build_visual_priority(primary_action, input_objects, output_objects)
+    composition_template = select_icon_composition_template(primary_action, input_objects, output_objects)
     primary_motif, secondary_motifs, palette, texture = infer_icon_design_language(motif_source)
     return IconDesignBrief(
         app_id=context.app_id,
         name=context.name,
         entry_name=context.entry.name,
         purpose=purpose,
+        app_kind=app_kind,
+        primary_action=primary_action,
+        secondary_action=secondary_action,
+        input_objects=input_objects,
+        output_objects=output_objects,
+        action_flow=action_flow,
+        visual_priority=visual_priority,
+        avoid_generic=GENERIC_AVOID_ELEMENTS,
+        composition_template=composition_template,
         primary_motif=primary_motif,
         secondary_motifs=secondary_motifs,
         avoid=[
@@ -208,6 +263,21 @@ def icon_prompt_from_brief(brief: IconDesignBrief, revision_prompt: str | None =
         f"ToolHub統一感: {brief.toolhub_style_rule}",
         "構図: 中央に特徴的なシルエットを置き、余白を十分に取り、アプリ固有の用途が直感的に伝わるようにする。",
     ]
+    lines.extend(
+        [
+            f"Interpreted app kind: {brief.app_kind}",
+            f"Primary action: {brief.primary_action}",
+            f"Secondary action: {brief.secondary_action or 'none'}",
+            f"Input objects: {', '.join(brief.input_objects)}",
+            f"Output objects: {', '.join(brief.output_objects)}",
+            f"Action flow to visualize: {brief.action_flow}",
+            f"Composition template: {brief.composition_template}",
+            f"Visual priority: {', '.join(brief.visual_priority)}",
+            f"Generic patterns to avoid: {', '.join(brief.avoid_generic)}",
+            "The icon must show what the app does, not just what file type it touches.",
+            "Use 2 to 4 meaningful objects and a visible action relationship between them.",
+        ]
+    )
     if brief.use_cases:
         lines.append(f"代表的な利用場面: {', '.join(brief.use_cases[:4])}")
     if brief.readme_excerpt:
@@ -293,6 +363,87 @@ def infer_icon_design_language(text: str) -> tuple[str, list[str], str, str]:
         "落ち着いたティール、インディゴ、明るい中間色",
         "柔らかい影と軽いサテン調の質感",
     )
+
+
+def normalize_icon_actions(text: str) -> list[str]:
+    normalized = normalize_search_text(text)
+    values: list[str] = []
+    for action, aliases in ACTION_NORMALIZATION.items():
+        if any(alias.lower() in normalized for alias in aliases):
+            values.append(action)
+    return values
+
+
+def normalize_icon_objects(text: str) -> list[str]:
+    normalized = normalize_search_text(text)
+    values: list[str] = []
+    for object_name, aliases in OBJECT_NORMALIZATION.items():
+        if any(alias.lower() in normalized for alias in aliases):
+            values.append(object_name)
+    return values
+
+
+def select_icon_composition_template(
+    primary_action: str | list[str] | tuple[str, ...],
+    input_objects: list[str] | tuple[str, ...],
+    output_objects: list[str] | tuple[str, ...] | None = None,
+) -> str:
+    action = primary_action[0] if isinstance(primary_action, (list, tuple)) and primary_action else str(primary_action or "")
+    objects = list(input_objects or []) + list(output_objects or [])
+    joined_objects = " ".join(objects)
+    if "pdf/document" in joined_objects and action == "merge":
+        return "Show two or three PDF/document sheets converging into one polished final PDF/document."
+    if "pdf/document" in joined_objects and action == "split":
+        return "Show one PDF/document sheet branching into two or three smaller sheets."
+    if action == "upload":
+        return "Show a local file or data tile moving toward a cloud/server with a clear upward transfer arc."
+    if action == "export/download":
+        return "Show a cloud/server or app tile producing a clean output file with a downward/export arrow."
+    if action == "transcribe":
+        return "Show a microphone or waveform transforming into short text-line blocks without readable text."
+    if action == "compare":
+        return "Show two objects side by side with a highlighted difference band between them."
+    if action == "summarize":
+        return "Show several content fragments compressing into one compact summary card."
+    if action == "search":
+        return "Show a focused search lens revealing one highlighted result object."
+    return "Show a clear before-to-after workflow with 2 to 4 objects connected by one visible action path."
+
+
+def describe_action_flow(primary_action: str, secondary_action: str, input_objects: list[str], output_objects: list[str]) -> str:
+    inputs = ", ".join(input_objects[:3]) or "input"
+    outputs = ", ".join(output_objects[:3]) or "result"
+    if secondary_action:
+        return f"{inputs} -> {primary_action} -> {secondary_action} -> {outputs}"
+    return f"{inputs} -> {primary_action} -> {outputs}"
+
+
+def infer_app_kind(primary_action: str, objects: list[str], categories: list[str], keywords: list[str]) -> str:
+    joined = " ".join([primary_action, *objects, *categories, *keywords]).lower()
+    if "pdf/document" in joined:
+        return "document workflow tool"
+    if "csv/excel/table" in joined:
+        return "data table workflow tool"
+    if "image/photo" in joined:
+        return "image processing tool"
+    if "audio/mic/waveform" in joined:
+        return "audio conversion tool"
+    if "database/server/cloud" in joined or primary_action in {"upload", "export/download"}:
+        return "data transfer tool"
+    return "business workflow tool"
+
+
+def build_visual_priority(primary_action: str, input_objects: list[str], output_objects: list[str]) -> list[str]:
+    return [
+        f"make the {primary_action} action visible",
+        f"show input as {', '.join(input_objects[:2]) or 'a concrete object'}",
+        f"show output as {', '.join(output_objects[:2]) or 'a concrete result'}",
+        "keep the relationship readable at 32px",
+    ]
+
+
+def normalize_search_text(text: str) -> str:
+    return re.sub(r"[_\-]+", " ", sanitize_ai_text(text, 6000).lower())
 
 
 def clean_metadata_list(value: Any) -> list[str]:

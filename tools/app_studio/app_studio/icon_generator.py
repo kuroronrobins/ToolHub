@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import hashlib
 import html
+import json
 import os
 from pathlib import Path
 import struct
+from typing import Any
 import zlib
 
-from .ai_metadata_suggester import suggest_icon_prompt
-from .models import DependencyReport, IconCandidateAsset, StudioContext
-from .openai_client import decode_base64_image, generate_image
+from .ai_metadata_suggester import build_icon_design_brief, sanitize_ai_text, suggest_icon_prompt
+from .models import DependencyReport, IconCandidateAsset, IconConcept, IconDesignBrief, StudioContext
+from .openai_client import complete_json, decode_base64_image, generate_image, text_model
 
 
 LOCAL_ICON_SIZE = 512
@@ -46,6 +48,27 @@ ICON_VARIANTS = [
     },
 ]
 
+ICON_CONCEPT_DIRECTIONS = [
+    {
+        "id": "literal",
+        "label": "literal / function-first",
+        "guidance": "Make the concrete action and input-to-output relationship immediately recognizable.",
+        "style_family": "friendly dimensional workflow icon",
+    },
+    {
+        "id": "balanced",
+        "label": "balanced / modern functional",
+        "guidance": "Balance clear workflow meaning with a polished modern silhouette and refined materials.",
+        "style_family": "clean glassmorphism with restrained dimensional depth",
+    },
+    {
+        "id": "signature",
+        "label": "signature / memorable",
+        "guidance": "Create a distinctive, ownable silhouette that still shows the app's action relationship.",
+        "style_family": "premium editorial app icon with bold accent shape",
+    },
+]
+
 
 def collect_icon_style_reference(repo_root: Path) -> str:
     app_dirs = sorted((repo_root / "apps").glob("*"))
@@ -72,12 +95,14 @@ def generate_icon_assets_with_candidates(
     dependency_report: DependencyReport | None = None,
 ) -> tuple[str, str, str, bytes, str, str, bytes | None, str, list[IconCandidateAsset]]:
     style_reference = collect_icon_style_reference(context.repo_root)
+    brief = build_icon_design_brief(context, metadata, dependency_report, style_reference)
     initial_prompt, initial_report = suggest_icon_prompt(
         context,
         allow_ai=allow_ai,
         metadata=metadata,
         dependency_report=dependency_report,
         style_reference=style_reference,
+        brief=brief,
     )
     if revision_prompt:
         revision, revision_report = suggest_icon_prompt(
@@ -87,6 +112,7 @@ def generate_icon_assets_with_candidates(
             metadata=metadata,
             dependency_report=dependency_report,
             style_reference=style_reference,
+            brief=brief,
         )
     else:
         revision = "No revision prompt was provided."
@@ -96,6 +122,7 @@ def generate_icon_assets_with_candidates(
     fallback_png = generate_local_png(context, prompt_for_asset, style_reference, size=LOCAL_ICON_SIZE)
     candidates, image_reports = generate_icon_candidates(
         context,
+        brief,
         prompt_for_asset,
         style_reference,
         allow_ai=allow_ai,
@@ -115,6 +142,10 @@ def generate_icon_assets_with_candidates(
             initial_report,
             "",
             revision_report,
+            "",
+            "## Function Interpretation",
+            "",
+            json.dumps(brief.to_dict(), ensure_ascii=False, indent=2),
             "",
             "## Image Generation",
             "",
@@ -144,6 +175,7 @@ def icon_candidate_count() -> int:
 
 def generate_icon_candidates(
     context: StudioContext,
+    brief: IconDesignBrief,
     prompt: str,
     style_reference: str,
     allow_ai: bool,
@@ -151,21 +183,22 @@ def generate_icon_candidates(
     count: int,
 ) -> tuple[list[IconCandidateAsset], list[str]]:
     candidates: list[IconCandidateAsset] = []
-    reports: list[str] = []
-    for index in range(1, count + 1):
-        variant = ICON_VARIANTS[(index - 1) % len(ICON_VARIANTS)]
+    concept_list, reports = generate_icon_concepts(context, brief, prompt, allow_ai, count)
+    image_skip_report_added = False
+    for index, concept in enumerate(concept_list[:count], start=1):
         variant_prompt = image_api_prompt(
             prompt,
-            variant_label=variant["label"],
-            variant_guidance=variant["guidance"],
+            brief=brief,
+            concept=concept,
             prior_candidate_ids=[candidate.candidate_id for candidate in candidates],
         )
         image_result = generate_image(variant_prompt, size=API_ICON_RESOLUTION) if allow_ai else None
         png_bytes, image_url, image_note = image_candidate_from_result(image_result, index)
         if image_result:
             reports.append(image_result.report)
-        elif not reports:
+        elif not image_skip_report_added:
             reports.append(skipped_image_report(ai_skip_reason))
+            image_skip_report_added = True
 
         if png_bytes or image_url:
             candidates.append(
@@ -182,12 +215,23 @@ def generate_icon_candidates(
                     url=image_url,
                     file_name=f"icon_candidate_{index}.png" if png_bytes else "",
                     url_file_name=f"icon_candidate_{index}.url.txt" if image_url else "",
-                    notes=f"{variant['label']}: {image_note}",
+                    notes=f"{concept.direction}: {image_note}",
+                    concept_id=concept.concept_id,
+                    concept=concept.to_dict(),
+                    scores=score_icon_candidate(brief, concept, candidates),
+                    score_total=0.0,
                 )
             )
+            candidates[-1].score_total = sum(candidates[-1].scores.values())
             continue
 
-        fallback_prompt = "\n".join([prompt, f"Local fallback variation: {variant['label']}", variant["guidance"]])
+        fallback_prompt = image_api_prompt(
+            prompt,
+            brief=brief,
+            concept=concept,
+            prior_candidate_ids=[candidate.candidate_id for candidate in candidates],
+        )
+        scores = score_icon_candidate(brief, concept, candidates)
         candidates.append(
             IconCandidateAsset(
                 candidate_id=f"icon_candidate_{index}",
@@ -200,30 +244,221 @@ def generate_icon_candidates(
                 is_fallback=True,
                 png=generate_local_png(context, fallback_prompt, style_reference, size=LOCAL_ICON_SIZE),
                 file_name=f"icon_candidate_{index}.png",
-                notes=f"{variant['label']}: {image_note or ai_skip_reason or 'local fallback'}",
+                notes=f"{concept.direction}: {image_note or ai_skip_reason or 'local fallback'}",
+                concept_id=concept.concept_id,
+                concept=concept.to_dict(),
+                scores=scores,
+                score_total=sum(scores.values()),
             )
         )
     return candidates, reports
 
 
+def generate_icon_concepts(
+    context: StudioContext,
+    brief: IconDesignBrief,
+    prompt: str,
+    allow_ai: bool,
+    count: int,
+) -> tuple[list[IconConcept], list[str]]:
+    fallback = fallback_icon_concepts(brief, count)
+    if not allow_ai:
+        return fallback, [skipped_concept_report("AI use was not allowed.")]
+
+    result = complete_json(
+        (
+            "Return strict JSON with a concepts array. "
+            "Each concept must include id, concept, primary_motif, secondary_motif, "
+            "composition, style_family, why_specific, avoid_elements. "
+            "Create genuinely different icon concepts, not minor style variations."
+        ),
+        json.dumps(
+            {
+                "app": {"app_id": context.app_id, "name": context.name},
+                "icon_design_brief": brief.to_dict(),
+                "base_prompt": sanitize_ai_text(prompt, 2200),
+                "required_directions": ["literal", "balanced", "signature"],
+                "rules": [
+                    "literal: the app function is obvious at a glance.",
+                    "balanced: modern and polished while still showing the action relationship.",
+                    "signature: memorable and distinctive, with a different main silhouette.",
+                    "Every concept must visualize the primary action using 2 to 4 meaningful objects.",
+                    "Avoid generic abstract shapes, document-only, gear-only, check-only, nodes-only, and initial-letter-only designs.",
+                    "No readable text or logo letters.",
+                ],
+            },
+            ensure_ascii=False,
+        ),
+    )
+    if not result.ok:
+        return fallback, [result.report]
+    concepts = parse_icon_concepts(result.content, brief, count)
+    if len(concepts) < count:
+        existing = {concept.concept_id for concept in concepts}
+        concepts.extend([concept for concept in fallback if concept.concept_id not in existing])
+    return concepts[:count], [result.report]
+
+
+def parse_icon_concepts(content: str, brief: IconDesignBrief, count: int) -> list[IconConcept]:
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        return []
+    if isinstance(parsed, dict):
+        items = parsed.get("concepts")
+    else:
+        items = parsed
+    if not isinstance(items, list):
+        return []
+    concepts: list[IconConcept] = []
+    for index, item in enumerate(items[: max(count, 3)], start=1):
+        if not isinstance(item, dict):
+            continue
+        direction = sanitize_ai_text(str(item.get("direction") or item.get("id") or ICON_CONCEPT_DIRECTIONS[(index - 1) % 3]["id"]), 40)
+        concept_id = sanitize_ai_text(str(item.get("id") or f"{direction}_{index}"), 60).replace(" ", "_") or f"concept_{index}"
+        avoid_elements = item.get("avoid_elements")
+        if not isinstance(avoid_elements, list):
+            avoid_elements = brief.avoid_generic
+        concepts.append(
+            IconConcept(
+                concept_id=concept_id,
+                direction=direction,
+                concept=sanitize_ai_text(str(item.get("concept") or f"{brief.primary_action} workflow"), 220),
+                primary_motif=sanitize_ai_text(str(item.get("primary_motif") or brief.composition_template), 180),
+                secondary_motif=sanitize_ai_text(str(item.get("secondary_motif") or ", ".join(brief.output_objects[:2])), 160),
+                composition=sanitize_ai_text(str(item.get("composition") or brief.composition_template), 260),
+                style_family=sanitize_ai_text(str(item.get("style_family") or ICON_CONCEPT_DIRECTIONS[(index - 1) % 3]["style_family"]), 160),
+                why_specific=sanitize_ai_text(str(item.get("why_specific") or brief.action_flow), 220),
+                avoid_elements=[sanitize_ai_text(str(value), 120) for value in avoid_elements[:8]],
+            )
+        )
+    return concepts
+
+
+def fallback_icon_concepts(brief: IconDesignBrief, count: int) -> list[IconConcept]:
+    concepts: list[IconConcept] = []
+    for index in range(max(count, 3)):
+        direction = ICON_CONCEPT_DIRECTIONS[index % len(ICON_CONCEPT_DIRECTIONS)]
+        if direction["id"] == "literal":
+            composition = brief.composition_template
+            primary = f"{brief.primary_action} action between {', '.join(brief.input_objects[:2])} and {', '.join(brief.output_objects[:2])}"
+            secondary = "clear directional path"
+        elif direction["id"] == "balanced":
+            composition = f"Layer {brief.input_objects[0] if brief.input_objects else 'input'} and {brief.output_objects[0] if brief.output_objects else 'output'} around one clean action arc."
+            primary = f"polished {brief.primary_action} workflow silhouette"
+            secondary = "subtle material contrast and action arc"
+        else:
+            composition = f"Use one bold signature shape to show {brief.action_flow}, changing the silhouette and color focus from earlier concepts."
+            primary = f"memorable {brief.primary_action} emblem"
+            secondary = "distinct accent shape tied to the output"
+        concepts.append(
+            IconConcept(
+                concept_id=f"{direction['id']}_{index + 1}",
+                direction=direction["id"],
+                concept=f"{direction['label']}: {brief.action_flow}",
+                primary_motif=primary,
+                secondary_motif=secondary,
+                composition=composition,
+                style_family=direction["style_family"],
+                why_specific=f"Specific to this app because it shows {brief.action_flow}, not a generic app symbol.",
+                avoid_elements=brief.avoid_generic,
+            )
+        )
+    return concepts[:count]
+
+
+def skipped_concept_report(reason: str) -> str:
+    return "\n".join(
+        [
+            "api: responses.create",
+            "status: skipped",
+            f"model: {text_model()}",
+            "used_api: false",
+            f"fallback_reason: {reason or 'AI use was not allowed.'}",
+        ]
+    )
+
+
+def score_icon_candidate(brief: IconDesignBrief, concept: IconConcept, prior_candidates: list[IconCandidateAsset]) -> dict[str, float]:
+    text = " ".join(
+        [
+            concept.concept,
+            concept.primary_motif,
+            concept.secondary_motif,
+            concept.composition,
+            concept.why_specific,
+        ]
+    ).lower()
+    action_hit = brief.primary_action and brief.primary_action.lower() in text
+    object_hits = sum(1 for value in [*brief.input_objects, *brief.output_objects] if value.lower() in text)
+    semantic = 3 + (2 if action_hit else 0) + min(3, object_hits)
+    specificity = 4 + min(3, object_hits) + (1 if "generic" in " ".join(concept.avoid_elements).lower() else 0)
+    object_count = estimate_visual_object_count(concept.composition)
+    legibility = 8 if 2 <= object_count <= 4 else 5
+    aesthetics = 7 if any(term in concept.style_family.lower() for term in ["modern", "polished", "premium", "glass", "dimensional", "editorial"]) else 5
+    diversity = 8
+    for prior in prior_candidates:
+        prior_concept = prior.concept or {}
+        prior_text = " ".join(
+            str(prior_concept.get(key, ""))
+            for key in ["concept", "primary_motif", "composition", "style_family"]
+        ).lower()
+        if jaccard_similarity(text, prior_text) > 0.42:
+            diversity = min(diversity, 4)
+    return {
+        "semantic_clarity": float(min(10, semantic)),
+        "specificity": float(min(10, specificity)),
+        "small_size_legibility": float(legibility),
+        "aesthetics": float(aesthetics),
+        "diversity": float(diversity),
+    }
+
+
+def estimate_visual_object_count(text: str) -> int:
+    normalized = text.lower()
+    if "2 to 4" in normalized or "two or three" in normalized:
+        return 3
+    count = 1
+    for token in [" and ", " to ", " into ", " with ", " between ", ","]:
+        count += normalized.count(token)
+    return max(1, min(6, count))
+
+
+def jaccard_similarity(left: str, right: str) -> float:
+    left_terms = {term for term in left.split() if len(term) > 3}
+    right_terms = {term for term in right.split() if len(term) > 3}
+    if not left_terms or not right_terms:
+        return 0.0
+    return len(left_terms & right_terms) / len(left_terms | right_terms)
+
+
 def image_api_prompt(
     prompt: str,
-    variant_label: str = "",
-    variant_guidance: str = "",
+    brief: IconDesignBrief | None = None,
+    concept: IconConcept | None = None,
     prior_candidate_ids: list[str] | None = None,
 ) -> str:
     prior = ", ".join(prior_candidate_ids or [])
+    concept_data = concept.to_dict() if concept else {}
     return "\n".join(
         [
             prompt.strip(),
             "",
+            "Icon concept JSON:",
+            json.dumps(concept_data, ensure_ascii=False),
+            "",
             "English rendering guidance: Create a modern, distinctive 1024x1024 PNG app icon for a desktop launcher.",
             "Use generous safe margins, a strong app-specific silhouette, polished high-DPI edges, and a refined material texture.",
-            "The icon must communicate the actual app purpose, input/output flow, or target business task; do not rely on a generic office-app look.",
-            f"Candidate direction: {variant_label or 'app-specific'}",
-            variant_guidance or "Make this candidate visually distinct from generic business icons.",
+            "At a glance, the viewer must understand what the app does. Show the action relationship, not just the object type.",
+            f"Primary action: {brief.primary_action if brief else 'unknown'}",
+            f"Input objects: {', '.join(brief.input_objects) if brief else 'unknown'}",
+            f"Output objects: {', '.join(brief.output_objects) if brief else 'unknown'}",
+            f"Preferred composition template: {brief.composition_template if brief else '2 to 4 meaningful objects connected by one action path'}",
+            f"Candidate direction: {concept.direction if concept else 'app-specific'}",
+            concept.composition if concept else "Make this candidate visually distinct from generic business icons.",
             f"Do not repeat the same composition as previous candidates: {prior or 'none yet'}.",
-            "Forbidden: tiny text, unreadable logo-like letters, photorealistic imagery, screenshots, crowded UI panels, document-only icons, gear-only icons, check-only icons, or initial-letter-only icons.",
+            "Use 2 to 4 meaningful objects maximum. Prioritize silhouette and relationship over detail density.",
+            "Forbidden: generic abstract shapes only, tiny text, readable or unreadable logo-like letters, photorealistic imagery, screenshots, crowded UI panels, document-only icons, gear-only icons, check-only icons, nodes-only icons, or initial-letter-only icons.",
             "Readable at 32px, attractive at 256px and above, no watermark, no mockup frame, transparent or clean icon background acceptable.",
         ]
     )
@@ -282,6 +517,31 @@ def generate_local_svg(context: StudioContext, prompt: str, style_reference: str
 
 
 def svg_motif(motif: str, stroke: str, accent: str) -> str:
+    if motif == "pdf_merge":
+        return f"""<rect x="12" y="20" width="14" height="18" rx="3" fill="#ffffff" stroke="{stroke}" stroke-width="2"/>
+  <rect x="21" y="14" width="14" height="18" rx="3" fill="#ffffff" stroke="{stroke}" stroke-width="2"/>
+  <rect x="30" y="20" width="14" height="18" rx="3" fill="#ffffff" stroke="{stroke}" stroke-width="2"/>
+  <path d="M18 41c9 7 19 7 28 0" fill="none" stroke="{accent}" stroke-width="4" stroke-linecap="round"/>
+  <rect x="38" y="29" width="15" height="21" rx="4" fill="{accent}" stroke="{stroke}" stroke-width="2"/>"""
+    if motif == "pdf_split":
+        return f"""<rect x="22" y="14" width="20" height="27" rx="4" fill="#ffffff" stroke="{stroke}" stroke-width="3"/>
+  <path d="M32 42v7M32 49l-9-5M32 49l9-5" stroke="{accent}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="10" y="38" width="14" height="14" rx="3" fill="#ffffff" stroke="{stroke}" stroke-width="2"/>
+  <rect x="40" y="38" width="14" height="14" rx="3" fill="#ffffff" stroke="{stroke}" stroke-width="2"/>"""
+    if motif == "upload_flow":
+        return f"""<rect x="12" y="34" width="18" height="14" rx="3" fill="#ffffff" stroke="{stroke}" stroke-width="2"/>
+  <path d="M31 39c5-12 12-16 22-16" fill="none" stroke="{accent}" stroke-width="4" stroke-linecap="round"/>
+  <path d="M48 16l6 7-9 2" fill="none" stroke="{accent}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M41 30h12a6 6 0 0 0-2-11 9 9 0 0 0-17 3" fill="#ffffff" stroke="{stroke}" stroke-width="2"/>"""
+    if motif == "transcribe_flow":
+        return f"""<path d="M18 34c4-13 8-13 12 0s8 13 12 0" fill="none" stroke="{accent}" stroke-width="4" stroke-linecap="round"/>
+  <rect x="14" y="17" width="14" height="22" rx="7" fill="#ffffff" stroke="{stroke}" stroke-width="3"/>
+  <path d="M40 20h12M40 29h10M40 38h13" stroke="{stroke}" stroke-width="4" stroke-linecap="round"/>"""
+    if motif == "compare_diff":
+        return f"""<rect x="12" y="18" width="18" height="28" rx="4" fill="#ffffff" stroke="{stroke}" stroke-width="3"/>
+  <rect x="34" y="18" width="18" height="28" rx="4" fill="#ffffff" stroke="{stroke}" stroke-width="3"/>
+  <path d="M31 24h2M31 32h2M31 40h2" stroke="{accent}" stroke-width="4" stroke-linecap="round"/>
+  <path d="M17 28h8M39 28h8M39 36h6" stroke="{accent}" stroke-width="3" stroke-linecap="round"/>"""
     if motif == "data_grid":
         return f"""<rect x="17" y="19" width="30" height="24" rx="4" fill="#ffffff" stroke="{stroke}" stroke-width="3"/>
   <path d="M27 19v24M37 19v24M17 31h30" stroke="{stroke}" stroke-width="2" opacity="0.75"/>
@@ -338,6 +598,16 @@ def generate_local_png(context: StudioContext, prompt: str, style_reference: str
 
 def infer_local_motif(context: StudioContext, prompt: str, digest: bytes) -> str:
     text = f"{context.app_id} {context.name} {context.entry.name} {prompt}".lower()
+    if "pdf" in text and "merge" in text:
+        return "pdf_merge"
+    if "pdf" in text and "split" in text:
+        return "pdf_split"
+    if "transcribe" in text or "speech-to-text" in text or "waveform" in text:
+        return "transcribe_flow"
+    if "compare" in text or "diff" in text:
+        return "compare_diff"
+    if "upload" in text or "sync" in text:
+        return "upload_flow"
     rules = [
         (("csv", "excel", "spreadsheet", "table", "dataframe", "pandas", "集計", "データ"), "data_grid"),
         (("upload", "download", "sync", "browser", "playwright", "flow", "web", "selenium", "自動", "連携"), "automation_flow"),
@@ -353,6 +623,58 @@ def infer_local_motif(context: StudioContext, prompt: str, digest: bytes) -> str
 
 
 def draw_local_motif(pixels, motif: str, px, stroke, accent, white) -> None:
+    if motif == "pdf_merge":
+        for x, y in [(112, 190), (190, 138), (268, 190)]:
+            fill_rounded_rect(pixels, px(x), px(y), px(x + 92), px(y + 118), px(18), white)
+            stroke_rounded_rect(pixels, px(x), px(y), px(x + 92), px(y + 118), px(18), px(6), stroke)
+            draw_line(pixels, px(x + 22), px(y + 36), px(x + 70), px(y + 36), px(5), (*stroke[:3], 150))
+        draw_line(pixels, px(176), px(330), px(256), px(372), px(13), accent)
+        draw_line(pixels, px(336), px(330), px(256), px(372), px(13), accent)
+        fill_rounded_rect(pixels, px(292), px(278), px(404), px(420), px(22), accent)
+        stroke_rounded_rect(pixels, px(292), px(278), px(404), px(420), px(22), px(7), stroke)
+        draw_line(pixels, px(318), px(326), px(378), px(326), px(7), white)
+        draw_line(pixels, px(318), px(358), px(364), px(358), px(7), white)
+        return
+    if motif == "pdf_split":
+        fill_rounded_rect(pixels, px(196), px(102), px(316), px(258), px(24), white)
+        stroke_rounded_rect(pixels, px(196), px(102), px(316), px(258), px(24), px(8), stroke)
+        draw_line(pixels, px(256), px(270), px(256), px(334), px(13), accent)
+        draw_line(pixels, px(256), px(334), px(164), px(392), px(13), accent)
+        draw_line(pixels, px(256), px(334), px(348), px(392), px(13), accent)
+        for x in [94, 306]:
+            fill_rounded_rect(pixels, px(x), px(344), px(x + 112), px(426), px(20), white)
+            stroke_rounded_rect(pixels, px(x), px(344), px(x + 112), px(426), px(20), px(7), stroke)
+        return
+    if motif == "upload_flow":
+        fill_rounded_rect(pixels, px(108), px(310), px(246), px(396), px(22), white)
+        stroke_rounded_rect(pixels, px(108), px(310), px(246), px(396), px(22), px(7), stroke)
+        draw_line(pixels, px(236), px(320), px(368), px(190), px(15), accent)
+        fill_polygon(pixels, [(360, 154), (410, 190), (354, 210)], px, accent)
+        fill_rounded_rect(pixels, px(296), px(176), px(426), px(258), px(32), white)
+        stroke_rounded_rect(pixels, px(296), px(176), px(426), px(258), px(32), px(7), stroke)
+        fill_circle(pixels, px(330), px(176), px(34), white)
+        fill_circle(pixels, px(382), px(174), px(42), white)
+        return
+    if motif == "transcribe_flow":
+        fill_rounded_rect(pixels, px(132), px(148), px(218), px(302), px(43), white)
+        stroke_rounded_rect(pixels, px(132), px(148), px(218), px(302), px(43), px(8), stroke)
+        for offset in [0, 48, 96]:
+            draw_line(pixels, px(190 + offset), px(340), px(210 + offset), px(288), px(10), accent)
+            draw_line(pixels, px(210 + offset), px(288), px(230 + offset), px(340), px(10), accent)
+        for y, width in [(178, 102), (226, 88), (274, 114)]:
+            fill_rounded_rect(pixels, px(304), px(y), px(304 + width), px(y + 24), px(12), white)
+            stroke_rounded_rect(pixels, px(304), px(y), px(304 + width), px(y + 24), px(12), px(4), stroke)
+        return
+    if motif == "compare_diff":
+        fill_rounded_rect(pixels, px(112), px(146), px(234), px(372), px(24), white)
+        stroke_rounded_rect(pixels, px(112), px(146), px(234), px(372), px(24), px(8), stroke)
+        fill_rounded_rect(pixels, px(278), px(146), px(400), px(372), px(24), white)
+        stroke_rounded_rect(pixels, px(278), px(146), px(400), px(372), px(24), px(8), stroke)
+        fill_rounded_rect(pixels, px(242), px(184), px(270), px(334), px(14), accent)
+        for y in [204, 260, 316]:
+            draw_line(pixels, px(138), px(y), px(206), px(y), px(8), (*stroke[:3], 155))
+            draw_line(pixels, px(304), px(y), px(374 if y != 260 else 350), px(y), px(8), accent if y == 260 else (*stroke[:3], 155))
+        return
     if motif == "data_grid":
         fill_rounded_rect(pixels, px(142), px(164), px(370), px(348), px(28), white)
         stroke_rounded_rect(pixels, px(142), px(164), px(370), px(348), px(28), px(8), stroke)

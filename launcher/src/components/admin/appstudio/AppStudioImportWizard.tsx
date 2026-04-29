@@ -50,6 +50,14 @@ const INITIAL_REQUEST: AppStudioImportRequest = {
 };
 
 type StudioAction = "suggest" | "apply" | "approve";
+type IconRevisionMode = "tweak" | "refine" | "redesign" | "fresh";
+
+const ICON_REVISION_MODES: Array<{ value: IconRevisionMode; label: string; description: string }> = [
+  { value: "tweak", label: "tweak", description: "前案を強く残して微修正" },
+  { value: "refine", label: "refine", description: "要素を残しつつ中修正" },
+  { value: "redesign", label: "redesign", description: "構図や主役を変える大修正" },
+  { value: "fresh", label: "fresh", description: "前案の継承を弱めた別案" },
+];
 
 export function AppStudioImportWizard() {
   const [request, setRequest] = useState<AppStudioImportRequest>(INITIAL_REQUEST);
@@ -64,6 +72,7 @@ export function AppStudioImportWizard() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [iconRevisionPrompt, setIconRevisionPrompt] = useState("");
+  const [iconRevisionMode, setIconRevisionMode] = useState<IconRevisionMode>("refine");
   const [revisionBaseCandidateId, setRevisionBaseCandidateId] = useState("");
   const [lastRevisionBase, setLastRevisionBase] = useState<AppStudioAiIconCandidate | null>(null);
 
@@ -381,7 +390,7 @@ export function AppStudioImportWizard() {
     }
     const baseCandidate = selectedRevisionBaseCandidate(aiProposal, revisionBaseCandidateId);
     setLastRevisionBase(baseCandidate);
-    const nextRequest = { ...request, iconPrompt: buildIconRevisionContext(baseCandidate, aiProposal, request.iconOverride, revision) };
+    const nextRequest = { ...request, iconPrompt: buildIconRevisionContext(baseCandidate, aiProposal, request.iconOverride, revision, iconRevisionMode) };
     setRequest(nextRequest);
     const generated = await run("suggest", "aiProposal", nextRequest);
     if (!generated) {
@@ -584,6 +593,20 @@ export function AppStudioImportWizard() {
           </div>
           <span className="admin-status-pill">採用中: {iconSourceLabel(request.iconOverride?.selectedIconSource)}</span>
         </div>
+        <div className="studio-icon-revision-modes" role="group" aria-label="icon revision mode">
+          {ICON_REVISION_MODES.map((mode) => (
+            <button
+              key={mode.value}
+              className={`studio-segment-button${iconRevisionMode === mode.value ? " selected" : ""}`}
+              type="button"
+              onClick={() => setIconRevisionMode(mode.value)}
+              title={mode.description}
+            >
+              <strong>{mode.label}</strong>
+              <span>{mode.description}</span>
+            </button>
+          ))}
+        </div>
         <label className="admin-field">
           <span>修正元の候補</span>
           <select value={revisionBaseCandidateId} onChange={(event) => setRevisionBaseCandidateId(event.target.value)}>
@@ -749,11 +772,23 @@ function buildIconRevisionContext(
   proposal: AppStudioAiProposal | null,
   iconOverride: AppStudioIconOverride | undefined,
   userInstruction: string,
+  mode: IconRevisionMode,
 ): string {
   const previousPrompt = baseCandidate?.prompt || proposal?.icon.promptRevision || proposal?.icon.promptInitial || "";
   const adopted = iconOverride?.candidateId && baseCandidate?.candidateId === iconOverride.candidateId ? "adopted" : "not_adopted";
+  const strength = revisionModeStrength(mode);
+  const previousPromptPolicy =
+    mode === "fresh"
+      ? "Use the previous prompt only as a weak negative/reference; create a different concept."
+      : mode === "redesign"
+        ? "Do not strongly inherit the previous prompt; change composition, main motif, or color."
+        : mode === "tweak"
+          ? "Strongly preserve the previous candidate while applying a small targeted change."
+          : "Preserve the useful idea, but visibly improve the composition or motif.";
   return [
     "Icon revision context",
+    `revision_mode: ${mode}`,
+    `change_strength: ${mode}`,
     `previous_candidate_id: ${baseCandidate?.candidateId || "unknown"}`,
     `previous_prompt: ${previousPrompt}`,
     `previous_status: ${baseCandidate?.status || "unknown"}`,
@@ -761,10 +796,38 @@ function buildIconRevisionContext(
     `previous_resolution: ${baseCandidate?.resolution || "unknown"}`,
     `previous_adoption_state: ${adopted}`,
     `user_revision_instruction: ${userInstruction}`,
-    "preserve: app-specific primary motif, ToolHub visual consistency, clean silhouette, high-DPI polish, small-size readability",
-    "change: follow the user revision instruction while avoiding generic document-only, gear-only, check-only, and initial-letter-only designs",
+    `preserve_elements: ${strength.preserve}`,
+    `change_elements: ${strength.change}`,
+    "avoid_elements: generic abstract shapes only, document-only, gear-only, check-only, nodes-only, initial-letter-only, tiny text, crowded UI screenshots",
+    `previous_prompt_policy: ${previousPromptPolicy}`,
+    "divergence_requirement: the regenerated concept must visibly change at least one of composition, primary motif, or color focus from the previous candidate.",
     "image_edit_api: not used in this build; regenerate from this text revision context",
   ].join("\n");
+}
+
+function revisionModeStrength(mode: IconRevisionMode): { preserve: string; change: string } {
+  if (mode === "tweak") {
+    return {
+      preserve: "primary motif, action flow, color family, ToolHub consistency, small-size readability",
+      change: "one focused detail requested by the user",
+    };
+  }
+  if (mode === "redesign") {
+    return {
+      preserve: "app function and input/output meaning only",
+      change: "composition, main silhouette, material treatment, and at least one color accent",
+    };
+  }
+  if (mode === "fresh") {
+    return {
+      preserve: "only the app function, input objects, output objects, and generic avoid rules",
+      change: "new concept family, new composition, new primary motif, new color focus",
+    };
+  }
+  return {
+    preserve: "best app-specific idea, readable action flow, ToolHub quality",
+    change: "composition clarity, motif specificity, and visual polish",
+  };
 }
 
 function estimateOperationSeconds(kind: StudioOperationKind, result: AppStudioRunResult | null): number | null {

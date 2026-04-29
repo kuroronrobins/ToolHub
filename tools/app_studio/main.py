@@ -7,7 +7,7 @@ from pathlib import Path
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from app_studio.ai_metadata_suggester import suggest_metadata
+from app_studio.ai_metadata_suggester import build_icon_design_brief, suggest_metadata
 from app_studio.app_env_builder import create_build_env, install_build_tools
 from app_studio.approval import approve_app
 from app_studio.build_profile import (
@@ -156,6 +156,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
             metadata=metadata,
             dependency_report=dependency_report,
         )
+    icon_design_brief = build_icon_design_brief(context, metadata, dependency_report, style_reference).to_dict()
     icon_override_warnings: list[str] = []
     selected_icon_source = "fallback_png"
     icon_final_png = fallback_png
@@ -186,6 +187,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "secret_scan_report": str(context.output_dir / "secret_scan_report.md"),
         "blocking_secret_findings": secret_finding_summaries(secret_report.blocking_findings, context.source_root),
         "icon_style_reference": style_reference,
+        "icon_function_interpretation": icon_design_brief,
         "icon_candidate_count": len(icon_candidates),
         "selected_icon_source": selected_icon_source,
         "icon_override_used": selected_icon_source != "fallback_png",
@@ -219,6 +221,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         icon_candidate_png=icon_candidate_png,
         icon_candidate_url=icon_candidate_url,
         icon_candidates=icon_candidates,
+        icon_design_brief=icon_design_brief,
         build_profile=build_profile,
         exe_readiness=exe_readiness,
     )

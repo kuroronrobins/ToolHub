@@ -263,6 +263,11 @@ pub struct AppStudioAiIconCandidateSuggestion {
     pub url: Option<String>,
     pub notes: Option<String>,
     pub revision_of: Option<String>,
+    pub concept_id: Option<String>,
+    pub concept: Option<Value>,
+    pub style_family: Option<String>,
+    pub scores: Option<Value>,
+    pub score_total: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -270,6 +275,7 @@ pub struct AppStudioAiIconCandidateSuggestion {
 pub struct AppStudioAiIconSuggestion {
     pub prompt_initial: Option<String>,
     pub prompt_revision: Option<String>,
+    pub function_interpretation: Option<Value>,
     pub candidate_svg: Option<String>,
     pub final_svg: Option<String>,
     pub fallback_svg: Option<String>,
@@ -1247,6 +1253,7 @@ fn read_ai_proposal(output_dir: Option<&Path>) -> AppStudioAiProposal {
         .or_else(|| proposal.icon.candidate_svg.clone());
     proposal.icon.candidate_url = read_text_optional(&icon_work.join("icon_candidate_1.url.txt"));
     proposal.icon.ai_report = read_text_optional(&icon_work.join("ai_generation_report.md"));
+    proposal.icon.function_interpretation = read_icon_function_interpretation(&icon_work);
     proposal.icon.candidate_png_data_url =
         read_png_data_url_optional(&icon_work.join("icon_candidate_1.png"));
     proposal.icon.final_png_data_url =
@@ -1381,6 +1388,12 @@ fn read_png_data_url_optional(path: &Path) -> Option<String> {
     ))
 }
 
+fn read_icon_function_interpretation(icon_work: &Path) -> Option<Value> {
+    read_json(&icon_work.join("candidate_manifest.json"))
+        .and_then(|json| json.get("function_interpretation").cloned())
+        .filter(|value| !value.is_null())
+}
+
 fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggestion> {
     let mut candidates = Vec::new();
     if let Some(json) = read_json(&icon_work.join("candidate_manifest.json")) {
@@ -1455,6 +1468,18 @@ fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggest
                         .get("revision_of")
                         .and_then(Value::as_str)
                         .map(str::to_string),
+                    concept_id: item
+                        .get("concept_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    concept: item.get("concept").cloned(),
+                    style_family: item
+                        .get("concept")
+                        .and_then(|concept| concept.get("style_family"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    scores: item.get("scores").cloned(),
+                    score_total: item.get("score_total").and_then(Value::as_f64),
                 });
             }
         }
@@ -1477,6 +1502,11 @@ fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggest
                 url: None,
                 notes: Some("Legacy icon_candidate_1.png candidate.".to_string()),
                 revision_of: None,
+                concept_id: None,
+                concept: None,
+                style_family: None,
+                scores: None,
+                score_total: None,
             });
         } else if let Some(url) = read_text_optional(&icon_work.join("icon_candidate_1.url.txt")) {
             candidates.push(AppStudioAiIconCandidateSuggestion {
@@ -1495,6 +1525,11 @@ fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggest
                 url: Some(url),
                 notes: Some("Legacy icon_candidate_1.url.txt candidate.".to_string()),
                 revision_of: None,
+                concept_id: None,
+                concept: None,
+                style_family: None,
+                scores: None,
+                score_total: None,
             });
         }
     }
@@ -2921,7 +2956,7 @@ mod tests {
         std::fs::write(icon_work.join("icon_candidate_2.png"), [137, 80, 78, 71]).unwrap();
         std::fs::write(
             icon_work.join("candidate_manifest.json"),
-            "{\"candidates\":[{\"candidate_id\":\"icon_candidate_1\",\"number\":1,\"source\":\"api\",\"prompt\":\"p1\",\"model\":\"gpt-image-2\",\"status\":\"success\",\"resolution\":\"1024x1024\",\"fallback\":false,\"file_name\":\"icon_candidate_1.png\"},{\"candidate_id\":\"icon_candidate_2\",\"number\":2,\"source\":\"fallback\",\"prompt\":\"p2\",\"model\":\"local\",\"status\":\"fallback\",\"resolution\":\"512x512\",\"fallback\":true,\"file_name\":\"icon_candidate_2.png\"}]}",
+            "{\"function_interpretation\":{\"primary_action\":\"merge\",\"input_objects\":[\"pdf/document\"],\"output_objects\":[\"pdf/document\"]},\"candidates\":[{\"candidate_id\":\"icon_candidate_1\",\"number\":1,\"source\":\"api\",\"prompt\":\"p1\",\"model\":\"gpt-image-2\",\"status\":\"success\",\"resolution\":\"1024x1024\",\"fallback\":false,\"file_name\":\"icon_candidate_1.png\",\"concept_id\":\"literal_1\",\"concept\":{\"style_family\":\"modern\",\"composition\":\"pdf merge\"},\"scores\":{\"semantic_clarity\":9},\"score_total\":42},{\"candidate_id\":\"icon_candidate_2\",\"number\":2,\"source\":\"fallback\",\"prompt\":\"p2\",\"model\":\"local\",\"status\":\"fallback\",\"resolution\":\"512x512\",\"fallback\":true,\"file_name\":\"icon_candidate_2.png\"}]}",
         )
         .unwrap();
 
@@ -2940,6 +2975,17 @@ mod tests {
         assert!(proposal.icon.candidate_png_data_url.is_some());
         assert_eq!(proposal.icon.candidates.len(), 2);
         assert_eq!(proposal.icon.candidates[0].candidate_id, "icon_candidate_1");
+        assert_eq!(
+            proposal
+                .icon
+                .function_interpretation
+                .as_ref()
+                .and_then(|value| value.get("primary_action"))
+                .and_then(Value::as_str),
+            Some("merge")
+        );
+        assert_eq!(proposal.icon.candidates[0].concept_id.as_deref(), Some("literal_1"));
+        assert_eq!(proposal.icon.candidates[0].score_total, Some(42.0));
         assert!(proposal.icon.candidates[1].fallback);
         assert!(proposal
             .metadata

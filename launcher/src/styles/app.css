@@ -1232,6 +1232,36 @@ button {
   gap: 10px;
 }
 
+.studio-icon-interpretation {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #dfe5ee;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.studio-icon-interpretation dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.studio-icon-interpretation dt {
+  color: #667085;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.studio-icon-interpretation dd {
+  margin: 2px 0 0;
+  color: #111827;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .studio-icon-candidate-card {
   display: grid;
   gap: 8px;
@@ -2029,6 +2059,36 @@ button {
   background: #ffffff;
 }
 
+.studio-icon-revision-modes {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.studio-segment-button {
+  display: grid;
+  gap: 3px;
+  min-height: 54px;
+  padding: 8px;
+  border: 1px solid #cfd7e3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #344054;
+  text-align: left;
+}
+
+.studio-segment-button span {
+  color: #667085;
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
+.studio-segment-button.selected {
+  border-color: #0f766e;
+  background: #e7f4f2;
+  color: #0f5f58;
+}
+
 .studio-icon-compare {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2198,6 +2258,8 @@ button {
     .studio-ai-actions,
     .studio-register-action-grid,
     .studio-icon-candidate-grid,
+    .studio-icon-interpretation dl,
+    .studio-icon-revision-modes,
     .studio-icon-compare,
     .studio-prompt-summary {
     grid-template-columns: 1fr;
