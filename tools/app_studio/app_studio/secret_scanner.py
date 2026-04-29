@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -72,7 +73,7 @@ LONG_RANDOM_RE = re.compile(r"\b[A-Za-z0-9_/-]{32,}\b")
 def scan_secrets(source_root: Path, inventory: SourceInventory | None = None) -> SecretScanReport:
     findings: list[SecretFinding] = []
     inventory_by_path = inventory_map(inventory)
-    for path in sorted(source_root.rglob("*")):
+    for path in iter_scan_files(source_root):
         if not path.is_file() or should_skip(path, source_root):
             continue
         lower_parts = {part.lower() for part in path.relative_to(source_root).parts}
@@ -163,6 +164,19 @@ def scan_secrets(source_root: Path, inventory: SourceInventory | None = None) ->
     report = SecretScanReport(deduplicate_findings(findings))
     apply_secret_summary_to_inventory(report, inventory_by_path)
     return report
+
+
+def iter_scan_files(source_root: Path) -> list[Path]:
+    files: list[Path] = []
+    for root, dirnames, filenames in os.walk(source_root):
+        dirnames[:] = [
+            dirname
+            for dirname in dirnames
+            if dirname.lower() not in SKIP_DIRS and not dirname.lower().startswith("pytest-cache-files-")
+        ]
+        current = Path(root)
+        files.extend(current / filename for filename in filenames)
+    return sorted(files, key=lambda path: path.as_posix().lower())
 
 
 def inventory_map(inventory: SourceInventory | None) -> dict[Path, FileRecord]:

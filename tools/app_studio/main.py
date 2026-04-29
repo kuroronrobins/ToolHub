@@ -35,6 +35,7 @@ from app_studio.registrar import apply_registration
 from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import scan_secrets
+from app_studio.timing import TimingRecorder, write_timing_reports
 from app_studio.trace import app_studio_trace, merge_trace_into_import_plan
 from app_studio.util import find_repo_root
 
@@ -119,10 +120,15 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         build_profile_path=Path(args.build_profile) if args.build_profile else None,
     )
     context = create_context(options, repo_root)
-    inventory = classify_files(context)
-    secret_report = scan_secrets(context.source_root, inventory)
-    dependency_report, proposed_requirements = analyze_dependencies(context, inventory)
-    plan = make_build_plan(context, inventory)
+    timings = TimingRecorder(context, action)
+    timings.mark("preflight", "pass", "CLI options and normal registration policy were validated.")
+    with timings.phase("file_inventory"):
+        inventory = classify_files(context)
+    with timings.phase("secret_scan"):
+        secret_report = scan_secrets(context.source_root, inventory)
+    with timings.phase("dependency_analysis"):
+        dependency_report, proposed_requirements = analyze_dependencies(context, inventory)
+        plan = make_build_plan(context, inventory)
     context.build_mode = plan.mode
     build_profile = default_build_profile(context, inventory, dependency_report)
     existing_profile_path = saved_build_profile_path(context)
@@ -131,7 +137,8 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     if options.build_profile_path:
         build_profile = merge_build_profiles(build_profile, load_build_profile(options.build_profile_path), "manual+auto")
     exe_readiness = analyze_exe_readiness(context, plan, inventory, dependency_report, secret_report, build_profile)
-    metadata = suggest_metadata(context, secret_report)
+    with timings.phase("metadata_ai_fallback"):
+        metadata = suggest_metadata(context, secret_report)
     metadata_override_applied: list[str] = []
     metadata_override_warnings: list[str] = []
     if options.metadata_override_path:
@@ -140,12 +147,13 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     app_yaml = generate_app_yaml(context, plan, metadata)
     readme = generate_readme(context, plan)
     ai_skip_reason = "secret scan blocked AI submission, AI skipped" if secret_report.blocks_ai_submission else ""
-    icon_prompt_initial, icon_prompt_revision, icon_svg, fallback_png, style_reference, icon_ai_report, icon_candidate_png, icon_candidate_url = generate_icon_assets_with_candidates(
-        context,
-        args.icon_prompt,
-        allow_ai=not secret_report.blocks_ai_submission,
-        ai_skip_reason=ai_skip_reason,
-    )
+    with timings.phase("icon_generation_fallback"):
+        icon_prompt_initial, icon_prompt_revision, icon_svg, fallback_png, style_reference, icon_ai_report, icon_candidate_png, icon_candidate_url = generate_icon_assets_with_candidates(
+            context,
+            args.icon_prompt,
+            allow_ai=not secret_report.blocks_ai_submission,
+            ai_skip_reason=ai_skip_reason,
+        )
     icon_override_warnings: list[str] = []
     selected_icon_source = "fallback_png"
     icon_final_png = fallback_png
@@ -223,9 +231,11 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     if action == "dry-run":
         return 0
 
-    output_dir = export_suggestion(context, inventory, dependency_report, secret_report, plan, artifacts)
+    with timings.phase("export_suggestion"):
+        output_dir = export_suggestion(context, inventory, dependency_report, secret_report, plan, artifacts)
     write_build_profile_files(context, output_dir, build_profile, exe_readiness)
     merge_trace_into_import_plan(output_dir, app_studio_trace(context, args))
+    write_timing_reports(context, output_dir, timings)
     print(f"Suggestion artifacts were saved: {output_dir}")
 
     if action == "suggest":
@@ -241,6 +251,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
             f"Top findings: {'; '.join(secret_finding_summaries(secret_report.blocking_findings, context.source_root)[:5])}"
         )
         record_blocked_execution(context, output_dir, "secret scan", detail, plan)
+        write_timing_reports(context, output_dir, timings)
         print(detail, file=sys.stderr)
         return 1
 
@@ -250,29 +261,39 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
 
     if plan.mode != NORMAL_REGISTRATION_BUILD_MODE:
         record_blocked_execution(context, output_dir, "registration policy", f"Normal registration requires {NORMAL_REGISTRATION_BUILD_MODE}, got {plan.mode}.", plan)
+        write_timing_reports(context, output_dir, timings)
         return 1
 
-    build_env_result = create_build_env(context, requirements_path, rebuild=True)
+    with timings.phase("build_env_creation"):
+        build_env_result = create_build_env(context, requirements_path, rebuild=True)
+    timings.mark("dependency_install", "included", "Dependency install runs inside build_env creation and is reported in build_env_report.md.")
     print(f"build_env status: ok={build_env_result.ok}, skipped={build_env_result.skipped}, path={build_env_result.app_env_path}")
     if not build_env_result.ok:
         record_blocked_execution(context, output_dir, "build_env", build_env_result.error or "build_env creation failed.", plan)
+        write_timing_reports(context, output_dir, timings)
         return 1
     build_env_python = build_env_result.python_path
     merge_trace_into_import_plan(output_dir, app_studio_trace(context, args, build_env_python=build_env_python))
 
-    lock_result = generate_lock(context, requirements_path, app_env_python=build_env_python)
+    with timings.phase("requirements_lock_generation"):
+        lock_result = generate_lock(context, requirements_path, app_env_python=build_env_python)
     print(f"requirements.lock status: ok={lock_result.ok}, source={lock_result.source}")
     if not lock_result.ok:
         record_blocked_execution(context, output_dir, "requirements.lock", lock_result.error or "requirements.lock generation failed.", plan)
+        write_timing_reports(context, output_dir, timings)
         return 1
 
-    build_tool_result = install_build_tools(context, build_env_result.app_env_path, ["PyInstaller>=6,<7", "pyinstaller-hooks-contrib>=2024.0"])
+    with timings.phase("build_tools_install"):
+        build_tool_result = install_build_tools(context, build_env_result.app_env_path, ["PyInstaller>=6,<7", "pyinstaller-hooks-contrib>=2024.0"])
     print(f"build tool install status: ok={build_tool_result.ok}, skipped={build_tool_result.skipped}")
     if not build_tool_result.ok:
         record_blocked_execution(context, output_dir, "build tools", build_tool_result.error or "Build tool install failed.", plan)
+        write_timing_reports(context, output_dir, timings)
         return 1
 
-    frozen_result = build_frozen_folder(context, plan, output_dir, rebuild=True, build_profile=build_profile)
+    timings.mark("pyinstaller_probe", "included", "PyInstaller probe is executed inside the frozen-folder build phase and reported in frozen_folder_build_report.md.")
+    with timings.phase("pyinstaller_build"):
+        frozen_result = build_frozen_folder(context, plan, output_dir, rebuild=True, build_profile=build_profile)
     merge_trace_into_import_plan(
         output_dir,
         app_studio_trace(
@@ -292,25 +313,33 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
             frozen_result.error or "Frozen-folder build failed before temporary registration.",
             plan,
         )
+        write_timing_reports(context, output_dir, timings)
         return 1
 
-    runtime_result = verify_runtime(context, output_dir, plan, build_profile)
+    with timings.phase("distribution_check"):
+        runtime_result = verify_runtime(context, output_dir, plan, build_profile)
     print(f"distribution check status: {runtime_result.overall_status}")
     if runtime_result.overall_status == "fail":
         record_blocked_execution(context, output_dir, "frozen-folder distribution check", "Distribution verification failed. Review runtime_check_report.md.", plan)
+        write_timing_reports(context, output_dir, timings)
         return 1
 
     try:
-        package_path = apply_registration(context, plan, final_app, output_dir)
+        with timings.phase("registration_copy"):
+            package_path = apply_registration(context, plan, final_app, output_dir)
     except Exception as exc:
         record_blocked_execution(context, output_dir, "registration copy", f"Registration copy or app pack generation failed: {exc!r}", plan)
+        write_timing_reports(context, output_dir, timings)
         raise
-    execution_result = run_execution_checks(context, plan, output_dir, secret_report)
+    with timings.phase("execution_checks"):
+        execution_result = run_execution_checks(context, plan, output_dir, secret_report, runtime_result)
+    timings.mark("result_refresh", "not_applicable", "GUI result refresh is measured in the launcher after CLI completion.")
+    write_timing_reports(context, output_dir, timings)
     print(f"Temporary registration completed: apps/{context.app_id}")
     print(f"App Pack was generated: {package_path}")
     print(f"execution_test_result overall_status={execution_result.overall_status}, approval_allowed={execution_result.approval_allowed}")
     print("release/app_manifest.json starts with enabled=false for imported apps.")
-    return 0
+    return 0 if execution_result.approval_allowed else 1
 
 
 def validate_flag_combination(args: argparse.Namespace) -> None:

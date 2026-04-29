@@ -98,7 +98,7 @@ def classify_files(context: StudioContext) -> SourceInventory:
     referenced_files = referenced_files_by_path(references, context.source_root)
     records: list[FileRecord] = []
 
-    for path in sorted(context.source_root.rglob("*")):
+    for path in iter_source_files(context.source_root):
         if not path.is_file():
             continue
         relative = path.relative_to(context.source_root).as_posix()
@@ -143,6 +143,19 @@ def classify_files(context: StudioContext) -> SourceInventory:
         import_roots=sorted(import_roots),
         manual_checks=manual_checks,
     )
+
+
+def iter_source_files(source_root: Path) -> list[Path]:
+    files: list[Path] = []
+    for root, dirnames, filenames in os.walk(source_root):
+        dirnames[:] = [
+            dirname
+            for dirname in dirnames
+            if dirname.lower() not in GENERATED_DIRS and not dirname.lower().startswith("pytest-cache-files-")
+        ]
+        current = Path(root)
+        files.extend(current / filename for filename in filenames)
+    return sorted(files, key=lambda path: path.as_posix().lower())
 
 
 def exclusion_reason(path: Path, source_root: Path) -> tuple[bool, str, str, str]:

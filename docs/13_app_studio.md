@@ -8,7 +8,7 @@ GUIでは、Suggest が生成した `proposed_app.yaml` と `icon_work/` をAI/f
 
 AI提案パネルはCLIへ渡すAI環境の診断も表示します。表示対象は AI enabled、API key source、Text model、Image model、CLI env ready です。APIキー本文は表示しません。`metadata_ai_report` と `icon_work/ai_generation_report.md` から、metadata/image それぞれの `status`、`model`、`parse_status`、`content_type`、`saved_candidate`、`fallback_reason` も確認できます。
 
-GUIでは CLI process の `exit_code` / `process_ok` と、`execution_test_result.json` の `overall_status` / `approval_allowed` を分けて表示します。通常新規登録の frozen-folder では runner dry execution がスキップされ、`overall_status: warn` になることがあります。`approval_allowed: true` で、他のチェックが pass の場合は致命的失敗ではありません。GUIはこの状態を `warn / approval OK` と表示し、AllowWarnings で承認できるようにします。App Packが見つからない場合は App Pack 欄だけ `not found` と表示します。Apply後はGUIが `app_studio_read_result` を再実行し、生成済みJSONの内容を表示へ反映します。
+GUIでは CLI process の `exit_code` / `process_ok` と、`execution_test_result.json` の `overall_status` / `approval_allowed` を分けて表示します。通常新規登録の frozen-folder では runner dry execution や Playwright ログイン未確認により `overall_status: warn` になることがあります。警告は `approval_blocking_warning`、`non_blocking_warning`、`info` に分類され、`approval_allowed: true` かつ `approval_blocking_warnings_count: 0` の場合は、デフォルトの慎重モードでも承認できます。App Packが見つからない場合は App Pack 欄だけ `not found` と表示します。Apply後はGUIが `app_studio_read_result` を再実行し、生成済みJSONの内容を表示へ反映します。
 
 ## AI提案メタデータとmetadata_override
 
@@ -97,8 +97,11 @@ Preflight表示:
 
 承認モード:
 
-- `AllowWarnings`: `fail` がなければ承認可能です。
-- `StrictApproval`: `pass` のみ承認可能です。`warn` がある場合は承認できません。
+- 既定は「配布リスクがある警告は承認しない」です。
+- `StrictApproval`: `fail` と `approval_blocking_warning` は承認不可です。`non_blocking_warning` や `info` だけなら承認できます。
+- `AllowWarnings`: 配布リスクのない警告を許容します。ただし exe欠落、required_files欠落、secret混入、`BUILD_REQUIRED.txt` 残存などの `fail` は承認できません。
+
+Apply 中は `TOOLHUB_PROGRESS {...}` 行を stdout に出力し、`timing_report.json` / `timing_report.md` に工程別時間を記録します。GUI は実行中に現在工程、経過時間、目安時間、残り目安を表示します。目安は同じ app_id の過去実績または一般的な初回ビルド目安であり、環境や依存関係により変動します。
 
 結果サマリーでは `selected_build_mode`、`exit_code`、最後に実行した action、次に必要な操作も表示します。
 
@@ -175,6 +178,7 @@ C:\work\MyApp\ToolHub_AppStudio_Output\<app_id>\
 - `file_inventory.json`
 - `dependency_report.json`
 - `secret_scan_report.md`
+- `timing_report.json` / `timing_report.md`
 - `build_plan.md`
 - `proposed_app.yaml`
 - `proposed_README.md`
@@ -339,7 +343,7 @@ data/logs/app_studio/<app_id>_execution_test_result.json
 }
 ```
 
-`fail` がある場合は承認不可です。`warn` は通常承認では許容できますが、`StrictApproval` では承認不可です。
+`fail` がある場合は承認不可です。`warn` は承認可否の観点で分類されます。`approval_blocking_warning` は配布品質や安全性に影響する未解決リスクとして承認不可です。`non_blocking_warning` は AI fallback、Playwright ログイン未確認、外部サービス実操作未確認などの参考警告で、配布物自体が成立している場合はデフォルトの慎重モードでも承認できます。
 
 ## 承認モード
 
@@ -347,9 +351,11 @@ data/logs/app_studio/<app_id>_execution_test_result.json
 .\scripts\approve_imported_app.ps1 -AppId "agendasnap" -StrictApproval
 ```
 
-- 既定: `fail` がなければ承認できます。
-- `-AllowWarnings`: warn まで承認可能です。
-- `-StrictApproval`: `pass` のみ承認可能です。
+- 既定: GUI は「配布リスクがある警告は承認しない」です。
+- `-AllowWarnings`: 配布リスクのない警告を許容します。
+- `-StrictApproval`: `fail` と `approval_blocking_warning` を拒否します。`non_blocking_warning` / `info` だけなら承認できます。
+
+`execution_test_result.json` には `approval_blocking_warnings_count`、`non_blocking_warnings_count`、`info_count`、`unresolved_distribution_risks_count`、`approval_blocking_reasons`、`non_blocking_warning_summaries` が記録されます。required_files や add-data が配布物検証で pass した場合、ビルド前の「packaged data を確認する」注意書きだけで承認不可にはしません。
 
 承認時は `execution_test_result.json`、`apps/<app_id>/app.yaml`、`release/app_manifest.json`、App Pack 生成、可能な範囲の `verify_release.ps1` を確認します。失敗した場合は `enabled=true` にせず、途中で変更した場合も元に戻します。
 

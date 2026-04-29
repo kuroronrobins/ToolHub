@@ -47,14 +47,16 @@ def default_build_profile(context: StudioContext, inventory: SourceInventory, de
         profile["collect_all"] = ["playwright"]
         profile["manual_checks"].extend(
             [
-                "Playwright browser binaries must be installed in the managed build environment.",
-                "Authentication state is not packaged automatically; verify the first-login/manual-auth flow.",
-                "Run a human launch check because browser windows, file pickers, and keep-open flows are interactive.",
+                "Playwright のブラウザバイナリがビルド用環境で利用できることを確認してください。",
+                "認証済み storage state は自動同梱しません。初回ログインまたは手動認証の流れを確認してください。",
+                "ブラウザ画面、ファイル選択、待機型の操作は自動完了確認の対象外です。人間による起動確認を行ってください。",
             ]
         )
 
     if profile["add_data"]:
-        profile["manual_checks"].append("Verify packaged data files are present under bin/<app_id>/ after the frozen build.")
+        profile["warnings"].append(
+            "ビルド前注意: frozen-folder作成後、必要な設定ファイル・データファイルは配布物検証で自動確認されます。"
+        )
     if len([record for record in inventory.records if record.include and record.path.suffix.lower() == ".py"]) > 1 and not profile["hidden_imports"]:
         profile["warnings"].append("Multiple Python files were detected but no hidden imports were inferred.")
 

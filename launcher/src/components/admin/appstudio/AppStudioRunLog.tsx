@@ -21,7 +21,7 @@ export function AppStudioRunLog({ busy, result }: Props) {
       {busy ? <p className="admin-muted">App Studioを実行しています。完了するまで承認はできません。</p> : null}
       {warningOnly ? (
         <p className="admin-muted">
-          CLIの終了コードは0以外ですが、execution_test_result.json は warn かつ approval_allowed=true です。ログを確認してからAllowWarningsで承認してください。
+          CLIの終了コードが0以外でも、execution_test_result.json が warn かつ approval_allowed=true の場合があります。配布リスクのない警告だけなら慎重モードでも承認できます。
         </p>
       ) : null}
       <pre className="studio-log">{result ? joinLogs(result) : "実行ログはまだありません。"}</pre>
@@ -44,6 +44,9 @@ function joinLogs(result: AppStudioRunResult): string {
     `exitCode: ${result.exitCode}`,
     `executionStatus: ${result.executionStatus ?? "unknown"}`,
     `approvalAllowed: ${String(result.approvalAllowed ?? "unknown")}`,
+    `approvalBlockingWarnings: ${String(result.approvalBlockingWarningsCount ?? 0)}`,
+    `nonBlockingWarnings: ${String(result.nonBlockingWarningsCount ?? 0)}`,
+    `timingTotalSeconds: ${String(result.timingTotalSeconds ?? "unknown")}`,
     "",
     "[stdout]",
     result.stdout.trim() || "(empty)",

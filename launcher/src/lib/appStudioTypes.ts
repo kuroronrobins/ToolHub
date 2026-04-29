@@ -76,6 +76,16 @@ export interface AppStudioRunResult {
   secretBlockingFindings?: string[];
   aiBlockedBySecretScan?: boolean;
   applyBlockedBySecretScan?: boolean;
+  approvalBlockingWarningsCount?: number;
+  nonBlockingWarningsCount?: number;
+  infoCount?: number;
+  unresolvedDistributionRisksCount?: number;
+  approvalBlockingReasons?: string[];
+  nonBlockingWarningSummaries?: string[];
+  timingReport?: string | null;
+  timingTotalSeconds?: number | null;
+  timingEstimatedTotalSeconds?: number | null;
+  timingPhases?: AppStudioTimingPhase[];
 }
 
 export interface AppStudioPreflightResult {
@@ -113,6 +123,23 @@ export interface AppStudioResultSummary {
   secretBlockingFindings?: string[];
   aiBlockedBySecretScan?: boolean;
   applyBlockedBySecretScan?: boolean;
+  approvalBlockingWarningsCount?: number;
+  nonBlockingWarningsCount?: number;
+  infoCount?: number;
+  unresolvedDistributionRisksCount?: number;
+  approvalBlockingReasons?: string[];
+  nonBlockingWarningSummaries?: string[];
+  timingReport?: string | null;
+  timingTotalSeconds?: number | null;
+  timingEstimatedTotalSeconds?: number | null;
+  timingPhases?: AppStudioTimingPhase[];
+}
+
+export interface AppStudioTimingPhase {
+  phase: string;
+  label: string;
+  status: string;
+  durationSeconds?: number | null;
 }
 
 export interface AppStudioEditableMetadata {

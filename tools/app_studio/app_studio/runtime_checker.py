@@ -67,6 +67,9 @@ FORBIDDEN_CONFIG_MARKERS = {
     "storage_state",
 }
 FORBIDDEN_AUTH_MARKERS = {"cookie", "session", "token"}
+APPROVAL_BLOCKING_WARNING = "approval_blocking_warning"
+NON_BLOCKING_WARNING = "non_blocking_warning"
+INFO = "info"
 
 
 def verify_runtime(
@@ -107,6 +110,7 @@ def verify_frozen_folder_distribution(
             "frozen smoke execution",
             "warn",
             "Skipped automatically for exe/frozen-folder mode. GUI, browser, login, and file-picker flows require manual launch verification.",
+            NON_BLOCKING_WARNING,
         ),
     ]
     if uses_playwright(build_profile):
@@ -115,9 +119,10 @@ def verify_frozen_folder_distribution(
                 "playwright manual check",
                 "warn",
                 "Playwright was collected for the build. Browser binaries and login state must be verified manually; authenticated storage state is not packaged.",
+                NON_BLOCKING_WARNING,
             )
         )
-    return RuntimeCheckResult(context.app_id, overall_status(checks), checks, trace_with_import_plan(context, output_dir))
+    return build_runtime_result(context, output_dir, checks)
 
 
 def verify_legacy_runtime(context: StudioContext, output_dir: Path) -> RuntimeCheckResult:
@@ -128,7 +133,7 @@ def verify_legacy_runtime(context: StudioContext, output_dir: Path) -> RuntimeCh
             "Normal App Studio registration now verifies frozen-folder distribution output. Legacy app_env runtime probing is skipped for this path.",
         )
     ]
-    return RuntimeCheckResult(context.app_id, overall_status(checks), checks, trace_with_import_plan(context, output_dir))
+    return build_runtime_result(context, output_dir, checks)
 
 
 def file_check(name: str, path: Path, missing_status: str = "fail") -> RuntimeCheck:
@@ -164,13 +169,13 @@ def build_required_removed_check(final_app: Path) -> RuntimeCheck:
 def pyinstaller_layout_check(output_dir: Path) -> RuntimeCheck:
     report_path = output_dir / "frozen_folder_build_report.md"
     if not report_path.is_file():
-        return RuntimeCheck("pyinstaller layout command", "warn", f"Build report was not found: {report_path}")
+        return RuntimeCheck("pyinstaller layout command", "warn", f"Build report was not found: {report_path}", APPROVAL_BLOCKING_WARNING, True)
     text = report_path.read_text(encoding="utf-8", errors="replace")
     if command_uses_contents_directory_dot(text):
         return RuntimeCheck("pyinstaller layout command", "pass", "PyInstaller command includes --contents-directory . for old-style onedir layout.")
     if "--contents-directory" in text:
-        return RuntimeCheck("pyinstaller layout command", "warn", "PyInstaller command uses --contents-directory but not with '.'. Review onedir data placement.")
-    return RuntimeCheck("pyinstaller layout command", "warn", "PyInstaller command does not show --contents-directory .; _internal data placement may be from an old build.")
+        return RuntimeCheck("pyinstaller layout command", "warn", "PyInstaller command uses --contents-directory but not with '.'. Review onedir data placement.", APPROVAL_BLOCKING_WARNING, True)
+    return RuntimeCheck("pyinstaller layout command", "warn", "PyInstaller command does not show --contents-directory .; _internal data placement may be from an old build.", APPROVAL_BLOCKING_WARNING, True)
 
 
 def command_uses_contents_directory_dot(text: str) -> bool:
@@ -184,7 +189,7 @@ def command_uses_contents_directory_dot(text: str) -> bool:
 def required_data_files_check(bin_root: Path, build_profile: dict[str, Any], source_root: Path | None = None) -> RuntimeCheck:
     findings = required_data_findings(bin_root, build_profile, source_root)
     if findings["status"] == "no_data":
-        return RuntimeCheck("required add-data files", "warn", "No add_data entries are listed in build_profile.json.")
+        return RuntimeCheck("required add-data files", "warn", "No add_data entries are listed in build_profile.json.", NON_BLOCKING_WARNING)
     if findings["missing"]:
         return RuntimeCheck("required add-data files", "fail", "Missing packaged data files: " + ", ".join(item["relative"] for item in findings["missing"][:10]))
     if findings["internal_only"]:
@@ -193,7 +198,7 @@ def required_data_files_check(bin_root: Path, build_profile: dict[str, Any], sou
             f"{len(findings['internal_only'])} item(s) are only under _internal. "
             "This is acceptable for existing PyInstaller 6 onedir artifacts, but with --contents-directory . new builds should place them beside the exe."
         )
-        return RuntimeCheck("required add-data files", "warn", detail)
+        return RuntimeCheck("required add-data files", "warn", detail, NON_BLOCKING_WARNING)
     return RuntimeCheck("required add-data files", "pass", f"{findings['found_count']} packaged data item(s) were found.")
 
 
@@ -361,7 +366,7 @@ def build_env_separation_check(context: StudioContext, final_app: Path) -> Runti
     if build_env.exists() and not build_env.is_relative_to(final_app):
         return RuntimeCheck("build_env separation", "pass", f"build_env is outside final_app: {build_env}")
     if not build_env.exists():
-        return RuntimeCheck("build_env separation", "warn", "build_env was not found when verification ran.")
+        return RuntimeCheck("build_env separation", "warn", "build_env was not found when verification ran.", NON_BLOCKING_WARNING)
     return RuntimeCheck("build_env separation", "fail", f"build_env is inside final_app: {build_env}")
 
 
@@ -374,13 +379,13 @@ def size_check(name: str, path: Path) -> RuntimeCheck:
     detail = f"{size} bytes ({mb:.1f} MB)"
     if status == "warn":
         detail += "; large frozen-folder output, review bundled dependencies and data files."
-    return RuntimeCheck(name, status, detail)
+    return RuntimeCheck(name, status, detail, APPROVAL_BLOCKING_WARNING if status == "warn" else INFO, status == "warn")
 
 
 def add_data_size_check(context: StudioContext, build_profile: dict[str, Any]) -> RuntimeCheck:
     add_data = build_profile.get("add_data") if isinstance(build_profile, dict) else None
     if not isinstance(add_data, list) or not add_data:
-        return RuntimeCheck("add-data source size", "warn", "No add_data entries are listed.")
+        return RuntimeCheck("add-data source size", "warn", "No add_data entries are listed.", NON_BLOCKING_WARNING)
     total = 0
     large: list[str] = []
     for item in add_data:
@@ -396,7 +401,7 @@ def add_data_size_check(context: StudioContext, build_profile: dict[str, Any]) -
     detail = f"{total} bytes ({mb:.1f} MB)"
     if large:
         detail += "; large add-data candidates: " + ", ".join(large[:5])
-    return RuntimeCheck("add-data source size", status, detail)
+    return RuntimeCheck("add-data source size", status, detail, APPROVAL_BLOCKING_WARNING if status == "warn" else INFO, status == "warn")
 
 
 def directory_size(path: Path) -> int:
@@ -421,17 +426,62 @@ def overall_status(checks: list[RuntimeCheck]) -> str:
     return "pass"
 
 
+def build_runtime_result(context: StudioContext, output_dir: Path, checks: list[RuntimeCheck]) -> RuntimeCheckResult:
+    summary = runtime_approval_summary(checks)
+    return RuntimeCheckResult(
+        context.app_id,
+        overall_status(checks),
+        checks,
+        trace_with_import_plan(context, output_dir),
+        approval_blocking_warnings_count=summary["approval_blocking_warnings_count"],
+        non_blocking_warnings_count=summary["non_blocking_warnings_count"],
+        info_count=summary["info_count"],
+        unresolved_distribution_risks_count=summary["unresolved_distribution_risks_count"],
+        approval_blocking_reasons=summary["approval_blocking_reasons"],
+        non_blocking_warning_summaries=summary["non_blocking_warning_summaries"],
+    )
+
+
+def runtime_approval_summary(checks: list[RuntimeCheck]) -> dict[str, Any]:
+    blocking_warnings = [
+        item
+        for item in checks
+        if item.status == "warn" and (item.approval_blocking or item.approval_category == APPROVAL_BLOCKING_WARNING)
+    ]
+    non_blocking_warnings = [
+        item
+        for item in checks
+        if item.status == "warn" and not (item.approval_blocking or item.approval_category == APPROVAL_BLOCKING_WARNING)
+    ]
+    info_checks = [item for item in checks if item.status == "pass" or item.approval_category == INFO]
+    fail_count = sum(1 for item in checks if item.status == "fail")
+    return {
+        "approval_blocking_warnings_count": len(blocking_warnings),
+        "non_blocking_warnings_count": len(non_blocking_warnings),
+        "info_count": len(info_checks),
+        "unresolved_distribution_risks_count": len(blocking_warnings) + fail_count,
+        "approval_blocking_reasons": [f"{item.name}: {item.detail}" for item in blocking_warnings[:10]],
+        "non_blocking_warning_summaries": [f"{item.name}: {item.detail}" for item in non_blocking_warnings[:10]],
+    }
+
+
 def runtime_report_markdown(result: RuntimeCheckResult) -> str:
     lines = [
         "# Frozen-Folder Distribution Check Report",
         "",
         f"- app_id: `{result.app_id}`",
         f"- overall_status: `{result.overall_status}`",
+        f"- approval_blocking_warnings_count: `{result.approval_blocking_warnings_count}`",
+        f"- non_blocking_warnings_count: `{result.non_blocking_warnings_count}`",
+        f"- unresolved_distribution_risks_count: `{result.unresolved_distribution_risks_count}`",
         "",
-        "| Status | Check | Detail |",
-        "| --- | --- | --- |",
+        "| Status | Category | Blocking | Check | Detail |",
+        "| --- | --- | --- | --- | --- |",
     ]
-    lines.extend(f"| {check.status} | {check.name} | {check.detail} |" for check in result.checks)
+    lines.extend(
+        f"| {check.status} | {check.approval_category or (APPROVAL_BLOCKING_WARNING if check.approval_blocking else NON_BLOCKING_WARNING if check.status == 'warn' else INFO)} | {str(check.approval_blocking or check.status == 'fail').lower()} | {check.name} | {check.detail} |"
+        for check in result.checks
+    )
     if result.evidence:
         lines.extend(["", "## Evidence", "", "```json", json.dumps(result.evidence, ensure_ascii=False, indent=2), "```"])
     lines.extend(["", "Normal App Studio registration verifies the generated exe/frozen-folder payload, not runtime/app_env."])

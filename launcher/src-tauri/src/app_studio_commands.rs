@@ -108,6 +108,16 @@ pub struct AppStudioResultSummary {
     pub secret_blocking_findings: Vec<String>,
     pub ai_blocked_by_secret_scan: bool,
     pub apply_blocked_by_secret_scan: bool,
+    pub approval_blocking_warnings_count: usize,
+    pub non_blocking_warnings_count: usize,
+    pub info_count: usize,
+    pub unresolved_distribution_risks_count: usize,
+    pub approval_blocking_reasons: Vec<String>,
+    pub non_blocking_warning_summaries: Vec<String>,
+    pub timing_report: Option<String>,
+    pub timing_total_seconds: Option<f64>,
+    pub timing_estimated_total_seconds: Option<f64>,
+    pub timing_phases: Vec<AppStudioTimingPhase>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -141,6 +151,25 @@ pub struct AppStudioRunResult {
     pub secret_blocking_findings: Vec<String>,
     pub ai_blocked_by_secret_scan: bool,
     pub apply_blocked_by_secret_scan: bool,
+    pub approval_blocking_warnings_count: usize,
+    pub non_blocking_warnings_count: usize,
+    pub info_count: usize,
+    pub unresolved_distribution_risks_count: usize,
+    pub approval_blocking_reasons: Vec<String>,
+    pub non_blocking_warning_summaries: Vec<String>,
+    pub timing_report: Option<String>,
+    pub timing_total_seconds: Option<f64>,
+    pub timing_estimated_total_seconds: Option<f64>,
+    pub timing_phases: Vec<AppStudioTimingPhase>,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioTimingPhase {
+    pub phase: String,
+    pub label: String,
+    pub status: String,
+    pub duration_seconds: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -806,6 +835,16 @@ fn result_from_process(
         secret_blocking_findings: summary.secret_blocking_findings,
         ai_blocked_by_secret_scan: summary.ai_blocked_by_secret_scan,
         apply_blocked_by_secret_scan: summary.apply_blocked_by_secret_scan,
+        approval_blocking_warnings_count: summary.approval_blocking_warnings_count,
+        non_blocking_warnings_count: summary.non_blocking_warnings_count,
+        info_count: summary.info_count,
+        unresolved_distribution_risks_count: summary.unresolved_distribution_risks_count,
+        approval_blocking_reasons: summary.approval_blocking_reasons,
+        non_blocking_warning_summaries: summary.non_blocking_warning_summaries,
+        timing_report: summary.timing_report,
+        timing_total_seconds: summary.timing_total_seconds,
+        timing_estimated_total_seconds: summary.timing_estimated_total_seconds,
+        timing_phases: summary.timing_phases,
     }
 }
 
@@ -1255,6 +1294,7 @@ fn read_summary(
         read_import_plan(&path, &mut summary);
         read_execution_result(&path, &mut summary);
         read_runtime_result(&path, &mut summary);
+        read_timing_result(&path, &mut summary);
         read_app_pack(&path, &mut summary);
     }
     if summary.app_id.is_none() {
@@ -1348,6 +1388,55 @@ fn read_execution_result(output_dir: &Path, summary: &mut AppStudioResultSummary
     if let Some(value) = json.get("approval_allowed").and_then(Value::as_bool) {
         summary.approval_allowed = Some(value);
     }
+    summary.approval_blocking_warnings_count = json
+        .get("approval_blocking_warnings_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    summary.non_blocking_warnings_count = json
+        .get("non_blocking_warnings_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    summary.info_count = json.get("info_count").and_then(Value::as_u64).unwrap_or(0) as usize;
+    summary.unresolved_distribution_risks_count = json
+        .get("unresolved_distribution_risks_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    summary.approval_blocking_reasons = string_array(json.get("approval_blocking_reasons"));
+    summary.non_blocking_warning_summaries = string_array(json.get("non_blocking_warning_summaries"));
+}
+
+fn read_timing_result(output_dir: &Path, summary: &mut AppStudioResultSummary) {
+    let path = output_dir.join("timing_report.json");
+    let Some(json) = read_json(&path) else {
+        return;
+    };
+    summary.timing_report = Some(path.display().to_string());
+    summary.timing_total_seconds = json.get("total_duration_seconds").and_then(Value::as_f64);
+    summary.timing_estimated_total_seconds = json
+        .get("estimated_total_seconds")
+        .and_then(Value::as_f64)
+        .or_else(|| json.get("estimated_total_seconds").and_then(Value::as_i64).map(|value| value as f64));
+    if let Some(items) = json.get("phases").and_then(Value::as_array) {
+        summary.timing_phases = items
+            .iter()
+            .filter_map(|item| {
+                Some(AppStudioTimingPhase {
+                    phase: item.get("phase")?.as_str()?.to_string(),
+                    label: item
+                        .get("label")
+                        .and_then(Value::as_str)
+                        .unwrap_or_else(|| item.get("phase").and_then(Value::as_str).unwrap_or(""))
+                        .to_string(),
+                    status: item
+                        .get("status")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown")
+                        .to_string(),
+                    duration_seconds: item.get("duration_seconds").and_then(Value::as_f64),
+                })
+            })
+            .collect();
+    }
 }
 
 fn read_runtime_result(output_dir: &Path, summary: &mut AppStudioResultSummary) {
@@ -1358,6 +1447,19 @@ fn read_runtime_result(output_dir: &Path, summary: &mut AppStudioResultSummary) 
     if let Some(value) = json.get("overall_status").and_then(Value::as_str) {
         summary.runtime_status = Some(value.to_string());
     }
+}
+
+fn string_array(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn read_app_pack(output_dir: &Path, summary: &mut AppStudioResultSummary) {

@@ -65,6 +65,11 @@ def validate_approval_inputs(repo_root: Path, manifest: dict[str, Any], app_id: 
     checks = result.get("checks") or []
     fail_checks = [item for item in checks if item.get("status") == "fail"]
     warn_checks = [item for item in checks if item.get("status") == "warn"]
+    approval_blocking_warn_checks = [
+        item
+        for item in warn_checks
+        if item.get("approval_blocking") is True or item.get("approval_category") == "approval_blocking_warning"
+    ]
     stale_signals = stale_execution_result_signals(repo_root, app_id, app_yaml, result_path)
     if stale_signals:
         raise ValueError(
@@ -79,10 +84,16 @@ def validate_approval_inputs(repo_root: Path, manifest: dict[str, Any], app_id: 
         )
     if fail_checks:
         raise ValueError(f"Execution test result contains fail checks. result_path={result_path}; fail_checks={format_check_summaries(fail_checks)}")
-    if strict and warn_checks:
-        raise ValueError(f"StrictApproval rejects warning checks. result_path={result_path}; warn_checks={format_check_summaries(warn_checks)}")
-    if not allow_warnings and warn_checks:
-        raise ValueError(f"Warnings are not allowed for this approval. result_path={result_path}; warn_checks={format_check_summaries(warn_checks)}")
+    if strict and approval_blocking_warn_checks:
+        raise ValueError(
+            "StrictApproval rejects approval-blocking warning checks. "
+            f"result_path={result_path}; warn_checks={format_check_summaries(approval_blocking_warn_checks)}"
+        )
+    if not allow_warnings and approval_blocking_warn_checks:
+        raise ValueError(
+            "Approval-blocking warnings are not allowed for this approval. "
+            f"result_path={result_path}; warn_checks={format_check_summaries(approval_blocking_warn_checks)}"
+        )
     return entry, result
 
 
