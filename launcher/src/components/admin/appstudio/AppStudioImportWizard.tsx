@@ -10,6 +10,7 @@ import {
   appStudioReadResult,
   appStudioSuggest,
 } from "../../../lib/appStudioApi";
+import { getAppStudioApprovalDecision } from "../../../lib/appStudioApproval";
 import { suggestAppIdentity } from "../../../lib/appStudioIdentity";
 import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
 import type {
@@ -55,7 +56,7 @@ export function AppStudioImportWizard() {
   const [operation, setOperation] = useState<StudioOperationState>(IDLE_OPERATION);
   const [busy, setBusy] = useState(false);
   const [lastAction, setLastAction] = useState<StudioAction | null>(null);
-  const [approvalMode, setApprovalMode] = useState<AppStudioApprovalMode>("allowWarnings");
+  const [approvalMode, setApprovalMode] = useState<AppStudioApprovalMode>("strict");
   const [preflight, setPreflight] = useState<AppStudioPreflightResult | null>(null);
   const [result, setResult] = useState<AppStudioRunResult | null>(null);
   const [aiProposal, setAiProposal] = useState<AppStudioAiProposal | null>(null);
@@ -71,17 +72,8 @@ export function AppStudioImportWizard() {
     }),
     [],
   );
-  const canApprove = useMemo(
-    () =>
-      Boolean(
-        result?.appId &&
-          lastAction === "apply" &&
-          result.executionStatus !== "fail" &&
-          result.approvalAllowed !== false &&
-          (approvalMode === "allowWarnings" || result.executionStatus === "pass"),
-      ),
-    [approvalMode, lastAction, result],
-  );
+  const approvalDecision = useMemo(() => getAppStudioApprovalDecision(result, approvalMode, busy), [approvalMode, busy, result]);
+  const canApprove = approvalDecision.canApprove;
 
   function update(partial: Partial<AppStudioImportRequest>) {
     setRequest((current) => ({ ...current, ...partial }));
@@ -115,6 +107,7 @@ export function AppStudioImportWizard() {
       startedAt: Date.now(),
       status: "running",
       message: messageText,
+      estimatedSeconds: estimateOperationSeconds(kind, result),
     });
   }
 
@@ -126,6 +119,7 @@ export function AppStudioImportWizard() {
       startedAt: null,
       status,
       message: messageText,
+      estimatedSeconds: null,
     });
   }
 
@@ -313,6 +307,16 @@ export function AppStudioImportWizard() {
         secretBlockingFindings: summary.secretBlockingFindings ?? runResult.secretBlockingFindings,
         aiBlockedBySecretScan: summary.aiBlockedBySecretScan ?? runResult.aiBlockedBySecretScan,
         applyBlockedBySecretScan: summary.applyBlockedBySecretScan ?? runResult.applyBlockedBySecretScan,
+        approvalBlockingWarningsCount: summary.approvalBlockingWarningsCount ?? runResult.approvalBlockingWarningsCount,
+        nonBlockingWarningsCount: summary.nonBlockingWarningsCount ?? runResult.nonBlockingWarningsCount,
+        infoCount: summary.infoCount ?? runResult.infoCount,
+        unresolvedDistributionRisksCount: summary.unresolvedDistributionRisksCount ?? runResult.unresolvedDistributionRisksCount,
+        approvalBlockingReasons: summary.approvalBlockingReasons ?? runResult.approvalBlockingReasons,
+        nonBlockingWarningSummaries: summary.nonBlockingWarningSummaries ?? runResult.nonBlockingWarningSummaries,
+        timingReport: summary.timingReport ?? runResult.timingReport,
+        timingTotalSeconds: summary.timingTotalSeconds ?? runResult.timingTotalSeconds,
+        timingEstimatedTotalSeconds: summary.timingEstimatedTotalSeconds ?? runResult.timingEstimatedTotalSeconds,
+        timingPhases: summary.timingPhases ?? runResult.timingPhases,
       };
     } catch {
       return runResult;
@@ -631,7 +635,7 @@ export function AppStudioImportWizard() {
               <small>一時的に登録し、exeと同梱ファイルが揃っているか確認します。</small>
             </span>
           </button>
-          <button className="studio-register-action primary" type="button" onClick={() => void approve()} disabled={busy || !canApprove}>
+          <button className="studio-register-action primary" type="button" onClick={() => void approve()} disabled={!canApprove} title={canApprove ? "承認して有効化します" : approvalDecision.reason}>
             {operation.kind === "approve" && busy ? <Loader2 className="studio-spinner" size={18} aria-hidden="true" /> : <ShieldCheck size={18} aria-hidden="true" />}
             <span>
               <strong>{operation.kind === "approve" && busy ? "承認して有効化しています..." : "承認して有効化"}</strong>
@@ -656,6 +660,22 @@ export function AppStudioImportWizard() {
       </section>
     );
   }
+}
+
+function estimateOperationSeconds(kind: StudioOperationKind, result: AppStudioRunResult | null): number | null {
+  if (kind === "apply") {
+    return result?.timingTotalSeconds ?? result?.timingEstimatedTotalSeconds ?? 600;
+  }
+  if (kind === "suggest" || kind === "aiProposal") {
+    return 60;
+  }
+  if (kind === "approve") {
+    return 90;
+  }
+  if (kind === "refresh" || kind === "preflight") {
+    return 5;
+  }
+  return null;
 }
 
 function cleanRequest(request: AppStudioImportRequest): AppStudioImportRequest {

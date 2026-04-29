@@ -1523,6 +1523,14 @@ button {
   font-size: 0.83rem;
 }
 
+.studio-operation-progress {
+  height: 4px;
+  max-width: 100%;
+  border-radius: 999px;
+  background: #0f766e;
+  transition: width 0.2s ease;
+}
+
 .studio-spinner {
   animation: spin 0.9s linear infinite;
 }

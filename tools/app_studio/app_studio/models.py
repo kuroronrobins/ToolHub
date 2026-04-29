@@ -243,9 +243,19 @@ class RuntimeCheck:
     name: str
     status: str
     detail: str
+    approval_category: str = ""
+    approval_blocking: bool = False
+    resolved: bool = False
 
-    def to_dict(self) -> dict[str, str]:
-        return {"name": self.name, "status": self.status, "detail": self.detail}
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "status": self.status,
+            "detail": self.detail,
+            "approval_category": approval_category_for_check(self.status, self.approval_category),
+            "approval_blocking": self.approval_blocking or self.status == "fail",
+            "resolved": self.resolved,
+        }
 
 
 @dataclass
@@ -254,6 +264,12 @@ class RuntimeCheckResult:
     overall_status: str
     checks: list[RuntimeCheck]
     evidence: dict[str, Any] = field(default_factory=dict)
+    approval_blocking_warnings_count: int = 0
+    non_blocking_warnings_count: int = 0
+    info_count: int = 0
+    unresolved_distribution_risks_count: int = 0
+    approval_blocking_reasons: list[str] = field(default_factory=list)
+    non_blocking_warning_summaries: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -261,6 +277,12 @@ class RuntimeCheckResult:
             "overall_status": self.overall_status,
             "checks": [check.to_dict() for check in self.checks],
             "evidence": self.evidence,
+            "approval_blocking_warnings_count": self.approval_blocking_warnings_count,
+            "non_blocking_warnings_count": self.non_blocking_warnings_count,
+            "info_count": self.info_count,
+            "unresolved_distribution_risks_count": self.unresolved_distribution_risks_count,
+            "approval_blocking_reasons": self.approval_blocking_reasons,
+            "non_blocking_warning_summaries": self.non_blocking_warning_summaries,
         }
 
 
@@ -300,9 +322,19 @@ class ExecutionCheck:
     name: str
     status: str
     detail: str
+    approval_category: str = ""
+    approval_blocking: bool = False
+    resolved: bool = False
 
-    def to_dict(self) -> dict[str, str]:
-        return {"name": self.name, "status": self.status, "detail": self.detail}
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "status": self.status,
+            "detail": self.detail,
+            "approval_category": approval_category_for_check(self.status, self.approval_category),
+            "approval_blocking": self.approval_blocking or self.status == "fail",
+            "resolved": self.resolved,
+        }
 
 
 @dataclass
@@ -313,6 +345,12 @@ class ExecutionTestResult:
     approval_allowed: bool
     checks: list[ExecutionCheck]
     evidence: dict[str, Any] = field(default_factory=dict)
+    approval_blocking_warnings_count: int = 0
+    non_blocking_warnings_count: int = 0
+    info_count: int = 0
+    unresolved_distribution_risks_count: int = 0
+    approval_blocking_reasons: list[str] = field(default_factory=list)
+    non_blocking_warning_summaries: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -322,4 +360,20 @@ class ExecutionTestResult:
             "approval_allowed": self.approval_allowed,
             "checks": [check.to_dict() for check in self.checks],
             "evidence": self.evidence,
+            "approval_blocking_warnings_count": self.approval_blocking_warnings_count,
+            "non_blocking_warnings_count": self.non_blocking_warnings_count,
+            "info_count": self.info_count,
+            "unresolved_distribution_risks_count": self.unresolved_distribution_risks_count,
+            "approval_blocking_reasons": self.approval_blocking_reasons,
+            "non_blocking_warning_summaries": self.non_blocking_warning_summaries,
         }
+
+
+def approval_category_for_check(status: str, explicit: str = "") -> str:
+    if explicit:
+        return explicit
+    if status == "fail":
+        return "fail"
+    if status == "warn":
+        return "non_blocking_warning"
+    return "info"

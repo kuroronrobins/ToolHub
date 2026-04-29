@@ -2,6 +2,7 @@ import { CheckCircle2, CircleAlert, FolderOpen, PackageCheck, ShieldCheck } from
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { appStudioOpenOutputDir } from "../../../lib/appStudioApi";
+import { getAppStudioApprovalDecision } from "../../../lib/appStudioApproval";
 import type { AppStudioApprovalMode, AppStudioRunResult } from "../../../lib/appStudioTypes";
 
 interface Props {
@@ -17,16 +18,11 @@ interface Props {
 export function AppStudioResultPanel({ result, lastAction, approvalMode, onApprovalModeChange, busy, onApprove, onRefresh }: Props) {
   const [openMessage, setOpenMessage] = useState("");
   const [openError, setOpenError] = useState("");
-  const warningOnly = Boolean(result && !result.ok && result.executionStatus === "warn" && result.approvalAllowed === true);
+  const warningOnly = Boolean(result && result.executionStatus === "warn" && result.approvalAllowed === true);
   const secretBlocked = Boolean(result?.applyBlockedBySecretScan || (result?.secretBlockingCount ?? 0) > 0);
-  const canApprove = Boolean(
-    result?.appId &&
-      lastAction === "apply" &&
-      result.executionStatus !== "fail" &&
-      result.approvalAllowed !== false &&
-      (approvalMode === "allowWarnings" || result.executionStatus === "pass"),
-  );
-  const nextAction = nextActionText(result, lastAction, approvalMode);
+  const approvalDecision = getAppStudioApprovalDecision(result, approvalMode, busy);
+  const canApprove = approvalDecision.canApprove;
+  const nextAction = nextActionText(result, lastAction, approvalDecision.reason);
 
   async function openOutputDir() {
     if (!result?.outputDir) {
@@ -36,9 +32,9 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
     setOpenError("");
     try {
       await appStudioOpenOutputDir(result.outputDir);
-      setOpenMessage("Explorerで出力先を開きました。");
+      setOpenMessage("Explorer で出力フォルダを開きました。");
     } catch (error) {
-      setOpenError(error instanceof Error ? error.message : "出力先を開けませんでした。");
+      setOpenError(error instanceof Error ? error.message : "出力フォルダを開けませんでした。");
     }
   }
 
@@ -49,14 +45,14 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
           <p className="dialog-kicker">結果</p>
           <h4>生成物と承認状態</h4>
         </div>
-        <span className={`admin-status-pill ${result?.enabled || warningOnly ? "ok" : ""}`}>
-          {result?.enabled ? "有効化済み" : warningOnly ? "警告 / 承認可" : "未承認"}
+        <span className={`admin-status-pill ${result?.enabled || canApprove ? "ok" : ""}`}>
+          {result?.enabled ? "有効化済み" : canApprove ? "承認可能" : "未承認"}
         </span>
       </div>
 
       {warningOnly ? (
         <p className="admin-muted">
-          CLIの終了コードは0以外ですが、配布物検証結果は「警告」かつ承認可能です。ログを確認してから承認してください。
+          配布リスクのない警告のみです。詳細を確認して問題なければ、デフォルトの慎重モードでも承認できます。
         </p>
       ) : null}
 
@@ -75,7 +71,7 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
               ))}
             </ul>
           ) : null}
-          <p>本物の秘密情報は削除し、サンプル値は明確な placeholder にし、配布対象外ファイルは add-data へ入らない状態で再実行してください。</p>
+          <p>本物の秘密情報は削除し、サンプル値は placeholder として明確化してください。配布対象外のファイルは add-data に入らない状態で再実行してください。</p>
         </div>
       ) : null}
 
@@ -92,21 +88,36 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
         <ResultRow icon={<CheckCircle2 size={18} />} label="アイコン上書き" value={iconOverrideText(result)} />
         <ResultRow icon={<CircleAlert size={18} />} label="exe化準備" value={executionLabel(result?.exeReadinessStatus)} />
         <ResultRow icon={<CircleAlert size={18} />} label="配布物検証" value={executionLabel(result?.executionStatus)} />
-        <ResultRow icon={<CircleAlert size={18} />} label="承認可否" value={formatBool(result?.approvalAllowed)} />
-        <ResultRow icon={<CircleAlert size={18} />} label="配布物" value={executionLabel(result?.runtimeStatus)} />
+        <ResultRow icon={<CircleAlert size={18} />} label="システム承認判定" value={approvalDecision.systemDecision} />
+        <ResultRow icon={<CircleAlert size={18} />} label="現在モードの判定" value={approvalDecision.modeDecision} />
+        <ResultRow icon={<CircleAlert size={18} />} label="配布リスク警告" value={String(result?.approvalBlockingWarningsCount ?? 0)} />
+        <ResultRow icon={<CircleAlert size={18} />} label="参考警告" value={String(result?.nonBlockingWarningsCount ?? 0)} />
+        <ResultRow icon={<CircleAlert size={18} />} label="未解決リスク" value={String(result?.unresolvedDistributionRisksCount ?? 0)} />
+        <ResultRow icon={<CircleAlert size={18} />} label="runtime検証" value={executionLabel(result?.runtimeStatus)} />
         <ResultRow icon={<CircleAlert size={18} />} label="秘密情報ブロック" value={String(result?.secretBlockingCount ?? 0)} />
+        <ResultRow icon={<CircleAlert size={18} />} label="処理時間" value={timingSummary(result)} />
         <ResultRow icon={<PackageCheck size={18} />} label="App Pack" value={result?.appPack ?? "未作成"} />
         <ResultRow icon={<ShieldCheck size={18} />} label="次の操作" value={nextAction} />
       </div>
 
-      {result?.manualChecks?.length ? (
+      {result?.approvalBlockingReasons?.length ? (
+        <FindingList title="配布リスクあり" items={result.approvalBlockingReasons} />
+      ) : null}
+      {result?.nonBlockingWarningSummaries?.length ? (
+        <FindingList title="配布リスクなしの警告" items={result.nonBlockingWarningSummaries} />
+      ) : null}
+      {result?.manualChecks?.length ? <FindingList title="手動確認メモ" items={result.manualChecks} /> : null}
+      {result?.timingPhases?.length ? (
         <div className="studio-manual-checks">
-          <strong>手動確認</strong>
+          <strong>工程別時間</strong>
           <ul>
-            {result.manualChecks.map((item) => (
-              <li key={item}>{item}</li>
+            {result.timingPhases.slice(-10).map((item, index) => (
+              <li key={`${item.phase}-${index}`}>
+                {item.label}: {formatSeconds(item.durationSeconds)} ({item.status})
+              </li>
             ))}
           </ul>
+          {result.timingReport ? <p>Report: {result.timingReport}</p> : null}
         </div>
       ) : null}
 
@@ -124,7 +135,7 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
           />
           <span>
             <strong>警告ありでも承認可能</strong>
-            <small>重大な失敗がなければ承認できます。軽微な警告を許容する運用向けです。</small>
+            <small>配布物破損ではない警告を許容します。ただし exe欠落、required_files欠落、secret混入などのfailは承認できません。</small>
           </span>
         </label>
         <label className="studio-approval-option">
@@ -135,8 +146,8 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
             onChange={() => onApprovalModeChange("strict")}
           />
           <span>
-            <strong>警告があれば承認しない</strong>
-            <small>警告を含めて問題ゼロの場合のみ承認できます。慎重運用向けです。</small>
+            <strong>配布リスクがある警告は承認しない</strong>
+            <small>配布リスクのない参考警告や手動確認メモだけなら、このモードでも承認できます。</small>
           </span>
         </label>
       </fieldset>
@@ -144,7 +155,8 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
         <button className="secondary-button" type="button" onClick={onRefresh} disabled={busy || !result?.appId}>
           結果を再読み込み
         </button>
-        <button className="primary-button" type="button" onClick={onApprove} disabled={busy || !canApprove}>
+        {!canApprove ? <p className="admin-error">{approvalDecision.reason}</p> : <p className="admin-success">{approvalDecision.reason}</p>}
+        <button className="primary-button" type="button" onClick={onApprove} disabled={!canApprove} title={canApprove ? "承認して有効化します" : approvalDecision.reason}>
           <ShieldCheck size={17} aria-hidden="true" />
           承認して有効化
         </button>
@@ -163,6 +175,19 @@ function ResultRow({ icon, label, value }: { icon: ReactNode; label: string; val
   );
 }
 
+function FindingList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="studio-manual-checks">
+      <strong>{title}</strong>
+      <ul>
+        {items.map((item, index) => (
+          <li key={`${title}-${index}`}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function OutputDirRow({ value, disabled, onOpen }: { value: string; disabled: boolean; onOpen: () => void }) {
   return (
     <div className="studio-result-row output-dir-row">
@@ -172,7 +197,7 @@ function OutputDirRow({ value, disabled, onOpen }: { value: string; disabled: bo
       <strong>出力先</strong>
       <div>
         <p>{value || "-"}</p>
-        <button className="secondary-button" type="button" onClick={onOpen} disabled={disabled} title={value ? "Windows Explorerで出力先を開きます" : "出力先はまだありません"}>
+        <button className="secondary-button" type="button" onClick={onOpen} disabled={disabled} title={value ? "Windows Explorer で出力先を開きます" : "出力先はまだありません"}>
           <FolderOpen size={16} aria-hidden="true" />
           フォルダを開く
         </button>
@@ -181,23 +206,13 @@ function OutputDirRow({ value, disabled, onOpen }: { value: string; disabled: bo
   );
 }
 
-function formatBool(value: boolean | null | undefined): string {
-  if (value === true) {
-    return "承認できます";
-  }
-  if (value === false) {
-    return "承認できません";
-  }
-  return "未確認";
-}
-
 function boolLabel(value: boolean): string {
   return value ? "成功" : "失敗";
 }
 
 function actionLabel(action: "suggest" | "apply" | "approve" | null): string {
   if (action === "suggest") {
-    return "登録内容を作成";
+    return "登録内容作成";
   }
   if (action === "apply") {
     return "テスト登録";
@@ -227,7 +242,7 @@ function executionLabel(status?: string | null): string {
     return "問題なし";
   }
   if (status === "warn") {
-    return "警告";
+    return "警告あり";
   }
   if (status === "fail") {
     return "失敗";
@@ -238,29 +253,36 @@ function executionLabel(status?: string | null): string {
 function nextActionText(
   result: AppStudioRunResult | null,
   lastAction: "suggest" | "apply" | "approve" | null,
-  approvalMode: AppStudioApprovalMode,
+  decisionReason: string,
 ): string {
   if (!result) {
     return "事前確認後、登録内容を作成してください。";
-  }
-  const warningOnly = result.executionStatus === "warn" && result.approvalAllowed === true;
-  if (!result.ok && !warningOnly) {
-    return "ログと生成レポートを確認してください。";
   }
   if (result.enabled) {
     return "承認済みです。";
   }
   if (lastAction === "suggest") {
-    return "テスト登録して配布物検証してください。";
+    return "テスト登録して配布物検証を実行してください。";
   }
-  if (lastAction === "apply") {
-    if (result.executionStatus === "fail" || result.approvalAllowed === false) {
-      return "失敗チェックを解消してください。";
-    }
-    if (approvalMode === "strict" && result.executionStatus !== "pass") {
-      return "慎重運用では警告なしのpassが必要です。";
-    }
-    return "承認できます。";
+  return decisionReason;
+}
+
+function timingSummary(result: AppStudioRunResult | null): string {
+  if (!result?.timingTotalSeconds) {
+    return "-";
   }
-  return "結果を確認してください。";
+  const estimate = result.timingEstimatedTotalSeconds ? ` / 目安 ${formatSeconds(result.timingEstimatedTotalSeconds)}` : "";
+  return `${formatSeconds(result.timingTotalSeconds)}${estimate}`;
+}
+
+function formatSeconds(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) {
+    return "-";
+  }
+  if (value < 60) {
+    return `${value.toFixed(1)}秒`;
+  }
+  const minutes = Math.floor(value / 60);
+  const seconds = Math.round(value % 60);
+  return `${minutes}分${seconds}秒`;
 }

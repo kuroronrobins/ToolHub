@@ -133,5 +133,7 @@
   "manual_checks": [
     "Verify packaged data files are present under bin/<app_id>/ after the frozen build."
   ],
-  "warnings": []
+  "warnings": [
+    "ビルド前注意: frozen-folder作成後、必要な設定ファイル・データファイルは配布物検証で自動確認されます。"
+  ]
 }

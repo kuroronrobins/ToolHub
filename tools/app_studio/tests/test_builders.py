@@ -27,7 +27,7 @@ from app_studio.frozen_folder_builder import build_report as frozen_build_report
 from app_studio.frozen_folder_builder import detect_pyinstaller_environment_issue, pyinstaller_command
 from app_studio.frozen_folder_builder import probe_pyinstaller
 from app_studio.lock_generator import generate_lock
-from app_studio.models import BuildPlan, DependencyReport, FileRecord, GeneratedArtifacts, ImportOptions, SecretFinding, SecretScanReport, SourceInventory
+from app_studio.models import BuildPlan, DependencyReport, FileRecord, GeneratedArtifacts, ImportOptions, RuntimeCheck, RuntimeCheckResult, SecretFinding, SecretScanReport, SourceInventory
 from app_studio.models import AppEnvBuildResult, LockGenerationResult
 from app_studio.openai_client import generate_image
 from app_studio.runtime_checker import verify_runtime
@@ -116,7 +116,8 @@ admin:
     )
 
 
-def write_execution_result(repo: Path, app_id: str, status: str, approval_allowed: bool) -> None:
+def write_execution_result(repo: Path, app_id: str, status: str, approval_allowed: bool, approval_blocking: bool = False) -> None:
+    category = "approval_blocking_warning" if approval_blocking else "non_blocking_warning" if status == "warn" else status
     write_json(
         repo / "data" / "logs" / "app_studio" / f"{app_id}_execution_test_result.json",
         {
@@ -124,7 +125,19 @@ def write_execution_result(repo: Path, app_id: str, status: str, approval_allowe
             "generated_at": "2026-01-01T00:00:00",
             "overall_status": status,
             "approval_allowed": approval_allowed,
-            "checks": [{"name": status, "status": status, "detail": "test"}],
+            "approval_blocking_warnings_count": 1 if approval_blocking else 0,
+            "non_blocking_warnings_count": 1 if status == "warn" and not approval_blocking else 0,
+            "approval_blocking_reasons": ["test"] if approval_blocking else [],
+            "non_blocking_warning_summaries": ["test"] if status == "warn" and not approval_blocking else [],
+            "checks": [
+                {
+                    "name": status,
+                    "status": status,
+                    "detail": "test",
+                    "approval_category": category,
+                    "approval_blocking": approval_blocking or status == "fail",
+                }
+            ],
         },
     )
 
@@ -477,9 +490,14 @@ class NormalRegistrationFlowTests(unittest.TestCase):
             execution = json.loads((output_dir / "execution_test_result.json").read_text(encoding="utf-8"))
             self.assertTrue(execution["approval_allowed"])
             self.assertIn("app_studio_policy_id", execution["evidence"])
+            self.assertIn("non_blocking_warnings_count", execution)
             runtime = json.loads((output_dir / "runtime_check_result.json").read_text(encoding="utf-8"))
             self.assertNotEqual(runtime["overall_status"], "fail")
             self.assertIn("app_studio_policy_id", runtime["evidence"])
+            timing = json.loads((output_dir / "timing_report.json").read_text(encoding="utf-8"))
+            phases = {item["phase"] for item in timing["phases"]}
+            self.assertIn("pyinstaller_build", phases)
+            self.assertIn("distribution_check", phases)
             frozen_report = (output_dir / "frozen_folder_build_report.md").read_text(encoding="utf-8")
             self.assertIn("build_env", frozen_report)
             self.assertIn("--contents-directory .", frozen_report)
@@ -511,12 +529,23 @@ class ExecutionAndApprovalTests(unittest.TestCase):
 
             self.assertTrue(manifest["apps"][app_id]["enabled"])
 
-    def test_strict_approval_rejects_warning(self) -> None:
+    def test_strict_approval_allows_non_blocking_warning(self) -> None:
         with workspace_tempdir() as root:
             repo = make_repo(root)
             app_id = "demo_app"
             write_minimal_registered_app(repo, app_id)
             write_execution_result(repo, app_id, "warn", True)
+
+            approve_app(repo, app_id, strict=True, allow_warnings=False)
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+            self.assertTrue(manifest["apps"][app_id]["enabled"])
+
+    def test_strict_approval_rejects_approval_blocking_warning(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            write_execution_result(repo, app_id, "warn", False, approval_blocking=True)
 
             with self.assertRaises(Exception):
                 approve_app(repo, app_id, strict=True, allow_warnings=False)
@@ -534,6 +563,94 @@ class ExecutionAndApprovalTests(unittest.TestCase):
                 approve_app(repo, app_id)
             manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
             self.assertFalse(manifest["apps"][app_id]["enabled"])
+
+    def test_execution_warn_with_only_non_blocking_warnings_allows_approval(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            app_dir = context.repo_root / "apps" / context.app_id
+            write_minimal_registered_app(context.repo_root, context.app_id)
+            write_text(
+                app_dir / "app.yaml",
+                f"""id: {context.app_id}
+name: Demo App
+display:
+  icon: icon.svg
+  short_description: demo
+  categories:
+    - demo
+detail:
+  description: demo
+run:
+  runner: exe
+  entry: bin/{context.app_id}/{context.app_id}.exe
+  mode: gui
+admin:
+  version: 0.1.0
+  owner: admin
+  requirements: requirements.txt
+  log_dir: logs
+""",
+            )
+            bin_root = app_dir / "bin" / context.app_id
+            bin_root.mkdir(parents=True)
+            write_text(bin_root / f"{context.app_id}.exe", "fake exe")
+            write_json(app_dir / "build_profile.json", {"add_data": [], "required_files": []})
+            plan = BuildPlan("frozen-folder", "exe", f"bin/{context.app_id}/{context.app_id}.exe", None, [])
+            secret_report = SecretScanReport([SecretFinding(context.source_root / "README.md", "placeholder", "medium", "OPENAI_API_KEY", affects_ai_submission=True)])
+
+            result = build_execution_result(context, plan, context.output_dir, secret_report)
+
+            self.assertEqual(result.overall_status, "warn")
+            self.assertTrue(result.approval_allowed)
+            self.assertEqual(result.approval_blocking_warnings_count, 0)
+            self.assertGreater(result.non_blocking_warnings_count, 0)
+
+    def test_runtime_approval_blocking_warning_blocks_execution_approval(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            app_dir = context.repo_root / "apps" / context.app_id
+            write_minimal_registered_app(context.repo_root, context.app_id)
+            write_text(
+                app_dir / "app.yaml",
+                f"""id: {context.app_id}
+name: Demo App
+display:
+  icon: icon.svg
+  short_description: demo
+  categories:
+    - demo
+detail:
+  description: demo
+run:
+  runner: exe
+  entry: bin/{context.app_id}/{context.app_id}.exe
+  mode: gui
+admin:
+  version: 0.1.0
+  owner: admin
+  requirements: requirements.txt
+  log_dir: logs
+""",
+            )
+            bin_root = app_dir / "bin" / context.app_id
+            bin_root.mkdir(parents=True)
+            write_text(bin_root / f"{context.app_id}.exe", "fake exe")
+            write_json(app_dir / "build_profile.json", {"add_data": [], "required_files": []})
+            plan = BuildPlan("frozen-folder", "exe", f"bin/{context.app_id}/{context.app_id}.exe", None, [])
+            runtime_result = RuntimeCheckResult(
+                context.app_id,
+                "warn",
+                [RuntimeCheck("frozen-folder size", "warn", "large", "approval_blocking_warning", True)],
+                approval_blocking_warnings_count=1,
+                unresolved_distribution_risks_count=1,
+                approval_blocking_reasons=["frozen-folder size: large"],
+            )
+
+            result = build_execution_result(context, plan, context.output_dir, runtime_result=runtime_result)
+
+            self.assertEqual(result.overall_status, "warn")
+            self.assertFalse(result.approval_allowed)
+            self.assertEqual(result.approval_blocking_warnings_count, 1)
 
     def test_approval_rejects_stale_execution_result_with_context(self) -> None:
         with workspace_tempdir() as root:

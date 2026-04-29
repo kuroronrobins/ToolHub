@@ -10,6 +10,7 @@ import {
   appStudioUpdatePreflight,
   appStudioUpdateSuggest,
 } from "../../../lib/appStudioApi";
+import { getAppStudioApprovalDecision } from "../../../lib/appStudioApproval";
 import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
 import type {
   AppStudioAiProposal,
@@ -57,7 +58,7 @@ export function AppStudioUpdateWizard() {
   const [request, setRequest] = useState<AppStudioUpdateRequest>(INITIAL_REQUEST);
   const [versionMode, setVersionMode] = useState<AppStudioVersionBumpMode>("patch");
   const [manualVersion, setManualVersion] = useState("");
-  const [approvalMode, setApprovalMode] = useState<AppStudioApprovalMode>("allowWarnings");
+  const [approvalMode, setApprovalMode] = useState<AppStudioApprovalMode>("strict");
   const [busy, setBusy] = useState(false);
   const [preflight, setPreflight] = useState<AppStudioPreflightResult | null>(null);
   const [result, setResult] = useState<AppStudioRunResult | null>(null);
@@ -204,6 +205,23 @@ export function AppStudioUpdateWizard() {
         selectedIconSource: summary.selectedIconSource ?? runResult.selectedIconSource,
         exeReadinessStatus: summary.exeReadinessStatus ?? runResult.exeReadinessStatus,
         manualChecks: summary.manualChecks ?? runResult.manualChecks,
+        secretBlockingCount: summary.secretBlockingCount ?? runResult.secretBlockingCount,
+        secretWarningCount: summary.secretWarningCount ?? runResult.secretWarningCount,
+        secretManualCheckCount: summary.secretManualCheckCount ?? runResult.secretManualCheckCount,
+        secretScanReport: summary.secretScanReport ?? runResult.secretScanReport,
+        secretBlockingFindings: summary.secretBlockingFindings ?? runResult.secretBlockingFindings,
+        aiBlockedBySecretScan: summary.aiBlockedBySecretScan ?? runResult.aiBlockedBySecretScan,
+        applyBlockedBySecretScan: summary.applyBlockedBySecretScan ?? runResult.applyBlockedBySecretScan,
+        approvalBlockingWarningsCount: summary.approvalBlockingWarningsCount ?? runResult.approvalBlockingWarningsCount,
+        nonBlockingWarningsCount: summary.nonBlockingWarningsCount ?? runResult.nonBlockingWarningsCount,
+        infoCount: summary.infoCount ?? runResult.infoCount,
+        unresolvedDistributionRisksCount: summary.unresolvedDistributionRisksCount ?? runResult.unresolvedDistributionRisksCount,
+        approvalBlockingReasons: summary.approvalBlockingReasons ?? runResult.approvalBlockingReasons,
+        nonBlockingWarningSummaries: summary.nonBlockingWarningSummaries ?? runResult.nonBlockingWarningSummaries,
+        timingReport: summary.timingReport ?? runResult.timingReport,
+        timingTotalSeconds: summary.timingTotalSeconds ?? runResult.timingTotalSeconds,
+        timingEstimatedTotalSeconds: summary.timingEstimatedTotalSeconds ?? runResult.timingEstimatedTotalSeconds,
+        timingPhases: summary.timingPhases ?? runResult.timingPhases,
       };
     } catch {
       return runResult;
@@ -503,13 +521,8 @@ function updateNextAction(
     return "Run Apply update.";
   }
   if (lastAction === "apply") {
-    if (result.executionStatus === "fail" || result.approvalAllowed === false) {
-      return "Resolve fail checks before approval.";
-    }
-    if (approvalMode === "strict" && result.executionStatus !== "pass") {
-      return "StrictApproval requires pass.";
-    }
-    return "Run Approve update.";
+    const decision = getAppStudioApprovalDecision(result, approvalMode, false);
+    return decision.canApprove ? "Run Approve update." : decision.reason;
   }
   return "Review the result.";
 }
