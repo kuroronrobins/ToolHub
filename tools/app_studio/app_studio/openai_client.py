@@ -96,8 +96,14 @@ def complete_json(system_prompt: str, user_prompt: str) -> OpenAIResult:
         return result_with_report(False, True, "", api, "failed", model or "", "none", reason, repr(exc))
 
 
-def generate_image(prompt: str, size: str = "1024x1024", quality: str = "medium", output_format: str = "png") -> OpenAIResult:
-    model = get_image_model()
+def generate_image(
+    prompt: str,
+    size: str = "1024x1024",
+    quality: str = "medium",
+    output_format: str = "png",
+    model_override: str | None = None,
+) -> OpenAIResult:
+    model = (model_override.strip() if model_override else "") or get_image_model()
     allowed, status, reason = can_call_api(model)
     api = "images.generate"
     if not allowed:
@@ -181,7 +187,7 @@ def edit_image(prompt: str, image_path: str, size: str = "1024x1024", quality: s
     return result_with_report(True, True, content, api, "success", model or "", content_type, "", resolution=size)
 
 
-def test_image_generation_connection() -> OpenAIResult:
+def test_image_generation_connection(model_override: str | None = None) -> OpenAIResult:
     return generate_image(
         (
             "Generate a tiny ToolHub test app icon: a single teal check-shaped sparkle on a clean "
@@ -190,6 +196,7 @@ def test_image_generation_connection() -> OpenAIResult:
         size="1024x1024",
         quality="low",
         output_format="png",
+        model_override=model_override,
     )
 
 
@@ -288,6 +295,13 @@ def classify_openai_error(exc: Exception) -> str:
 
 def error_category_from_reason(reason: str) -> str:
     text = reason.lower()
+    if (
+        "organization must be verified" in text
+        or "verify organization" in text
+        or "verified organization" in text
+        or "organization verification" in text
+    ):
+        return "organization_verification_required"
     if "not set" in text:
         return "missing_api_key"
     if "not configured" in text:
@@ -306,8 +320,6 @@ def error_category_from_reason(reason: str) -> str:
         return "unsupported_model"
     if "unsupported parameter" in text or "unknown parameter" in text or "unexpected parameter" in text:
         return "unsupported_parameter"
-    if "organization verification" in text or "verified organization" in text:
-        return "organization_verification"
     return "api_error" if text else ""
 
 

@@ -61,6 +61,26 @@ pub struct AiImageGenerationTestResult {
     pub error_category: Option<String>,
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AiImageModelProbeItem {
+    pub model: String,
+    pub ok: bool,
+    pub status: String,
+    pub content_type: String,
+    pub fallback_reason: Option<String>,
+    pub error: Option<String>,
+    pub error_category: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AiImageModelProbeResult {
+    pub ok: bool,
+    pub message: String,
+    pub items: Vec<AiImageModelProbeItem>,
+}
+
 pub fn settings_path(user_data_root: &Path) -> PathBuf {
     user_data_root.join("config").join("app_studio_ai.json")
 }

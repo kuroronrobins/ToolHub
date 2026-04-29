@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { KeyRound, PlugZap, Save, Trash2 } from "lucide-react";
 import {
+  aiProbeImageModels,
   aiDeleteApiKey,
   aiGetApiKeyStatus,
   aiGetSettings,
@@ -10,7 +11,8 @@ import {
   aiTestConnection,
   aiTestImageGeneration,
 } from "../../lib/adminApi";
-import type { AiImageGenerationTestResult, AiSettings, ApiKeyStatus } from "../../lib/adminTypes";
+import type { AiImageGenerationTestResult, AiImageModelProbeResult, AiSettings, ApiKeyStatus } from "../../lib/adminTypes";
+import { imageApiFailureGuidance, isOrganizationVerificationRequired, storeImageGenerationTestResult } from "../../lib/imageApiHealth";
 import { formatAdminError } from "./adminUi";
 
 const DEFAULT_SETTINGS: AiSettings = {
@@ -28,6 +30,7 @@ export function AiSettingsPanel() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [imageTest, setImageTest] = useState<AiImageGenerationTestResult | null>(null);
+  const [modelProbe, setModelProbe] = useState<AiImageModelProbeResult | null>(null);
   const [busy, setBusy] = useState(false);
 
   const shortKeyWarning = useMemo(() => {
@@ -140,9 +143,31 @@ export function AiSettingsPanel() {
     try {
       const result = await aiTestImageGeneration();
       setImageTest(result);
-      setMessage(result.ok ? `画像生成テスト成功: ${result.model}` : `画像生成テスト失敗: ${result.message}`);
+      storeImageGenerationTestResult(result);
+      setMessage(result.ok ? `画像生成テスト成功: ${result.model}` : `画像生成テスト失敗: ${imageApiFailureGuidance(result) || result.message}`);
     } catch (testError) {
       setError(formatAdminError(testError, "画像生成テストを実行できませんでした。"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleProbeImageModels() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    setModelProbe(null);
+    try {
+      const result = await aiProbeImageModels();
+      setModelProbe(result);
+      const firstSuccess = result.items.find((item) => item.ok);
+      if (firstSuccess) {
+        setMessage(`利用可能な画像モデルを確認しました: ${firstSuccess.model}`);
+      } else {
+        setMessage("候補の画像モデルはいずれも実APIテストに成功しませんでした。");
+      }
+    } catch (probeError) {
+      setError(formatAdminError(probeError, "画像モデルの実API確認を実行できませんでした。"));
     } finally {
       setBusy(false);
     }
@@ -201,6 +226,10 @@ export function AiSettingsPanel() {
             <PlugZap size={17} aria-hidden="true" />
             画像生成テスト（実API呼び出し）
           </button>
+          <button className="secondary-button" type="button" onClick={() => void handleProbeImageModels()} disabled={busy}>
+            <PlugZap size={17} aria-hidden="true" />
+            候補モデルを順にテスト（実API呼び出し）
+          </button>
           <button className="primary-button" type="submit" disabled={busy}>
             <Save size={17} aria-hidden="true" />
             保存
@@ -239,24 +268,77 @@ export function AiSettingsPanel() {
 
       {message ? <p className="admin-success">{message}</p> : null}
       {imageTest ? <ImageGenerationTestResult result={imageTest} /> : null}
+      {modelProbe ? (
+        <ImageModelProbeResult
+          result={modelProbe}
+          onUseModel={(model) => {
+            setSettings((current) => ({ ...current, imageModel: model }));
+            setMessage(`${model} を Image model 入力欄へ反映しました。保存すると有効になります。`);
+          }}
+        />
+      ) : null}
       {error ? <p className="admin-error" role="alert">{error}</p> : null}
     </section>
   );
 }
 
 function ImageGenerationTestResult({ result }: { result: AiImageGenerationTestResult }) {
+  const guidance = imageApiFailureGuidance(result);
   return (
-    <div className={`admin-image-test-result ${result.ok ? "ok" : "warn"}`}>
-      <div><span>ok</span><strong>{result.ok ? "true" : "false"}</strong></div>
-      <div><span>model</span><strong>{result.model || "unknown"}</strong></div>
-      <div><span>api</span><strong>{result.api || "unknown"}</strong></div>
-      <div><span>status</span><strong>{result.status || "unknown"}</strong></div>
-      <div><span>content_type</span><strong>{result.contentType || "none"}</strong></div>
-      <div><span>resolution</span><strong>{result.resolution || "unknown"}</strong></div>
-      {result.fallbackReason ? <div className="wide"><span>fallback_reason</span><strong>{result.fallbackReason}</strong></div> : null}
-      {result.errorCategory ? <div><span>error_category</span><strong>{result.errorCategory}</strong></div> : null}
-      {result.error ? <div className="wide"><span>error</span><strong>{result.error}</strong></div> : null}
-      {result.ok ? <div className="wide"><span>確認済み</span><strong>{result.model}</strong></div> : null}
+    <>
+      {!result.ok && guidance ? <p className="admin-warning">{guidance}</p> : null}
+      {isOrganizationVerificationRequired(result) ? (
+        <div className="admin-api-guidance">
+          <strong>{result.model || "gpt-image-2"} は現在のOpenAI組織では利用できません。</strong>
+          <p>OpenAI Platformで組織認証を完了するか、別のImage modelを設定してください。認証後、反映まで最大15分程度かかる場合があります。</p>
+        </div>
+      ) : null}
+      <div className={`admin-image-test-result ${result.ok ? "ok" : "warn"}`}>
+        <div><span>ok</span><strong>{result.ok ? "true" : "false"}</strong></div>
+        <div><span>model</span><strong>{result.model || "unknown"}</strong></div>
+        <div><span>api</span><strong>{result.api || "unknown"}</strong></div>
+        <div><span>status</span><strong>{result.status || "unknown"}</strong></div>
+        <div><span>content_type</span><strong>{result.contentType || "none"}</strong></div>
+        <div><span>resolution</span><strong>{result.resolution || "unknown"}</strong></div>
+        {result.fallbackReason ? <div className="wide"><span>fallback_reason</span><strong>{result.fallbackReason}</strong></div> : null}
+        {result.errorCategory ? <div><span>error_category</span><strong>{result.errorCategory}</strong></div> : null}
+        {result.error ? <div className="wide"><span>error</span><strong>{result.error}</strong></div> : null}
+        {result.ok ? <div className="wide"><span>確認済み</span><strong>{result.model}</strong></div> : null}
+      </div>
+    </>
+  );
+}
+
+function ImageModelProbeResult({ result, onUseModel }: { result: AiImageModelProbeResult; onUseModel: (model: string) => void }) {
+  return (
+    <div className="admin-image-model-probe">
+      <div>
+        <strong>Image model 利用可能性確認</strong>
+        <p>各候補に対して実際の画像生成APIを呼び出しています。実行にはOpenAI API利用料金が発生する場合があります。</p>
+      </div>
+      {result.items.map((item) => (
+        <div key={item.model} className={`admin-image-model-probe-row ${item.ok ? "ok" : "warn"}`}>
+          <div>
+            <span>{item.ok ? "成功" : "失敗"}</span>
+            <strong>{item.model}</strong>
+          </div>
+          <div>
+            <span>status</span>
+            <strong>{item.status || "unknown"}</strong>
+          </div>
+          <div>
+            <span>error_category</span>
+            <strong>{item.errorCategory || "none"}</strong>
+          </div>
+          <div className="wide">
+            <span>fallback_reason</span>
+            <strong>{item.fallbackReason || item.error || "none"}</strong>
+          </div>
+          <button className="secondary-button" type="button" onClick={() => onUseModel(item.model)} disabled={!item.ok}>
+            このモデルを使用
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

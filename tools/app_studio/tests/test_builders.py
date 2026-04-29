@@ -29,7 +29,7 @@ from app_studio.frozen_folder_builder import probe_pyinstaller
 from app_studio.lock_generator import generate_lock
 from app_studio.models import BuildPlan, DependencyReport, FileRecord, GeneratedArtifacts, IconCandidateAsset, ImportOptions, RuntimeCheck, RuntimeCheckResult, SecretFinding, SecretScanReport, SourceInventory
 from app_studio.models import AppEnvBuildResult, LockGenerationResult
-from app_studio.openai_client import OpenAIResult, edit_image, generate_image
+from app_studio.openai_client import OpenAIResult, edit_image, error_category_from_reason, generate_image, test_image_generation_connection
 from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.timing import TimingRecorder
@@ -930,6 +930,38 @@ class OpenAIFallbackTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.status, "failed")
         self.assertIn("fallback_reason: Image API failed", result.report)
+
+    def test_organization_verification_error_has_specific_category(self) -> None:
+        reason = (
+            "Your organization must be verified to use the model gpt-image-2. "
+            "Please go to https://platform.openai.com/settings/organization/general and click on Verify Organization."
+        )
+        client = types.SimpleNamespace(images=types.SimpleNamespace(generate=lambda **_: (_ for _ in ()).throw(RuntimeError(reason))))
+        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": "<DUMMY_OPENAI_API_KEY>"}, clear=True):
+            with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
+                result = generate_image("prompt")
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error_category, "organization_verification_required")
+        self.assertIn("organization_verification_required", result.report)
+        self.assertEqual(error_category_from_reason(reason), "organization_verification_required")
+
+    def test_image_generation_connection_uses_model_override_for_probe(self) -> None:
+        calls = []
+
+        class Images:
+            def generate(self, **kwargs):
+                calls.append(kwargs)
+                return types.SimpleNamespace(data=[types.SimpleNamespace(b64_json="iVBORw0KGgo=")])
+
+        client = types.SimpleNamespace(images=Images())
+        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": "<DUMMY_OPENAI_API_KEY>"}, clear=True):
+            with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
+                result = test_image_generation_connection("gpt-image-1-mini")
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.model, "gpt-image-1-mini")
+        self.assertEqual(calls[0]["model"], "gpt-image-1-mini")
 
     def test_images_edit_passes_previous_png_to_api(self) -> None:
         calls = []

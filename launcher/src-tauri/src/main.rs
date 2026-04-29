@@ -34,6 +34,7 @@ fn main() {
             admin_commands::ai_save_api_key,
             admin_commands::ai_delete_api_key,
             admin_commands::ai_test_connection,
+            admin_commands::ai_probe_image_models,
             admin_commands::ai_test_image_generation,
             app_studio_commands::app_studio_list_registered_apps,
             app_studio_commands::app_studio_suggest,

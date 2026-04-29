@@ -490,7 +490,51 @@ pub fn app_studio_ai_diagnostics(
     Ok(build_ai_env_plan().diagnostics)
 }
 
-pub(crate) fn run_image_generation_test(
+pub(crate) fn run_image_generation_test() -> Result<crate::ai_settings::AiImageGenerationTestResult, String> {
+    run_image_generation_test_for_model(None)
+}
+
+pub(crate) fn run_image_model_probe() -> Result<crate::ai_settings::AiImageModelProbeResult, String> {
+    const CANDIDATE_MODELS: [&str; 4] = [
+        "gpt-image-2",
+        "gpt-image-1.5",
+        "gpt-image-1",
+        "gpt-image-1-mini",
+    ];
+    let mut items = Vec::new();
+    for model in CANDIDATE_MODELS {
+        match run_image_generation_test_for_model(Some(model)) {
+            Ok(result) => items.push(crate::ai_settings::AiImageModelProbeItem {
+                model: result.model,
+                ok: result.ok,
+                status: result.status,
+                content_type: result.content_type,
+                fallback_reason: result.fallback_reason,
+                error: result.error,
+                error_category: result.error_category,
+            }),
+            Err(error) => items.push(crate::ai_settings::AiImageModelProbeItem {
+                model: model.to_string(),
+                ok: false,
+                status: "failed".to_string(),
+                content_type: "none".to_string(),
+                fallback_reason: Some(error),
+                error: None,
+                error_category: Some("probe_error".to_string()),
+            }),
+        }
+    }
+    let ok = items.iter().any(|item| item.ok);
+    let message = if ok {
+        "At least one image model passed the real API test.".to_string()
+    } else {
+        "No candidate image model passed the real API test.".to_string()
+    };
+    Ok(crate::ai_settings::AiImageModelProbeResult { ok, message, items })
+}
+
+fn run_image_generation_test_for_model(
+    model_override: Option<&str>,
 ) -> Result<crate::ai_settings::AiImageGenerationTestResult, String> {
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
     let python_candidate = find_python_candidate(&root).ok_or_else(python_missing_message)?;
@@ -501,6 +545,9 @@ pub(crate) fn run_image_generation_test(
     let ai_env = build_ai_env_plan();
     let mut command = Command::new(&python_candidate.path);
     command.arg(script).arg("image-test").current_dir(&root);
+    if let Some(model) = model_override.filter(|value| !value.trim().is_empty()) {
+        command.arg("--image-model").arg(model.trim());
+    }
     apply_ai_environment(&mut command, &ai_env);
     let output = command
         .output()
