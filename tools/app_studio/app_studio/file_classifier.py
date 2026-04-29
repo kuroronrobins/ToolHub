@@ -22,21 +22,29 @@ GENERATED_DIRS = {
     "node_modules",
     "dist",
     "build",
+    ".pytest_tmp",
     "toolhub_appstudio_output",
 }
-EXCLUDED_DIRS = {"logs", "log", "screenshots", "tmp", "temp"}
+EXCLUDED_DIRS = {"logs", "log", "screenshots", "sessions", "tmp", "temp"}
 BLOCKED_DIRS = {".auth"}
-BLOCKED_NAME_PARTS = {
-    "credentials",
-    "token",
-    "secret",
-    "password",
-    "api_key",
-    "storage_state",
-    "cookie",
-    "session",
+BLOCKED_EXACT_NAMES = {
+    "auth_state.json",
+    "client_secret.json",
+    "client-secrets.json",
+    "client_secrets.json",
+    "cookie.json",
+    "cookies.json",
+    "credential.json",
+    "credentials.json",
+    "session.json",
+    "sessions.json",
+    "storage_state.json",
+    "token.json",
+    "tokens.json",
 }
-BLOCKED_PATTERNS = {"*.pem", "*.key", ".env"}
+SENSITIVE_NAME_MARKERS = {"credential", "credentials", "token", "secret", "password", "api_key", "apikey", "storage_state", "cookie", "session"}
+SENSITIVE_NAME_SUFFIXES = {".json", ".yaml", ".yml", ".toml", ".ini", ".txt"}
+BLOCKED_PATTERNS = {"*.pem", "*.key", ".env", ".env.*"}
 EXCLUDED_PATTERNS = {"*.pyc", "*.pyo", "*.log", "*.tmp"}
 INCLUDE_FILENAMES = {
     "requirements.txt",
@@ -140,16 +148,20 @@ def classify_files(context: StudioContext) -> SourceInventory:
 def exclusion_reason(path: Path, source_root: Path) -> tuple[bool, str, str, str]:
     relative_parts = [part.lower() for part in path.relative_to(source_root).parts]
     name = path.name.lower()
+    if any(part.startswith("pytest-cache-files-") for part in relative_parts[:-1]):
+        return True, "exclude", "excluded generated directory", "not_scanned"
     if any(part in BLOCKED_DIRS for part in relative_parts[:-1]):
         return True, "blocked", "blocked sensitive directory", "high"
     if any(part in GENERATED_DIRS for part in relative_parts[:-1]):
         return True, "exclude", "excluded generated directory", "not_scanned"
     if any(part in EXCLUDED_DIRS for part in relative_parts[:-1]):
         return True, "exclude", "excluded runtime/user-output directory", "medium"
-    if any(part in name for part in BLOCKED_NAME_PARTS):
-        return True, "blocked", "blocked sensitive filename", "high"
     if any(fnmatch.fnmatch(name, pattern.lower()) for pattern in BLOCKED_PATTERNS):
         return True, "blocked", "blocked unsafe credential file", "high"
+    if name in BLOCKED_EXACT_NAMES:
+        return True, "blocked", "blocked credential/session state file", "high"
+    if path.suffix.lower() in SENSITIVE_NAME_SUFFIXES and any(marker in name for marker in SENSITIVE_NAME_MARKERS):
+        return True, "manual_check", "sensitive-looking config filename requires review", "medium"
     if any(fnmatch.fnmatch(name, pattern.lower()) for pattern in EXCLUDED_PATTERNS):
         return True, "exclude", "excluded unsafe or generated file", "medium"
     return False, "exclude", "", "not_scanned"

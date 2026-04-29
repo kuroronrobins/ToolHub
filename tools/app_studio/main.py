@@ -120,7 +120,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     )
     context = create_context(options, repo_root)
     inventory = classify_files(context)
-    secret_report = scan_secrets(context.source_root)
+    secret_report = scan_secrets(context.source_root, inventory)
     dependency_report, proposed_requirements = analyze_dependencies(context, inventory)
     plan = make_build_plan(context, inventory)
     context.build_mode = plan.mode
@@ -139,11 +139,11 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         metadata, metadata_override_applied, metadata_override_warnings = apply_metadata_override(metadata, override)
     app_yaml = generate_app_yaml(context, plan, metadata)
     readme = generate_readme(context, plan)
-    ai_skip_reason = "high secret detected, AI skipped" if secret_report.has_high else ""
+    ai_skip_reason = "secret scan blocked AI submission, AI skipped" if secret_report.blocks_ai_submission else ""
     icon_prompt_initial, icon_prompt_revision, icon_svg, fallback_png, style_reference, icon_ai_report, icon_candidate_png, icon_candidate_url = generate_icon_assets_with_candidates(
         context,
         args.icon_prompt,
-        allow_ai=not secret_report.has_high,
+        allow_ai=not secret_report.blocks_ai_submission,
         ai_skip_reason=ai_skip_reason,
     )
     icon_override_warnings: list[str] = []
@@ -167,6 +167,14 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "run_entry": plan.entry,
         "required_runtime": plan.required_runtime,
         "secret_high_findings": secret_report.has_high,
+        "ai_blocked_by_secret_scan": secret_report.blocks_ai_submission,
+        "apply_blocked_by_secret_scan": secret_report.blocks_apply,
+        "blocking_secret_findings_count": len(secret_report.blocking_findings),
+        "warning_secret_findings_count": len(secret_report.warning_findings),
+        "manual_check_secret_findings_count": len(secret_report.manual_check_findings),
+        "false_positive_secret_findings_count": len(secret_report.false_positive_candidates),
+        "secret_scan_report": str(context.output_dir / "secret_scan_report.md"),
+        "blocking_secret_findings": secret_finding_summaries(secret_report.blocking_findings, context.source_root),
         "icon_style_reference": style_reference,
         "selected_icon_source": selected_icon_source,
         "icon_override_used": selected_icon_source != "fallback_png",
@@ -225,9 +233,15 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
 
     record_blocked_execution(context, output_dir, "apply started", "Apply started and has not reached final execution checks yet.", plan)
 
-    if secret_report.has_high:
-        record_blocked_execution(context, output_dir, "secret scan", "Apply was blocked because high severity secret findings exist.", plan)
-        print("Apply was blocked because high severity secret findings exist. Review secret_scan_report.md.", file=sys.stderr)
+    if secret_report.blocks_apply:
+        detail = (
+            f"Apply was blocked by {len(secret_report.blocking_findings)} blocking secret finding(s). "
+            f"Warnings={len(secret_report.warning_findings)}, manual_checks={len(secret_report.manual_check_findings)}. "
+            f"Report: {output_dir / 'secret_scan_report.md'}. "
+            f"Top findings: {'; '.join(secret_finding_summaries(secret_report.blocking_findings, context.source_root)[:5])}"
+        )
+        record_blocked_execution(context, output_dir, "secret scan", detail, plan)
+        print(detail, file=sys.stderr)
         return 1
 
     final_app = output_dir / "final_app"
@@ -332,6 +346,18 @@ def normalize_normal_registration_args(args: argparse.Namespace) -> None:
     args.skip_lock = False
     args.skip_frozen_build = False
     args.skip_app_env_build = False
+
+
+def secret_finding_summaries(findings, source_root: Path) -> list[str]:
+    summaries: list[str] = []
+    for finding in findings[:10]:
+        try:
+            relative = finding.path.relative_to(source_root).as_posix()
+        except ValueError:
+            relative = str(finding.path)
+        reason = finding.block_reason or finding.detail
+        summaries.append(f"{relative} [{finding.kind}] {reason}")
+    return summaries
 
 
 def print_summary(app_id: str, name: str, action: str, build_mode: str, included_count: int, finding_count: int, output_dir: Path) -> None:

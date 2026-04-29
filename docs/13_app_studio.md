@@ -4,7 +4,7 @@
 
 旧来の `auto` / `app-env` / `existing-exe` / Python 直接実行は、既存 manifest 互換や古いログを読むための概念として残っていますが、通常新規登録 GUI の選択肢ではありません。Entry が `.exe` の場合は、既存 exe 登録ではなく Python ソースを選び直す必要があります。
 
-GUIでは、Suggest が生成した `proposed_app.yaml` と `icon_work/` をAI/fallback提案として読み込めます。表示対象は、表示名、short_description、detail.description、categories、search keywords、examples、use_cases、inputs、outputs、notes、icon prompt、更新時の release notes 草案、`icon_candidate_1.png`、`icon_final.png`、`icon_candidate_1.url.txt`、`icon_fallback.svg`、互換用の `icon_final.svg` です。AI提案は自動確定せず、採用ボタンで表示名やicon promptなど編集可能な入力欄へ反映します。APIキー未設定、AI無効、OpenAI packageなし、API失敗時も CLI 側の deterministic fallback で動きます。high secret 検出時はAI送信しません。
+GUIでは、Suggest が生成した `proposed_app.yaml` と `icon_work/` をAI/fallback提案として読み込めます。表示対象は、表示名、short_description、detail.description、categories、search keywords、examples、use_cases、inputs、outputs、notes、icon prompt、更新時の release notes 草案、`icon_candidate_1.png`、`icon_final.png`、`icon_candidate_1.url.txt`、`icon_fallback.svg`、互換用の `icon_final.svg` です。AI提案は自動確定せず、採用ボタンで表示名やicon promptなど編集可能な入力欄へ反映します。APIキー未設定、AI無効、OpenAI packageなし、API失敗時も CLI 側の deterministic fallback で動きます。secret scan でAI送信対象にリスクがある場合はAI送信しません。
 
 AI提案パネルはCLIへ渡すAI環境の診断も表示します。表示対象は AI enabled、API key source、Text model、Image model、CLI env ready です。APIキー本文は表示しません。`metadata_ai_report` と `icon_work/ai_generation_report.md` から、metadata/image それぞれの `status`、`model`、`parse_status`、`content_type`、`saved_candidate`、`fallback_reason` も確認できます。
 
@@ -193,23 +193,26 @@ Apply 時に同じ `app_id` が既に存在する場合は、`backups/app_studio
 
 ## 秘密情報検査
 
-最低限、次を検出します。
+secret scan は無効化しません。ただし、`high` という単純な severity だけで Apply を止めず、配布物に入るか、AI送信対象になるか、file inventory で安全に除外されているかを分けて判定します。
 
-- `.env`
-- `*.key`
-- `*.pem`
-- `token`
-- `secret`
-- `password`
-- `api_key`
-- `OPENAI_API_KEY`
-- `credentials`
-- `client_secret`
-- `*.log`
-- 録音ファイル `*.wav`, `*.mp3`, `*.m4a`
-- 大容量ファイル
+原則として Apply を止めるもの:
 
-`DryRun` と `Suggest` ではレポートのみ生成します。`Apply` では high 検出がある場合、既定で中止します。
+- `included_files` または build_profile の add-data に入る実値らしい API key / token / password / secret
+- `.env`、`*.pem`、`*.key`
+- `storage_state`、cookie、session、credentials、client_secret などの認証状態ファイル
+- `file_inventory.json` で `blocked` のもの
+- 人間確認なしでは配布物混入リスクを否定できない high finding
+
+原則として Apply の即時停止ではなく warning / manual check にするもの:
+
+- README や docs の `OPENAI_API_KEY` という環境変数名だけの説明
+- `api_key: "<your key>"`、`token: "dummy"`、`password: "example"` のような明確な placeholder
+- Pythonコード内の `api_key`、`token`、`credentials` などの変数名だけで、実値が含まれないもの
+- logs、sessions、screenshots、tmp/temp など、file inventory で配布対象外と判定されたもの
+
+AI送信停止と Apply 停止は別判定です。README に `OPENAI_API_KEY` が書かれている場合などは、AI metadata/icon 提案を fallback にしても、配布物に秘密情報が混入しないなら Apply は進められます。
+
+`secret_scan_report.md` には Summary、Blocking Findings、Warnings / Manual Checks、Excluded from Package、False Positive Candidates を出力します。各 finding には `path`、`severity`、`kind`、`inventory_status`、`included_in_package`、`affects_ai_submission`、`blocks_apply`、`block_reason`、`recommended_action` が記録されます。GUI で secret scan により停止した場合は blocking 件数、warning 件数、manual check 件数、レポートパス、上位 blocking finding を表示します。
 
 ## 使い方
 
@@ -370,7 +373,7 @@ $env:OPENAI_API_KEY="..."
 - APIキーはAI有効かつキー存在時だけ子プロセスへ `OPENAI_API_KEY` として渡します。Credential Managerが優先で、無ければ環境変数を使います。
 - APIキーやモデル名が未設定ならfallbackします。
 - `openai` Python package がない場合もfallbackします。
-- high severity の秘密情報が検出された場合はAI送信しません。
+- secret scan で AI送信対象に秘密情報リスクがある場合はAI送信せず fallback します。Apply 停止とは別判定です。
 - Entry全文は送らず、ファイル名、README抜粋、既存カテゴリなどの限定情報だけを使います。
 - metadata提案は Responses API `responses.create` を使い、JSON parseに失敗した場合はfallbackします。
 - 画像生成は Images API `images.generate` を使います。`response_format` は渡しません。
@@ -422,7 +425,7 @@ AI利用時:
 
 - `TOOLHUB_APP_STUDIO_AI_ENABLED=true` を明示する。
 - `OPENAI_API_KEY` が設定されていることを確認する。
-- high secret がある場合はAI送信されないことを確認する。
+- AI送信対象の secret finding がある場合はAI送信されず fallback になることを確認する。
 - 生成アイコン候補PNG/URLは人間レビュー用であり、採用したPNGだけが `icon.png` に反映されることを確認する。
 - 既存 `display.icon: icon.svg` のアプリが引き続き表示できることを確認する。
 
@@ -448,7 +451,8 @@ The script does not run Apply, Approve, PyInstaller, or any app. It only reads
 logs, `apps/<app_id>`, output mirror files, and `release/app_manifest.json`, then
 classifies likely causes such as stale `execution_test_result.json`, frozen build
 failure, registration copy not reached, missing add-data files, old app_env-based
-PyInstaller logs, or manifest registration gaps.
+PyInstaller logs, secret scan Apply blocks, possible secret scan overblocking,
+AI-only secret scan fallback, or manifest registration gaps.
 
 ## App Studio normal registration policy
 

@@ -393,6 +393,18 @@ function Resolve-OutputDir {
     if (-not [string]::IsNullOrWhiteSpace($Mirror)) {
         return Resolve-FullPathSafe -Value $Mirror
     }
+    $ExecutionCandidate = Join-Path $LogDir ($AppId + "_execution_test_result.json")
+    if (Test-Path -LiteralPath $ExecutionCandidate -PathType Leaf) {
+        try {
+            $ExecutionData = Get-Content -LiteralPath $ExecutionCandidate -Raw -Encoding UTF8 | ConvertFrom-Json
+            $Evidence = Get-Prop -Object $ExecutionData -Name "evidence"
+            $EvidenceOutput = [string](Get-Prop -Object $Evidence -Name "output_dir")
+            if (-not [string]::IsNullOrWhiteSpace($EvidenceOutput)) {
+                return Resolve-FullPathSafe -Value $EvidenceOutput
+            }
+        } catch {
+        }
+    }
     $FromLogs = Find-OutputDirFromLogs -Directory $LogDir -Id $AppId
     if (-not [string]::IsNullOrWhiteSpace($FromLogs)) {
         return Resolve-FullPathSafe -Value $FromLogs
@@ -441,6 +453,9 @@ $ApprovalRecordPath = Join-Path $LogDir ($AppId + "_approval_record.md")
 $OutputExecutionJsonPath = if ($ResolvedOutputDir) { Join-Path $ResolvedOutputDir "execution_test_result.json" } else { $null }
 $OutputRuntimeJsonPath = if ($ResolvedOutputDir) { Join-Path $ResolvedOutputDir "runtime_check_result.json" } else { $null }
 $OutputImportPlanPath = if ($ResolvedOutputDir) { Join-Path $ResolvedOutputDir "import_plan.json" } else { $null }
+$OutputSecretReportPath = if ($ResolvedOutputDir) { Join-Path $ResolvedOutputDir "secret_scan_report.md" } else { $null }
+$OutputSecretJsonPath = if ($ResolvedOutputDir) { Join-Path $ResolvedOutputDir "secret_scan_report.json" } else { $null }
+$OutputFileInventoryPath = if ($ResolvedOutputDir) { Join-Path $ResolvedOutputDir "file_inventory.json" } else { $null }
 $OutputFrozenReportPath = if ($ResolvedOutputDir) { Join-Path $ResolvedOutputDir "frozen_folder_build_report.md" } else { $null }
 $OutputAppEnvReportPath = if ($ResolvedOutputDir) { Join-Path $ResolvedOutputDir "app_env_build_report.md" } else { $null }
 $OutputLockReportPath = if ($ResolvedOutputDir) { Join-Path $ResolvedOutputDir "lock_generation_report.md" } else { $null }
@@ -483,6 +498,9 @@ foreach ($Pair in $LogFiles) {
 if ($ResolvedOutputDir) {
     $OutputFiles = @(
         @("output import_plan.json", $OutputImportPlanPath),
+        @("output secret_scan_report.md", $OutputSecretReportPath),
+        @("output secret_scan_report.json", $OutputSecretJsonPath),
+        @("output file_inventory.json", $OutputFileInventoryPath),
         @("output build_profile.json", $OutputBuildProfilePath),
         @("output exe_readiness.json", (Join-Path $ResolvedOutputDir "exe_readiness.json")),
         @("output execution_test_result.json", $OutputExecutionJsonPath),
@@ -508,6 +526,9 @@ $ExecutionState = Read-JsonFile -Path $ExecutionJsonPath
 $OutputExecutionState = Read-JsonFile -Path $OutputExecutionJsonPath
 $RuntimeState = Read-JsonFile -Path $RuntimeJsonPath
 $ImportPlanState = Read-JsonFile -Path $OutputImportPlanPath
+$SecretJsonState = Read-JsonFile -Path $OutputSecretJsonPath
+$SecretTextState = Read-TextFile -Path $OutputSecretReportPath
+$FileInventoryState = Read-JsonFile -Path $OutputFileInventoryPath
 $TracePolicyId = if ($ImportPlanState.status -eq "ok") { [string](Get-Prop -Object $ImportPlanState.data -Name "app_studio_policy_id") } else { "" }
 $TraceBuildEnvPython = if ($ImportPlanState.status -eq "ok") { [string](Get-Prop -Object $ImportPlanState.data -Name "build_env_python") } else { "" }
 $TraceProbePython = if ($ImportPlanState.status -eq "ok") { [string](Get-Prop -Object $ImportPlanState.data -Name "pyinstaller_probe_python") } else { "" }
@@ -546,6 +567,62 @@ if ($ApprovalAllowed -eq "True" -or $ApprovalAllowed -eq "true") {
 } elseif ($ApprovalAllowed -eq "False" -or $ApprovalAllowed -eq "false") {
     Add-Classification "approval_block_only"
     Add-Action "Approve is blocked by execution_test_result.json. Fix or regenerate the Apply-side fail checks before approving."
+}
+
+$SecretBlockingCount = 0
+$SecretWarningCount = 0
+$SecretManualCount = 0
+$SecretAiBlocked = $false
+$SecretApplyBlocked = $false
+$SecretTopBlocking = @()
+if ($ImportPlanState.status -eq "ok") {
+    $SecretBlockingCount = [int]((Get-Prop -Object $ImportPlanState.data -Name "blocking_secret_findings_count") -as [int])
+    $SecretWarningCount = [int]((Get-Prop -Object $ImportPlanState.data -Name "warning_secret_findings_count") -as [int])
+    $SecretManualCount = [int]((Get-Prop -Object $ImportPlanState.data -Name "manual_check_secret_findings_count") -as [int])
+    $SecretAiBlockedRaw = Get-Prop -Object $ImportPlanState.data -Name "ai_blocked_by_secret_scan"
+    $SecretApplyBlockedRaw = Get-Prop -Object $ImportPlanState.data -Name "apply_blocked_by_secret_scan"
+    $SecretAiBlocked = ($SecretAiBlockedRaw -eq $true)
+    $SecretApplyBlocked = ($SecretApplyBlockedRaw -eq $true)
+    foreach ($Item in @((Get-Prop -Object $ImportPlanState.data -Name "blocking_secret_findings"))) {
+        if ($null -ne $Item) {
+            $SecretTopBlocking += [string]$Item
+        }
+    }
+}
+if ($SecretJsonState.status -eq "ok") {
+    $Summary = Get-Prop -Object $SecretJsonState.data -Name "summary"
+    if ($Summary) {
+        $SecretBlockingCount = [int]((Get-Prop -Object $Summary -Name "blocking_findings") -as [int])
+        $SecretWarningCount = [int]((Get-Prop -Object $Summary -Name "warning_findings") -as [int])
+        $SecretManualCount = [int]((Get-Prop -Object $Summary -Name "manual_check_findings") -as [int])
+    }
+}
+$SecretFailChecks = @($FailChecks | Where-Object {
+    (Contains-Text -Text ([string](Get-Prop -Object $_ -Name "name")) -Needle "secret") -or
+    (Contains-Text -Text ([string](Get-Prop -Object $_ -Name "detail")) -Needle "secret")
+})
+if ($SecretApplyBlocked -or $SecretFailChecks.Count -gt 0) {
+    Add-Classification "secret_scan_blocked_apply"
+    Add-Action "Open secret_scan_report.md and remove or reclassify only the blocking findings before rerunning Apply."
+}
+if ($SecretBlockingCount -gt 0) {
+    Add-Classification "secret_scan_packaged_secret_risk"
+    Add-Action "Blocking secret findings affect packaged files or cannot be proven excluded; remove real secrets or adjust file inventory/add_data safely."
+}
+if ($SecretAiBlocked -and -not $SecretApplyBlocked) {
+    Add-Classification "secret_scan_ai_only_block"
+    Add-Action "AI generation can stay in fallback mode while Apply proceeds if distribution checks pass."
+}
+if ($SecretTextState.status -eq "ok") {
+    $SecretText = $SecretTextState.text
+    if ((Contains-Text -Text $SecretText -Needle "OPENAI_API_KEY") -or
+        (Contains-Text -Text $SecretText -Needle "placeholder") -or
+        (Contains-Text -Text $SecretText -Needle "false positive")) {
+        if ($SecretApplyBlocked -or $SecretFailChecks.Count -gt 0) {
+            Add-Classification "secret_scan_overblocking_suspected"
+            Add-Action "Check whether blocking findings are documentation-only environment variable names or placeholders; current scanner should classify those as warnings/manual checks."
+        }
+    }
 }
 
 $FrozenReportPath = Select-NewestExistingFile -Paths @($OutputFrozenReportPath, $FrozenLogReportPath)
@@ -880,6 +957,10 @@ switch -Regex (($Classifications -join "|")) {
     "old_app_env_pyinstaller_path" { Add-Action "Old app_env/PyInstaller logs are present; separate old output/log folders from a new Apply run." }
     "manifest_not_registered" { Add-Action "Run Apply successfully before Approve; Approve requires release/app_manifest.json to contain the app." }
     "approval_ready" { Add-Action "approval_allowed=true; if Approve still fails, inspect strict warning settings and verify_release output." }
+    "secret_scan_blocked_apply" { Add-Action "Secret scan stopped Apply before build_env/PyInstaller; review only blocks_apply=true findings." }
+    "secret_scan_overblocking_suspected" { Add-Action "Documentation-only OPENAI_API_KEY or placeholder values should not block Apply after rerunning with the updated scanner." }
+    "secret_scan_packaged_secret_risk" { Add-Action "A secret finding appears packaged or not safely excluded; remove it before distribution." }
+    "secret_scan_ai_only_block" { Add-Action "AI fallback is expected; Apply can continue when apply_blocked_by_secret_scan=false." }
 }
 
 $Conclusion = "Diagnostic completed."
@@ -954,6 +1035,23 @@ $ReportLines = @(
 $ReportLines += Format-CheckList -Checks $FailChecks
 $ReportLines += @("", "### Warn Checks")
 $ReportLines += Format-CheckList -Checks $WarnChecks
+
+$ReportLines += @(
+    "",
+    "## Secret Scan",
+    "",
+    "- secret_scan_report.md: $(if ($OutputSecretReportPath) { $OutputSecretReportPath } else { "missing" })",
+    "- secret_scan_report.json status: $($SecretJsonState.status)",
+    "- file_inventory.json status: $($FileInventoryState.status)",
+    "- apply blocked by secret scan: $SecretApplyBlocked",
+    "- AI blocked by secret scan: $SecretAiBlocked",
+    "- blocking findings: $SecretBlockingCount",
+    "- warning findings: $SecretWarningCount",
+    "- manual check findings: $SecretManualCount",
+    "",
+    "### Top Blocking Secret Findings"
+)
+$ReportLines += Format-ArrayLines -Items $SecretTopBlocking
 
 $ReportLines += @(
     "",
@@ -1120,6 +1218,17 @@ $Summary = [ordered]@{
         missing_packaged_data_count = $MissingPackagedData.Count
         internal_only_data_count = $InternalOnlyData.Count
         included_assets_not_in_add_data_count = $IncludedAssetsNotInAddData.Count
+    }
+    secret_scan = [ordered]@{
+        report_path = $OutputSecretReportPath
+        json_status = $SecretJsonState.status
+        file_inventory_status = $FileInventoryState.status
+        apply_blocked = $SecretApplyBlocked
+        ai_blocked = $SecretAiBlocked
+        blocking_findings = $SecretBlockingCount
+        warning_findings = $SecretWarningCount
+        manual_check_findings = $SecretManualCount
+        top_blocking = @($SecretTopBlocking)
     }
     import_plan_trace = [ordered]@{
         app_studio_policy_id = $TracePolicyId

@@ -1,0 +1,9 @@
+pyaudiowpatch>=0.2.12
+numpy>=1.26
+scipy>=1.11
+pyyaml>=6.0
+rich>=13.7
+flet>=0.24
+websockets>=12.0
+soundfile>=0.12
+markdown>=3.6

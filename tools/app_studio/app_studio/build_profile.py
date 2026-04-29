@@ -159,8 +159,10 @@ def analyze_exe_readiness(
     dependencies = requirement_names(dependency_report.requirements) | {root.lower() for root in dependency_report.import_roots}
     if "playwright" in dependencies:
         checks.append(readiness_check("playwright browser dependency", "warn", "Playwright was detected. Browser binaries and login/manual flows require human launch verification."))
-    if secret_report.has_high:
-        checks.append(readiness_check("secret scan", "fail", "High severity secret findings block AI/build approval."))
+    if secret_report.blocks_apply:
+        checks.append(readiness_check("secret scan", "fail", f"{len(secret_report.blocking_findings)} secret finding(s) block Apply."))
+    elif secret_report.blocks_ai_submission or secret_report.findings:
+        checks.append(readiness_check("secret scan", "warn", "Secret scan findings were classified as warnings/manual checks; Apply may continue if distribution checks pass."))
 
     overall = "fail" if any(check["status"] == "fail" for check in checks) else "warn" if any(check["status"] == "warn" for check in checks) else "pass"
     return {

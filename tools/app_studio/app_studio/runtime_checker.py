@@ -333,6 +333,8 @@ def is_forbidden_payload_path(path: Path, root: Path) -> bool:
         return False
 
     name = path.name.lower()
+    if is_allowed_runtime_certificate(relative_parts, name):
+        return False
     if any(fnmatch.fnmatch(name, pattern.lower()) for pattern in FORBIDDEN_PATTERNS):
         return True
     if name in FORBIDDEN_EXACT_NAMES:
@@ -348,6 +350,10 @@ def is_forbidden_payload_path(path: Path, root: Path) -> bool:
         if any(marker in stem for marker in FORBIDDEN_AUTH_MARKERS):
             return True
     return False
+
+
+def is_allowed_runtime_certificate(relative_parts: list[str], name: str) -> bool:
+    return name == "cacert.pem" and "certifi" in relative_parts
 
 
 def build_env_separation_check(context: StudioContext, final_app: Path) -> RuntimeCheck:

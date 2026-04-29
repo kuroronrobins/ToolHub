@@ -306,6 +306,13 @@ export function AppStudioImportWizard() {
         selectedIconSource: summary.selectedIconSource ?? runResult.selectedIconSource,
         exeReadinessStatus: summary.exeReadinessStatus ?? runResult.exeReadinessStatus,
         manualChecks: summary.manualChecks ?? runResult.manualChecks,
+        secretBlockingCount: summary.secretBlockingCount ?? runResult.secretBlockingCount,
+        secretWarningCount: summary.secretWarningCount ?? runResult.secretWarningCount,
+        secretManualCheckCount: summary.secretManualCheckCount ?? runResult.secretManualCheckCount,
+        secretScanReport: summary.secretScanReport ?? runResult.secretScanReport,
+        secretBlockingFindings: summary.secretBlockingFindings ?? runResult.secretBlockingFindings,
+        aiBlockedBySecretScan: summary.aiBlockedBySecretScan ?? runResult.aiBlockedBySecretScan,
+        applyBlockedBySecretScan: summary.applyBlockedBySecretScan ?? runResult.applyBlockedBySecretScan,
       };
     } catch {
       return runResult;

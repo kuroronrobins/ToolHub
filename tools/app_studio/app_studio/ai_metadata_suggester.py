@@ -8,7 +8,7 @@ from .openai_client import complete_json, ai_enabled, has_api_key, text_model
 
 
 def suggest_metadata(context: StudioContext, secret_report: SecretScanReport | None = None) -> dict[str, Any]:
-    if secret_report and secret_report.has_high:
+    if secret_report and secret_report.blocks_ai_submission:
         metadata = fallback_metadata(context)
         metadata["_ai_generation_report"] = "\n".join(
             [
@@ -18,7 +18,7 @@ def suggest_metadata(context: StudioContext, secret_report: SecretScanReport | N
                 f"ai_enabled: {str(ai_enabled()).lower()}",
                 f"api_key_present: {str(has_api_key()).lower()}",
                 "parse_status: not_attempted",
-                "fallback_reason: high severity secret detected, AI skipped",
+                "fallback_reason: secret scan blocked AI submission, AI skipped",
             ]
         )
         return metadata
