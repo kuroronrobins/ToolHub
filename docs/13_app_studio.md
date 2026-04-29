@@ -398,7 +398,7 @@ $env:OPENAI_API_KEY="..."
 - secret scan で AI送信対象に秘密情報リスクがある場合はAI送信せず fallback します。Apply 停止とは別判定です。
 - Entry全文は送らず、ファイル名、README抜粋、既存カテゴリなどの限定情報だけを使います。
 - metadata提案は Responses API `responses.create` を使い、JSON parseに失敗した場合はfallbackします。
-- 画像生成は Images API `images.generate` を使います。`response_format` は渡しません。
+- 初回画像生成は Images API `images.generate` を使います。再生成の `tweak` / `refine` では、前回PNGがある場合に `images.edit` を優先します。`response_format` は渡しません。
 - 標準アイコンは `icon.png` です。`app.yaml` は `display.icon: icon.png` と `display.icon_fallback: icon.svg` を出力します。
 - 最終 `icon.svg` はfallback/互換用として保存し、既存SVGアイコンの表示互換性を保ちます。
 - 画像APIが b64 PNG を返した場合は `icon_work/icon_candidate_1.png` に保存します。
@@ -586,13 +586,24 @@ applied on the next Suggest/Apply run, so the selected PNG becomes
 for the current run. Older outputs that only have `icon_candidate_1.png` remain
 readable.
 
-Icon regeneration is text-revision based. The GUI lets the user choose the
-previous candidate to revise, then sends a revision context containing the
-previous candidate id, previous prompt, previous source/status/resolution,
-adoption state, user instruction, elements to preserve, elements to change,
-elements to avoid, and a revision mode. The available modes are `tweak`,
-`refine`, `redesign`, and `fresh`; `tweak` preserves more of the previous
-candidate, while `fresh` weakens inheritance and requires a visibly different
-composition, primary motif, or color focus. Image editing with the previous PNG
-as binary input is not implemented in this flow; the revision context is used to
-generate new candidates safely.
+Icon regeneration now uses the lightweight CLI subcommand `icon-regenerate`
+instead of rerunning full Suggest. It reads the existing `outputDir`,
+`icon_work/candidate_manifest.json`, and saved PNG candidates, then rebuilds
+only the final image API prompt and new icon candidates. It does not rerun file
+inventory, secret scan, dependency analysis, metadata generation, build plan, or
+`export_suggestion`.
+
+Regeneration defaults to one candidate for speed. The GUI exposes speed modes
+for 1/2/3 candidates and image quality modes `draft`, `standard`, and `high`.
+The final image API prompt always contains the raw user instruction under
+`USER REVISION INSTRUCTION - MUST FOLLOW VERBATIM`, and that prompt is stored in
+`candidate_manifest.json` for review. The GUI separates the user instruction,
+AI/intermediate prompt, and final image API prompt so users can verify what was
+actually sent to the image API.
+
+The available revision modes are `tweak`, `refine`, `redesign`, and `fresh`.
+`tweak` and `refine` prefer `images.edit` with the selected previous PNG when
+available. `redesign` treats the previous image as reference only and prefers a
+new composition. `fresh` does not send the previous PNG and weakens inheritance
+from the previous prompt. Regeneration writes `icon_regeneration_timing.json`
+with manifest read, prompt build, image API call, file write, and total timing.

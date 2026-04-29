@@ -84,6 +84,8 @@ AI/APIキー管理には、`gpt-image-2`、`gpt-image-1.5`、`gpt-image-1`、`gp
 
 画像生成テストの直近結果が `ok:false` の間、App Studio はAI画像候補と再生成が利用できない状態として警告します。メタデータ生成・手動入力は継続できますが、fallback画像はAI画像ではなくローカルfallbackです。API失敗時は `modern`、`vivid`、`colored_pencil`、`realistic` などの style preset の効果を評価できません。
 
+アイコン再生成は、初回 Suggest 全体ではなく `icon-regenerate` サブコマンドを呼びます。既存の `icon_work/candidate_manifest.json` と候補PNGを読み、画像生成/編集APIだけを実行するため、file inventory、secret scan、dependency analysis、metadata生成は再実行しません。GUIでは候補数を 1/2/3 から選べ、既定は速度優先の1候補です。`draft` / `standard` / `high` の画像品質モードも選択できます。実際に画像APIへ渡した最終Promptと、画像API呼び出し秒数は候補一覧・Prompt表示・manifestで確認できます。
+
 ## APIキー保存場所
 
 Windows では Windows Credential Manager を使います。

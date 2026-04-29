@@ -24,7 +24,7 @@ from app_studio.execution_tester import record_blocked_execution, run_execution_
 from app_studio.exporter import export_suggestion
 from app_studio.file_classifier import classify_files
 from app_studio.frozen_folder_builder import build_frozen_folder
-from app_studio.icon_generator import generate_icon_assets_with_candidates
+from app_studio.icon_generator import DEFAULT_ICON_REGENERATION_CANDIDATE_COUNT, ICON_IMAGE_QUALITY_MODES, ICON_REGENERATION_MODES, generate_icon_assets_with_candidates, regenerate_icon_only
 from app_studio.icon_override import apply_icon_override, load_icon_override
 from app_studio.lock_generator import generate_lock
 from app_studio.manifest_generator import generate_app_yaml
@@ -54,6 +54,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         parser = argparse.ArgumentParser(description="Run a real OpenAI image generation connectivity test.")
         parser.add_argument("command")
         parser.add_argument("--image-model")
+        return parser.parse_args(argv)
+
+    if argv and argv[0] == "icon-regenerate":
+        parser = argparse.ArgumentParser(description="Regenerate App Studio icon candidates without rerunning Suggest.")
+        parser.add_argument("command")
+        parser.add_argument("--app-id", required=True)
+        parser.add_argument("--output-dir", required=True)
+        parser.add_argument("--base-candidate-id")
+        parser.add_argument("--user-revision-instruction", required=True)
+        parser.add_argument("--revision-mode", default="refine", choices=sorted(ICON_REGENERATION_MODES))
+        parser.add_argument("--icon-style-preset")
+        parser.add_argument("--icon-style-custom")
+        parser.add_argument("--candidate-count", type=int, default=DEFAULT_ICON_REGENERATION_CANDIDATE_COUNT)
+        parser.add_argument("--image-quality-mode", default="standard", choices=sorted(ICON_IMAGE_QUALITY_MODES))
         return parser.parse_args(argv)
 
     if argv and argv[0] == "import":
@@ -101,6 +115,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "image-test":
             return run_image_test(args.image_model)
+        if args.command == "icon-regenerate":
+            return run_icon_regenerate(args, repo_root)
         return run_import(args, repo_root)
     except Exception as exc:
         print(f"ToolHub App Studio error: {exc}", file=sys.stderr)
@@ -387,6 +403,23 @@ def run_image_test(image_model: str | None = None) -> int:
     }
     print(json_dumps(payload))
     return 0 if result.ok else 1
+
+
+def run_icon_regenerate(args: argparse.Namespace, repo_root: Path) -> int:
+    result = regenerate_icon_only(
+        output_dir=Path(args.output_dir),
+        app_id=args.app_id,
+        repo_root=repo_root,
+        base_candidate_id=args.base_candidate_id,
+        user_revision_instruction=args.user_revision_instruction,
+        revision_mode=args.revision_mode,
+        icon_style_preset=args.icon_style_preset,
+        icon_style_custom=args.icon_style_custom,
+        candidate_count=args.candidate_count,
+        image_quality_mode=args.image_quality_mode,
+    )
+    print(json_dumps(result))
+    return 0 if result.get("ok") else 1
 
 
 def json_dumps(value: dict) -> str:

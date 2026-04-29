@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import struct
+import time
 from typing import Any
 import zlib
 
@@ -17,7 +18,15 @@ from .openai_client import complete_json, decode_base64_image, edit_image, gener
 LOCAL_ICON_SIZE = 512
 API_ICON_RESOLUTION = "1024x1024"
 DEFAULT_ICON_CANDIDATE_COUNT = 3
+DEFAULT_ICON_REGENERATION_CANDIDATE_COUNT = 1
 MAX_ICON_CANDIDATE_COUNT = 6
+
+ICON_REGENERATION_MODES = {"tweak", "refine", "redesign", "fresh"}
+ICON_IMAGE_QUALITY_MODES: dict[str, dict[str, str]] = {
+    "draft": {"size": API_ICON_RESOLUTION, "quality": "low"},
+    "standard": {"size": API_ICON_RESOLUTION, "quality": "medium"},
+    "high": {"size": API_ICON_RESOLUTION, "quality": "high"},
+}
 
 ICON_STYLE_PRESETS: dict[str, dict[str, str]] = {
     "modern": {
@@ -270,6 +279,494 @@ def icon_candidate_count() -> int:
     return max(1, min(MAX_ICON_CANDIDATE_COUNT, value))
 
 
+def icon_regeneration_candidate_count(value: int | None = None) -> int:
+    if value is None:
+        return DEFAULT_ICON_REGENERATION_CANDIDATE_COUNT
+    return max(1, min(MAX_ICON_CANDIDATE_COUNT, int(value)))
+
+
+def icon_image_generation_settings(mode: str | None = None) -> dict[str, str]:
+    selected = (mode or "standard").strip().lower()
+    if selected not in ICON_IMAGE_QUALITY_MODES:
+        selected = "standard"
+    settings = dict(ICON_IMAGE_QUALITY_MODES[selected])
+    settings["mode"] = selected
+    return settings
+
+
+def normalize_icon_revision_mode(mode: str | None) -> str:
+    selected = (mode or "refine").strip().lower()
+    return selected if selected in ICON_REGENERATION_MODES else "refine"
+
+
+def regenerate_icon_only(
+    output_dir: Path,
+    app_id: str,
+    repo_root: Path,
+    base_candidate_id: str | None,
+    user_revision_instruction: str,
+    revision_mode: str = "refine",
+    icon_style_preset: str | None = None,
+    icon_style_custom: str | None = None,
+    candidate_count: int | None = None,
+    image_quality_mode: str | None = None,
+) -> dict[str, Any]:
+    timings: dict[str, float] = {}
+    total_started = time.perf_counter()
+    revision_mode = normalize_icon_revision_mode(revision_mode)
+    count = icon_regeneration_candidate_count(candidate_count)
+    generation_settings = icon_image_generation_settings(image_quality_mode)
+
+    phase_started = time.perf_counter()
+    output_dir = output_dir.resolve()
+    icon_work = output_dir / "icon_work"
+    manifest_path = icon_work / "candidate_manifest.json"
+    import_plan_path = output_dir / "import_plan.json"
+    manifest = read_json_file(manifest_path)
+    import_plan = read_json_file(import_plan_path)
+    existing_entries = list(manifest.get("candidates", [])) if isinstance(manifest.get("candidates"), list) else []
+    selected_entry = select_icon_manifest_candidate(existing_entries, base_candidate_id)
+    timings["manifest_read"] = time.perf_counter() - phase_started
+
+    phase_started = time.perf_counter()
+    context = context_from_saved_proposal(repo_root, output_dir, import_plan, app_id)
+    brief = icon_design_brief_from_manifest(
+        manifest.get("function_interpretation") if isinstance(manifest.get("function_interpretation"), dict) else {},
+        import_plan,
+        context,
+    )
+    style_prompt_seed = "\n".join(
+        [
+            str(selected_entry.get("prompt", "")) if selected_entry else "",
+            user_revision_instruction,
+        ]
+    )
+    style_settings = icon_style_settings(icon_style_preset or str(import_plan.get("icon_style_preset", "")), icon_style_custom or str(import_plan.get("icon_style_custom", "")), style_prompt_seed)
+    prompt_for_asset = build_icon_revision_api_base_prompt(
+        brief=brief,
+        base_candidate=selected_entry,
+        user_revision_instruction=user_revision_instruction,
+        revision_mode=revision_mode,
+        icon_style_preset=style_settings.get("preset", ""),
+        icon_style_custom=style_settings.get("custom", "") or (icon_style_custom or ""),
+    )
+    revision_concepts = icon_revision_concepts(brief, count, revision_mode, selected_entry)
+    base_image = selected_candidate_image_path(icon_work, selected_entry)
+    if revision_mode in {"redesign", "fresh"}:
+        base_image = None
+    force_generate = revision_mode in {"redesign", "fresh"}
+    run_id = str(int(time.time() * 1000))
+    candidate_id_prefix = f"icon_candidate_regen_{run_id}"
+    file_name_prefix = f"icon_candidate_regen_{run_id}"
+    timings["prompt_build"] = time.perf_counter() - phase_started
+
+    phase_started = time.perf_counter()
+    candidates, image_reports = generate_icon_candidates(
+        context,
+        brief,
+        prompt_for_asset,
+        collect_icon_style_reference(repo_root),
+        allow_ai=True,
+        ai_skip_reason="",
+        count=count,
+        style_settings=style_settings,
+        revision_image_path=str(base_image) if base_image else None,
+        concepts=revision_concepts,
+        api_size=generation_settings["size"],
+        api_quality=generation_settings["quality"],
+        force_generate=force_generate,
+        candidate_id_prefix=candidate_id_prefix,
+        file_name_prefix=file_name_prefix,
+    )
+    for candidate in candidates:
+        candidate.revision_of = str(selected_entry.get("candidate_id", "")) if selected_entry else ""
+    timings["image_api_call"] = time.perf_counter() - phase_started
+
+    phase_started = time.perf_counter()
+    icon_work.mkdir(parents=True, exist_ok=True)
+    write_icon_regeneration_files(
+        icon_work=icon_work,
+        manifest=manifest,
+        candidates=candidates,
+        existing_entries=existing_entries,
+        brief=brief,
+        style_settings=style_settings,
+        revision_mode=revision_mode,
+        image_quality_mode=generation_settings["mode"],
+        user_revision_instruction=user_revision_instruction,
+        prompt_for_asset=prompt_for_asset,
+        image_reports=image_reports,
+        timings=timings,
+    )
+    timings["file_write"] = time.perf_counter() - phase_started
+    timings["total"] = time.perf_counter() - total_started
+    update_icon_regeneration_timing(icon_work, timings)
+    write_json_file(icon_work / "icon_regeneration_timing.json", timings)
+    return {
+        "ok": True,
+        "app_id": context.app_id,
+        "output_dir": str(output_dir),
+        "candidate_count": len(candidates),
+        "api_candidate_count": sum(1 for candidate in candidates if is_api_candidate(candidate)),
+        "fallback_candidate_count": sum(1 for candidate in candidates if candidate.is_fallback),
+        "revision_mode": revision_mode,
+        "image_quality_mode": generation_settings["mode"],
+        "image_api_seconds": timings.get("image_api_call", 0.0),
+        "used_revision_image": bool(base_image),
+        "base_candidate_id": str(selected_entry.get("candidate_id", "")) if selected_entry else "",
+    }
+
+
+def read_json_file(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def write_json_file(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def write_text_file(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(value, encoding="utf-8")
+
+
+def context_from_saved_proposal(repo_root: Path, output_dir: Path, import_plan: dict[str, Any], app_id: str) -> StudioContext:
+    saved_app_id = sanitize_ai_text(str(import_plan.get("app_id") or app_id or "app"), 120) or "app"
+    name = sanitize_ai_text(str(import_plan.get("name") or saved_app_id), 160) or saved_app_id
+    entry = Path(str(import_plan.get("entry") or output_dir / "unknown.py"))
+    source_root = Path(str(import_plan.get("source_root") or entry.parent or output_dir))
+    return StudioContext(
+        repo_root=repo_root,
+        entry=entry,
+        source_root=source_root,
+        app_id=saved_app_id,
+        name=name,
+        output_dir=output_dir,
+        requested_build_mode=str(import_plan.get("requested_build_mode") or "frozen-folder"),
+        build_mode=str(import_plan.get("selected_build_mode") or "frozen-folder"),
+        version=str(import_plan.get("version") or "0.1.0"),
+    )
+
+
+def icon_design_brief_from_manifest(value: dict[str, Any], import_plan: dict[str, Any], context: StudioContext) -> IconDesignBrief:
+    def text(key: str, fallback: str) -> str:
+        return sanitize_ai_text(str(value.get(key) or value.get(to_camel_key(key)) or fallback), 600)
+
+    def items(key: str, fallback: list[str]) -> list[str]:
+        raw = value.get(key) or value.get(to_camel_key(key)) or fallback
+        if not isinstance(raw, list):
+            raw = fallback
+        return [sanitize_ai_text(str(item), 160) for item in raw if str(item).strip()][:8]
+
+    return IconDesignBrief(
+        app_id=text("app_id", context.app_id),
+        name=text("name", context.name),
+        entry_name=text("entry_name", context.entry.name),
+        purpose=text("purpose", context.name),
+        app_kind=text("app_kind", "utility app"),
+        primary_action=text("primary_action", "process"),
+        secondary_action=text("secondary_action", "organize"),
+        input_objects=items("input_objects", ["input file"]),
+        output_objects=items("output_objects", ["output file"]),
+        action_flow=text("action_flow", "input becomes output through the app's main action"),
+        visual_priority=items("visual_priority", ["primary action", "input object", "output object"]),
+        avoid_generic=items("avoid_generic", ["generic abstract shapes only", "document-only", "gear-only", "check-only", "initial-letter-only"]),
+        composition_template=text("composition_template", "2 to 4 meaningful objects connected by one action path"),
+        primary_motif=text("primary_motif", "main action relationship"),
+        secondary_motifs=items("secondary_motifs", ["supporting output cue"]),
+        avoid=items("avoid", ["tiny text", "crowded UI", "generic business icon"]),
+        palette=text("palette", "use the selected style preset colors"),
+        texture=text("texture", "use the selected style preset material"),
+        small_size_rule=text("small_size_rule", "readable at 32px"),
+        high_resolution_rule=text("high_resolution_rule", "attractive at 256px and above"),
+        toolhub_style_rule=text("toolhub_style_rule", "compatible with ToolHub icons without becoming generic"),
+        categories=items("categories", list_from_import_plan(import_plan, "categories")),
+        keywords=items("keywords", list_from_import_plan(import_plan, "keywords")),
+        use_cases=items("use_cases", list_from_import_plan(import_plan, "use_cases")),
+        inputs=items("inputs", list_from_import_plan(import_plan, "inputs")),
+        outputs=items("outputs", list_from_import_plan(import_plan, "outputs")),
+        source_files=items("source_files", []),
+        dependency_signals=items("dependency_signals", []),
+        readme_excerpt=text("readme_excerpt", ""),
+        style_reference=text("style_reference", str(import_plan.get("icon_style_reference") or "")),
+    )
+
+
+def to_camel_key(value: str) -> str:
+    parts = value.split("_")
+    return parts[0] + "".join(part.capitalize() for part in parts[1:])
+
+
+def list_from_import_plan(import_plan: dict[str, Any], key: str) -> list[str]:
+    value = import_plan.get(key)
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return []
+
+
+def select_icon_manifest_candidate(entries: list[Any], candidate_id: str | None) -> dict[str, Any] | None:
+    candidates = [entry for entry in entries if isinstance(entry, dict)]
+    requested = (candidate_id or "").strip()
+    if requested:
+        for candidate in candidates:
+            if str(candidate.get("candidate_id") or candidate.get("id") or "") == requested:
+                return candidate
+    return candidates[0] if candidates else None
+
+
+def selected_candidate_image_path(icon_work: Path, candidate: dict[str, Any] | None) -> Path | None:
+    if not candidate:
+        legacy = icon_work / "icon_candidate_1.png"
+        return legacy if legacy.is_file() else None
+    file_name = str(candidate.get("file_name") or "").strip()
+    if file_name:
+        path = icon_work / file_name
+        if path.is_file():
+            return path
+    legacy = icon_work / "icon_candidate_1.png"
+    return legacy if legacy.is_file() else None
+
+
+def build_icon_revision_api_base_prompt(
+    brief: IconDesignBrief,
+    base_candidate: dict[str, Any] | None,
+    user_revision_instruction: str,
+    revision_mode: str,
+    icon_style_preset: str,
+    icon_style_custom: str,
+) -> str:
+    mode = normalize_icon_revision_mode(revision_mode)
+    previous_prompt = ""
+    if mode != "fresh" and base_candidate:
+        previous_prompt = sanitize_ai_text(str(base_candidate.get("prompt") or ""), 2600)
+    base_id = str(base_candidate.get("candidate_id") or base_candidate.get("id") or "unknown") if base_candidate else "unknown"
+    base_status = str(base_candidate.get("status") or "unknown") if base_candidate else "unknown"
+    base_source = str(base_candidate.get("source") or "unknown") if base_candidate else "unknown"
+    return "\n".join(
+        [
+            "Icon revision request for ToolHub App Studio.",
+            f"revision_mode: {mode}",
+            f"change_strength: {mode}",
+            f"base_candidate_id: {base_id}",
+            f"base_candidate_status: {base_status}",
+            f"base_candidate_source: {base_source}",
+            f"selected_style_preset: {icon_style_preset or 'modern'}",
+            f"custom_style_text: {sanitize_ai_text(icon_style_custom, 900) if icon_style_custom else 'none'}",
+            "",
+            revision_mode_policy(mode),
+            "",
+            "APP FUNCTION INTERPRETATION:",
+            json.dumps(brief.to_dict(), ensure_ascii=False),
+            "",
+            "PREVIOUS IMAGE API PROMPT:",
+            previous_prompt if previous_prompt else "Do not inherit the previous prompt strongly; use only the app function interpretation and the user instruction.",
+            "",
+            "USER REVISION INSTRUCTION - MUST FOLLOW VERBATIM:",
+            user_revision_instruction,
+            "",
+            "This instruction overrides previous concept/style text unless it conflicts with safety or icon readability.",
+            "",
+            "The final icon must visibly reflect the user revision instruction. If the instruction says a style such as colored pencil, realistic, vivid, or watercolor, follow that style over generic modern polish.",
+        ]
+    )
+
+
+def revision_mode_policy(mode: str) -> str:
+    if mode == "tweak":
+        return "\n".join(
+            [
+                "MODE POLICY:",
+                "- Use images.edit when a previous PNG is available.",
+                "- Preserve the previous composition, primary motif, action flow, and color family.",
+                "- Change only the requested color, line, texture, small detail, or minor readability issue.",
+            ]
+        )
+    if mode == "refine":
+        return "\n".join(
+            [
+                "MODE POLICY:",
+                "- Use images.edit when a previous PNG is available.",
+                "- Preserve the app function and useful main idea.",
+                "- Improve supporting motif, color balance, silhouette, or style with a visible medium change.",
+            ]
+        )
+    if mode == "redesign":
+        return "\n".join(
+            [
+                "MODE POLICY:",
+                "- Prefer a new generated image rather than editing the previous PNG.",
+                "- Treat the previous candidate as reference only.",
+                "- Must change the main motif or composition; color-only changes are insufficient.",
+            ]
+        )
+    return "\n".join(
+        [
+            "MODE POLICY:",
+            "- Do not use the previous PNG as an input image.",
+            "- Do not inherit the old prompt or composition strongly.",
+            "- Create a substantially different concept family, primary motif, composition, and color focus from the saved candidate.",
+        ]
+    )
+
+
+def icon_revision_concepts(brief: IconDesignBrief, count: int, mode: str, base_candidate: dict[str, Any] | None) -> list[IconConcept]:
+    base = fallback_icon_concepts(brief, max(count, 3))
+    if mode == "tweak":
+        ordered = base
+    elif mode == "refine":
+        ordered = [base[1], base[0], base[2]]
+    else:
+        ordered = [base[2], base[1], base[0]]
+    concepts: list[IconConcept] = []
+    for index, concept in enumerate(ordered[:count], start=1):
+        if mode == "tweak":
+            direction = "tweak"
+            composition = f"Preserve the previous layout while applying the user's specific change: {concept.composition}"
+            style_family = concept.style_family
+        elif mode == "refine":
+            direction = "refine"
+            composition = f"Keep the main function but visibly improve the supporting motif, color, or silhouette: {concept.composition}"
+            style_family = concept.style_family
+        elif mode == "redesign":
+            direction = "redesign"
+            composition = f"Change the main motif or composition from the previous candidate while preserving {brief.action_flow}: {concept.composition}"
+            style_family = "redesigned " + concept.style_family
+        else:
+            direction = "fresh"
+            composition = f"Create a fresh, unrelated composition family for {brief.action_flow}; do not reuse the previous layout: {concept.composition}"
+            style_family = "fresh alternative " + concept.style_family
+        concepts.append(
+            IconConcept(
+                concept_id=f"{direction}_{index}",
+                direction=direction,
+                concept=f"{direction}: {brief.action_flow}",
+                primary_motif=concept.primary_motif,
+                secondary_motif=concept.secondary_motif,
+                composition=composition,
+                style_family=style_family,
+                why_specific=concept.why_specific,
+                avoid_elements=brief.avoid_generic,
+            )
+        )
+    return concepts
+
+
+def write_icon_regeneration_files(
+    icon_work: Path,
+    manifest: dict[str, Any],
+    candidates: list[IconCandidateAsset],
+    existing_entries: list[Any],
+    brief: IconDesignBrief,
+    style_settings: dict[str, str],
+    revision_mode: str,
+    image_quality_mode: str,
+    user_revision_instruction: str,
+    prompt_for_asset: str,
+    image_reports: list[str],
+    timings: dict[str, float],
+) -> None:
+    write_text_file(icon_work / "icon_prompt_revision.md", prompt_for_asset)
+    first_prompt = candidates[0].prompt if candidates else prompt_for_asset
+    write_text_file(icon_work / "icon_final_image_prompt.md", first_prompt)
+    for candidate in candidates:
+        if candidate.png and candidate.file_name:
+            (icon_work / candidate.file_name).write_bytes(candidate.png)
+        if candidate.url and candidate.url_file_name:
+            write_text_file(icon_work / candidate.url_file_name, candidate.url + "\n")
+    first = candidates[0] if candidates else None
+    if first and first.png:
+        (icon_work / "icon_candidate_1.png").write_bytes(first.png)
+    if first and first.url:
+        write_text_file(icon_work / "icon_candidate_1.url.txt", first.url + "\n")
+
+    new_entries = [candidate.manifest_entry() for candidate in candidates]
+    existing_candidate_ids = {str(entry.get("candidate_id") or entry.get("id") or "") for entry in new_entries}
+    retained_entries = [entry for entry in existing_entries if not isinstance(entry, dict) or str(entry.get("candidate_id") or entry.get("id") or "") not in existing_candidate_ids]
+    combined_entries = new_entries + retained_entries
+    for number, entry in enumerate(combined_entries, start=1):
+        if isinstance(entry, dict):
+            entry["number"] = number
+    summary = image_api_summary(candidates, style_settings)
+    summary.update(
+        {
+            "revision_mode": revision_mode,
+            "image_quality_mode": image_quality_mode,
+            "user_revision_instruction": user_revision_instruction,
+            "final_image_api_prompt": first_prompt,
+            "image_api_seconds": timings.get("image_api_call", 0.0),
+            "regeneration_candidate_count": len(candidates),
+        }
+    )
+    manifest.update(
+        {
+            "schema_version": max(3, int(manifest.get("schema_version") or 0)),
+            "standard_icon_size": "512x512",
+            "api_icon_size": API_ICON_RESOLUTION,
+            "legacy_candidate_png": "icon_candidate_1.png",
+            "function_interpretation": brief.to_dict(),
+            "image_api_summary": summary,
+            "last_regeneration": {
+                "revision_mode": revision_mode,
+                "image_quality_mode": image_quality_mode,
+                "user_revision_instruction": user_revision_instruction,
+                "final_image_api_prompt": first_prompt,
+                "timings": timings,
+            },
+            "candidates": combined_entries,
+        }
+    )
+    write_json_file(icon_work / "candidate_manifest.json", manifest)
+    write_text_file(
+        icon_work / "ai_generation_report.md",
+        "\n".join(
+            [
+                "# AI Generation Report",
+                "",
+                "## Icon Regeneration",
+                "",
+                f"revision_mode: {revision_mode}",
+                f"image_quality_mode: {image_quality_mode}",
+                f"candidate_count: {len(candidates)}",
+                f"api_candidate_count: {sum(1 for candidate in candidates if is_api_candidate(candidate))}",
+                f"fallback_candidate_count: {sum(1 for candidate in candidates if candidate.is_fallback)}",
+                f"image_api_seconds: {timings.get('image_api_call', 0.0):.3f}",
+                "",
+                "## Final Image API Prompt",
+                "",
+                first_prompt,
+                "",
+                "## Image Generation",
+                "",
+                "\n\n".join(image_reports),
+                "",
+                "## Timing",
+                "",
+                json.dumps(timings, ensure_ascii=False, indent=2),
+            ]
+        ),
+    )
+
+
+def update_icon_regeneration_timing(icon_work: Path, timings: dict[str, float]) -> None:
+    manifest_path = icon_work / "candidate_manifest.json"
+    manifest = read_json_file(manifest_path)
+    if not manifest:
+        return
+    summary = manifest.get("image_api_summary")
+    if isinstance(summary, dict):
+        summary["image_api_seconds"] = timings.get("image_api_call", 0.0)
+        summary["regeneration_timing"] = timings
+    last_regeneration = manifest.get("last_regeneration")
+    if isinstance(last_regeneration, dict):
+        last_regeneration["timings"] = timings
+    write_json_file(manifest_path, manifest)
+
+
 def generate_icon_candidates(
     context: StudioContext,
     brief: IconDesignBrief,
@@ -280,12 +777,32 @@ def generate_icon_candidates(
     count: int,
     style_settings: dict[str, str] | None = None,
     revision_image_path: str | None = None,
+    concepts: list[IconConcept] | None = None,
+    api_size: str = API_ICON_RESOLUTION,
+    api_quality: str = "medium",
+    force_generate: bool = False,
+    candidate_id_prefix: str = "icon_candidate",
+    file_name_prefix: str = "icon_candidate",
 ) -> tuple[list[IconCandidateAsset], list[str]]:
     candidates: list[IconCandidateAsset] = []
     style_settings = style_settings or icon_style_settings(None, None, prompt)
-    concept_list, reports = generate_icon_concepts(context, brief, prompt, allow_ai, count)
+    if concepts is None:
+        concept_list, reports = generate_icon_concepts(context, brief, prompt, allow_ai, count)
+    else:
+        concept_list = concepts
+        reports = [
+            "\n".join(
+                [
+                    "api: responses.create",
+                    "status: skipped",
+                    "model: deterministic-icon-regeneration",
+                    "used_api: false",
+                    "fallback_reason: icon-regenerate reuses the saved function interpretation and deterministic revision concepts.",
+                ]
+            )
+        ]
     image_skip_report_added = False
-    use_edit_api = bool(revision_image_path and Path(revision_image_path).is_file())
+    use_edit_api = bool(revision_image_path and Path(revision_image_path).is_file() and not force_generate)
     for index, concept in enumerate(concept_list[:count], start=1):
         variant_prompt = image_api_prompt(
             prompt,
@@ -295,9 +812,9 @@ def generate_icon_candidates(
             style_settings=style_settings,
         )
         if allow_ai and use_edit_api:
-            image_result = edit_image(variant_prompt, str(revision_image_path), size=API_ICON_RESOLUTION)
+            image_result = edit_image(variant_prompt, str(revision_image_path), size=api_size, quality=api_quality)
         elif allow_ai:
-            image_result = generate_image(variant_prompt, size=API_ICON_RESOLUTION)
+            image_result = generate_image(variant_prompt, size=api_size, quality=api_quality)
         else:
             image_result = None
         png_bytes, image_url, image_note = image_candidate_from_result(image_result, index)
@@ -310,18 +827,18 @@ def generate_icon_candidates(
         if png_bytes or image_url:
             candidates.append(
                 IconCandidateAsset(
-                    candidate_id=f"icon_candidate_{index}",
+                    candidate_id=f"{candidate_id_prefix}_{index}",
                     number=index,
                     source="api_edit" if image_result and image_result.api == "images.edit" else "api_generate",
                     prompt=variant_prompt,
                     model=image_result.model if image_result else "",
                     status=image_result.status if image_result else "success",
-                    resolution=getattr(image_result, "resolution", API_ICON_RESOLUTION) or API_ICON_RESOLUTION,
+                    resolution=getattr(image_result, "resolution", api_size) or api_size,
                     is_fallback=False,
                     png=png_bytes,
                     url=image_url,
-                    file_name=f"icon_candidate_{index}.png" if png_bytes else "",
-                    url_file_name=f"icon_candidate_{index}.url.txt" if image_url else "",
+                    file_name=f"{file_name_prefix}_{index}.png" if png_bytes else "",
+                    url_file_name=f"{file_name_prefix}_{index}.url.txt" if image_url else "",
                     notes=f"{concept.direction}: {image_note}",
                     api=image_result.api if image_result else "",
                     content_type=image_result.content_type if image_result else "",
@@ -355,7 +872,7 @@ def generate_icon_candidates(
             fallback_reason = ai_skip_reason
         candidates.append(
             IconCandidateAsset(
-                candidate_id=f"icon_candidate_{index}",
+                candidate_id=f"{candidate_id_prefix}_{index}",
                 number=index,
                 source="fallback" if not allow_ai else "fallback_after_api_failure",
                 prompt=fallback_prompt,
@@ -364,7 +881,7 @@ def generate_icon_candidates(
                 resolution=f"{LOCAL_ICON_SIZE}x{LOCAL_ICON_SIZE}",
                 is_fallback=True,
                 png=generate_local_png(context, fallback_prompt, style_reference, size=LOCAL_ICON_SIZE),
-                file_name=f"icon_candidate_{index}.png",
+                file_name=f"{file_name_prefix}_{index}.png",
                 notes=f"{concept.direction}: placeholder fallback. {image_note or ai_skip_reason or 'local fallback'}",
                 api=api_name,
                 content_type=getattr(image_result, "content_type", "none") if image_result else "none",

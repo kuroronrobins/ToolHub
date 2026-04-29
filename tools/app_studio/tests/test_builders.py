@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "runner"))
 
 from app_studio.ai_metadata_suggester import build_icon_design_brief, metadata_prompt, normalize_icon_actions, normalize_icon_objects, select_icon_composition_template, suggest_icon_prompt, suggest_metadata
 from app_studio.build_profile import analyze_exe_readiness, default_build_profile
-from app_studio.icon_generator import fallback_icon_concepts, generate_icon_assets_with_candidates, generate_local_png, icon_style_settings, image_api_prompt, image_api_summary
+from app_studio.icon_generator import build_icon_revision_api_base_prompt, fallback_icon_concepts, generate_icon_assets_with_candidates, generate_local_png, icon_image_generation_settings, icon_regeneration_candidate_count, icon_style_settings, image_api_prompt, image_api_summary, regenerate_icon_only
 from app_studio.app_env_builder import create_app_env, create_build_env
 from app_studio.approval import approve_app, validate_approval_inputs, verify_release_gate
 from app_studio.build_planner import make_build_plan
@@ -34,7 +34,7 @@ from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.timing import TimingRecorder
 from app_studio.util import write_json, write_text
-from main import parse_args as parse_app_studio_args, run_import
+from main import parse_args as parse_app_studio_args, run_icon_regenerate, run_import
 
 
 @contextmanager
@@ -1276,6 +1276,152 @@ class OpenAIFallbackTests(unittest.TestCase):
             self.assertIn("維持したい要素", revision)
 
 
+    def test_icon_regenerate_args_default_to_one_candidate(self) -> None:
+        args = parse_app_studio_args(
+            [
+                "icon-regenerate",
+                "--app-id",
+                "pdf_merge_tool",
+                "--output-dir",
+                "out",
+                "--user-revision-instruction",
+                "make it colored pencil",
+            ]
+        )
+
+        self.assertEqual(args.candidate_count, 1)
+        self.assertEqual(icon_regeneration_candidate_count(None), 1)
+        self.assertEqual(args.image_quality_mode, "standard")
+        self.assertEqual(icon_image_generation_settings("draft")["quality"], "low")
+
+    def test_revision_base_prompt_keeps_user_instruction_verbatim_and_modes_differ(self) -> None:
+        with workspace_tempdir() as root:
+            _, _, brief = make_icon_regeneration_output(root)
+            base_candidate = {"candidate_id": "icon_candidate_1", "prompt": "previous prompt with blue documents", "status": "success", "source": "api_generate"}
+            user_instruction = "もっと色鉛筆風に。PDFが複数から1つに統合されるように。"
+
+            tweak_prompt = build_icon_revision_api_base_prompt(brief, base_candidate, user_instruction, "tweak", "colored_pencil", "")
+            fresh_prompt = build_icon_revision_api_base_prompt(brief, base_candidate, user_instruction, "fresh", "colored_pencil", "")
+
+        self.assertIn("USER REVISION INSTRUCTION - MUST FOLLOW VERBATIM:", tweak_prompt)
+        self.assertIn(user_instruction, tweak_prompt)
+        self.assertIn("Use images.edit", tweak_prompt)
+        self.assertIn("Do not use the previous PNG", fresh_prompt)
+        self.assertNotIn("previous prompt with blue documents", fresh_prompt)
+        self.assertNotEqual(tweak_prompt, fresh_prompt)
+
+    def test_icon_regenerate_updates_manifest_with_final_prompt_and_uses_edit_for_tweak(self) -> None:
+        fake_result = OpenAIResult(
+            ok=True,
+            used_api=True,
+            content="iVBORw0KGgo=",
+            report="api: images.edit\nstatus: success\nmodel: gpt-image-2",
+            status="success",
+            model="gpt-image-2",
+            api="images.edit",
+            content_type="b64_png",
+            resolution="1024x1024",
+        )
+        user_instruction = "もっと色鉛筆風に。PDFが複数から1つに統合されるように。"
+        with workspace_tempdir() as root:
+            context, output, _ = make_icon_regeneration_output(root)
+            with patch("app_studio.icon_generator.edit_image", return_value=fake_result) as mocked_edit:
+                with patch("app_studio.icon_generator.generate_image") as mocked_generate:
+                    result = regenerate_icon_only(
+                        output_dir=output,
+                        app_id=context.app_id,
+                        repo_root=context.repo_root,
+                        base_candidate_id="icon_candidate_1",
+                        user_revision_instruction=user_instruction,
+                        revision_mode="tweak",
+                        icon_style_preset="colored_pencil",
+                        candidate_count=1,
+                        image_quality_mode="draft",
+                    )
+            manifest = json.loads((output / "icon_work" / "candidate_manifest.json").read_text(encoding="utf-8"))
+            legacy_candidate_exists = (output / "icon_work" / "icon_candidate_1.png").is_file()
+
+        mocked_edit.assert_called_once()
+        mocked_generate.assert_not_called()
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["used_revision_image"])
+        self.assertEqual(manifest["image_api_summary"]["user_revision_instruction"], user_instruction)
+        self.assertEqual(manifest["image_api_summary"]["image_quality_mode"], "draft")
+        self.assertIn(user_instruction, manifest["candidates"][0]["prompt"])
+        self.assertIn("USER REVISION INSTRUCTION - MUST FOLLOW VERBATIM:", manifest["candidates"][0]["prompt"])
+        self.assertTrue(manifest["candidates"][0]["candidate_id"].startswith("icon_candidate_regen_"))
+        self.assertTrue(legacy_candidate_exists)
+        self.assertIn("file_write", manifest["last_regeneration"]["timings"])
+
+    def test_icon_regenerate_fresh_does_not_use_revision_image(self) -> None:
+        fake_result = OpenAIResult(
+            ok=True,
+            used_api=True,
+            content="iVBORw0KGgo=",
+            report="api: images.generate\nstatus: success\nmodel: gpt-image-2",
+            status="success",
+            model="gpt-image-2",
+            api="images.generate",
+            content_type="b64_png",
+            resolution="1024x1024",
+        )
+        with workspace_tempdir() as root:
+            context, output, _ = make_icon_regeneration_output(root)
+            with patch("app_studio.icon_generator.edit_image") as mocked_edit:
+                with patch("app_studio.icon_generator.generate_image", return_value=fake_result) as mocked_generate:
+                    result = regenerate_icon_only(
+                        output_dir=output,
+                        app_id=context.app_id,
+                        repo_root=context.repo_root,
+                        base_candidate_id="icon_candidate_1",
+                        user_revision_instruction="構図を大きく変えて",
+                        revision_mode="fresh",
+                        candidate_count=1,
+                    )
+
+        mocked_edit.assert_not_called()
+        mocked_generate.assert_called_once()
+        self.assertFalse(result["used_revision_image"])
+
+    def test_icon_regenerate_command_does_not_run_full_suggest_pipeline(self) -> None:
+        fake_result = OpenAIResult(
+            ok=True,
+            used_api=True,
+            content="iVBORw0KGgo=",
+            report="api: images.edit\nstatus: success\nmodel: gpt-image-2",
+            status="success",
+            model="gpt-image-2",
+            api="images.edit",
+            content_type="b64_png",
+            resolution="1024x1024",
+        )
+        with workspace_tempdir() as root:
+            context, output, _ = make_icon_regeneration_output(root)
+            args = parse_app_studio_args(
+                [
+                    "icon-regenerate",
+                    "--app-id",
+                    context.app_id,
+                    "--output-dir",
+                    str(output),
+                    "--base-candidate-id",
+                    "icon_candidate_1",
+                    "--user-revision-instruction",
+                    "少し明るく",
+                ]
+            )
+            with patch("main.classify_files") as mocked_inventory:
+                with patch("main.scan_secrets") as mocked_scan:
+                    with patch("main.analyze_dependencies") as mocked_dependencies:
+                        with patch("app_studio.icon_generator.edit_image", return_value=fake_result):
+                            exit_code = run_icon_regenerate(args, context.repo_root)
+
+        self.assertEqual(exit_code, 0)
+        mocked_inventory.assert_not_called()
+        mocked_scan.assert_not_called()
+        mocked_dependencies.assert_not_called()
+
+
 class IconCandidateExportTests(unittest.TestCase):
     def test_png_candidate_is_saved(self) -> None:
         with workspace_tempdir() as root:
@@ -1483,6 +1629,69 @@ class DocsTests(unittest.TestCase):
     def test_old_pyinstaller_mvp_statement_was_removed(self) -> None:
         text = (ROOT / "docs" / "13_app_studio.md").read_text(encoding="utf-8")
         self.assertNotIn("MVP では実際の PyInstaller 実行は行わず", text)
+
+
+def make_icon_regeneration_output(root: Path, app_id: str = "pdf_merge_tool"):
+    context = make_context(root, app_id)
+    context.name = "PDF Merge Tool"
+    output = context.output_dir
+    icon_work = output / "icon_work"
+    icon_work.mkdir(parents=True, exist_ok=True)
+    brief = build_icon_design_brief(
+        context,
+        metadata={
+            "short_description": "Combine multiple PDF documents into one PDF.",
+            "inputs": ["PDF documents"],
+            "outputs": ["merged PDF"],
+            "keywords": ["pdf", "merge"],
+        },
+    )
+    write_json(
+        output / "import_plan.json",
+        {
+            "app_id": context.app_id,
+            "name": context.name,
+            "version": context.version,
+            "entry": str(context.entry),
+            "source_root": str(context.source_root),
+            "output_dir": str(output),
+            "requested_build_mode": context.requested_build_mode,
+            "selected_build_mode": context.build_mode,
+            "icon_style_reference": "",
+            "icon_style_preset": "modern",
+            "icon_function_interpretation": brief.to_dict(),
+        },
+    )
+    write_text(icon_work / "icon_prompt_initial.md", "Initial prompt")
+    write_text(icon_work / "icon_prompt_revision.md", "Previous revision prompt")
+    (icon_work / "icon_candidate_1.png").write_bytes(b"\x89PNG\r\n\x1a\nbase")
+    write_json(
+        icon_work / "candidate_manifest.json",
+        {
+            "schema_version": 2,
+            "standard_icon_size": "512x512",
+            "api_icon_size": "1024x1024",
+            "legacy_candidate_png": "icon_candidate_1.png",
+            "function_interpretation": brief.to_dict(),
+            "image_api_summary": {"api_candidate_count": 1, "fallback_candidate_count": 0, "image_api_success": True},
+            "candidates": [
+                {
+                    "candidate_id": "icon_candidate_1",
+                    "number": 1,
+                    "source": "api_generate",
+                    "prompt": "previous prompt with blue documents",
+                    "model": "gpt-image-2",
+                    "status": "success",
+                    "resolution": "1024x1024",
+                    "fallback": False,
+                    "file_name": "icon_candidate_1.png",
+                    "api": "images.generate",
+                    "content_type": "b64_png",
+                }
+            ],
+        },
+    )
+    return context, output, brief
 
 
 def minimal_artifacts(context, icon_candidate_png: bytes | None = None, icon_candidate_url: str = "") -> GeneratedArtifacts:
