@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 
 from .file_classifier import inventory_markdown
-from .icon_generator import generate_local_png
+from .icon_generator import generate_local_png, image_api_summary
 from .models import BuildPlan, DependencyReport, GeneratedArtifacts, IconCandidateAsset, SecretScanReport, SourceInventory, StudioContext
 from .secret_scanner import secret_report_markdown
 from .util import copy_file_preserving_root, reset_output_dir, write_bytes, write_json, write_text
@@ -84,6 +84,7 @@ def write_icon_candidates(icon_work: Path, artifacts: GeneratedArtifacts) -> Non
             "api_icon_size": "1024x1024",
             "legacy_candidate_png": "icon_candidate_1.png",
             "function_interpretation": artifacts.icon_design_brief or artifacts.import_plan.get("icon_function_interpretation", {}),
+            "image_api_summary": image_api_summary(candidates, {"preset": artifacts.import_plan.get("icon_style_preset", "")}),
             "candidates": [candidate.manifest_entry() for candidate in candidates],
         },
     )

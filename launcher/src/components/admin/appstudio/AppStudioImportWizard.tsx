@@ -17,6 +17,7 @@ import type {
   AppStudioAiProposal,
   AppStudioAiIconCandidate,
   AppStudioApprovalMode,
+  AppStudioIconStylePreset,
   AppStudioIconOverride,
   AppStudioImportRequest,
   AppStudioPreflightResult,
@@ -41,6 +42,8 @@ const INITIAL_REQUEST: AppStudioImportRequest = {
   name: "",
   buildMode: "frozen-folder",
   iconPrompt: "",
+  iconStylePreset: "modern",
+  iconStyleCustom: "",
   metadata: createEmptyAppStudioMetadata(),
   createAppEnv: false,
   rebuildAppEnv: false,
@@ -51,6 +54,19 @@ const INITIAL_REQUEST: AppStudioImportRequest = {
 
 type StudioAction = "suggest" | "apply" | "approve";
 type IconRevisionMode = "tweak" | "refine" | "redesign" | "fresh";
+
+const ICON_STYLE_PRESETS: Array<{ value: AppStudioIconStylePreset; label: string; description: string }> = [
+  { value: "modern", label: "modern", description: "Clean digital icon" },
+  { value: "vivid", label: "vivid", description: "High saturation" },
+  { value: "realistic", label: "realistic", description: "Realistic object style" },
+  { value: "colored_pencil", label: "colored pencil", description: "Hand-drawn pencil texture" },
+  { value: "watercolor", label: "watercolor", description: "Soft paint wash" },
+  { value: "flat_vector", label: "flat vector", description: "Flat shapes" },
+  { value: "3d_soft", label: "3D soft", description: "Soft dimensional style" },
+  { value: "glassmorphism", label: "glass", description: "Translucent glass layers" },
+  { value: "clay", label: "clay", description: "Matte clay shapes" },
+  { value: "custom", label: "custom", description: "Use custom style text first" },
+];
 
 const ICON_REVISION_MODES: Array<{ value: IconRevisionMode; label: string; description: string }> = [
   { value: "tweak", label: "tweak", description: "前案を強く残して微修正" },
@@ -390,7 +406,11 @@ export function AppStudioImportWizard() {
     }
     const baseCandidate = selectedRevisionBaseCandidate(aiProposal, revisionBaseCandidateId);
     setLastRevisionBase(baseCandidate);
-    const nextRequest = { ...request, iconPrompt: buildIconRevisionContext(baseCandidate, aiProposal, request.iconOverride, revision, iconRevisionMode) };
+    const nextRequest = {
+      ...request,
+      iconPrompt: buildIconRevisionContext(baseCandidate, aiProposal, request.iconOverride, revision, iconRevisionMode),
+      iconRevisionImage: baseCandidate?.pngDataUrl ?? undefined,
+    };
     setRequest(nextRequest);
     const generated = await run("suggest", "aiProposal", nextRequest);
     if (!generated) {
@@ -518,6 +538,8 @@ export function AppStudioImportWizard() {
           </div>
         </div>
 
+        {renderIconStyleControls()}
+
         <AppStudioAiProposalPanel
           appId={request.appId}
           outputDir={result?.outputDir}
@@ -543,6 +565,42 @@ export function AppStudioImportWizard() {
             <ChevronRight size={17} aria-hidden="true" />
           </button>
         </div>
+      </section>
+    );
+  }
+
+  function renderIconStyleControls() {
+    return (
+      <section className="studio-icon-style-panel">
+        <div>
+          <p className="dialog-kicker">Icon style</p>
+          <h4>画像生成スタイル</h4>
+        </div>
+        <div className="studio-icon-style-grid" role="group" aria-label="icon style preset">
+          {ICON_STYLE_PRESETS.map((style) => (
+            <button
+              key={style.value}
+              className={`studio-segment-button${(request.iconStylePreset || "modern") === style.value ? " selected" : ""}`}
+              type="button"
+              onClick={() => update({ iconStylePreset: style.value })}
+              title={style.description}
+            >
+              <strong>{style.label}</strong>
+              <span>{style.description}</span>
+            </button>
+          ))}
+        </div>
+        {(request.iconStylePreset || "modern") === "custom" ? (
+          <label className="admin-field">
+            <span>Custom style</span>
+            <input
+              type="text"
+              value={request.iconStyleCustom ?? ""}
+              placeholder="例: 和紙に色鉛筆で描いたような柔らかい質感"
+              onChange={(event) => update({ iconStyleCustom: event.target.value })}
+            />
+          </label>
+        ) : null}
       </section>
     );
   }
@@ -790,7 +848,7 @@ function buildIconRevisionContext(
     `revision_mode: ${mode}`,
     `change_strength: ${mode}`,
     `previous_candidate_id: ${baseCandidate?.candidateId || "unknown"}`,
-    `previous_prompt: ${previousPrompt}`,
+    `previous_prompt: ${mode === "fresh" ? "omitted for fresh mode; do not inherit the old composition" : previousPrompt}`,
     `previous_status: ${baseCandidate?.status || "unknown"}`,
     `previous_source: ${baseCandidate?.fallback ? "fallback" : baseCandidate?.source || "unknown"}`,
     `previous_resolution: ${baseCandidate?.resolution || "unknown"}`,
@@ -800,8 +858,12 @@ function buildIconRevisionContext(
     `change_elements: ${strength.change}`,
     "avoid_elements: generic abstract shapes only, document-only, gear-only, check-only, nodes-only, initial-letter-only, tiny text, crowded UI screenshots",
     `previous_prompt_policy: ${previousPromptPolicy}`,
-    "divergence_requirement: the regenerated concept must visibly change at least one of composition, primary motif, or color focus from the previous candidate.",
-    "image_edit_api: not used in this build; regenerate from this text revision context",
+    mode === "redesign"
+      ? "divergence_requirement: must change the main motif or composition; color-only changes are insufficient."
+      : mode === "fresh"
+        ? "divergence_requirement: create a substantially different concept family, composition, primary motif, and color focus."
+        : "divergence_requirement: the regenerated concept must visibly change at least one of composition, primary motif, or color focus from the previous candidate.",
+    "image_edit_api: pass the selected previous PNG as an input image when available",
   ].join("\n");
 }
 
@@ -859,6 +921,9 @@ function cleanRequest(request: AppStudioImportRequest): AppStudioImportRequest {
     buildFrozenFolder: true,
     verifyRuntime: true,
     iconPrompt: request.iconPrompt?.trim() || undefined,
+    iconStylePreset: request.iconStylePreset || "modern",
+    iconStyleCustom: request.iconStyleCustom?.trim() || undefined,
+    iconRevisionImage: request.iconRevisionImage?.startsWith("data:image/png;base64,") ? request.iconRevisionImage : undefined,
     metadata: cleanEditableMetadata(request.metadata),
     iconOverride: cleanIconOverride(request.iconOverride),
   };

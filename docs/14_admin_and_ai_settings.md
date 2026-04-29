@@ -76,7 +76,7 @@ Metadata editor で採用・編集した登録項目は、管理者認証済み�
 
 Image model の既定候補は `gpt-image-2` です。これは設定値として保存・変更でき、App Studio 実行時は管理者画面の設定から `TOOLHUB_APP_STUDIO_IMAGE_MODEL` として CLI に渡します。APIキー未設定またはAI無効の場合は画像生成APIを呼ばず、fallback PNG と互換用SVGで動作します。
 
-Image model の表示候補は、推奨 `gpt-image-2`、互換候補 `gpt-image-1.5` / `gpt-image-1` / `gpt-image-1-mini` です。画像生成では `response_format` を渡さず、必要に応じて `output_format` / `quality` を外してリトライします。
+Image model の表示候補は、推奨 `gpt-image-2`、互換候補 `gpt-image-1.5` / `gpt-image-1` / `gpt-image-1-mini` です。画像生成では `response_format` を渡さず、必要に応じて `output_format` / `quality` を外してリトライします。画像生成テストは実API呼び出しで、結果に model、api、content_type、fallback_reason、error_category を表示します。
 
 ## APIキー保存場所
 

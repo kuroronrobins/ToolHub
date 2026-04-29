@@ -8,8 +8,9 @@ import {
   aiSaveApiKey,
   aiSaveSettings,
   aiTestConnection,
+  aiTestImageGeneration,
 } from "../../lib/adminApi";
-import type { AiSettings, ApiKeyStatus } from "../../lib/adminTypes";
+import type { AiImageGenerationTestResult, AiSettings, ApiKeyStatus } from "../../lib/adminTypes";
 import { formatAdminError } from "./adminUi";
 
 const DEFAULT_SETTINGS: AiSettings = {
@@ -26,6 +27,7 @@ export function AiSettingsPanel() {
   const [apiKey, setApiKey] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [imageTest, setImageTest] = useState<AiImageGenerationTestResult | null>(null);
   const [busy, setBusy] = useState(false);
 
   const shortKeyWarning = useMemo(() => {
@@ -130,6 +132,22 @@ export function AiSettingsPanel() {
     }
   }
 
+  async function handleImageGenerationTest() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    setImageTest(null);
+    try {
+      const result = await aiTestImageGeneration();
+      setImageTest(result);
+      setMessage(result.ok ? `画像生成テスト成功: ${result.model}` : `画像生成テスト失敗: ${result.message}`);
+    } catch (testError) {
+      setError(formatAdminError(testError, "画像生成テストを実行できませんでした。"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="admin-panel-section">
       <div className="admin-section-head">
@@ -179,6 +197,10 @@ export function AiSettingsPanel() {
             <PlugZap size={17} aria-hidden="true" />
             接続テスト
           </button>
+          <button className="secondary-button" type="button" onClick={() => void handleImageGenerationTest()} disabled={busy}>
+            <PlugZap size={17} aria-hidden="true" />
+            画像生成テスト（実API呼び出し）
+          </button>
           <button className="primary-button" type="submit" disabled={busy}>
             <Save size={17} aria-hidden="true" />
             保存
@@ -216,8 +238,26 @@ export function AiSettingsPanel() {
       </div>
 
       {message ? <p className="admin-success">{message}</p> : null}
+      {imageTest ? <ImageGenerationTestResult result={imageTest} /> : null}
       {error ? <p className="admin-error" role="alert">{error}</p> : null}
     </section>
+  );
+}
+
+function ImageGenerationTestResult({ result }: { result: AiImageGenerationTestResult }) {
+  return (
+    <div className={`admin-image-test-result ${result.ok ? "ok" : "warn"}`}>
+      <div><span>ok</span><strong>{result.ok ? "true" : "false"}</strong></div>
+      <div><span>model</span><strong>{result.model || "unknown"}</strong></div>
+      <div><span>api</span><strong>{result.api || "unknown"}</strong></div>
+      <div><span>status</span><strong>{result.status || "unknown"}</strong></div>
+      <div><span>content_type</span><strong>{result.contentType || "none"}</strong></div>
+      <div><span>resolution</span><strong>{result.resolution || "unknown"}</strong></div>
+      {result.fallbackReason ? <div className="wide"><span>fallback_reason</span><strong>{result.fallbackReason}</strong></div> : null}
+      {result.errorCategory ? <div><span>error_category</span><strong>{result.errorCategory}</strong></div> : null}
+      {result.error ? <div className="wide"><span>error</span><strong>{result.error}</strong></div> : null}
+      {result.ok ? <div className="wide"><span>確認済み</span><strong>{result.model}</strong></div> : null}
+    </div>
   );
 }
 

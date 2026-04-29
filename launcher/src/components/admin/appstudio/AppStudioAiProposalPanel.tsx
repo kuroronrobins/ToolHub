@@ -114,10 +114,17 @@ export function AppStudioAiProposalPanel({
   const icon = proposal?.icon;
   const selected = selectedIconSource ?? localSelectedIconSource;
   const iconCandidates = icon ? normalizedIconCandidates(icon) : [];
+  const apiCandidates = iconCandidates.filter((candidate) => !candidate.fallback && isApiOrLegacyCandidate(candidate));
+  const fallbackCandidates = iconCandidates.filter((candidate) => candidate.fallback || candidate.source?.includes("fallback"));
+  const primaryPreviewLabel = apiCandidates.length ? "AI PNGアイコン候補" : "fallback PNGプレースホルダー";
   const metadataFields = compact ? METADATA_FIELDS.filter((field) => field.compact) : METADATA_FIELDS;
 
   function adoptPng(source: "candidate_png" | "final_png", pngDataUrl?: string | null, candidate?: AppStudioAiIconCandidate) {
     if (!pngDataUrl) {
+      return;
+    }
+    if (source === "candidate_png" && !candidate && !apiCandidates.length) {
+      setError("API生成候補がありません。fallbackを使う場合は候補カードのfallback採用を明示してください。");
       return;
     }
     setLocalSelectedIconSource(source);
@@ -199,8 +206,9 @@ export function AppStudioAiProposalPanel({
             </button>
           </div>
           <IconFunctionInterpretationPanel interpretation={icon.functionInterpretation} />
+          <ImageApiSummaryPanel icon={icon} candidates={iconCandidates} />
           <div className="studio-icon-candidate-grid">
-            {iconCandidates.map((candidate) => (
+            {apiCandidates.map((candidate) => (
               <IconCandidateCard
                 key={candidate.candidateId}
                 candidate={candidate}
@@ -209,8 +217,27 @@ export function AppStudioAiProposalPanel({
               />
             ))}
           </div>
+          {!apiCandidates.length && fallbackCandidates.length ? (
+            <div className="studio-icon-fallback-warning">
+              <strong>AI生成失敗のためfallback表示中</strong>
+              <p>OpenAI画像APIのPNG候補は保存されていません。下のfallbackは暫定プレースホルダーです。</p>
+            </div>
+          ) : null}
+          {fallbackCandidates.length ? (
+            <div className="studio-icon-fallback-candidates">
+              {fallbackCandidates.map((candidate) => (
+                <IconCandidateCard
+                  key={candidate.candidateId}
+                  candidate={candidate}
+                  adopted={selectedIconSource === "candidate_png" && selectedIconCandidateId === candidate.candidateId}
+                  onAdopt={() => adoptPng("candidate_png", candidate.pngDataUrl, candidate)}
+                  fallbackAction
+                />
+              ))}
+            </div>
+          ) : null}
           <div className="studio-icon-preview-row">
-            {icon.candidatePngDataUrl ? <img className="studio-icon-preview primary-icon-preview" src={icon.candidatePngDataUrl} alt="AI PNGアイコン候補" /> : null}
+            {icon.candidatePngDataUrl ? <img className="studio-icon-preview primary-icon-preview" src={icon.candidatePngDataUrl} alt={primaryPreviewLabel} /> : null}
             {icon.finalPngDataUrl ? <img className="studio-icon-preview" src={icon.finalPngDataUrl} alt="フォールバックPNGアイコン" /> : null}
           </div>
           <div className="studio-action-row">
@@ -298,7 +325,28 @@ function IconFunctionInterpretationPanel({ interpretation }: { interpretation?: 
   );
 }
 
-function IconCandidateCard({ candidate, adopted, onAdopt }: { candidate: AppStudioAiIconCandidate; adopted: boolean; onAdopt: () => void }) {
+function ImageApiSummaryPanel({ icon, candidates }: { icon: AppStudioAiProposal["icon"]; candidates: AppStudioAiIconCandidate[] }) {
+  const summary = icon.imageApiSummary;
+  const apiCount = numberValue(summary?.apiCandidateCount ?? summary?.api_candidate_count) ?? candidates.filter((candidate) => !candidate.fallback && isApiOrLegacyCandidate(candidate)).length;
+  const fallbackCount = numberValue(summary?.fallbackCandidateCount ?? summary?.fallback_candidate_count) ?? candidates.filter((candidate) => candidate.fallback).length;
+  const failureReasons = candidates.map((candidate) => candidate.fallbackReason || "").filter(Boolean);
+  const latestFailure = stringValue(summary?.latestImageApiFailure ?? summary?.latest_image_api_failure) || failureReasons[failureReasons.length - 1] || "";
+  const model = stringValue(summary?.model) || candidates.find((candidate) => candidate.model && candidate.model !== "local-deterministic-fallback")?.model || "unknown";
+  const stylePreset = stringValue(summary?.stylePreset ?? summary?.style_preset);
+  const scoreBasis = stringValue(summary?.scoreBasis ?? summary?.score_basis) || "prompt_concept_only";
+  return (
+    <div className={`studio-image-api-summary${apiCount > 0 ? " ok" : " warn"}`}>
+      <div><span>API候補</span><strong>{apiCount}</strong></div>
+      <div><span>fallback</span><strong>{fallbackCount}</strong></div>
+      <div><span>model</span><strong>{model}</strong></div>
+      {stylePreset ? <div><span>style</span><strong>{stylePreset}</strong></div> : null}
+      {latestFailure ? <div className="wide"><span>直近の失敗理由</span><strong>{latestFailure}</strong></div> : null}
+      <div className="wide"><span>採点</span><strong>{scoreBasis === "prompt_concept_only" ? "画像未確認のprompt/concept採点" : scoreBasis}</strong></div>
+    </div>
+  );
+}
+
+function IconCandidateCard({ candidate, adopted, onAdopt, fallbackAction = false }: { candidate: AppStudioAiIconCandidate; adopted: boolean; onAdopt: () => void; fallbackAction?: boolean }) {
   const scoreTotal = typeof candidate.scoreTotal === "number" ? Math.round(candidate.scoreTotal) : null;
   const conceptSummary = candidateConceptSummary(candidate);
   return (
@@ -316,11 +364,16 @@ function IconCandidateCard({ candidate, adopted, onAdopt }: { candidate: AppStud
         <span>model: {candidate.model || "unknown"}</span>
         <span>resolution: {candidate.resolution || "unknown"}</span>
         <span>status: {statusValue(candidate.status || "unknown")}</span>
+        {candidate.api ? <span>api: {candidate.api}</span> : null}
+        {candidate.contentType ? <span>content: {candidate.contentType}</span> : null}
+        {candidate.fallbackReason ? <span>reason: {candidate.fallbackReason}</span> : null}
         {candidate.conceptId ? <span>concept: {candidate.conceptId}</span> : null}
         {scoreTotal !== null ? <span>score: {scoreTotal}</span> : null}
+        {candidate.imageEvaluationStatus ? <span>image eval: {candidate.imageEvaluationStatus}</span> : null}
         {adopted ? <span>採用中</span> : null}
       </div>
       {conceptSummary ? <p className="admin-muted">{conceptSummary}</p> : null}
+      {fallbackAction ? <p className="admin-muted">fallbackを明示採用する操作です。</p> : null}
       <button className="secondary-button" type="button" onClick={onAdopt} disabled={!candidate.pngDataUrl}>
         <CheckCircle2 size={17} aria-hidden="true" />
         このPNGを採用
@@ -342,6 +395,14 @@ function candidateConceptSummary(candidate: AppStudioAiIconCandidate): string {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function isApiOrLegacyCandidate(candidate: AppStudioAiIconCandidate): boolean {
+  return Boolean(candidate.source?.startsWith("api") || candidate.source === "legacy");
 }
 
 function normalizedIconCandidates(icon: AppStudioAiProposal["icon"]): AppStudioAiIconCandidate[] {
@@ -369,6 +430,12 @@ function normalizedIconCandidates(icon: AppStudioAiProposal["icon"]): AppStudioA
 function sourceLabel(source?: string | null): string {
   if (!source) {
     return "unknown";
+  }
+  if (source === "api_generate") {
+    return "API";
+  }
+  if (source === "api_edit") {
+    return "API edit";
   }
   if (source.includes("fallback")) {
     return "fallback";

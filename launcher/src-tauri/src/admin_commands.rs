@@ -1,5 +1,5 @@
 use crate::admin_session::{AdminSessionState, AdminSessionStatus};
-use crate::ai_settings::{AiConnectionTestResult, AiSettings, ApiKeyStatus};
+use crate::ai_settings::{AiConnectionTestResult, AiImageGenerationTestResult, AiSettings, ApiKeyStatus};
 use tauri::State;
 
 #[tauri::command]
@@ -111,4 +111,14 @@ pub fn ai_test_connection(
 ) -> Result<AiConnectionTestResult, String> {
     session.require_authenticated()?;
     crate::ai_settings::test_connection_at(&crate::setup::user_data_root())
+}
+
+#[tauri::command]
+pub async fn ai_test_image_generation(
+    session: State<'_, AdminSessionState>,
+) -> Result<AiImageGenerationTestResult, String> {
+    session.require_authenticated()?;
+    tauri::async_runtime::spawn_blocking(crate::app_studio_commands::run_image_generation_test)
+        .await
+        .map_err(|_| "画像生成テストを完了できませんでした。".to_string())?
 }

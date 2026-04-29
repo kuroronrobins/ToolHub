@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AdminSessionStatus, AiConnectionTestResult, AiSettings, ApiKeyStatus } from "./adminTypes";
+import type { AdminSessionStatus, AiConnectionTestResult, AiImageGenerationTestResult, AiSettings, ApiKeyStatus } from "./adminTypes";
 
 export async function adminIsPasswordSet(): Promise<boolean> {
   return invoke<boolean>("admin_is_password_set");
@@ -43,4 +43,8 @@ export async function aiDeleteApiKey(): Promise<void> {
 
 export async function aiTestConnection(): Promise<AiConnectionTestResult> {
   return invoke<AiConnectionTestResult>("ai_test_connection");
+}
+
+export async function aiTestImageGeneration(): Promise<AiImageGenerationTestResult> {
+  return invoke<AiImageGenerationTestResult>("ai_test_image_generation");
 }

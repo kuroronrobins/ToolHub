@@ -26,3 +26,17 @@ export interface AiConnectionTestResult {
   textModelSet: boolean;
   imageModelSet: boolean;
 }
+
+export interface AiImageGenerationTestResult {
+  ok: boolean;
+  message: string;
+  keySource?: string | null;
+  model: string;
+  api: string;
+  status: string;
+  contentType: string;
+  resolution?: string | null;
+  fallbackReason?: string | null;
+  error?: string | null;
+  errorCategory?: string | null;
+}

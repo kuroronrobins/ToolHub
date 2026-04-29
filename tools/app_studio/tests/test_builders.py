@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "runner"))
 
 from app_studio.ai_metadata_suggester import build_icon_design_brief, metadata_prompt, normalize_icon_actions, normalize_icon_objects, select_icon_composition_template, suggest_icon_prompt, suggest_metadata
 from app_studio.build_profile import analyze_exe_readiness, default_build_profile
-from app_studio.icon_generator import fallback_icon_concepts, generate_icon_assets_with_candidates, generate_local_png, image_api_prompt
+from app_studio.icon_generator import fallback_icon_concepts, generate_icon_assets_with_candidates, generate_local_png, icon_style_settings, image_api_prompt, image_api_summary
 from app_studio.app_env_builder import create_app_env, create_build_env
 from app_studio.approval import approve_app, validate_approval_inputs, verify_release_gate
 from app_studio.build_planner import make_build_plan
@@ -29,7 +29,7 @@ from app_studio.frozen_folder_builder import probe_pyinstaller
 from app_studio.lock_generator import generate_lock
 from app_studio.models import BuildPlan, DependencyReport, FileRecord, GeneratedArtifacts, IconCandidateAsset, ImportOptions, RuntimeCheck, RuntimeCheckResult, SecretFinding, SecretScanReport, SourceInventory
 from app_studio.models import AppEnvBuildResult, LockGenerationResult
-from app_studio.openai_client import generate_image
+from app_studio.openai_client import OpenAIResult, edit_image, generate_image
 from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.timing import TimingRecorder
@@ -931,12 +931,43 @@ class OpenAIFallbackTests(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertIn("fallback_reason: Image API failed", result.report)
 
+    def test_images_edit_passes_previous_png_to_api(self) -> None:
+        calls = []
+
+        class Images:
+            def edit(self, **kwargs):
+                calls.append(kwargs)
+                return types.SimpleNamespace(data=[types.SimpleNamespace(b64_json="iVBORw0KGgo=")])
+
+        with workspace_tempdir() as root:
+            image_path = root / "previous.png"
+            image_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+            client = types.SimpleNamespace(images=Images())
+            with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": "sk-test1234abcd"}, clear=True):
+                with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
+                    result = edit_image("make it more vivid", str(image_path))
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.api, "images.edit")
+        self.assertIn("image", calls[0])
+        self.assertEqual(calls[0]["model"], "gpt-image-2")
+        self.assertNotIn("response_format", calls[0])
+
     def test_empty_image_model_uses_image_fallback(self) -> None:
         with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "", "OPENAI_API_KEY": "sk-test1234abcd"}, clear=True):
             result = generate_image("prompt")
 
         self.assertFalse(result.ok)
+        self.assertEqual(result.error_category, "model_not_configured")
         self.assertIn("model is not configured", result.report)
+
+    def test_missing_api_key_reports_specific_image_error_category(self) -> None:
+        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2"}, clear=True):
+            result = generate_image("prompt")
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error_category, "missing_api_key")
+        self.assertIn("OPENAI_API_KEY is not set", result.report)
 
     def test_image_api_prompt_keeps_japanese_and_adds_rendering_guidance(self) -> None:
         prompt = image_api_prompt("日本語のアイコン指示")
@@ -947,6 +978,23 @@ class OpenAIFallbackTests(unittest.TestCase):
         self.assertIn("generic abstract shapes only", prompt)
         self.assertIn("2 to 4 meaningful objects", prompt)
         self.assertIn("Do not repeat", prompt)
+
+    def test_image_api_prompt_uses_style_preset_without_generic_override(self) -> None:
+        pencil = image_api_prompt(
+            "PDFを統合する色鉛筆風アイコン",
+            style_settings=icon_style_settings("colored_pencil", "", "PDFを統合する色鉛筆風アイコン"),
+        )
+        custom = image_api_prompt(
+            "invoice checker",
+            style_settings=icon_style_settings("custom", "risograph print, red and cyan ink", "invoice checker"),
+        )
+
+        self.assertIn("preset: colored_pencil", pencil)
+        self.assertIn("colored-pencil grain", pencil)
+        self.assertIn("no glossy 3D plastic", pencil)
+        self.assertIn("Do not override the selected style preset", pencil)
+        self.assertIn("risograph print, red and cyan ink", custom)
+        self.assertIn("do not override the user's custom style", custom)
 
     def test_action_and_object_normalization(self) -> None:
         text = "Combine PDF documents, upload results, then export an Excel table."
@@ -962,6 +1010,11 @@ class OpenAIFallbackTests(unittest.TestCase):
 
         self.assertIn("converging", template)
         self.assertIn("PDF", template)
+
+    def test_function_templates_cover_transfer_transcribe_and_compare(self) -> None:
+        self.assertIn("cloud/server", select_icon_composition_template("upload", ["pdf/document"], ["database/server/cloud"]))
+        self.assertIn("microphone", select_icon_composition_template("transcribe", ["audio/mic/waveform"], ["pdf/document"]))
+        self.assertIn("difference", select_icon_composition_template("compare", ["csv/excel/table"], ["csv/excel/table"]))
 
     def test_design_brief_is_function_first(self) -> None:
         with workspace_tempdir() as root:
@@ -1052,18 +1105,117 @@ class OpenAIFallbackTests(unittest.TestCase):
         with workspace_tempdir() as root:
             context = make_context(root)
             with patch("app_studio.icon_generator.generate_image") as mocked_generate:
-                _, _, _, fallback_png, _, report, _, _, candidates = generate_icon_assets_with_candidates(
-                    context,
-                    allow_ai=False,
-                    ai_skip_reason="secret scan blocked AI submission, AI skipped",
-                    metadata={"keywords": ["csv"]},
-                )
+                with patch("app_studio.icon_generator.edit_image") as mocked_edit:
+                    _, _, _, fallback_png, _, report, _, _, candidates = generate_icon_assets_with_candidates(
+                        context,
+                        allow_ai=False,
+                        ai_skip_reason="secret scan blocked AI submission, AI skipped",
+                        metadata={"keywords": ["csv"]},
+                        revision_image_path=str(context.entry),
+                    )
 
             mocked_generate.assert_not_called()
+            mocked_edit.assert_not_called()
             self.assertEqual(png_dimensions(fallback_png), (512, 512))
             self.assertTrue(candidates)
             self.assertTrue(all(candidate.is_fallback for candidate in candidates))
             self.assertIn("secret scan blocked AI submission", report)
+
+    def test_api_image_candidates_are_marked_separately_from_fallback(self) -> None:
+        fake_result = OpenAIResult(
+            ok=True,
+            used_api=True,
+            content="iVBORw0KGgo=",
+            report="api: images.generate\nstatus: success\nmodel: gpt-image-2",
+            status="success",
+            model="gpt-image-2",
+            api="images.generate",
+            content_type="b64_png",
+            resolution="1024x1024",
+        )
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            with patch("app_studio.icon_generator.generate_image", return_value=fake_result):
+                _, _, _, _, _, report, _, _, candidates = generate_icon_assets_with_candidates(
+                    context,
+                    allow_ai=True,
+                    metadata={"short_description": "Combine PDF documents into one PDF.", "inputs": ["PDF"], "outputs": ["PDF"]},
+                    icon_style_preset="vivid",
+                )
+
+        self.assertTrue(candidates)
+        self.assertTrue(all(not candidate.is_fallback for candidate in candidates))
+        self.assertEqual(candidates[0].source, "api_generate")
+        summary = image_api_summary(candidates, {"preset": "vivid"})
+        self.assertEqual(summary["api_candidate_count"], len(candidates))
+        self.assertEqual(summary["fallback_candidate_count"], 0)
+        self.assertTrue(summary["image_api_success"])
+        self.assertIn(f"api_candidate_count: {len(candidates)}", report)
+
+    def test_api_failure_candidates_record_reason_without_success_summary(self) -> None:
+        fake_result = OpenAIResult(
+            ok=False,
+            used_api=True,
+            content="",
+            report="api: images.generate\nstatus: failed\nfallback_reason: unsupported model",
+            error="unsupported model",
+            status="failed",
+            model="bad-image-model",
+            api="images.generate",
+            content_type="none",
+            fallback_reason="unsupported model",
+            resolution="1024x1024",
+            error_category="unsupported_model",
+        )
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            with patch("app_studio.icon_generator.generate_image", return_value=fake_result):
+                _, _, _, _, _, report, _, _, candidates = generate_icon_assets_with_candidates(
+                    context,
+                    allow_ai=True,
+                    metadata={"short_description": "Combine PDF documents into one PDF.", "inputs": ["PDF"], "outputs": ["PDF"]},
+                )
+
+        self.assertTrue(candidates)
+        self.assertTrue(all(candidate.is_fallback for candidate in candidates))
+        self.assertEqual(candidates[0].source, "fallback_after_api_failure")
+        self.assertEqual(candidates[0].fallback_reason, "unsupported model")
+        self.assertEqual(candidates[0].error_category, "unsupported_model")
+        summary = image_api_summary(candidates)
+        self.assertEqual(summary["api_candidate_count"], 0)
+        self.assertFalse(summary["image_api_success"])
+        self.assertEqual(summary["latest_image_api_failure"], "unsupported model")
+        self.assertIn("api_candidate_count: 0", report)
+
+    def test_revision_image_uses_edit_api_before_text_only_fallback(self) -> None:
+        fake_result = OpenAIResult(
+            ok=True,
+            used_api=True,
+            content="iVBORw0KGgo=",
+            report="api: images.edit\nstatus: success\nmodel: gpt-image-2",
+            status="success",
+            model="gpt-image-2",
+            api="images.edit",
+            content_type="b64_png",
+            resolution="1024x1024",
+        )
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            revision_image = root / "previous.png"
+            revision_image.write_bytes(b"\x89PNG\r\n\x1a\n")
+            with patch("app_studio.icon_generator.edit_image", return_value=fake_result) as mocked_edit:
+                with patch("app_studio.icon_generator.generate_image") as mocked_generate:
+                    _, _, _, _, _, _, _, _, candidates = generate_icon_assets_with_candidates(
+                        context,
+                        revision_prompt="make it brighter",
+                        allow_ai=True,
+                        metadata={"short_description": "Compare two CSV tables.", "inputs": ["CSV"], "outputs": ["diff report"]},
+                        revision_image_path=str(revision_image),
+                    )
+
+        mocked_edit.assert_called()
+        mocked_generate.assert_not_called()
+        self.assertEqual(candidates[0].source, "api_edit")
 
     def test_revision_prompt_keeps_previous_prompt_and_instruction(self) -> None:
         with workspace_tempdir() as root:
@@ -1133,7 +1285,7 @@ class IconCandidateExportTests(unittest.TestCase):
                 IconCandidateAsset(
                     candidate_id="icon_candidate_1",
                     number=1,
-                    source="api",
+                    source="api_generate",
                     prompt="p1",
                     model="gpt-image-2",
                     status="success",
@@ -1141,6 +1293,8 @@ class IconCandidateExportTests(unittest.TestCase):
                     is_fallback=False,
                     png=b"\x89PNG\r\n\x1a\napi",
                     file_name="icon_candidate_1.png",
+                    api="images.generate",
+                    content_type="b64_png",
                     concept_id="literal_1",
                     concept={"direction": "literal", "composition": "PDF merge"},
                     scores={"semantic_clarity": 9.0, "specificity": 8.0, "small_size_legibility": 8.0},
@@ -1157,6 +1311,8 @@ class IconCandidateExportTests(unittest.TestCase):
                     is_fallback=True,
                     png=b"\x89PNG\r\n\x1a\nfallback",
                     file_name="icon_candidate_2.png",
+                    fallback_reason="test fallback",
+                    error_category="api_error",
                 ),
             ]
 
@@ -1171,6 +1327,11 @@ class IconCandidateExportTests(unittest.TestCase):
             self.assertEqual(manifest["candidates"][0]["concept_id"], "literal_1")
             self.assertEqual(manifest["candidates"][0]["scores"]["semantic_clarity"], 9.0)
             self.assertEqual(manifest["candidates"][0]["score_total"], 25.0)
+            self.assertEqual(manifest["candidates"][0]["score_basis"], "prompt_concept_only")
+            self.assertEqual(manifest["candidates"][0]["image_evaluation_status"], "not_run")
+            self.assertEqual(manifest["candidates"][1]["fallback_reason"], "test fallback")
+            self.assertEqual(manifest["image_api_summary"]["api_candidate_count"], 1)
+            self.assertEqual(manifest["image_api_summary"]["fallback_candidate_count"], 1)
 
 
 class RuntimeCheckerTests(unittest.TestCase):

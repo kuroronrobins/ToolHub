@@ -18,6 +18,9 @@ class ImportOptions:
     name: str | None = None
     build_mode: str = "auto"
     icon_prompt: str | None = None
+    icon_style_preset: str | None = None
+    icon_style_custom: str | None = None
+    icon_revision_image_path: Path | None = None
     version: str = "0.1.0"
     create_app_env: bool = False
     rebuild_app_env: bool = False
@@ -309,10 +312,17 @@ class IconCandidateAsset:
     url_file_name: str = ""
     notes: str = ""
     revision_of: str = ""
+    api: str = ""
+    content_type: str = ""
+    fallback_reason: str = ""
+    error_category: str = ""
     concept_id: str = ""
     concept: dict[str, Any] = field(default_factory=dict)
     scores: dict[str, float] = field(default_factory=dict)
     score_total: float = 0.0
+    score_basis: str = "prompt_concept_only"
+    image_evaluation_status: str = "not_run"
+    image_evaluation_note: str = "Image pixels were not inspected by this rule-based score."
 
     def manifest_entry(self) -> dict[str, Any]:
         return {
@@ -329,10 +339,17 @@ class IconCandidateAsset:
             "url": self.url,
             "notes": self.notes,
             "revision_of": self.revision_of,
+            "api": self.api,
+            "content_type": self.content_type,
+            "fallback_reason": self.fallback_reason,
+            "error_category": self.error_category,
             "concept_id": self.concept_id,
             "concept": self.concept,
             "scores": self.scores,
             "score_total": self.score_total,
+            "score_basis": self.score_basis,
+            "image_evaluation_status": self.image_evaluation_status,
+            "image_evaluation_note": self.image_evaluation_note,
         }
 
 
