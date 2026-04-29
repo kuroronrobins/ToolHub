@@ -45,6 +45,7 @@ fn main() {
             app_studio_commands::app_studio_update_approve,
             app_studio_commands::app_studio_read_result,
             app_studio_commands::app_studio_read_ai_proposal,
+            app_studio_commands::app_studio_regenerate_icon,
             app_studio_commands::app_studio_ai_diagnostics,
             app_studio_commands::app_studio_open_output_dir,
             app_studio_commands::app_studio_preflight,

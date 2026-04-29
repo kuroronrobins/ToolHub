@@ -307,6 +307,20 @@ export interface AppStudioImageApiSummary {
   image_evaluation_status?: string;
   imageEvaluationNote?: string;
   image_evaluation_note?: string;
+  revisionMode?: string;
+  revision_mode?: string;
+  imageQualityMode?: string;
+  image_quality_mode?: string;
+  userRevisionInstruction?: string;
+  user_revision_instruction?: string;
+  finalImageApiPrompt?: string;
+  final_image_api_prompt?: string;
+  imageApiSeconds?: number;
+  image_api_seconds?: number;
+  proposalReloadSeconds?: number;
+  proposal_reload_seconds?: number;
+  regenerationTiming?: Record<string, number>;
+  regeneration_timing?: Record<string, number>;
 }
 
 export interface AppStudioIconFunctionInterpretation {
@@ -366,6 +380,18 @@ export interface AppStudioAiProposal {
   metadata: AppStudioAiMetadataSuggestion;
   icon: AppStudioAiIconSuggestion;
   warnings: string[];
+}
+
+export interface AppStudioIconRegenerateRequest {
+  appId: string;
+  outputDir: string;
+  baseCandidateId?: string | null;
+  userRevisionInstruction: string;
+  revisionMode: "tweak" | "refine" | "redesign" | "fresh" | string;
+  iconStylePreset?: AppStudioIconStylePreset | string | null;
+  iconStyleCustom?: string | null;
+  candidateCount?: number | null;
+  imageQualityMode?: "draft" | "standard" | "high" | string | null;
 }
 
 export interface AppStudioAiDiagnostics {

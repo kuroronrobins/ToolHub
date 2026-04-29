@@ -360,6 +360,10 @@ function ImageApiSummaryPanel({ icon, candidates }: { icon: AppStudioAiProposal[
   const failureCategory = failureCategories[failureCategories.length - 1] || "";
   const model = stringValue(summary?.model) || candidates.find((candidate) => candidate.model && candidate.model !== "local-deterministic-fallback")?.model || "unknown";
   const stylePreset = stringValue(summary?.stylePreset ?? summary?.style_preset);
+  const revisionMode = stringValue(summary?.revisionMode ?? summary?.revision_mode);
+  const imageQualityMode = stringValue(summary?.imageQualityMode ?? summary?.image_quality_mode);
+  const imageApiSeconds = numberValue(summary?.imageApiSeconds ?? summary?.image_api_seconds);
+  const proposalReloadSeconds = numberValue(summary?.proposalReloadSeconds ?? summary?.proposal_reload_seconds);
   const scoreBasis = stringValue(summary?.scoreBasis ?? summary?.score_basis) || "prompt_concept_only";
   const organizationBlocked = isOrganizationVerificationRequired({ model, errorCategory: failureCategory, fallbackReason: latestFailure, message: latestFailure });
   return (
@@ -368,6 +372,10 @@ function ImageApiSummaryPanel({ icon, candidates }: { icon: AppStudioAiProposal[
       <div><span>fallback</span><strong>{fallbackCount}</strong></div>
       <div><span>model</span><strong>{model}</strong></div>
       {stylePreset ? <div><span>style</span><strong>{stylePreset}</strong></div> : null}
+      {revisionMode ? <div><span>revision</span><strong>{revisionMode}</strong></div> : null}
+      {imageQualityMode ? <div><span>quality</span><strong>{imageQualityMode}</strong></div> : null}
+      {imageApiSeconds !== null ? <div><span>API秒数</span><strong>{imageApiSeconds.toFixed(1)}秒</strong></div> : null}
+      {proposalReloadSeconds !== null ? <div><span>再読込</span><strong>{proposalReloadSeconds.toFixed(2)}秒</strong></div> : null}
       {failureCategory ? <div><span>error_category</span><strong>{failureCategory}</strong></div> : null}
       {latestFailure ? <div className="wide"><span>直近の失敗理由</span><strong>{latestFailure}</strong></div> : null}
       {organizationBlocked ? <div className="wide"><span>案内</span><strong>{model} は現在のOpenAI組織では利用できません。組織認証を完了するか、別のImage modelを設定してください。</strong></div> : null}
@@ -404,6 +412,12 @@ function IconCandidateCard({ candidate, adopted, onAdopt, fallbackAction = false
         {adopted ? <span>採用中</span> : null}
       </div>
       {conceptSummary ? <p className="admin-muted">{conceptSummary}</p> : null}
+      {candidate.prompt ? (
+        <details className="studio-icon-candidate-prompt">
+          <summary>最終画像API Prompt</summary>
+          <pre>{candidate.prompt}</pre>
+        </details>
+      ) : null}
       {fallbackAction ? (
         <p className="admin-muted">
           AI画像ではありません。画像API失敗のためローカルfallbackを表示中です。スタイル指定は反映されていません。

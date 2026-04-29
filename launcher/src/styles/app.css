@@ -1414,6 +1414,30 @@ button {
   overflow-wrap: anywhere;
 }
 
+.studio-icon-candidate-prompt {
+  display: grid;
+  gap: 6px;
+  color: #475467;
+  font-size: 0.78rem;
+}
+
+.studio-icon-candidate-prompt summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.studio-icon-candidate-prompt pre {
+  max-height: 150px;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid #dfe5ee;
+  border-radius: 6px;
+  background: #ffffff;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .studio-icon-preview {
   display: grid;
   place-items: center;

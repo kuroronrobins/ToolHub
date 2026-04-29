@@ -53,6 +53,20 @@ pub struct AppStudioUpdateRequest {
     pub verify_runtime: bool,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioIconRegenerateRequest {
+    pub app_id: String,
+    pub output_dir: String,
+    pub base_candidate_id: Option<String>,
+    pub user_revision_instruction: String,
+    pub revision_mode: String,
+    pub icon_style_preset: Option<String>,
+    pub icon_style_custom: Option<String>,
+    pub candidate_count: Option<usize>,
+    pub image_quality_mode: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppStudioEditableMetadata {
@@ -483,6 +497,17 @@ pub fn app_studio_read_ai_proposal(
 }
 
 #[tauri::command]
+pub async fn app_studio_regenerate_icon(
+    request: AppStudioIconRegenerateRequest,
+    session: State<'_, AdminSessionState>,
+) -> Result<AppStudioAiProposal, String> {
+    session.require_authenticated()?;
+    tauri::async_runtime::spawn_blocking(move || run_icon_regenerate_action(request))
+        .await
+        .map_err(|_| "App Studio icon regeneration could not complete.".to_string())?
+}
+
+#[tauri::command]
 pub fn app_studio_ai_diagnostics(
     session: State<AdminSessionState>,
 ) -> Result<AppStudioAiDiagnostics, String> {
@@ -705,6 +730,147 @@ fn run_update_action(
             Err(error)
         }
     }
+}
+
+fn run_icon_regenerate_action(
+    request: AppStudioIconRegenerateRequest,
+) -> Result<AppStudioAiProposal, String> {
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    let app_id = request.app_id.trim().to_string();
+    validate_app_id(&app_id)?;
+    let output_path = PathBuf::from(request.output_dir.trim());
+    if !output_path.is_dir() {
+        return Err("App Studioの出力フォルダが見つかりません。先にSuggestを実行してください。".to_string());
+    }
+    let instruction = request.user_revision_instruction.trim().to_string();
+    if instruction.is_empty() {
+        return Err("アイコンの修正指示を入力してください。".to_string());
+    }
+    let candidate_count = request.candidate_count.unwrap_or(1).clamp(1, 6);
+    let revision_mode = match request.revision_mode.trim() {
+        "tweak" | "refine" | "redesign" | "fresh" => request.revision_mode.trim().to_string(),
+        _ => "refine".to_string(),
+    };
+    let image_quality_mode = match request.image_quality_mode.as_deref().unwrap_or("standard").trim() {
+        "draft" | "standard" | "high" => request
+            .image_quality_mode
+            .as_deref()
+            .unwrap_or("standard")
+            .trim()
+            .to_string(),
+        _ => "standard".to_string(),
+    };
+    let python_candidate = find_python_candidate(&root).ok_or_else(python_missing_message)?;
+    let python = python_candidate.path.clone();
+    let script = root.join("tools").join("app_studio").join("main.py");
+    if !script.is_file() {
+        return Err("tools/app_studio/main.py が見つかりません。".to_string());
+    }
+    let ai_env = build_ai_env_plan();
+    let mut cli_args: Vec<String> = vec![
+        script.display().to_string(),
+        "icon-regenerate".to_string(),
+        "--app-id".to_string(),
+        app_id.clone(),
+        "--output-dir".to_string(),
+        output_path.display().to_string(),
+        "--user-revision-instruction".to_string(),
+        instruction,
+        "--revision-mode".to_string(),
+        revision_mode.clone(),
+        "--candidate-count".to_string(),
+        candidate_count.to_string(),
+        "--image-quality-mode".to_string(),
+        image_quality_mode.clone(),
+    ];
+    if let Some(base_candidate_id) = clean_optional(&request.base_candidate_id) {
+        cli_args.push("--base-candidate-id".to_string());
+        cli_args.push(base_candidate_id.to_string());
+    }
+    if let Some(style_preset) = clean_optional(&request.icon_style_preset) {
+        cli_args.push("--icon-style-preset".to_string());
+        cli_args.push(style_preset.to_string());
+    }
+    if let Some(style_custom) = clean_optional(&request.icon_style_custom) {
+        cli_args.push("--icon-style-custom".to_string());
+        cli_args.push(style_custom.to_string());
+    }
+    let cli_argv = command_line_for_log(
+        &python,
+        &redact_cli_arg_value(&cli_args, "--user-revision-instruction"),
+    );
+    append_app_studio_gui_log(
+        "icon-regenerate started",
+        &[
+            ("app_id", app_id.clone()),
+            ("output_dir", output_path.display().to_string()),
+            ("base_candidate_id", request.base_candidate_id.unwrap_or_default()),
+            ("revision_mode", revision_mode.clone()),
+            ("candidate_count", candidate_count.to_string()),
+            ("image_quality_mode", image_quality_mode.clone()),
+            ("cli_path", script.display().to_string()),
+            ("argv", cli_argv.clone()),
+            ("python_source", python_candidate.source.clone()),
+            ("ai_enabled", ai_env.diagnostics.ai_enabled.to_string()),
+            ("api_key_source", ai_env.diagnostics.api_key_source.clone()),
+            ("image_model", ai_env.diagnostics.image_model.clone()),
+        ],
+    );
+
+    let mut command = Command::new(&python);
+    for arg in &cli_args {
+        command.arg(arg);
+    }
+    apply_ai_environment(&mut command, &ai_env);
+    let output = command
+        .current_dir(&root)
+        .output()
+        .map_err(|_| "App Studioのアイコン再生成を起動できませんでした。".to_string())?;
+    let stdout = mask_sensitive(&String::from_utf8_lossy(&output.stdout));
+    let stderr = mask_sensitive(&String::from_utf8_lossy(&output.stderr));
+    let exit_code = output.status.code().unwrap_or(-1);
+    append_app_studio_gui_log(
+        "icon-regenerate finished",
+        &[
+            ("exit_code", exit_code.to_string()),
+            ("app_id", app_id),
+            ("output_dir", output_path.display().to_string()),
+            ("revision_mode", revision_mode),
+            ("candidate_count", candidate_count.to_string()),
+            ("image_quality_mode", image_quality_mode),
+            ("argv", cli_argv),
+            ("python_source", python_candidate.source),
+            (
+                "user_message",
+                if output.status.success() {
+                    "ok".to_string()
+                } else {
+                    "App Studioのアイコン再生成に失敗しました。".to_string()
+                },
+            ),
+        ],
+    );
+    if !output.status.success() {
+        let detail = if !stderr.trim().is_empty() {
+            stderr
+        } else if !stdout.trim().is_empty() {
+            stdout
+        } else {
+            format!("exit_code={exit_code}")
+        };
+        return Err(format!("アイコン再生成に失敗しました: {detail}"));
+    }
+    let reload_started = Instant::now();
+    let mut proposal = read_ai_proposal(Some(&output_path));
+    let proposal_reload_seconds = reload_started.elapsed().as_secs_f64();
+    record_icon_proposal_reload_timing(&output_path, proposal_reload_seconds);
+    if let Some(Value::Object(summary)) = proposal.icon.image_api_summary.as_mut() {
+        summary.insert(
+            "proposal_reload_seconds".to_string(),
+            Value::from(proposal_reload_seconds),
+        );
+    }
+    Ok(proposal)
 }
 
 fn run_import_action(
@@ -2297,6 +2463,48 @@ fn read_json(path: &Path) -> Option<Value> {
     serde_json::from_str(&text).ok()
 }
 
+fn record_icon_proposal_reload_timing(output_dir: &Path, proposal_reload_seconds: f64) {
+    let manifest_path = output_dir.join("icon_work").join("candidate_manifest.json");
+    let Some(mut manifest) = read_json(&manifest_path) else {
+        return;
+    };
+    if let Some(summary) = manifest
+        .get_mut("image_api_summary")
+        .and_then(Value::as_object_mut)
+    {
+        summary.insert(
+            "proposal_reload_seconds".to_string(),
+            Value::from(proposal_reload_seconds),
+        );
+        if let Some(timing) = summary
+            .get_mut("regeneration_timing")
+            .and_then(Value::as_object_mut)
+        {
+            timing.insert(
+                "proposal_reload".to_string(),
+                Value::from(proposal_reload_seconds),
+            );
+        }
+    }
+    if let Some(last_regeneration) = manifest
+        .get_mut("last_regeneration")
+        .and_then(Value::as_object_mut)
+    {
+        if let Some(timing) = last_regeneration
+            .get_mut("timings")
+            .and_then(Value::as_object_mut)
+        {
+            timing.insert(
+                "proposal_reload".to_string(),
+                Value::from(proposal_reload_seconds),
+            );
+        }
+    }
+    if let Ok(text) = serde_json::to_string_pretty(&manifest) {
+        let _ = std::fs::write(manifest_path, text);
+    }
+}
+
 fn extract_output_dir(stdout: &str) -> Option<PathBuf> {
     for line in stdout.lines() {
         let trimmed = line.trim();
@@ -2803,6 +3011,23 @@ fn command_line_for_log(program: &Path, args: &[String]) -> String {
     let mut parts = vec![quote_log_arg(&program.display().to_string())];
     parts.extend(args.iter().map(|arg| quote_log_arg(arg)));
     parts.join(" ")
+}
+
+fn redact_cli_arg_value(args: &[String], key: &str) -> Vec<String> {
+    let mut output = Vec::with_capacity(args.len());
+    let mut redact_next = false;
+    for arg in args {
+        if redact_next {
+            output.push("<redacted>".to_string());
+            redact_next = false;
+            continue;
+        }
+        output.push(arg.clone());
+        if arg == key {
+            redact_next = true;
+        }
+    }
+    output
 }
 
 fn quote_log_arg(value: &str) -> String {

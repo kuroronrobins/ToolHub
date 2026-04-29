@@ -8,6 +8,7 @@ import {
   appStudioPreflight,
   appStudioReadAiProposal,
   appStudioReadResult,
+  appStudioRegenerateIcon,
   appStudioSuggest,
 } from "../../../lib/appStudioApi";
 import { getAppStudioApprovalDecision } from "../../../lib/appStudioApproval";
@@ -55,6 +56,8 @@ const INITIAL_REQUEST: AppStudioImportRequest = {
 
 type StudioAction = "suggest" | "apply" | "approve";
 type IconRevisionMode = "tweak" | "refine" | "redesign" | "fresh";
+type IconRegenerationSpeedMode = "speed" | "standard" | "quality";
+type IconImageQualityMode = "draft" | "standard" | "high";
 
 const ICON_STYLE_PRESETS: Array<{ value: AppStudioIconStylePreset; label: string; description: string }> = [
   { value: "modern", label: "modern", description: "Clean digital icon" },
@@ -76,6 +79,18 @@ const ICON_REVISION_MODES: Array<{ value: IconRevisionMode; label: string; descr
   { value: "fresh", label: "fresh", description: "前案の継承を弱めた別案" },
 ];
 
+const ICON_REGENERATION_SPEED_MODES: Array<{ value: IconRegenerationSpeedMode; label: string; description: string; count: number }> = [
+  { value: "speed", label: "速度優先", description: "1候補だけ生成", count: 1 },
+  { value: "standard", label: "標準", description: "2候補を比較", count: 2 },
+  { value: "quality", label: "品質優先", description: "3候補を比較", count: 3 },
+];
+
+const ICON_IMAGE_QUALITY_MODES: Array<{ value: IconImageQualityMode; label: string; description: string }> = [
+  { value: "draft", label: "draft", description: "低めのqualityでプレビュー" },
+  { value: "standard", label: "standard", description: "通常品質" },
+  { value: "high", label: "high", description: "最終確認向け" },
+];
+
 export function AppStudioImportWizard() {
   const [request, setRequest] = useState<AppStudioImportRequest>(INITIAL_REQUEST);
   const [step, setStep] = useState<AppStudioImportStep>("selectEntry");
@@ -90,6 +105,8 @@ export function AppStudioImportWizard() {
   const [error, setError] = useState("");
   const [iconRevisionPrompt, setIconRevisionPrompt] = useState("");
   const [iconRevisionMode, setIconRevisionMode] = useState<IconRevisionMode>("refine");
+  const [iconRegenerationSpeedMode, setIconRegenerationSpeedMode] = useState<IconRegenerationSpeedMode>("speed");
+  const [iconImageQualityMode, setIconImageQualityMode] = useState<IconImageQualityMode>("standard");
   const [revisionBaseCandidateId, setRevisionBaseCandidateId] = useState("");
   const [lastRevisionBase, setLastRevisionBase] = useState<AppStudioAiIconCandidate | null>(null);
   const [imageApiHealth, setImageApiHealth] = useState<StoredImageGenerationTestResult | null>(() => loadImageGenerationTestResult());
@@ -423,25 +440,40 @@ export function AppStudioImportWizard() {
     }
     const baseCandidate = selectedRevisionBaseCandidate(aiProposal, revisionBaseCandidateId);
     setLastRevisionBase(baseCandidate);
-    const nextRequest = {
-      ...request,
-      iconPrompt: buildIconRevisionContext(baseCandidate, aiProposal, request.iconOverride, revision, iconRevisionMode),
-      iconRevisionImage: baseCandidate?.pngDataUrl ?? undefined,
-    };
-    setRequest(nextRequest);
-    const generated = await run("suggest", "aiProposal", nextRequest);
-    if (!generated) {
+    const outputDir = aiProposal?.outputDir ?? result?.outputDir;
+    const appId = result?.appId ?? aiProposal?.metadata.appId ?? request.appId;
+    if (!outputDir || !appId) {
+      setError("保存済み提案の出力先が見つかりません。先にAI提案を生成または読み込みしてください。");
       return;
     }
-    beginOperation("refresh", "再生成したアイコン候補を読み込んでいます。");
+    const speed = ICON_REGENERATION_SPEED_MODES.find((mode) => mode.value === iconRegenerationSpeedMode) ?? ICON_REGENERATION_SPEED_MODES[0];
+    beginOperation("aiProposal", "アイコン画像だけを軽量再生成しています。");
+    setError("");
+    setMessage("");
     try {
-      const loaded = await appStudioReadAiProposal(generated.appId ?? nextRequest.appId, generated.outputDir ?? undefined);
+      await appStudioRegenerateIcon({
+        appId,
+        outputDir,
+        baseCandidateId: baseCandidate?.candidateId ?? revisionBaseCandidateId,
+        userRevisionInstruction: revision,
+        revisionMode: iconRevisionMode,
+        iconStylePreset: request.iconStylePreset || "modern",
+        iconStyleCustom: request.iconStyleCustom?.trim() || undefined,
+        candidateCount: speed.count,
+        imageQualityMode: iconImageQualityMode,
+      });
+      beginOperation("refresh", "再生成したアイコン候補を読み込んでいます。");
+      const loaded = await appStudioReadAiProposal(appId, outputDir);
       handleProposalLoaded(loaded);
-      finishOperation(loaded.ok ? "success" : "warning", loaded.ok ? "アイコン候補を再生成して読み込みました。" : "再生成後の提案ファイルを読み込めませんでした。");
-    } catch (loadError) {
-      const fallback = "再生成後のアイコン候補を読み込めませんでした。";
-      setError(formatAdminError(loadError, fallback));
+      update({ iconPrompt: buildIconRevisionContext(baseCandidate, loaded, request.iconOverride, revision, iconRevisionMode) });
+      const apiSeconds = imageApiSeconds(loaded);
+      finishOperation(loaded.ok ? "success" : "warning", loaded.ok ? `アイコン候補を再生成して読み込みました。画像API: ${apiSeconds}` : "再生成後の提案ファイルを読み込めませんでした。");
+    } catch (regenerateError) {
+      const fallback = "アイコン候補を再生成できませんでした。";
+      setError(formatAdminError(regenerateError, fallback));
       finishOperation("error", fallback);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -661,6 +693,10 @@ export function AppStudioImportWizard() {
     const baseIcon = lastRevisionBase?.pngDataUrl ?? baseCandidate?.pngDataUrl ?? null;
     const latestIcon = latestCandidate?.pngDataUrl ?? aiProposal?.icon.candidatePngDataUrl ?? aiProposal?.icon.finalPngDataUrl ?? null;
     const adoptedIcon = request.iconOverride?.pngDataUrl ?? null;
+    const imageSummary = aiProposal?.icon.imageApiSummary;
+    const savedRevisionInstruction = stringSummaryValue(imageSummary?.userRevisionInstruction ?? imageSummary?.user_revision_instruction);
+    const finalImageApiPrompt = latestCandidate?.prompt || stringSummaryValue(imageSummary?.finalImageApiPrompt ?? imageSummary?.final_image_api_prompt);
+    const intermediatePrompt = aiProposal?.icon.promptRevision || request.iconPrompt || "";
     return (
       <section className="studio-icon-revision-panel">
         <div className="admin-section-head">
@@ -678,6 +714,34 @@ export function AppStudioImportWizard() {
               className={`studio-segment-button${iconRevisionMode === mode.value ? " selected" : ""}`}
               type="button"
               onClick={() => setIconRevisionMode(mode.value)}
+              title={mode.description}
+            >
+              <strong>{mode.label}</strong>
+              <span>{mode.description}</span>
+            </button>
+          ))}
+        </div>
+        <div className="studio-icon-revision-modes" role="group" aria-label="icon regeneration candidate count">
+          {ICON_REGENERATION_SPEED_MODES.map((mode) => (
+            <button
+              key={mode.value}
+              className={`studio-segment-button${iconRegenerationSpeedMode === mode.value ? " selected" : ""}`}
+              type="button"
+              onClick={() => setIconRegenerationSpeedMode(mode.value)}
+              title={mode.description}
+            >
+              <strong>{mode.label}</strong>
+              <span>{mode.description}</span>
+            </button>
+          ))}
+        </div>
+        <div className="studio-icon-revision-modes" role="group" aria-label="icon image quality mode">
+          {ICON_IMAGE_QUALITY_MODES.map((mode) => (
+            <button
+              key={mode.value}
+              className={`studio-segment-button${iconImageQualityMode === mode.value ? " selected" : ""}`}
+              type="button"
+              onClick={() => setIconImageQualityMode(mode.value)}
               title={mode.description}
             >
               <strong>{mode.label}</strong>
@@ -724,8 +788,16 @@ export function AppStudioImportWizard() {
             <p>{aiProposal?.icon.promptInitial || "まだ生成されていません。"}</p>
           </div>
           <div>
-            <strong>修正版Prompt</strong>
-            <p>{aiProposal?.icon.promptRevision || request.iconPrompt || "修正指示を入力すると次回生成に使われます。"}</p>
+            <strong>ユーザー修正指示</strong>
+            <p>{iconRevisionPrompt || savedRevisionInstruction || "修正指示を入力すると次回生成に使われます。"}</p>
+          </div>
+          <div>
+            <strong>AI/中間Prompt</strong>
+            <p>{intermediatePrompt || "まだ生成されていません。"}</p>
+          </div>
+          <div>
+            <strong>最終画像API Prompt</strong>
+            <p>{finalImageApiPrompt || "再生成後、実際に画像APIへ渡したPromptを表示します。"}</p>
           </div>
         </div>
         <div className="studio-action-row">
@@ -923,6 +995,20 @@ function revisionModeStrength(mode: IconRevisionMode): { preserve: string; chang
     preserve: "best app-specific idea, readable action flow, ToolHub quality",
     change: "composition clarity, motif specificity, and visual polish",
   };
+}
+
+function imageApiSeconds(proposal: AppStudioAiProposal): string {
+  const summary = proposal.icon.imageApiSummary;
+  const seconds = numberSummaryValue(summary?.imageApiSeconds ?? summary?.image_api_seconds);
+  return seconds === null ? "未記録" : `${seconds.toFixed(1)}秒`;
+}
+
+function stringSummaryValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function numberSummaryValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function estimateOperationSeconds(kind: StudioOperationKind, result: AppStudioRunResult | null): number | null {
