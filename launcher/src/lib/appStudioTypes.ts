@@ -7,6 +7,9 @@ export interface AppStudioImportRequest {
   version?: string;
   buildMode: AppStudioBuildMode;
   iconPrompt?: string;
+  iconStylePreset?: AppStudioIconStylePreset;
+  iconStyleCustom?: string;
+  iconRevisionImage?: string;
   metadata?: AppStudioEditableMetadata;
   iconOverride?: AppStudioIconOverride;
   buildProfile?: AppStudioBuildProfile;
@@ -25,6 +28,9 @@ export interface AppStudioUpdateRequest {
   newVersion: string;
   buildMode: AppStudioBuildMode;
   iconPrompt?: string;
+  iconStylePreset?: AppStudioIconStylePreset;
+  iconStyleCustom?: string;
+  iconRevisionImage?: string;
   metadata?: AppStudioEditableMetadata;
   iconOverride?: AppStudioIconOverride;
   buildProfile?: AppStudioBuildProfile;
@@ -212,6 +218,7 @@ export interface AppStudioBuildProfile {
 }
 
 export type AppStudioSelectedIconSource = "candidate_png" | "final_png" | "fallback_png";
+export type AppStudioIconStylePreset = "modern" | "vivid" | "realistic" | "colored_pencil" | "watercolor" | "flat_vector" | "3d_soft" | "glassmorphism" | "clay" | "custom";
 
 export interface AppStudioIconOverride {
   selectedIconSource: AppStudioSelectedIconSource;
@@ -242,6 +249,7 @@ export interface AppStudioAiIconSuggestion {
   promptInitial?: string | null;
   promptRevision?: string | null;
   functionInterpretation?: AppStudioIconFunctionInterpretation | null;
+  imageApiSummary?: AppStudioImageApiSummary | null;
   candidateSvg?: string | null;
   finalSvg?: string | null;
   fallbackSvg?: string | null;
@@ -267,11 +275,38 @@ export interface AppStudioAiIconCandidate {
   url?: string | null;
   notes?: string | null;
   revisionOf?: string | null;
+  api?: string | null;
+  contentType?: string | null;
+  fallbackReason?: string | null;
+  errorCategory?: string | null;
   conceptId?: string | null;
   concept?: AppStudioIconConcept | null;
   styleFamily?: string | null;
   scores?: AppStudioIconScores | null;
   scoreTotal?: number | null;
+  scoreBasis?: string | null;
+  imageEvaluationStatus?: string | null;
+  imageEvaluationNote?: string | null;
+}
+
+export interface AppStudioImageApiSummary {
+  apiCandidateCount?: number;
+  api_candidate_count?: number;
+  fallbackCandidateCount?: number;
+  fallback_candidate_count?: number;
+  imageApiSuccess?: boolean;
+  image_api_success?: boolean;
+  latestImageApiFailure?: string;
+  latest_image_api_failure?: string;
+  model?: string;
+  stylePreset?: string;
+  style_preset?: string;
+  scoreBasis?: string;
+  score_basis?: string;
+  imageEvaluationStatus?: string;
+  image_evaluation_status?: string;
+  imageEvaluationNote?: string;
+  image_evaluation_note?: string;
 }
 
 export interface AppStudioIconFunctionInterpretation {

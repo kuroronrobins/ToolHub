@@ -17,6 +17,9 @@ pub struct AppStudioImportRequest {
     pub version: Option<String>,
     pub build_mode: String,
     pub icon_prompt: Option<String>,
+    pub icon_style_preset: Option<String>,
+    pub icon_style_custom: Option<String>,
+    pub icon_revision_image: Option<String>,
     pub metadata: Option<AppStudioEditableMetadata>,
     pub icon_override: Option<AppStudioIconOverride>,
     pub build_profile: Option<Value>,
@@ -37,6 +40,9 @@ pub struct AppStudioUpdateRequest {
     pub new_version: String,
     pub build_mode: String,
     pub icon_prompt: Option<String>,
+    pub icon_style_preset: Option<String>,
+    pub icon_style_custom: Option<String>,
+    pub icon_revision_image: Option<String>,
     pub metadata: Option<AppStudioEditableMetadata>,
     pub icon_override: Option<AppStudioIconOverride>,
     pub build_profile: Option<Value>,
@@ -263,11 +269,18 @@ pub struct AppStudioAiIconCandidateSuggestion {
     pub url: Option<String>,
     pub notes: Option<String>,
     pub revision_of: Option<String>,
+    pub api: Option<String>,
+    pub content_type: Option<String>,
+    pub fallback_reason: Option<String>,
+    pub error_category: Option<String>,
     pub concept_id: Option<String>,
     pub concept: Option<Value>,
     pub style_family: Option<String>,
     pub scores: Option<Value>,
     pub score_total: Option<f64>,
+    pub score_basis: Option<String>,
+    pub image_evaluation_status: Option<String>,
+    pub image_evaluation_note: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -276,6 +289,7 @@ pub struct AppStudioAiIconSuggestion {
     pub prompt_initial: Option<String>,
     pub prompt_revision: Option<String>,
     pub function_interpretation: Option<Value>,
+    pub image_api_summary: Option<Value>,
     pub candidate_svg: Option<String>,
     pub final_svg: Option<String>,
     pub fallback_svg: Option<String>,
@@ -476,6 +490,86 @@ pub fn app_studio_ai_diagnostics(
     Ok(build_ai_env_plan().diagnostics)
 }
 
+pub(crate) fn run_image_generation_test(
+) -> Result<crate::ai_settings::AiImageGenerationTestResult, String> {
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    let python_candidate = find_python_candidate(&root).ok_or_else(python_missing_message)?;
+    let script = root.join("tools").join("app_studio").join("main.py");
+    if !script.is_file() {
+        return Err("tools/app_studio/main.py was not found.".to_string());
+    }
+    let ai_env = build_ai_env_plan();
+    let mut command = Command::new(&python_candidate.path);
+    command.arg(script).arg("image-test").current_dir(&root);
+    apply_ai_environment(&mut command, &ai_env);
+    let output = command
+        .output()
+        .map_err(|error| format!("Image generation test could not start: {error}"))?;
+    let stdout = mask_sensitive(&String::from_utf8_lossy(&output.stdout));
+    let stderr = mask_sensitive(&String::from_utf8_lossy(&output.stderr));
+    let parsed: Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|_| {
+        let mut map = Map::new();
+        map.insert("ok".to_string(), Value::Bool(false));
+        map.insert(
+            "message".to_string(),
+            Value::String(if stderr.trim().is_empty() {
+                "Image API test did not return JSON.".to_string()
+            } else {
+                stderr.trim().to_string()
+            }),
+        );
+        Value::Object(map)
+    });
+    Ok(crate::ai_settings::AiImageGenerationTestResult {
+        ok: parsed.get("ok").and_then(Value::as_bool).unwrap_or(false),
+        message: parsed
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("Image API test failed.")
+            .to_string(),
+        key_source: Some(ai_env.diagnostics.api_key_source.clone()),
+        model: parsed
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or(&ai_env.diagnostics.image_model)
+            .to_string(),
+        api: parsed
+            .get("api")
+            .and_then(Value::as_str)
+            .unwrap_or("images.generate")
+            .to_string(),
+        status: parsed
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or(if output.status.success() { "success" } else { "failed" })
+            .to_string(),
+        content_type: parsed
+            .get("content_type")
+            .and_then(Value::as_str)
+            .unwrap_or("none")
+            .to_string(),
+        resolution: parsed
+            .get("resolution")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        fallback_reason: parsed
+            .get("fallback_reason")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .filter(|value| !value.is_empty()),
+        error: parsed
+            .get("error")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .filter(|value| !value.is_empty()),
+        error_category: parsed
+            .get("error_category")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .filter(|value| !value.is_empty()),
+    })
+}
+
 #[tauri::command]
 pub fn app_studio_open_output_dir(
     output_dir: String,
@@ -590,6 +684,7 @@ fn run_import_action(
         .as_ref()
         .map(|(_, source)| source.clone())
         .unwrap_or_default();
+    let icon_revision_image = write_icon_revision_image_file(&request)?;
     let build_profile_override = write_build_profile_override_file(&request)?;
     let build_profile_source = if build_profile_override.is_some() {
         "manual"
@@ -621,6 +716,18 @@ fn run_import_action(
     if let Some(icon_prompt) = clean_optional(&request.icon_prompt) {
         cli_args.push("--icon-prompt".to_string());
         cli_args.push(icon_prompt.to_string());
+    }
+    if let Some(style_preset) = clean_optional(&request.icon_style_preset) {
+        cli_args.push("--icon-style-preset".to_string());
+        cli_args.push(style_preset.to_string());
+    }
+    if let Some(style_custom) = clean_optional(&request.icon_style_custom) {
+        cli_args.push("--icon-style-custom".to_string());
+        cli_args.push(style_custom.to_string());
+    }
+    if let Some(path) = icon_revision_image.as_ref() {
+        cli_args.push("--icon-revision-image".to_string());
+        cli_args.push(path.display().to_string());
     }
     if let Some((path, _)) = metadata_override.as_ref() {
         cli_args.push("--metadata-override".to_string());
@@ -1254,6 +1361,7 @@ fn read_ai_proposal(output_dir: Option<&Path>) -> AppStudioAiProposal {
     proposal.icon.candidate_url = read_text_optional(&icon_work.join("icon_candidate_1.url.txt"));
     proposal.icon.ai_report = read_text_optional(&icon_work.join("ai_generation_report.md"));
     proposal.icon.function_interpretation = read_icon_function_interpretation(&icon_work);
+    proposal.icon.image_api_summary = read_icon_image_api_summary(&icon_work);
     proposal.icon.candidate_png_data_url =
         read_png_data_url_optional(&icon_work.join("icon_candidate_1.png"));
     proposal.icon.final_png_data_url =
@@ -1394,6 +1502,12 @@ fn read_icon_function_interpretation(icon_work: &Path) -> Option<Value> {
         .filter(|value| !value.is_null())
 }
 
+fn read_icon_image_api_summary(icon_work: &Path) -> Option<Value> {
+    read_json(&icon_work.join("candidate_manifest.json"))
+        .and_then(|json| json.get("image_api_summary").cloned())
+        .filter(|value| !value.is_null())
+}
+
 fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggestion> {
     let mut candidates = Vec::new();
     if let Some(json) = read_json(&icon_work.join("candidate_manifest.json")) {
@@ -1468,6 +1582,19 @@ fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggest
                         .get("revision_of")
                         .and_then(Value::as_str)
                         .map(str::to_string),
+                    api: item.get("api").and_then(Value::as_str).map(str::to_string),
+                    content_type: item
+                        .get("content_type")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    fallback_reason: item
+                        .get("fallback_reason")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    error_category: item
+                        .get("error_category")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
                     concept_id: item
                         .get("concept_id")
                         .and_then(Value::as_str)
@@ -1480,6 +1607,18 @@ fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggest
                         .map(str::to_string),
                     scores: item.get("scores").cloned(),
                     score_total: item.get("score_total").and_then(Value::as_f64),
+                    score_basis: item
+                        .get("score_basis")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    image_evaluation_status: item
+                        .get("image_evaluation_status")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    image_evaluation_note: item
+                        .get("image_evaluation_note")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
                 });
             }
         }
@@ -1502,11 +1641,18 @@ fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggest
                 url: None,
                 notes: Some("Legacy icon_candidate_1.png candidate.".to_string()),
                 revision_of: None,
+                api: None,
+                content_type: None,
+                fallback_reason: None,
+                error_category: None,
                 concept_id: None,
                 concept: None,
                 style_family: None,
                 scores: None,
                 score_total: None,
+                score_basis: None,
+                image_evaluation_status: None,
+                image_evaluation_note: None,
             });
         } else if let Some(url) = read_text_optional(&icon_work.join("icon_candidate_1.url.txt")) {
             candidates.push(AppStudioAiIconCandidateSuggestion {
@@ -1525,11 +1671,18 @@ fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggest
                 url: Some(url),
                 notes: Some("Legacy icon_candidate_1.url.txt candidate.".to_string()),
                 revision_of: None,
+                api: None,
+                content_type: None,
+                fallback_reason: None,
+                error_category: None,
                 concept_id: None,
                 concept: None,
                 style_family: None,
                 scores: None,
                 score_total: None,
+                score_basis: None,
+                image_evaluation_status: None,
+                image_evaluation_note: None,
             });
         }
     }
@@ -2030,6 +2183,9 @@ fn import_request_from_update(request: &AppStudioUpdateRequest) -> AppStudioImpo
         version: Some(request.new_version.clone()),
         build_mode: request.build_mode.clone(),
         icon_prompt: request.icon_prompt.clone(),
+        icon_style_preset: request.icon_style_preset.clone(),
+        icon_style_custom: request.icon_style_custom.clone(),
+        icon_revision_image: request.icon_revision_image.clone(),
         metadata: request.metadata.clone(),
         icon_override: request.icon_override.clone(),
         build_profile: request.build_profile.clone(),
@@ -2179,6 +2335,38 @@ fn write_icon_override_file(
     std::fs::write(&path, text)
         .map_err(|_| "Could not write App Studio icon override file.".to_string())?;
     Ok(Some((path, source)))
+}
+
+fn write_icon_revision_image_file(request: &AppStudioImportRequest) -> Result<Option<PathBuf>, String> {
+    let Some(data_url) = request
+        .icon_revision_image
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    let Some(encoded) = data_url.strip_prefix("data:image/png;base64,") else {
+        return Err("Icon revision image must be a data:image/png;base64 URL.".to_string());
+    };
+    let bytes = general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|_| "Icon revision image data could not be decoded.".to_string())?;
+    if bytes.len() < 8 || &bytes[0..8] != b"\x89PNG\r\n\x1a\n" {
+        return Err("Icon revision image must be a PNG data URL.".to_string());
+    }
+    let dir = crate::setup::user_data_root()
+        .join("data")
+        .join("app_studio")
+        .join("icon_revision_images");
+    std::fs::create_dir_all(&dir)
+        .map_err(|_| "Could not create App Studio icon revision image directory.".to_string())?;
+    let app_stem = clean_optional(&request.app_id).unwrap_or("pending");
+    let stamp = chrono::Local::now().timestamp_millis();
+    let path = dir.join(format!("{}_{}.png", safe_file_stem(app_stem), stamp));
+    std::fs::write(&path, bytes)
+        .map_err(|_| "Could not write App Studio icon revision image file.".to_string())?;
+    Ok(Some(path))
 }
 
 fn write_build_profile_override_file(
@@ -2611,6 +2799,9 @@ mod tests {
             version: None,
             build_mode: "frozen-folder".to_string(),
             icon_prompt: None,
+            icon_style_preset: None,
+            icon_style_custom: None,
+            icon_revision_image: None,
             metadata: None,
             icon_override: None,
             build_profile: None,
@@ -2641,6 +2832,9 @@ mod tests {
             version: None,
             build_mode: "app-env".to_string(),
             icon_prompt: None,
+            icon_style_preset: None,
+            icon_style_custom: None,
+            icon_revision_image: None,
             metadata: None,
             icon_override: None,
             build_profile: None,
@@ -2797,6 +2991,9 @@ mod tests {
             new_version: "1.0.1".to_string(),
             build_mode: "app-env".to_string(),
             icon_prompt: None,
+            icon_style_preset: None,
+            icon_style_custom: None,
+            icon_revision_image: None,
             metadata: Some(AppStudioEditableMetadata {
                 short_description: Some("Updated short".to_string()),
                 ..AppStudioEditableMetadata::default()
@@ -2956,7 +3153,7 @@ mod tests {
         std::fs::write(icon_work.join("icon_candidate_2.png"), [137, 80, 78, 71]).unwrap();
         std::fs::write(
             icon_work.join("candidate_manifest.json"),
-            "{\"function_interpretation\":{\"primary_action\":\"merge\",\"input_objects\":[\"pdf/document\"],\"output_objects\":[\"pdf/document\"]},\"candidates\":[{\"candidate_id\":\"icon_candidate_1\",\"number\":1,\"source\":\"api\",\"prompt\":\"p1\",\"model\":\"gpt-image-2\",\"status\":\"success\",\"resolution\":\"1024x1024\",\"fallback\":false,\"file_name\":\"icon_candidate_1.png\",\"concept_id\":\"literal_1\",\"concept\":{\"style_family\":\"modern\",\"composition\":\"pdf merge\"},\"scores\":{\"semantic_clarity\":9},\"score_total\":42},{\"candidate_id\":\"icon_candidate_2\",\"number\":2,\"source\":\"fallback\",\"prompt\":\"p2\",\"model\":\"local\",\"status\":\"fallback\",\"resolution\":\"512x512\",\"fallback\":true,\"file_name\":\"icon_candidate_2.png\"}]}",
+            "{\"function_interpretation\":{\"primary_action\":\"merge\",\"input_objects\":[\"pdf/document\"],\"output_objects\":[\"pdf/document\"]},\"image_api_summary\":{\"api_candidate_count\":1,\"fallback_candidate_count\":1,\"image_api_success\":true,\"model\":\"gpt-image-2\",\"score_basis\":\"prompt_concept_only\"},\"candidates\":[{\"candidate_id\":\"icon_candidate_1\",\"number\":1,\"source\":\"api_generate\",\"prompt\":\"p1\",\"model\":\"gpt-image-2\",\"status\":\"success\",\"resolution\":\"1024x1024\",\"fallback\":false,\"file_name\":\"icon_candidate_1.png\",\"api\":\"images.generate\",\"content_type\":\"b64_png\",\"concept_id\":\"literal_1\",\"concept\":{\"style_family\":\"modern\",\"composition\":\"pdf merge\"},\"scores\":{\"semantic_clarity\":9},\"score_total\":42,\"score_basis\":\"prompt_concept_only\",\"image_evaluation_status\":\"not_run\"},{\"candidate_id\":\"icon_candidate_2\",\"number\":2,\"source\":\"fallback\",\"prompt\":\"p2\",\"model\":\"local\",\"status\":\"fallback\",\"resolution\":\"512x512\",\"fallback\":true,\"file_name\":\"icon_candidate_2.png\",\"fallback_reason\":\"test fallback\"}]}",
         )
         .unwrap();
 
@@ -2984,8 +3181,21 @@ mod tests {
                 .and_then(Value::as_str),
             Some("merge")
         );
+        assert_eq!(
+            proposal
+                .icon
+                .image_api_summary
+                .as_ref()
+                .and_then(|value| value.get("api_candidate_count"))
+                .and_then(Value::as_u64),
+            Some(1)
+        );
         assert_eq!(proposal.icon.candidates[0].concept_id.as_deref(), Some("literal_1"));
         assert_eq!(proposal.icon.candidates[0].score_total, Some(42.0));
+        assert_eq!(
+            proposal.icon.candidates[0].api.as_deref(),
+            Some("images.generate")
+        );
         assert!(proposal.icon.candidates[1].fallback);
         assert!(proposal
             .metadata
@@ -3049,6 +3259,9 @@ mod tests {
             new_version: "1.2.2".to_string(),
             build_mode: "frozen-folder".to_string(),
             icon_prompt: None,
+            icon_style_preset: None,
+            icon_style_custom: None,
+            icon_revision_image: None,
             metadata: None,
             icon_override: None,
             build_profile: None,

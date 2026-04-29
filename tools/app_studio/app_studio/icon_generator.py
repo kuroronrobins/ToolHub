@@ -11,13 +11,96 @@ import zlib
 
 from .ai_metadata_suggester import build_icon_design_brief, sanitize_ai_text, suggest_icon_prompt
 from .models import DependencyReport, IconCandidateAsset, IconConcept, IconDesignBrief, StudioContext
-from .openai_client import complete_json, decode_base64_image, generate_image, text_model
+from .openai_client import complete_json, decode_base64_image, edit_image, generate_image, image_model, text_model
 
 
 LOCAL_ICON_SIZE = 512
 API_ICON_RESOLUTION = "1024x1024"
 DEFAULT_ICON_CANDIDATE_COUNT = 3
 MAX_ICON_CANDIDATE_COUNT = 6
+
+ICON_STYLE_PRESETS: dict[str, dict[str, str]] = {
+    "modern": {
+        "label": "modern",
+        "material": "clean contemporary digital icon with crisp high-DPI surfaces",
+        "color": "balanced professional colors with one clear accent",
+        "edge": "smooth precise edges and readable silhouette",
+        "lighting": "soft controlled depth",
+        "forbidden": "do not force glass, clay, pencil, watercolor, or photoreal materials",
+    },
+    "vivid": {
+        "label": "vivid",
+        "material": "bold graphic app icon",
+        "color": "high saturation, strong contrast, energetic accent colors",
+        "edge": "sharp simple silhouette and clean outlines",
+        "lighting": "clear punchy highlights without clutter",
+        "forbidden": "avoid muted corporate palettes and low-contrast pastel-only colors",
+    },
+    "realistic": {
+        "label": "realistic",
+        "material": "realistic small object icon with tactile surfaces",
+        "color": "natural but polished colors",
+        "edge": "physically plausible edges, readable object silhouettes",
+        "lighting": "studio-object lighting on a clean icon background",
+        "forbidden": "no photo background, no busy scene, no full screenshot",
+    },
+    "colored_pencil": {
+        "label": "colored_pencil",
+        "material": "colored-pencil grain, hand-drawn strokes, paper-like texture",
+        "color": "layered colored-pencil hues with gentle variation",
+        "edge": "visible hand-drawn outline, still clean enough at small size",
+        "lighting": "soft hand-rendered shadow",
+        "forbidden": "no glassmorphism, no glossy 3D plastic, no photoreal object render",
+    },
+    "watercolor": {
+        "label": "watercolor",
+        "material": "watercolor wash with controlled pigment edges",
+        "color": "transparent layered color with tasteful saturation",
+        "edge": "soft organic edges plus a clear main silhouette",
+        "lighting": "paper-light, no hard 3D lighting",
+        "forbidden": "no glossy material, no dense UI screenshot",
+    },
+    "flat_vector": {
+        "label": "flat_vector",
+        "material": "flat vector shapes",
+        "color": "small palette of distinct flat colors",
+        "edge": "clear geometric edges and simple negative space",
+        "lighting": "no realistic lighting, optional subtle flat shadow",
+        "forbidden": "no 3D render, no texture grain, no photoreal object",
+    },
+    "3d_soft": {
+        "label": "3d_soft",
+        "material": "soft 3D rounded material",
+        "color": "friendly color blocks with gentle gradients",
+        "edge": "rounded readable forms, not toy-like clutter",
+        "lighting": "soft studio lighting and ambient occlusion",
+        "forbidden": "no text, no busy UI, no harsh chrome",
+    },
+    "glassmorphism": {
+        "label": "glassmorphism",
+        "material": "translucent glass layers with subtle refraction",
+        "color": "cool transparent surfaces with one vivid accent",
+        "edge": "crisp glass edges and clear silhouette",
+        "lighting": "soft reflective highlights",
+        "forbidden": "no muddy low-contrast glass, no tiny text",
+    },
+    "clay": {
+        "label": "clay",
+        "material": "matte clay-like dimensional shapes",
+        "color": "warm clean clay colors with one accent",
+        "edge": "simple rounded sculpted silhouette",
+        "lighting": "soft shadows, tactile but uncluttered",
+        "forbidden": "no glossy glass, no photoreal background, no fine text",
+    },
+    "custom": {
+        "label": "custom",
+        "material": "follow the user's custom style before ToolHub house style",
+        "color": "follow the user's custom color request",
+        "edge": "keep only enough clarity for small icon readability",
+        "lighting": "follow the user's custom lighting request",
+        "forbidden": "do not override the user's custom style with generic modern polish",
+    },
+}
 
 PALETTE = [
     ("#2F6F73", "#E8F3F1", "#74C9C3"),
@@ -93,6 +176,9 @@ def generate_icon_assets_with_candidates(
     ai_skip_reason: str = "",
     metadata: dict | None = None,
     dependency_report: DependencyReport | None = None,
+    icon_style_preset: str | None = None,
+    icon_style_custom: str | None = None,
+    revision_image_path: str | None = None,
 ) -> tuple[str, str, str, bytes, str, str, bytes | None, str, list[IconCandidateAsset]]:
     style_reference = collect_icon_style_reference(context.repo_root)
     brief = build_icon_design_brief(context, metadata, dependency_report, style_reference)
@@ -118,6 +204,7 @@ def generate_icon_assets_with_candidates(
         revision = "No revision prompt was provided."
         revision_report = "No revision prompt was provided."
     prompt_for_asset = revision if revision_prompt else initial_prompt
+    style_settings = icon_style_settings(icon_style_preset, icon_style_custom, prompt_for_asset)
     svg = generate_local_svg(context, prompt_for_asset, style_reference)
     fallback_png = generate_local_png(context, prompt_for_asset, style_reference, size=LOCAL_ICON_SIZE)
     candidates, image_reports = generate_icon_candidates(
@@ -128,6 +215,8 @@ def generate_icon_assets_with_candidates(
         allow_ai=allow_ai,
         ai_skip_reason=ai_skip_reason,
         count=icon_candidate_count(),
+        style_settings=style_settings,
+        revision_image_path=revision_image_path,
     )
     legacy_candidate = candidates[0] if candidates else None
     legacy_png = legacy_candidate.png if legacy_candidate else None
@@ -150,13 +239,21 @@ def generate_icon_assets_with_candidates(
             "## Image Generation",
             "",
             "\n\n".join(image_reports) if image_reports else skipped_image_report(ai_skip_reason),
+            "",
+            "## Image API Summary",
+            "",
+            json.dumps(image_api_summary(candidates, style_settings), ensure_ascii=False, indent=2),
             f"candidate_count: {len(candidates)}",
+            f"api_candidate_count: {sum(1 for candidate in candidates if is_api_candidate(candidate))}",
+            f"fallback_candidate_count: {sum(1 for candidate in candidates if candidate.is_fallback)}",
+            f"last_image_api_failure: {last_image_api_failure(candidates) or 'none'}",
             f"saved_candidate: {saved_candidate_name(legacy_png, legacy_url)}",
             f"saved_candidates: {saved_candidates}",
             "",
             "PNG is the standard ToolHub App Studio icon output. API PNG candidates require human adoption before final icon.png is replaced.",
-            "A deterministic local PNG and SVG fallback remain available when AI is disabled, missing, blocked, or an API candidate fails.",
-            "candidate_manifest.json records each candidate source, model, prompt, status, resolution, and fallback/API classification.",
+            "Fallback PNGs are placeholders for AI-disabled or API-failed runs and must not be treated as successful AI-generated candidates.",
+            "candidate_manifest.json records each candidate source, model, prompt, status, resolution, failure reason, style preset, and fallback/API classification.",
+            "Rule-based candidate scores are prompt/concept only; they do not inspect the generated image pixels.",
         ]
     )
     return initial_prompt, revision, svg, fallback_png, style_reference, report, legacy_png, legacy_url, candidates
@@ -181,18 +278,28 @@ def generate_icon_candidates(
     allow_ai: bool,
     ai_skip_reason: str,
     count: int,
+    style_settings: dict[str, str] | None = None,
+    revision_image_path: str | None = None,
 ) -> tuple[list[IconCandidateAsset], list[str]]:
     candidates: list[IconCandidateAsset] = []
+    style_settings = style_settings or icon_style_settings(None, None, prompt)
     concept_list, reports = generate_icon_concepts(context, brief, prompt, allow_ai, count)
     image_skip_report_added = False
+    use_edit_api = bool(revision_image_path and Path(revision_image_path).is_file())
     for index, concept in enumerate(concept_list[:count], start=1):
         variant_prompt = image_api_prompt(
             prompt,
             brief=brief,
             concept=concept,
             prior_candidate_ids=[candidate.candidate_id for candidate in candidates],
+            style_settings=style_settings,
         )
-        image_result = generate_image(variant_prompt, size=API_ICON_RESOLUTION) if allow_ai else None
+        if allow_ai and use_edit_api:
+            image_result = edit_image(variant_prompt, str(revision_image_path), size=API_ICON_RESOLUTION)
+        elif allow_ai:
+            image_result = generate_image(variant_prompt, size=API_ICON_RESOLUTION)
+        else:
+            image_result = None
         png_bytes, image_url, image_note = image_candidate_from_result(image_result, index)
         if image_result:
             reports.append(image_result.report)
@@ -205,7 +312,7 @@ def generate_icon_candidates(
                 IconCandidateAsset(
                     candidate_id=f"icon_candidate_{index}",
                     number=index,
-                    source="api",
+                    source="api_edit" if image_result and image_result.api == "images.edit" else "api_generate",
                     prompt=variant_prompt,
                     model=image_result.model if image_result else "",
                     status=image_result.status if image_result else "success",
@@ -216,6 +323,10 @@ def generate_icon_candidates(
                     file_name=f"icon_candidate_{index}.png" if png_bytes else "",
                     url_file_name=f"icon_candidate_{index}.url.txt" if image_url else "",
                     notes=f"{concept.direction}: {image_note}",
+                    api=image_result.api if image_result else "",
+                    content_type=image_result.content_type if image_result else "",
+                    fallback_reason="",
+                    error_category=image_result.error_category if image_result else "",
                     concept_id=concept.concept_id,
                     concept=concept.to_dict(),
                     scores=score_icon_candidate(brief, concept, candidates),
@@ -230,8 +341,18 @@ def generate_icon_candidates(
             brief=brief,
             concept=concept,
             prior_candidate_ids=[candidate.candidate_id for candidate in candidates],
+            style_settings=style_settings,
         )
         scores = score_icon_candidate(brief, concept, candidates)
+        fallback_reason = ""
+        error_category = ""
+        api_name = "images.edit" if use_edit_api else "images.generate"
+        if image_result:
+            fallback_reason = image_result.fallback_reason or image_result.error or image_note
+            error_category = image_result.error_category
+            api_name = image_result.api or api_name
+        elif ai_skip_reason:
+            fallback_reason = ai_skip_reason
         candidates.append(
             IconCandidateAsset(
                 candidate_id=f"icon_candidate_{index}",
@@ -244,7 +365,11 @@ def generate_icon_candidates(
                 is_fallback=True,
                 png=generate_local_png(context, fallback_prompt, style_reference, size=LOCAL_ICON_SIZE),
                 file_name=f"icon_candidate_{index}.png",
-                notes=f"{concept.direction}: {image_note or ai_skip_reason or 'local fallback'}",
+                notes=f"{concept.direction}: placeholder fallback. {image_note or ai_skip_reason or 'local fallback'}",
+                api=api_name,
+                content_type=getattr(image_result, "content_type", "none") if image_result else "none",
+                fallback_reason=fallback_reason or "AI image generation did not produce a usable PNG or URL.",
+                error_category=error_category,
                 concept_id=concept.concept_id,
                 concept=concept.to_dict(),
                 scores=scores,
@@ -432,14 +557,57 @@ def jaccard_similarity(left: str, right: str) -> float:
     return len(left_terms & right_terms) / len(left_terms | right_terms)
 
 
+def icon_style_settings(preset: str | None, custom: str | None, prompt: str) -> dict[str, str]:
+    selected = normalize_icon_style_preset(preset, prompt)
+    settings = dict(ICON_STYLE_PRESETS.get(selected, ICON_STYLE_PRESETS["modern"]))
+    settings["preset"] = selected
+    custom_text = sanitize_ai_text(custom or "", 800)
+    if selected == "custom" and custom_text:
+        settings["custom"] = custom_text
+        settings["material"] = custom_text
+        settings["color"] = "follow the user's custom color and mood request"
+        settings["lighting"] = "follow the user's custom lighting request"
+    return settings
+
+
+def normalize_icon_style_preset(preset: str | None, prompt: str = "") -> str:
+    value = (preset or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if value in ICON_STYLE_PRESETS:
+        return value
+    inferred = infer_icon_style_preset(prompt)
+    return inferred or "modern"
+
+
+def infer_icon_style_preset(text: str) -> str:
+    normalized = text.lower()
+    rules = [
+        ("colored_pencil", ["colored pencil", "colour pencil", "色鉛筆", "鉛筆"]),
+        ("watercolor", ["watercolor", "watercolour", "水彩"]),
+        ("realistic", ["realistic", "photoreal", "写実", "リアル"]),
+        ("vivid", ["vivid", "ビビッド", "高彩度", "鮮やか"]),
+        ("flat_vector", ["flat vector", "flat", "フラット", "ベクター"]),
+        ("3d_soft", ["3d", "soft 3d", "立体", "ソフト3d"]),
+        ("glassmorphism", ["glassmorphism", "glass", "ガラス"]),
+        ("clay", ["clay", "クレイ", "粘土"]),
+    ]
+    for preset, keywords in rules:
+        if any(keyword in normalized for keyword in keywords):
+            return preset
+    return ""
+
+
 def image_api_prompt(
     prompt: str,
     brief: IconDesignBrief | None = None,
     concept: IconConcept | None = None,
     prior_candidate_ids: list[str] | None = None,
+    style_settings: dict[str, str] | None = None,
 ) -> str:
     prior = ", ".join(prior_candidate_ids or [])
     concept_data = concept.to_dict() if concept else {}
+    style_settings = style_settings or icon_style_settings(None, None, prompt)
+    preset = style_settings.get("preset", "modern")
+    custom = style_settings.get("custom", "")
     return "\n".join(
         [
             prompt.strip(),
@@ -447,8 +615,17 @@ def image_api_prompt(
             "Icon concept JSON:",
             json.dumps(concept_data, ensure_ascii=False),
             "",
-            "English rendering guidance: Create a modern, distinctive 1024x1024 PNG app icon for a desktop launcher.",
-            "Use generous safe margins, a strong app-specific silhouette, polished high-DPI edges, and a refined material texture.",
+            "English rendering guidance: Create a distinctive 1024x1024 PNG app icon for a desktop launcher.",
+            "Style preset:",
+            f"- preset: {preset}",
+            f"- visual material: {style_settings.get('material', '')}",
+            f"- color behavior: {style_settings.get('color', '')}",
+            f"- line/edge treatment: {style_settings.get('edge', '')}",
+            f"- lighting: {style_settings.get('lighting', '')}",
+            f"- style-specific forbidden elements: {style_settings.get('forbidden', '')}",
+            f"- custom style override: {custom}" if custom else "- custom style override: none",
+            "Do not override the selected style preset with a generic polished/glass/3D look.",
+            "Use generous safe margins and a strong app-specific silhouette.",
             "At a glance, the viewer must understand what the app does. Show the action relationship, not just the object type.",
             f"Primary action: {brief.primary_action if brief else 'unknown'}",
             f"Input objects: {', '.join(brief.input_objects) if brief else 'unknown'}",
@@ -458,7 +635,7 @@ def image_api_prompt(
             concept.composition if concept else "Make this candidate visually distinct from generic business icons.",
             f"Do not repeat the same composition as previous candidates: {prior or 'none yet'}.",
             "Use 2 to 4 meaningful objects maximum. Prioritize silhouette and relationship over detail density.",
-            "Forbidden: generic abstract shapes only, tiny text, readable or unreadable logo-like letters, photorealistic imagery, screenshots, crowded UI panels, document-only icons, gear-only icons, check-only icons, nodes-only icons, or initial-letter-only icons.",
+            "Forbidden: generic abstract shapes only, tiny text, readable or unreadable logo-like letters, unrequested full-photo scenes, screenshots, crowded UI panels, document-only icons, gear-only icons, check-only icons, nodes-only icons, or initial-letter-only icons.",
             "Readable at 32px, attractive at 256px and above, no watermark, no mockup frame, transparent or clean icon background acceptable.",
         ]
     )
@@ -501,6 +678,34 @@ def saved_candidate_name(png_bytes: bytes | None, image_url: str) -> str:
     if image_url:
         return "icon_candidate_1.url.txt"
     return "none"
+
+
+def is_api_candidate(candidate: IconCandidateAsset) -> bool:
+    return not candidate.is_fallback and candidate.source.startswith("api")
+
+
+def last_image_api_failure(candidates: list[IconCandidateAsset]) -> str:
+    for candidate in reversed(candidates):
+        if candidate.fallback_reason:
+            return candidate.fallback_reason
+    return ""
+
+
+def image_api_summary(candidates: list[IconCandidateAsset], style_settings: dict[str, str] | None = None) -> dict[str, Any]:
+    api_candidates = [candidate for candidate in candidates if is_api_candidate(candidate)]
+    fallback_candidates = [candidate for candidate in candidates if candidate.is_fallback]
+    model = next((candidate.model for candidate in candidates if candidate.model and candidate.model != "local-deterministic-fallback"), image_model())
+    return {
+        "api_candidate_count": len(api_candidates),
+        "fallback_candidate_count": len(fallback_candidates),
+        "image_api_success": bool(api_candidates),
+        "latest_image_api_failure": last_image_api_failure(candidates),
+        "model": model,
+        "style_preset": (style_settings or {}).get("preset", ""),
+        "score_basis": "prompt_concept_only",
+        "image_evaluation_status": "not_run",
+        "image_evaluation_note": "Generated image pixels are not inspected by the rule-based score.",
+    }
 
 
 def generate_local_svg(context: StudioContext, prompt: str, style_reference: str) -> str:

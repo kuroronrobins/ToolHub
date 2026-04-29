@@ -1,0 +1,4 @@
+# Review these import-derived candidates before installing.
+# App Studio did not find requirements.txt or pyproject.toml.
+# pdfrw
+# reportlab

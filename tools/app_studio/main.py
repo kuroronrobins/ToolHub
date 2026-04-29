@@ -30,6 +30,7 @@ from app_studio.lock_generator import generate_lock
 from app_studio.manifest_generator import generate_app_yaml
 from app_studio.metadata_override import apply_metadata_override, load_metadata_override
 from app_studio.models import BUILD_MODES, NORMAL_REGISTRATION_BUILD_MODE, NORMAL_REGISTRATION_POLICY, GeneratedArtifacts, ImportOptions
+from app_studio.openai_client import test_image_generation_connection
 from app_studio.readme_generator import generate_readme
 from app_studio.registrar import apply_registration
 from app_studio.runtime_checker import verify_runtime
@@ -49,6 +50,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         parser.add_argument("--allow-warnings", action="store_true")
         return parser.parse_args(argv)
 
+    if argv and argv[0] == "image-test":
+        parser = argparse.ArgumentParser(description="Run a real OpenAI image generation connectivity test.")
+        parser.add_argument("command")
+        return parser.parse_args(argv)
+
     if argv and argv[0] == "import":
         argv = argv[1:]
     parser = argparse.ArgumentParser(description="ToolHub App Studio")
@@ -57,6 +63,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--name")
     parser.add_argument("--build-mode", default="auto", choices=sorted(BUILD_MODES))
     parser.add_argument("--icon-prompt")
+    parser.add_argument("--icon-style-preset")
+    parser.add_argument("--icon-style-custom")
+    parser.add_argument("--icon-revision-image")
     parser.add_argument("--version", default="0.1.0")
     parser.add_argument("--create-app-env", action="store_true")
     parser.add_argument("--rebuild-app-env", action="store_true")
@@ -89,6 +98,8 @@ def main(argv: list[str] | None = None) -> int:
             record_path = approve_app(repo_root, args.app_id, strict=args.strict_approval, allow_warnings=allow_warnings)
             print(f"Approval record was created: {record_path}")
             return 0
+        if args.command == "image-test":
+            return run_image_test()
         return run_import(args, repo_root)
     except Exception as exc:
         print(f"ToolHub App Studio error: {exc}", file=sys.stderr)
@@ -106,6 +117,9 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         name=args.name,
         build_mode=args.build_mode,
         icon_prompt=args.icon_prompt,
+        icon_style_preset=args.icon_style_preset,
+        icon_style_custom=args.icon_style_custom,
+        icon_revision_image_path=Path(args.icon_revision_image) if args.icon_revision_image else None,
         version=args.version,
         create_app_env=args.create_app_env,
         rebuild_app_env=args.rebuild_app_env,
@@ -155,6 +169,9 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
             ai_skip_reason=ai_skip_reason,
             metadata=metadata,
             dependency_report=dependency_report,
+            icon_style_preset=options.icon_style_preset,
+            icon_style_custom=options.icon_style_custom,
+            revision_image_path=str(options.icon_revision_image_path) if options.icon_revision_image_path else None,
         )
     icon_design_brief = build_icon_design_brief(context, metadata, dependency_report, style_reference).to_dict()
     icon_override_warnings: list[str] = []
@@ -187,6 +204,9 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "secret_scan_report": str(context.output_dir / "secret_scan_report.md"),
         "blocking_secret_findings": secret_finding_summaries(secret_report.blocking_findings, context.source_root),
         "icon_style_reference": style_reference,
+        "icon_style_preset": options.icon_style_preset or "",
+        "icon_style_custom": options.icon_style_custom or "",
+        "icon_revision_image_used": bool(options.icon_revision_image_path),
         "icon_function_interpretation": icon_design_brief,
         "icon_candidate_count": len(icon_candidates),
         "selected_icon_source": selected_icon_source,
@@ -347,6 +367,31 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     print(f"execution_test_result overall_status={execution_result.overall_status}, approval_allowed={execution_result.approval_allowed}")
     print("release/app_manifest.json starts with enabled=false for imported apps.")
     return 0 if execution_result.approval_allowed else 1
+
+
+def run_image_test() -> int:
+    result = test_image_generation_connection()
+    payload = {
+        "ok": result.ok,
+        "status": result.status,
+        "model": result.model,
+        "api": result.api,
+        "content_type": result.content_type,
+        "resolution": result.resolution,
+        "fallback_reason": result.fallback_reason,
+        "error": result.error,
+        "error_category": result.error_category,
+        "used_api": result.used_api,
+        "message": "Image API test passed." if result.ok else (result.fallback_reason or result.error or "Image API test failed."),
+    }
+    print(json_dumps(payload))
+    return 0 if result.ok else 1
+
+
+def json_dumps(value: dict) -> str:
+    import json
+
+    return json.dumps(value, ensure_ascii=False)
 
 
 def validate_flag_combination(args: argparse.Namespace) -> None:

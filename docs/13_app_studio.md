@@ -8,6 +8,14 @@ GUIでは、Suggest が生成した `proposed_app.yaml` と `icon_work/` をAI/f
 
 AI提案パネルはCLIへ渡すAI環境の診断も表示します。表示対象は AI enabled、API key source、Text model、Image model、CLI env ready です。APIキー本文は表示しません。`metadata_ai_report` と `icon_work/ai_generation_report.md` から、metadata/image それぞれの `status`、`model`、`parse_status`、`content_type`、`saved_candidate`、`fallback_reason` も確認できます。
 
+AI/APIキー管理には「画像生成テスト（実API呼び出し）」があります。このボタンは実際に OpenAI 画像生成APIを呼び、APIキー、Image model、`size`、`quality`、`output_format`、`b64_json`/`url` 返却を確認します。結果には ok/failed、model、api、status、content_type、resolution、fallback_reason、error_category、error概要を表示します。APIキー本文は表示しません。
+
+Icon候補の `source` が `api_generate` または `api_edit` のものだけを通常のAI生成候補として扱います。`fallback` / `fallback_after_api_failure` は API未実行または API失敗時の暫定プレースホルダーであり、AI生成成功とは扱いません。GUIでは API候補数、fallback候補数、使用モデル、スタイル、直近の画像API失敗理由を候補一覧上部に表示します。fallback PNG を使う場合は、候補カード上で明示的に採用する必要があります。
+
+Icon生成には `iconStylePreset` を使います。選択肢は `modern`、`vivid`、`realistic`、`colored_pencil`、`watercolor`、`flat_vector`、`3d_soft`、`glassmorphism`、`clay`、`custom` です。`custom` では自由入力のスタイル指示を優先し、後段の固定 prompt が色鉛筆風・写実風・ビビッド等の指定を汎用の polished/glass/3D 表現で上書きしないようにします。
+
+再生成時に修正元PNGが選ばれている場合、CLI はそのPNGを一時ファイルとして渡し、OpenAI SDK の画像編集API経路を試みます。画像編集APIが失敗した場合は `candidate_manifest.json` と GUI に失敗理由を残し、fallback候補は暫定プレースホルダーとして分離表示します。画像候補の自動採点は現在 prompt/concept ベースであり、生成画像そのものを vision model で検査した結果ではありません。
+
 GUIでは CLI process の `exit_code` / `process_ok` と、`execution_test_result.json` の `overall_status` / `approval_allowed` を分けて表示します。通常新規登録の frozen-folder では runner dry execution や Playwright ログイン未確認により `overall_status: warn` になることがあります。警告は `approval_blocking_warning`、`non_blocking_warning`、`info` に分類され、`approval_allowed: true` かつ `approval_blocking_warnings_count: 0` の場合は、デフォルトの慎重モードでも承認できます。App Packが見つからない場合は App Pack 欄だけ `not found` と表示します。Apply後はGUIが `app_studio_read_result` を再実行し、生成済みJSONの内容を表示へ反映します。
 
 ## AI提案メタデータとmetadata_override
@@ -149,7 +157,9 @@ AgendaSnap 級の複雑アプリ、音声/GUI/外部DLL/重い依存を含むア
 
 `-IconPrompt` を指定すると、`icon_work/icon_prompt_revision.md` に修正指示を保存します。App Studio の標準アイコン成果物はPNGです。AI画像生成APIが b64 PNG を返した場合は `icon_work/icon_candidate_1.png` に保存し、GUIで人間が採用したPNGだけを `icon_work/icon_final.png`、`final_app/icon.png`、Apply後の `apps/<app_id>/icon.png` に反映します。
 
-APIキー未設定、AI無効、OpenAI packageなし、API失敗、high secret検出時はAI送信せず deterministic fallback PNG を生成します。fallback/互換用SVGは `icon_work/icon_fallback.svg` と `final_app/icon.svg` に残します。モデル名はコードに固定せず、GUIでは管理者画面の Image model 設定、CLIでは `TOOLHUB_APP_STUDIO_IMAGE_MODEL` から読みます。既定候補は `gpt-image-2` ですが、設定で変更できます。
+APIキー未設定、AI無効、OpenAI packageなし、API失敗、high/medium secret検出時はAI送信せず deterministic fallback PNG を生成します。fallback/互換用SVGは `icon_work/icon_fallback.svg` と `final_app/icon.svg` に残します。fallback PNG は 512x512 の暫定画像で、API生成成功とは扱いません。モデル名はコードに固定せず、GUIでは管理者画面の Image model 設定、CLIでは `TOOLHUB_APP_STUDIO_IMAGE_MODEL` から読みます。既定候補は OpenAI 公式ドキュメントで GPT Image 系として案内されている `gpt-image-2` です。実環境で利用できるかは「画像生成テスト（実API呼び出し）」で確認してください。
+
+`icon_work/candidate_manifest.json` には候補ごとの `source`、`api`、`model`、`status`、`resolution`、`content_type`、`fallback_reason`、`error_category`、`score_basis`、`image_evaluation_status` を保存します。互換のため `icon_candidate_1.png` は引き続き読み込めますが、manifest のない古い候補は `legacy` として扱います。
 
 ## 実行確認と人間承認
 

@@ -45,6 +45,22 @@ pub struct AiConnectionTestResult {
     pub image_model_set: bool,
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AiImageGenerationTestResult {
+    pub ok: bool,
+    pub message: String,
+    pub key_source: Option<String>,
+    pub model: String,
+    pub api: String,
+    pub status: String,
+    pub content_type: String,
+    pub resolution: Option<String>,
+    pub fallback_reason: Option<String>,
+    pub error: Option<String>,
+    pub error_category: Option<String>,
+}
+
 pub fn settings_path(user_data_root: &Path) -> PathBuf {
     user_data_root.join("config").join("app_studio_ai.json")
 }
