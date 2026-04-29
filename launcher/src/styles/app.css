@@ -765,6 +765,11 @@ button {
   color: #0f5f58;
 }
 
+.admin-status-pill.warn {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
 .admin-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -1219,6 +1224,42 @@ button {
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+}
+
+.studio-icon-candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.studio-icon-candidate-card {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 10px;
+  border: 1px solid #dfe5ee;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.studio-icon-candidate-card.selected {
+  border-color: #0f766e;
+  background: #f2fbfa;
+}
+
+.studio-icon-candidate-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.studio-icon-candidate-meta {
+  display: grid;
+  gap: 3px;
+  color: #5b6675;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
 }
 
 .studio-icon-preview {
@@ -2156,6 +2197,7 @@ button {
     .studio-sidebar-status div,
     .studio-ai-actions,
     .studio-register-action-grid,
+    .studio-icon-candidate-grid,
     .studio-icon-compare,
     .studio-prompt-summary {
     grid-template-columns: 1fr;

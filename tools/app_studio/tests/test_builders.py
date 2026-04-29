@@ -15,9 +15,9 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "tools" / "app_studio"))
 sys.path.insert(0, str(ROOT / "runner"))
 
-from app_studio.ai_metadata_suggester import metadata_prompt, suggest_metadata
+from app_studio.ai_metadata_suggester import metadata_prompt, suggest_icon_prompt, suggest_metadata
 from app_studio.build_profile import analyze_exe_readiness, default_build_profile
-from app_studio.icon_generator import image_api_prompt
+from app_studio.icon_generator import generate_icon_assets_with_candidates, generate_local_png, image_api_prompt
 from app_studio.app_env_builder import create_app_env, create_build_env
 from app_studio.approval import approve_app, validate_approval_inputs, verify_release_gate
 from app_studio.build_planner import make_build_plan
@@ -27,7 +27,7 @@ from app_studio.frozen_folder_builder import build_report as frozen_build_report
 from app_studio.frozen_folder_builder import detect_pyinstaller_environment_issue, pyinstaller_command
 from app_studio.frozen_folder_builder import probe_pyinstaller
 from app_studio.lock_generator import generate_lock
-from app_studio.models import BuildPlan, DependencyReport, FileRecord, GeneratedArtifacts, ImportOptions, RuntimeCheck, RuntimeCheckResult, SecretFinding, SecretScanReport, SourceInventory
+from app_studio.models import BuildPlan, DependencyReport, FileRecord, GeneratedArtifacts, IconCandidateAsset, ImportOptions, RuntimeCheck, RuntimeCheckResult, SecretFinding, SecretScanReport, SourceInventory
 from app_studio.models import AppEnvBuildResult, LockGenerationResult
 from app_studio.openai_client import generate_image
 from app_studio.runtime_checker import verify_runtime
@@ -943,6 +943,94 @@ class OpenAIFallbackTests(unittest.TestCase):
 
         self.assertIn("日本語のアイコン指示", prompt)
         self.assertIn("English rendering guidance", prompt)
+        self.assertIn("document-only", prompt)
+        self.assertIn("Do not repeat", prompt)
+
+    def test_icon_prompt_varies_by_app_metadata(self) -> None:
+        with workspace_tempdir() as root:
+            csv_context = make_context(root, "csv_merger")
+            csv_context.name = "CSV Merger"
+            report_root = root / "report_case"
+            report_root.mkdir()
+            report_context = make_context(report_root, "invoice_report")
+            report_context.name = "Invoice Report"
+
+            csv_prompt, _ = suggest_icon_prompt(
+                csv_context,
+                allow_ai=False,
+                metadata={
+                    "short_description": "CSV files are merged and summarized.",
+                    "categories": ["data"],
+                    "inputs": ["CSV files"],
+                    "outputs": ["summary table"],
+                    "keywords": ["csv", "pandas"],
+                },
+                dependency_report=DependencyReport("test", ["pandas"], ["pandas"], []),
+            )
+            report_prompt, _ = suggest_icon_prompt(
+                report_context,
+                allow_ai=False,
+                metadata={
+                    "short_description": "Invoice PDFs are checked and reported.",
+                    "categories": ["reports"],
+                    "inputs": ["invoice PDF"],
+                    "outputs": ["approval report"],
+                    "keywords": ["invoice", "pdf"],
+                },
+                dependency_report=DependencyReport("test", ["pypdf"], ["pypdf"], []),
+            )
+
+            self.assertNotEqual(csv_prompt, report_prompt)
+            self.assertIn("主役モチーフ", csv_prompt)
+            self.assertIn("書類だけ", csv_prompt)
+            self.assertIn("データグリッド", csv_prompt)
+            self.assertIn("帳票", report_prompt)
+
+    def test_local_fallback_png_defaults_to_512(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+
+            png = generate_local_png(context, "data grid icon", "")
+
+            self.assertEqual(png_dimensions(png), (512, 512))
+
+    def test_secret_blocked_icon_generation_does_not_call_image_api(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            with patch("app_studio.icon_generator.generate_image") as mocked_generate:
+                _, _, _, fallback_png, _, report, _, _, candidates = generate_icon_assets_with_candidates(
+                    context,
+                    allow_ai=False,
+                    ai_skip_reason="secret scan blocked AI submission, AI skipped",
+                    metadata={"keywords": ["csv"]},
+                )
+
+            mocked_generate.assert_not_called()
+            self.assertEqual(png_dimensions(fallback_png), (512, 512))
+            self.assertTrue(candidates)
+            self.assertTrue(all(candidate.is_fallback for candidate in candidates))
+            self.assertIn("secret scan blocked AI submission", report)
+
+    def test_revision_prompt_keeps_previous_prompt_and_instruction(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            revision, _ = suggest_icon_prompt(
+                context,
+                revision_prompt="\n".join(
+                    [
+                        "previous_candidate_id: icon_candidate_2",
+                        "previous_prompt: blue data grid with chart",
+                        "previous_adoption_state: adopted",
+                        "user_revision_instruction: make the chart motif stronger",
+                    ]
+                ),
+                allow_ai=False,
+                metadata={"keywords": ["csv"], "outputs": ["chart"]},
+            )
+
+            self.assertIn("previous_prompt: blue data grid with chart", revision)
+            self.assertIn("user_revision_instruction: make the chart motif stronger", revision)
+            self.assertIn("維持したい要素", revision)
 
 
 class IconCandidateExportTests(unittest.TestCase):
@@ -977,6 +1065,46 @@ class IconCandidateExportTests(unittest.TestCase):
 
             self.assertTrue((output / "icon_work" / "icon_final.png").is_file())
             self.assertTrue((output / "icon_work" / "icon_fallback.svg").is_file())
+
+    def test_candidate_manifest_and_multiple_candidates_are_saved(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            artifacts = minimal_artifacts(context)
+            artifacts.icon_candidates = [
+                IconCandidateAsset(
+                    candidate_id="icon_candidate_1",
+                    number=1,
+                    source="api",
+                    prompt="p1",
+                    model="gpt-image-2",
+                    status="success",
+                    resolution="1024x1024",
+                    is_fallback=False,
+                    png=b"\x89PNG\r\n\x1a\napi",
+                    file_name="icon_candidate_1.png",
+                ),
+                IconCandidateAsset(
+                    candidate_id="icon_candidate_2",
+                    number=2,
+                    source="fallback",
+                    prompt="p2",
+                    model="local-deterministic-fallback",
+                    status="fallback",
+                    resolution="512x512",
+                    is_fallback=True,
+                    png=b"\x89PNG\r\n\x1a\nfallback",
+                    file_name="icon_candidate_2.png",
+                ),
+            ]
+
+            output = export_suggestion(context, SourceInventory([]), DependencyReport("test", [], [], []), SecretScanReport([]), BuildPlan("app-env", "python_app_env", "src/main.py", None, []), artifacts)
+            manifest = json.loads((output / "icon_work" / "candidate_manifest.json").read_text(encoding="utf-8"))
+
+            self.assertTrue((output / "icon_work" / "icon_candidate_1.png").is_file())
+            self.assertTrue((output / "icon_work" / "icon_candidate_2.png").is_file())
+            self.assertEqual(len(manifest["candidates"]), 2)
+            self.assertFalse(manifest["candidates"][0]["fallback"])
+            self.assertTrue(manifest["candidates"][1]["fallback"])
 
 
 class RuntimeCheckerTests(unittest.TestCase):
@@ -1114,6 +1242,11 @@ def minimal_artifacts(context, icon_candidate_png: bytes | None = None, icon_can
         icon_candidate_png=icon_candidate_png,
         icon_candidate_url=icon_candidate_url,
     )
+
+
+def png_dimensions(png: bytes) -> tuple[int, int]:
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+    return int.from_bytes(png[16:20], "big"), int.from_bytes(png[20:24], "big")
 
 
 if __name__ == "__main__":

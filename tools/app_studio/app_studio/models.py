@@ -200,6 +200,91 @@ class DependencyReport:
 
 
 @dataclass
+class IconDesignBrief:
+    app_id: str
+    name: str
+    entry_name: str
+    purpose: str
+    primary_motif: str
+    secondary_motifs: list[str]
+    avoid: list[str]
+    palette: str
+    texture: str
+    small_size_rule: str
+    high_resolution_rule: str
+    toolhub_style_rule: str
+    categories: list[str] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
+    use_cases: list[str] = field(default_factory=list)
+    inputs: list[str] = field(default_factory=list)
+    outputs: list[str] = field(default_factory=list)
+    source_files: list[str] = field(default_factory=list)
+    dependency_signals: list[str] = field(default_factory=list)
+    readme_excerpt: str = ""
+    style_reference: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "app_id": self.app_id,
+            "name": self.name,
+            "entry_name": self.entry_name,
+            "purpose": self.purpose,
+            "primary_motif": self.primary_motif,
+            "secondary_motifs": self.secondary_motifs,
+            "avoid": self.avoid,
+            "palette": self.palette,
+            "texture": self.texture,
+            "small_size_rule": self.small_size_rule,
+            "high_resolution_rule": self.high_resolution_rule,
+            "toolhub_style_rule": self.toolhub_style_rule,
+            "categories": self.categories,
+            "keywords": self.keywords,
+            "use_cases": self.use_cases,
+            "inputs": self.inputs,
+            "outputs": self.outputs,
+            "source_files": self.source_files,
+            "dependency_signals": self.dependency_signals,
+            "readme_excerpt": self.readme_excerpt,
+            "style_reference": self.style_reference,
+        }
+
+
+@dataclass
+class IconCandidateAsset:
+    candidate_id: str
+    number: int
+    source: str
+    prompt: str
+    model: str
+    status: str
+    resolution: str
+    is_fallback: bool
+    png: bytes | None = None
+    url: str = ""
+    file_name: str = ""
+    url_file_name: str = ""
+    notes: str = ""
+    revision_of: str = ""
+
+    def manifest_entry(self) -> dict[str, Any]:
+        return {
+            "candidate_id": self.candidate_id,
+            "number": self.number,
+            "source": self.source,
+            "prompt": self.prompt,
+            "model": self.model,
+            "status": self.status,
+            "resolution": self.resolution,
+            "fallback": self.is_fallback,
+            "file_name": self.file_name,
+            "url_file_name": self.url_file_name,
+            "url": self.url,
+            "notes": self.notes,
+            "revision_of": self.revision_of,
+        }
+
+
+@dataclass
 class BuildPlan:
     mode: str
     runner: str
@@ -234,6 +319,7 @@ class GeneratedArtifacts:
     icon_final_png: bytes | None = None
     icon_candidate_png: bytes | None = None
     icon_candidate_url: str = ""
+    icon_candidates: list[IconCandidateAsset] = field(default_factory=list)
     build_profile: dict[str, Any] | None = None
     exe_readiness: dict[str, Any] | None = None
 

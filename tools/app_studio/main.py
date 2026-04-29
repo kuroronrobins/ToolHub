@@ -148,11 +148,13 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     readme = generate_readme(context, plan)
     ai_skip_reason = "secret scan blocked AI submission, AI skipped" if secret_report.blocks_ai_submission else ""
     with timings.phase("icon_generation_fallback"):
-        icon_prompt_initial, icon_prompt_revision, icon_svg, fallback_png, style_reference, icon_ai_report, icon_candidate_png, icon_candidate_url = generate_icon_assets_with_candidates(
+        icon_prompt_initial, icon_prompt_revision, icon_svg, fallback_png, style_reference, icon_ai_report, icon_candidate_png, icon_candidate_url, icon_candidates = generate_icon_assets_with_candidates(
             context,
             args.icon_prompt,
             allow_ai=not secret_report.blocks_ai_submission,
             ai_skip_reason=ai_skip_reason,
+            metadata=metadata,
+            dependency_report=dependency_report,
         )
     icon_override_warnings: list[str] = []
     selected_icon_source = "fallback_png"
@@ -184,6 +186,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "secret_scan_report": str(context.output_dir / "secret_scan_report.md"),
         "blocking_secret_findings": secret_finding_summaries(secret_report.blocking_findings, context.source_root),
         "icon_style_reference": style_reference,
+        "icon_candidate_count": len(icon_candidates),
         "selected_icon_source": selected_icon_source,
         "icon_override_used": selected_icon_source != "fallback_png",
         "icon_override_warnings": icon_override_warnings,
@@ -215,6 +218,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         icon_final_png=icon_final_png,
         icon_candidate_png=icon_candidate_png,
         icon_candidate_url=icon_candidate_url,
+        icon_candidates=icon_candidates,
         build_profile=build_profile,
         exe_readiness=exe_readiness,
     )

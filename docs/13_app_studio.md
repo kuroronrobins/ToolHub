@@ -516,3 +516,35 @@ The approval record at `data/logs/app_studio/<app_id>_approval_record.md` record
 - `unmeasured_overhead_seconds`: time outside measured phases.
 
 The Tauri command result also records `process_wall_clock_seconds`, which is the desktop backend child-process duration. GUI wall-clock time can still be slightly longer because it includes UI state updates, result refresh, and rendering. The result panel shows actual time, estimated time, prediction difference, child-process time, measured phase total, and unmeasured overhead separately so that estimates are not mistaken for actual duration.
+
+## App Studio icon candidates
+
+App Studio now builds an icon design brief before image generation. The brief uses
+safe app-specific signals such as `app_id`, app name, entry file name, README
+excerpt, generated metadata, categories, keywords, use cases, inputs, outputs,
+and dependency names. It must not include API keys, secrets, or local absolute
+paths. If the secret scan finds high or medium findings that affect AI
+submission, text and image AI calls are skipped and local fallback candidates are
+used.
+
+Icon generation writes `icon_work/candidate_manifest.json` in addition to the
+legacy `icon_candidate_1.png` / `icon_candidate_1.url.txt` files. The manifest
+records each candidate id, source (`api`, `fallback`, or
+`fallback_after_api_failure`), prompt, model, status, resolution, and whether it
+is a fallback. The normal fallback PNG is generated at 512x512 instead of 64x64.
+When the image API returns 1024x1024 PNG data, that original candidate is kept in
+`icon_work` for review.
+
+The GUI shows each PNG candidate separately with its source, model, resolution,
+status, and adoption state. Pressing "このPNGを採用" stores a PNG override that is
+applied on the next Suggest/Apply run, so the selected PNG becomes
+`final_app/icon.png`. Removing the adoption returns to the deterministic fallback
+for the current run. Older outputs that only have `icon_candidate_1.png` remain
+readable.
+
+Icon regeneration is text-revision based. The GUI lets the user choose the
+previous candidate to revise, then sends a revision context containing the
+previous candidate id, previous prompt, previous source/status/resolution,
+adoption state, user instruction, elements to preserve, and elements to change.
+Image editing with the previous PNG as binary input is not implemented in this
+flow; the revision context is used to generate new candidates safely.

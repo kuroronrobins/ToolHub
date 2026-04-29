@@ -68,6 +68,7 @@ pub struct AppStudioEditableMetadata {
 pub struct AppStudioIconOverride {
     pub selected_icon_source: Option<String>,
     pub png_data_url: Option<String>,
+    pub candidate_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -247,6 +248,25 @@ pub struct AppStudioAiMetadataSuggestion {
 
 #[derive(Debug, Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct AppStudioAiIconCandidateSuggestion {
+    pub candidate_id: String,
+    pub number: usize,
+    pub source: String,
+    pub prompt: Option<String>,
+    pub model: Option<String>,
+    pub status: Option<String>,
+    pub resolution: Option<String>,
+    pub fallback: bool,
+    pub file_name: Option<String>,
+    pub url_file_name: Option<String>,
+    pub png_data_url: Option<String>,
+    pub url: Option<String>,
+    pub notes: Option<String>,
+    pub revision_of: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct AppStudioAiIconSuggestion {
     pub prompt_initial: Option<String>,
     pub prompt_revision: Option<String>,
@@ -256,6 +276,7 @@ pub struct AppStudioAiIconSuggestion {
     pub candidate_png_data_url: Option<String>,
     pub final_png_data_url: Option<String>,
     pub candidate_url: Option<String>,
+    pub candidates: Vec<AppStudioAiIconCandidateSuggestion>,
     pub ai_report: Option<String>,
 }
 
@@ -1230,6 +1251,21 @@ fn read_ai_proposal(output_dir: Option<&Path>) -> AppStudioAiProposal {
         read_png_data_url_optional(&icon_work.join("icon_candidate_1.png"));
     proposal.icon.final_png_data_url =
         read_png_data_url_optional(&icon_work.join("icon_final.png"));
+    proposal.icon.candidates = read_icon_candidates(&icon_work);
+    if proposal.icon.candidate_png_data_url.is_none() {
+        proposal.icon.candidate_png_data_url = proposal
+            .icon
+            .candidates
+            .iter()
+            .find_map(|candidate| candidate.png_data_url.clone());
+    }
+    if proposal.icon.candidate_url.is_none() {
+        proposal.icon.candidate_url = proposal
+            .icon
+            .candidates
+            .iter()
+            .find_map(|candidate| candidate.url.clone());
+    }
 
     if proposal.metadata.icon_prompt.is_none() {
         proposal.metadata.icon_prompt = proposal
@@ -1343,6 +1379,126 @@ fn read_png_data_url_optional(path: &Path) -> Option<String> {
         "data:image/png;base64,{}",
         general_purpose::STANDARD.encode(bytes)
     ))
+}
+
+fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggestion> {
+    let mut candidates = Vec::new();
+    if let Some(json) = read_json(&icon_work.join("candidate_manifest.json")) {
+        if let Some(items) = json.get("candidates").and_then(Value::as_array) {
+            for (index, item) in items.iter().enumerate() {
+                let file_name = item
+                    .get("file_name")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+                let url_file_name = item
+                    .get("url_file_name")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+                let png_data_url = file_name
+                    .as_deref()
+                    .and_then(|name| read_png_data_url_optional(&icon_work.join(name)));
+                let url = item
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .or_else(|| {
+                        url_file_name
+                            .as_deref()
+                            .and_then(|name| read_text_optional(&icon_work.join(name)))
+                    });
+                candidates.push(AppStudioAiIconCandidateSuggestion {
+                    candidate_id: item
+                        .get("candidate_id")
+                        .or_else(|| item.get("id"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .unwrap_or_else(|| format!("icon_candidate_{}", index + 1)),
+                    number: item
+                        .get("number")
+                        .and_then(Value::as_u64)
+                        .map(|value| value as usize)
+                        .unwrap_or(index + 1),
+                    source: item
+                        .get("source")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown")
+                        .to_string(),
+                    prompt: item
+                        .get("prompt")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    model: item.get("model").and_then(Value::as_str).map(str::to_string),
+                    status: item
+                        .get("status")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    resolution: item
+                        .get("resolution")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    fallback: item
+                        .get("fallback")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    file_name,
+                    url_file_name,
+                    png_data_url,
+                    url,
+                    notes: item.get("notes").and_then(Value::as_str).map(str::to_string),
+                    revision_of: item
+                        .get("revision_of")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                });
+            }
+        }
+    }
+    if candidates.is_empty() {
+        if let Some(png_data_url) = read_png_data_url_optional(&icon_work.join("icon_candidate_1.png")) {
+            candidates.push(AppStudioAiIconCandidateSuggestion {
+                candidate_id: "icon_candidate_1".to_string(),
+                number: 1,
+                source: "legacy".to_string(),
+                prompt: read_text_optional(&icon_work.join("icon_prompt_revision.md"))
+                    .or_else(|| read_text_optional(&icon_work.join("icon_prompt_initial.md"))),
+                model: None,
+                status: Some("legacy".to_string()),
+                resolution: None,
+                fallback: false,
+                file_name: Some("icon_candidate_1.png".to_string()),
+                url_file_name: None,
+                png_data_url: Some(png_data_url),
+                url: None,
+                notes: Some("Legacy icon_candidate_1.png candidate.".to_string()),
+                revision_of: None,
+            });
+        } else if let Some(url) = read_text_optional(&icon_work.join("icon_candidate_1.url.txt")) {
+            candidates.push(AppStudioAiIconCandidateSuggestion {
+                candidate_id: "icon_candidate_1".to_string(),
+                number: 1,
+                source: "legacy".to_string(),
+                prompt: read_text_optional(&icon_work.join("icon_prompt_revision.md"))
+                    .or_else(|| read_text_optional(&icon_work.join("icon_prompt_initial.md"))),
+                model: None,
+                status: Some("legacy".to_string()),
+                resolution: None,
+                fallback: false,
+                file_name: None,
+                url_file_name: Some("icon_candidate_1.url.txt".to_string()),
+                png_data_url: None,
+                url: Some(url),
+                notes: Some("Legacy icon_candidate_1.url.txt candidate.".to_string()),
+                revision_of: None,
+            });
+        }
+    }
+    candidates
 }
 
 fn read_summary(
@@ -2058,6 +2214,17 @@ fn icon_override_payload(
         "png_base64".to_string(),
         Value::String(png_data_url.to_string()),
     );
+    if let Some(candidate_id) = icon_override
+        .candidate_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        map.insert(
+            "candidate_id".to_string(),
+            Value::String(candidate_id.to_string()),
+        );
+    }
     Ok(Some((Value::Object(map), source.to_string())))
 }
 
@@ -2564,6 +2731,7 @@ mod tests {
         let icon_override = Some(AppStudioIconOverride {
             selected_icon_source: Some("candidate_png".to_string()),
             png_data_url: Some("data:image/png;base64,iVBORw0KGgo=".to_string()),
+            candidate_id: Some("icon_candidate_2".to_string()),
         });
 
         let (payload, source) = icon_override_payload(&icon_override).unwrap().unwrap();
@@ -2578,6 +2746,7 @@ mod tests {
         assert!(icon_override_payload(&Some(AppStudioIconOverride {
             selected_icon_source: Some("fallback_png".to_string()),
             png_data_url: None,
+            candidate_id: None,
         }))
         .unwrap()
         .is_none());
@@ -2749,6 +2918,12 @@ mod tests {
         .unwrap();
         std::fs::write(icon_work.join("icon_final.png"), [137, 80, 78, 71]).unwrap();
         std::fs::write(icon_work.join("icon_candidate_1.png"), [137, 80, 78, 71]).unwrap();
+        std::fs::write(icon_work.join("icon_candidate_2.png"), [137, 80, 78, 71]).unwrap();
+        std::fs::write(
+            icon_work.join("candidate_manifest.json"),
+            "{\"candidates\":[{\"candidate_id\":\"icon_candidate_1\",\"number\":1,\"source\":\"api\",\"prompt\":\"p1\",\"model\":\"gpt-image-2\",\"status\":\"success\",\"resolution\":\"1024x1024\",\"fallback\":false,\"file_name\":\"icon_candidate_1.png\"},{\"candidate_id\":\"icon_candidate_2\",\"number\":2,\"source\":\"fallback\",\"prompt\":\"p2\",\"model\":\"local\",\"status\":\"fallback\",\"resolution\":\"512x512\",\"fallback\":true,\"file_name\":\"icon_candidate_2.png\"}]}",
+        )
+        .unwrap();
 
         let proposal = read_ai_proposal(Some(&output));
         assert!(proposal.ok);
@@ -2763,6 +2938,9 @@ mod tests {
         assert!(proposal.icon.fallback_svg.is_some());
         assert!(proposal.icon.final_png_data_url.is_some());
         assert!(proposal.icon.candidate_png_data_url.is_some());
+        assert_eq!(proposal.icon.candidates.len(), 2);
+        assert_eq!(proposal.icon.candidates[0].candidate_id, "icon_candidate_1");
+        assert!(proposal.icon.candidates[1].fallback);
         assert!(proposal
             .metadata
             .release_notes

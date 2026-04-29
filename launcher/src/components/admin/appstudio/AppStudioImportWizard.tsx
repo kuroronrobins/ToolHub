@@ -15,6 +15,7 @@ import { suggestAppIdentity } from "../../../lib/appStudioIdentity";
 import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
 import type {
   AppStudioAiProposal,
+  AppStudioAiIconCandidate,
   AppStudioApprovalMode,
   AppStudioIconOverride,
   AppStudioImportRequest,
@@ -63,6 +64,8 @@ export function AppStudioImportWizard() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [iconRevisionPrompt, setIconRevisionPrompt] = useState("");
+  const [revisionBaseCandidateId, setRevisionBaseCandidateId] = useState("");
+  const [lastRevisionBase, setLastRevisionBase] = useState<AppStudioAiIconCandidate | null>(null);
 
   const canRun = useMemo(() => request.entry.trim().length > 0 && !busy, [busy, request.entry]);
   const recommendation = useMemo(
@@ -362,13 +365,23 @@ export function AppStudioImportWizard() {
     finishOperation(ok ? "success" : "warning", messageText || (ok ? "保存済みAI提案を読み込みました。" : "保存済みAI提案を読み込めませんでした。"));
   }
 
+  function handleProposalLoaded(proposal: AppStudioAiProposal) {
+    setAiProposal(proposal);
+    const candidates = iconCandidatesForProposal(proposal);
+    if (!revisionBaseCandidateId || !candidates.some((candidate) => candidate.candidateId === revisionBaseCandidateId)) {
+      setRevisionBaseCandidateId(candidates[0]?.candidateId ?? "");
+    }
+  }
+
   async function regenerateIconProposal() {
     const revision = iconRevisionPrompt.trim();
     if (!revision) {
       setError("アイコンの修正指示を入力してください。");
       return;
     }
-    const nextRequest = { ...request, iconPrompt: revision };
+    const baseCandidate = selectedRevisionBaseCandidate(aiProposal, revisionBaseCandidateId);
+    setLastRevisionBase(baseCandidate);
+    const nextRequest = { ...request, iconPrompt: buildIconRevisionContext(baseCandidate, aiProposal, request.iconOverride, revision) };
     setRequest(nextRequest);
     const generated = await run("suggest", "aiProposal", nextRequest);
     if (!generated) {
@@ -377,7 +390,7 @@ export function AppStudioImportWizard() {
     beginOperation("refresh", "再生成したアイコン候補を読み込んでいます。");
     try {
       const loaded = await appStudioReadAiProposal(generated.appId ?? nextRequest.appId, generated.outputDir ?? undefined);
-      setAiProposal(loaded);
+      handleProposalLoaded(loaded);
       finishOperation(loaded.ok ? "success" : "warning", loaded.ok ? "アイコン候補を再生成して読み込みました。" : "再生成後の提案ファイルを読み込めませんでした。");
     } catch (loadError) {
       const fallback = "再生成後のアイコン候補を読み込めませんでした。";
@@ -506,7 +519,8 @@ export function AppStudioImportWizard() {
           onAdopt={adoptAiProposal}
           onIconAdopt={adoptIconOverride}
           selectedIconSource={request.iconOverride?.selectedIconSource}
-          onProposalLoaded={setAiProposal}
+          selectedIconCandidateId={request.iconOverride?.candidateId}
+          onProposalLoaded={handleProposalLoaded}
           onLoadStart={beginProposalLoad}
           onLoadComplete={finishProposalLoad}
         />
@@ -555,7 +569,11 @@ export function AppStudioImportWizard() {
   }
 
   function renderIconRevisionPanel() {
-    const latestIcon = aiProposal?.icon.candidatePngDataUrl ?? aiProposal?.icon.finalPngDataUrl ?? null;
+    const revisionCandidates = iconCandidatesForProposal(aiProposal);
+    const baseCandidate = selectedRevisionBaseCandidate(aiProposal, revisionBaseCandidateId);
+    const latestCandidate = revisionCandidates[0] ?? null;
+    const baseIcon = lastRevisionBase?.pngDataUrl ?? baseCandidate?.pngDataUrl ?? null;
+    const latestIcon = latestCandidate?.pngDataUrl ?? aiProposal?.icon.candidatePngDataUrl ?? aiProposal?.icon.finalPngDataUrl ?? null;
     const adoptedIcon = request.iconOverride?.pngDataUrl ?? null;
     return (
       <section className="studio-icon-revision-panel">
@@ -566,7 +584,21 @@ export function AppStudioImportWizard() {
           </div>
           <span className="admin-status-pill">採用中: {iconSourceLabel(request.iconOverride?.selectedIconSource)}</span>
         </div>
+        <label className="admin-field">
+          <span>修正元の候補</span>
+          <select value={revisionBaseCandidateId} onChange={(event) => setRevisionBaseCandidateId(event.target.value)}>
+            {revisionCandidates.map((candidate) => (
+              <option key={candidate.candidateId} value={candidate.candidateId}>
+                候補 {candidate.number}: {candidate.fallback ? "fallback" : "API生成"} / {candidate.resolution || "unknown"}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="studio-icon-compare">
+          <div>
+            <span>修正元候補</span>
+            {baseIcon ? <img className="studio-icon-preview" src={baseIcon} alt="修正元のPNGアイコン候補" /> : <div className="studio-icon-empty">候補なし</div>}
+          </div>
           <div>
             <span>現在採用中</span>
             {adoptedIcon ? <img className="studio-icon-preview" src={adoptedIcon} alt="現在採用中のPNGアイコン" /> : <div className="studio-icon-empty">未採用</div>}
@@ -678,6 +710,61 @@ export function AppStudioImportWizard() {
       </section>
     );
   }
+}
+
+function iconCandidatesForProposal(proposal: AppStudioAiProposal | null): AppStudioAiIconCandidate[] {
+  const icon = proposal?.icon;
+  if (!icon) {
+    return [];
+  }
+  if (Array.isArray(icon.candidates) && icon.candidates.length) {
+    return icon.candidates;
+  }
+  if (icon.candidatePngDataUrl || icon.candidateUrl) {
+    return [
+      {
+        candidateId: "icon_candidate_1",
+        number: 1,
+        source: "legacy",
+        prompt: icon.promptRevision || icon.promptInitial,
+        model: "unknown",
+        status: "legacy",
+        resolution: "unknown",
+        fallback: false,
+        pngDataUrl: icon.candidatePngDataUrl,
+        url: icon.candidateUrl,
+      },
+    ];
+  }
+  return [];
+}
+
+function selectedRevisionBaseCandidate(proposal: AppStudioAiProposal | null, candidateId: string): AppStudioAiIconCandidate | null {
+  const candidates = iconCandidatesForProposal(proposal);
+  return candidates.find((candidate) => candidate.candidateId === candidateId) ?? candidates[0] ?? null;
+}
+
+function buildIconRevisionContext(
+  baseCandidate: AppStudioAiIconCandidate | null,
+  proposal: AppStudioAiProposal | null,
+  iconOverride: AppStudioIconOverride | undefined,
+  userInstruction: string,
+): string {
+  const previousPrompt = baseCandidate?.prompt || proposal?.icon.promptRevision || proposal?.icon.promptInitial || "";
+  const adopted = iconOverride?.candidateId && baseCandidate?.candidateId === iconOverride.candidateId ? "adopted" : "not_adopted";
+  return [
+    "Icon revision context",
+    `previous_candidate_id: ${baseCandidate?.candidateId || "unknown"}`,
+    `previous_prompt: ${previousPrompt}`,
+    `previous_status: ${baseCandidate?.status || "unknown"}`,
+    `previous_source: ${baseCandidate?.fallback ? "fallback" : baseCandidate?.source || "unknown"}`,
+    `previous_resolution: ${baseCandidate?.resolution || "unknown"}`,
+    `previous_adoption_state: ${adopted}`,
+    `user_revision_instruction: ${userInstruction}`,
+    "preserve: app-specific primary motif, ToolHub visual consistency, clean silhouette, high-DPI polish, small-size readability",
+    "change: follow the user revision instruction while avoiding generic document-only, gear-only, check-only, and initial-letter-only designs",
+    "image_edit_api: not used in this build; regenerate from this text revision context",
+  ].join("\n");
 }
 
 function estimateOperationSeconds(kind: StudioOperationKind, result: AppStudioRunResult | null): number | null {

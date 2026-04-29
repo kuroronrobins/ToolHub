@@ -138,5 +138,7 @@ export function cleanIconOverride(iconOverride?: AppStudioIconOverride): AppStud
   return {
     selectedIconSource: iconOverride.selectedIconSource,
     pngDataUrl,
+    candidateId: cleanString(iconOverride.candidateId) || undefined,
+    sourcePrompt: cleanString(iconOverride.sourcePrompt) || undefined,
   };
 }

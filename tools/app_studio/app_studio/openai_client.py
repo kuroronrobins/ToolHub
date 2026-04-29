@@ -21,6 +21,7 @@ class OpenAIResult:
     api: str = ""
     content_type: str = "none"
     fallback_reason: str = ""
+    resolution: str = ""
 
 
 def ai_enabled() -> bool:
@@ -94,25 +95,25 @@ def complete_json(system_prompt: str, user_prompt: str) -> OpenAIResult:
         return result_with_report(False, True, "", api, "failed", model or "", "none", reason, repr(exc))
 
 
-def generate_image(prompt: str) -> OpenAIResult:
+def generate_image(prompt: str, size: str = "1024x1024", quality: str = "medium") -> OpenAIResult:
     model = get_image_model()
     allowed, status, reason = can_call_api(model)
     api = "images.generate"
     if not allowed:
-        return result_with_report(False, False, "", api, status, model or "", "none", reason)
+        return result_with_report(False, False, "", api, status, model or "", "none", reason, resolution=size)
     try:
         from openai import OpenAI  # type: ignore
     except Exception as exc:
         reason = f"OpenAI package is not available: {short_error(exc)}"
-        return result_with_report(False, False, "", api, "fallback", model or "", "none", reason, repr(exc))
+        return result_with_report(False, False, "", api, "fallback", model or "", "none", reason, repr(exc), resolution=size)
 
     client = OpenAI()
     params: dict[str, Any] = {
         "model": model,
         "prompt": prompt,
-        "size": "1024x1024",
+        "size": size,
         "output_format": "png",
-        "quality": "medium",
+        "quality": quality,
     }
     try:
         response = client.images.generate(**params)
@@ -123,16 +124,16 @@ def generate_image(prompt: str) -> OpenAIResult:
                 response = client.images.generate(**retry_params)
             except Exception as retry_exc:
                 reason = f"Image API failed after optional-parameter retry: {short_error(retry_exc)}"
-                return result_with_report(False, True, "", api, "failed", model or "", "none", reason, repr(retry_exc), output_format="not_requested", quality="not_requested")
+                return result_with_report(False, True, "", api, "failed", model or "", "none", reason, repr(retry_exc), output_format="not_requested", quality="not_requested", resolution=size)
         else:
             reason = f"Image API failed: {short_error(exc)}"
-            return result_with_report(False, True, "", api, "failed", model or "", "none", reason, repr(exc))
+            return result_with_report(False, True, "", api, "failed", model or "", "none", reason, repr(exc), resolution=size)
 
     content, content_type = extract_image_content(response)
     if not content:
         reason = "Image API returned neither b64_json nor url."
-        return result_with_report(False, True, "", api, "failed", model or "", "none", reason)
-    return result_with_report(True, True, content, api, "success", model or "", content_type, "")
+        return result_with_report(False, True, "", api, "failed", model or "", "none", reason, resolution=size)
+    return result_with_report(True, True, content, api, "success", model or "", content_type, "", resolution=size)
 
 
 def result_with_report(
@@ -147,6 +148,7 @@ def result_with_report(
     error: str = "",
     output_format: str = "png",
     quality: str = "medium",
+    resolution: str = "",
 ) -> OpenAIResult:
     report = "\n".join(
         [
@@ -159,10 +161,11 @@ def result_with_report(
             f"content_type: {content_type}",
             f"output_format: {output_format if api == 'images.generate' else 'not_applicable'}",
             f"quality: {quality if api == 'images.generate' else 'not_applicable'}",
+            f"resolution: {resolution if api == 'images.generate' else 'not_applicable'}",
             f"fallback_reason: {mask_sensitive(fallback_reason) if fallback_reason else 'none'}",
         ]
     )
-    return OpenAIResult(ok, used_api, content, report, mask_sensitive(error), status, model, api, content_type, fallback_reason)
+    return OpenAIResult(ok, used_api, content, report, mask_sensitive(error), status, model, api, content_type, fallback_reason, resolution)
 
 
 def extract_response_text(response: Any) -> str:
