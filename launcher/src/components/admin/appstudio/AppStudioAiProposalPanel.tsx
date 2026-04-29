@@ -198,6 +198,7 @@ export function AppStudioAiProposalPanel({
               Promptを採用
             </button>
           </div>
+          <IconFunctionInterpretationPanel interpretation={icon.functionInterpretation} />
           <div className="studio-icon-candidate-grid">
             {iconCandidates.map((candidate) => (
               <IconCandidateCard
@@ -256,7 +257,50 @@ export function AppStudioAiProposalPanel({
   );
 }
 
+function IconFunctionInterpretationPanel({ interpretation }: { interpretation?: AppStudioAiProposal["icon"]["functionInterpretation"] | null }) {
+  if (!interpretation) {
+    return null;
+  }
+  const primaryAction = interpretation.primaryAction ?? interpretation.primary_action;
+  const inputObjects = interpretation.inputObjects ?? interpretation.input_objects ?? [];
+  const outputObjects = interpretation.outputObjects ?? interpretation.output_objects ?? [];
+  const actionFlow = interpretation.actionFlow ?? interpretation.action_flow;
+  const compositionTemplate = interpretation.compositionTemplate ?? interpretation.composition_template;
+  const avoidGeneric = interpretation.avoidGeneric ?? interpretation.avoid_generic ?? [];
+  const appKind = interpretation.appKind ?? interpretation.app_kind;
+  const allRows: Array<[string, string | undefined]> = [
+    ["主機能", primaryAction],
+    ["入力", inputObjects.join(", ")],
+    ["出力", outputObjects.join(", ")],
+    ["推定フロー", actionFlow],
+    ["推奨構図", compositionTemplate],
+    ["避ける表現", avoidGeneric.slice(0, 5).join(", ")],
+  ];
+  const rows = allRows.filter((row): row is [string, string] => Boolean(row[1]));
+  if (!rows.length) {
+    return null;
+  }
+  return (
+    <div className="studio-icon-interpretation">
+      <div>
+        <p className="dialog-kicker">AIが理解した機能</p>
+        <strong>{appKind || "アプリ機能の解釈"}</strong>
+      </div>
+      <dl>
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 function IconCandidateCard({ candidate, adopted, onAdopt }: { candidate: AppStudioAiIconCandidate; adopted: boolean; onAdopt: () => void }) {
+  const scoreTotal = typeof candidate.scoreTotal === "number" ? Math.round(candidate.scoreTotal) : null;
+  const conceptSummary = candidateConceptSummary(candidate);
   return (
     <article className={`studio-icon-candidate-card${adopted ? " selected" : ""}`}>
       <div className="studio-icon-candidate-head">
@@ -272,14 +316,32 @@ function IconCandidateCard({ candidate, adopted, onAdopt }: { candidate: AppStud
         <span>model: {candidate.model || "unknown"}</span>
         <span>resolution: {candidate.resolution || "unknown"}</span>
         <span>status: {statusValue(candidate.status || "unknown")}</span>
+        {candidate.conceptId ? <span>concept: {candidate.conceptId}</span> : null}
+        {scoreTotal !== null ? <span>score: {scoreTotal}</span> : null}
         {adopted ? <span>採用中</span> : null}
       </div>
+      {conceptSummary ? <p className="admin-muted">{conceptSummary}</p> : null}
       <button className="secondary-button" type="button" onClick={onAdopt} disabled={!candidate.pngDataUrl}>
         <CheckCircle2 size={17} aria-hidden="true" />
         このPNGを採用
       </button>
     </article>
   );
+}
+
+function candidateConceptSummary(candidate: AppStudioAiIconCandidate): string {
+  const concept = candidate.concept as Record<string, unknown> | null | undefined;
+  if (!concept) {
+    return "";
+  }
+  const direction = stringValue(concept.direction) || candidate.conceptId || "";
+  const composition = stringValue(concept.composition);
+  const whySpecific = stringValue(concept.why_specific) || stringValue(concept.whySpecific);
+  return [direction, composition, whySpecific].filter(Boolean).join(" / ");
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 function normalizedIconCandidates(icon: AppStudioAiProposal["icon"]): AppStudioAiIconCandidate[] {

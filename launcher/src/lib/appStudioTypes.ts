@@ -241,6 +241,7 @@ export interface AppStudioAiMetadataSuggestion {
 export interface AppStudioAiIconSuggestion {
   promptInitial?: string | null;
   promptRevision?: string | null;
+  functionInterpretation?: AppStudioIconFunctionInterpretation | null;
   candidateSvg?: string | null;
   finalSvg?: string | null;
   fallbackSvg?: string | null;
@@ -266,6 +267,62 @@ export interface AppStudioAiIconCandidate {
   url?: string | null;
   notes?: string | null;
   revisionOf?: string | null;
+  conceptId?: string | null;
+  concept?: AppStudioIconConcept | null;
+  styleFamily?: string | null;
+  scores?: AppStudioIconScores | null;
+  scoreTotal?: number | null;
+}
+
+export interface AppStudioIconFunctionInterpretation {
+  appKind?: string;
+  app_kind?: string;
+  primaryAction?: string;
+  primary_action?: string;
+  secondaryAction?: string;
+  secondary_action?: string;
+  inputObjects?: string[];
+  input_objects?: string[];
+  outputObjects?: string[];
+  output_objects?: string[];
+  actionFlow?: string;
+  action_flow?: string;
+  visualPriority?: string[];
+  visual_priority?: string[];
+  avoidGeneric?: string[];
+  avoid_generic?: string[];
+  compositionTemplate?: string;
+  composition_template?: string;
+  primaryMotif?: string;
+  primary_motif?: string;
+  secondaryMotifs?: string[];
+  secondary_motifs?: string[];
+}
+
+export interface AppStudioIconConcept {
+  id?: string;
+  direction?: string;
+  concept?: string;
+  primaryMotif?: string;
+  primary_motif?: string;
+  secondaryMotif?: string;
+  secondary_motif?: string;
+  composition?: string;
+  styleFamily?: string;
+  style_family?: string;
+  whySpecific?: string;
+  why_specific?: string;
+  avoidElements?: string[];
+  avoid_elements?: string[];
+}
+
+export interface AppStudioIconScores {
+  semanticClarity?: number;
+  specificity?: number;
+  smallSizeLegibility?: number;
+  aesthetics?: number;
+  diversity?: number;
+  [key: string]: number | undefined;
 }
 
 export interface AppStudioAiProposal {

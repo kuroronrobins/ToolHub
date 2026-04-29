@@ -205,6 +205,15 @@ class IconDesignBrief:
     name: str
     entry_name: str
     purpose: str
+    app_kind: str
+    primary_action: str
+    secondary_action: str
+    input_objects: list[str]
+    output_objects: list[str]
+    action_flow: str
+    visual_priority: list[str]
+    avoid_generic: list[str]
+    composition_template: str
     primary_motif: str
     secondary_motifs: list[str]
     avoid: list[str]
@@ -229,6 +238,15 @@ class IconDesignBrief:
             "name": self.name,
             "entry_name": self.entry_name,
             "purpose": self.purpose,
+            "app_kind": self.app_kind,
+            "primary_action": self.primary_action,
+            "secondary_action": self.secondary_action,
+            "input_objects": self.input_objects,
+            "output_objects": self.output_objects,
+            "action_flow": self.action_flow,
+            "visual_priority": self.visual_priority,
+            "avoid_generic": self.avoid_generic,
+            "composition_template": self.composition_template,
             "primary_motif": self.primary_motif,
             "secondary_motifs": self.secondary_motifs,
             "avoid": self.avoid,
@@ -250,6 +268,32 @@ class IconDesignBrief:
 
 
 @dataclass
+class IconConcept:
+    concept_id: str
+    direction: str
+    concept: str
+    primary_motif: str
+    secondary_motif: str
+    composition: str
+    style_family: str
+    why_specific: str
+    avoid_elements: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.concept_id,
+            "direction": self.direction,
+            "concept": self.concept,
+            "primary_motif": self.primary_motif,
+            "secondary_motif": self.secondary_motif,
+            "composition": self.composition,
+            "style_family": self.style_family,
+            "why_specific": self.why_specific,
+            "avoid_elements": self.avoid_elements,
+        }
+
+
+@dataclass
 class IconCandidateAsset:
     candidate_id: str
     number: int
@@ -265,6 +309,10 @@ class IconCandidateAsset:
     url_file_name: str = ""
     notes: str = ""
     revision_of: str = ""
+    concept_id: str = ""
+    concept: dict[str, Any] = field(default_factory=dict)
+    scores: dict[str, float] = field(default_factory=dict)
+    score_total: float = 0.0
 
     def manifest_entry(self) -> dict[str, Any]:
         return {
@@ -281,6 +329,10 @@ class IconCandidateAsset:
             "url": self.url,
             "notes": self.notes,
             "revision_of": self.revision_of,
+            "concept_id": self.concept_id,
+            "concept": self.concept,
+            "scores": self.scores,
+            "score_total": self.score_total,
         }
 
 
@@ -320,6 +372,7 @@ class GeneratedArtifacts:
     icon_candidate_png: bytes | None = None
     icon_candidate_url: str = ""
     icon_candidates: list[IconCandidateAsset] = field(default_factory=list)
+    icon_design_brief: dict[str, Any] = field(default_factory=dict)
     build_profile: dict[str, Any] | None = None
     exe_readiness: dict[str, Any] | None = None
 

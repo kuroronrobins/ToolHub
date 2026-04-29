@@ -15,9 +15,9 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "tools" / "app_studio"))
 sys.path.insert(0, str(ROOT / "runner"))
 
-from app_studio.ai_metadata_suggester import metadata_prompt, suggest_icon_prompt, suggest_metadata
+from app_studio.ai_metadata_suggester import build_icon_design_brief, metadata_prompt, normalize_icon_actions, normalize_icon_objects, select_icon_composition_template, suggest_icon_prompt, suggest_metadata
 from app_studio.build_profile import analyze_exe_readiness, default_build_profile
-from app_studio.icon_generator import generate_icon_assets_with_candidates, generate_local_png, image_api_prompt
+from app_studio.icon_generator import fallback_icon_concepts, generate_icon_assets_with_candidates, generate_local_png, image_api_prompt
 from app_studio.app_env_builder import create_app_env, create_build_env
 from app_studio.approval import approve_app, validate_approval_inputs, verify_release_gate
 from app_studio.build_planner import make_build_plan
@@ -944,7 +944,61 @@ class OpenAIFallbackTests(unittest.TestCase):
         self.assertIn("日本語のアイコン指示", prompt)
         self.assertIn("English rendering guidance", prompt)
         self.assertIn("document-only", prompt)
+        self.assertIn("generic abstract shapes only", prompt)
+        self.assertIn("2 to 4 meaningful objects", prompt)
         self.assertIn("Do not repeat", prompt)
+
+    def test_action_and_object_normalization(self) -> None:
+        text = "Combine PDF documents, upload results, then export an Excel table."
+
+        self.assertIn("merge", normalize_icon_actions(text))
+        self.assertIn("upload", normalize_icon_actions(text))
+        self.assertIn("export/download", normalize_icon_actions(text))
+        self.assertIn("pdf/document", normalize_icon_objects(text))
+        self.assertIn("csv/excel/table", normalize_icon_objects(text))
+
+    def test_function_template_prefers_pdf_merge(self) -> None:
+        template = select_icon_composition_template("merge", ["pdf/document"], ["pdf/document"])
+
+        self.assertIn("converging", template)
+        self.assertIn("PDF", template)
+
+    def test_design_brief_is_function_first(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root, "pdf_merge_tool")
+            context.name = "PDF Merge Tool"
+
+            brief = build_icon_design_brief(
+                context,
+                metadata={
+                    "short_description": "Combine multiple PDF documents into one PDF.",
+                    "inputs": ["PDF documents"],
+                    "outputs": ["merged PDF"],
+                    "keywords": ["pdf", "merge"],
+                },
+            )
+
+            self.assertEqual(brief.primary_action, "merge")
+            self.assertIn("pdf/document", brief.input_objects)
+            self.assertIn("converging", brief.composition_template)
+
+    def test_fallback_concepts_are_distinct_by_direction(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root, "pdf_merge_tool")
+            brief = build_icon_design_brief(
+                context,
+                metadata={
+                    "short_description": "Combine multiple PDF documents into one PDF.",
+                    "inputs": ["PDF documents"],
+                    "outputs": ["merged PDF"],
+                    "keywords": ["pdf", "merge"],
+                },
+            )
+
+            concepts = fallback_icon_concepts(brief, 3)
+
+            self.assertEqual({concept.direction for concept in concepts}, {"literal", "balanced", "signature"})
+            self.assertEqual(len({concept.composition for concept in concepts}), 3)
 
     def test_icon_prompt_varies_by_app_metadata(self) -> None:
         with workspace_tempdir() as root:
@@ -1021,6 +1075,9 @@ class OpenAIFallbackTests(unittest.TestCase):
                         "previous_candidate_id: icon_candidate_2",
                         "previous_prompt: blue data grid with chart",
                         "previous_adoption_state: adopted",
+                        "revision_mode: fresh",
+                        "change_strength: fresh",
+                        "divergence_requirement: the regenerated concept must visibly change at least one of composition, primary motif, or color focus from the previous candidate.",
                         "user_revision_instruction: make the chart motif stronger",
                     ]
                 ),
@@ -1030,6 +1087,8 @@ class OpenAIFallbackTests(unittest.TestCase):
 
             self.assertIn("previous_prompt: blue data grid with chart", revision)
             self.assertIn("user_revision_instruction: make the chart motif stronger", revision)
+            self.assertIn("revision_mode: fresh", revision)
+            self.assertIn("divergence_requirement", revision)
             self.assertIn("維持したい要素", revision)
 
 
@@ -1082,6 +1141,10 @@ class IconCandidateExportTests(unittest.TestCase):
                     is_fallback=False,
                     png=b"\x89PNG\r\n\x1a\napi",
                     file_name="icon_candidate_1.png",
+                    concept_id="literal_1",
+                    concept={"direction": "literal", "composition": "PDF merge"},
+                    scores={"semantic_clarity": 9.0, "specificity": 8.0, "small_size_legibility": 8.0},
+                    score_total=25.0,
                 ),
                 IconCandidateAsset(
                     candidate_id="icon_candidate_2",
@@ -1105,6 +1168,9 @@ class IconCandidateExportTests(unittest.TestCase):
             self.assertEqual(len(manifest["candidates"]), 2)
             self.assertFalse(manifest["candidates"][0]["fallback"])
             self.assertTrue(manifest["candidates"][1]["fallback"])
+            self.assertEqual(manifest["candidates"][0]["concept_id"], "literal_1")
+            self.assertEqual(manifest["candidates"][0]["scores"]["semantic_clarity"], 9.0)
+            self.assertEqual(manifest["candidates"][0]["score_total"], 25.0)
 
 
 class RuntimeCheckerTests(unittest.TestCase):
