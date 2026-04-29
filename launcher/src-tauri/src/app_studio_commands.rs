@@ -101,6 +101,13 @@ pub struct AppStudioResultSummary {
     pub selected_icon_source: Option<String>,
     pub exe_readiness_status: Option<String>,
     pub manual_checks: Vec<String>,
+    pub secret_blocking_count: usize,
+    pub secret_warning_count: usize,
+    pub secret_manual_check_count: usize,
+    pub secret_scan_report: Option<String>,
+    pub secret_blocking_findings: Vec<String>,
+    pub ai_blocked_by_secret_scan: bool,
+    pub apply_blocked_by_secret_scan: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -127,6 +134,13 @@ pub struct AppStudioRunResult {
     pub selected_icon_source: Option<String>,
     pub exe_readiness_status: Option<String>,
     pub manual_checks: Vec<String>,
+    pub secret_blocking_count: usize,
+    pub secret_warning_count: usize,
+    pub secret_manual_check_count: usize,
+    pub secret_scan_report: Option<String>,
+    pub secret_blocking_findings: Vec<String>,
+    pub ai_blocked_by_secret_scan: bool,
+    pub apply_blocked_by_secret_scan: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -749,6 +763,11 @@ fn result_from_process(
 ) -> AppStudioRunResult {
     let user_message = if ok {
         success_message.to_string()
+    } else if summary.apply_blocked_by_secret_scan || summary.secret_blocking_count > 0 {
+        format!(
+            "Secret scan blocked Apply. blocking={}, warnings={}, manual_checks={}. Review secret_scan_report.md.",
+            summary.secret_blocking_count, summary.secret_warning_count, summary.secret_manual_check_count
+        )
     } else if summary.execution_status.as_deref() == Some("warn")
         && summary.approval_allowed == Some(true)
     {
@@ -780,6 +799,13 @@ fn result_from_process(
         selected_icon_source: summary.selected_icon_source,
         exe_readiness_status: summary.exe_readiness_status,
         manual_checks: summary.manual_checks,
+        secret_blocking_count: summary.secret_blocking_count,
+        secret_warning_count: summary.secret_warning_count,
+        secret_manual_check_count: summary.secret_manual_check_count,
+        secret_scan_report: summary.secret_scan_report,
+        secret_blocking_findings: summary.secret_blocking_findings,
+        ai_blocked_by_secret_scan: summary.ai_blocked_by_secret_scan,
+        apply_blocked_by_secret_scan: summary.apply_blocked_by_secret_scan,
     }
 }
 
@@ -1274,6 +1300,36 @@ fn read_import_plan(output_dir: &Path, summary: &mut AppStudioResultSummary) {
     }
     if let Some(items) = json.get("manual_checks").and_then(Value::as_array) {
         summary.manual_checks = items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect();
+    }
+    summary.secret_blocking_count = json
+        .get("blocking_secret_findings_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    summary.secret_warning_count = json
+        .get("warning_secret_findings_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    summary.secret_manual_check_count = json
+        .get("manual_check_secret_findings_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    summary.ai_blocked_by_secret_scan = json
+        .get("ai_blocked_by_secret_scan")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    summary.apply_blocked_by_secret_scan = json
+        .get("apply_blocked_by_secret_scan")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if let Some(value) = json.get("secret_scan_report").and_then(Value::as_str) {
+        summary.secret_scan_report = Some(value.to_string());
+    }
+    if let Some(items) = json.get("blocking_secret_findings").and_then(Value::as_array) {
+        summary.secret_blocking_findings = items
             .iter()
             .filter_map(Value::as_str)
             .map(str::to_string)

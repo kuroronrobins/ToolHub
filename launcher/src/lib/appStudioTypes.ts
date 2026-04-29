@@ -69,6 +69,13 @@ export interface AppStudioRunResult {
   selectedIconSource?: AppStudioSelectedIconSource | string | null;
   exeReadinessStatus?: "pass" | "warn" | "fail" | "unknown" | string | null;
   manualChecks?: string[];
+  secretBlockingCount?: number;
+  secretWarningCount?: number;
+  secretManualCheckCount?: number;
+  secretScanReport?: string | null;
+  secretBlockingFindings?: string[];
+  aiBlockedBySecretScan?: boolean;
+  applyBlockedBySecretScan?: boolean;
 }
 
 export interface AppStudioPreflightResult {
@@ -99,6 +106,13 @@ export interface AppStudioResultSummary {
   selectedIconSource?: AppStudioSelectedIconSource | string | null;
   exeReadinessStatus?: "pass" | "warn" | "fail" | "unknown" | string | null;
   manualChecks?: string[];
+  secretBlockingCount?: number;
+  secretWarningCount?: number;
+  secretManualCheckCount?: number;
+  secretScanReport?: string | null;
+  secretBlockingFindings?: string[];
+  aiBlockedBySecretScan?: boolean;
+  applyBlockedBySecretScan?: boolean;
 }
 
 export interface AppStudioEditableMetadata {

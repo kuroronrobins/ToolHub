@@ -1,0 +1,43 @@
+{
+  "app_id": "run_xcgate_upload",
+  "overall_status": "warn",
+  "checks": [
+    {
+      "name": "build mode",
+      "status": "pass",
+      "detail": "frozen-folder uses PyInstaller --onedir."
+    },
+    {
+      "name": "managed build python",
+      "status": "warn",
+      "detail": "build_env is not present yet. Apply creates a managed build environment under the App Studio output directory."
+    },
+    {
+      "name": "requirements.lock",
+      "status": "warn",
+      "detail": "No requirements.lock was found. GenerateLock is recommended before formal distribution."
+    },
+    {
+      "name": "profile data files",
+      "status": "pass",
+      "detail": "3 data file(s) will be passed to PyInstaller."
+    },
+    {
+      "name": "hidden imports",
+      "status": "pass",
+      "detail": "38 hidden import candidate(s) were inferred."
+    },
+    {
+      "name": "playwright browser dependency",
+      "status": "warn",
+      "detail": "Playwright was detected. Browser binaries and login/manual flows require human launch verification."
+    }
+  ],
+  "manual_checks": [
+    "run_xcgate_upload.py: syntax_error - Python source could not be parsed for data-file references.",
+    "Playwright browser binaries must be installed in the managed build environment.",
+    "Authentication state is not packaged automatically; verify the first-login/manual-auth flow.",
+    "Run a human launch check because browser windows, file pickers, and keep-open flows are interactive.",
+    "Verify packaged data files are present under bin/<app_id>/ after the frozen build."
+  ]
+}

@@ -116,6 +116,54 @@ class AppStudioTests(unittest.TestCase):
             self.assertFalse(report.has_high)
             self.assertTrue(any(finding.kind == "excluded-sensitive-directory" for finding in report.findings))
 
+    def test_secret_scanner_classifies_apply_blocks_by_inventory(self) -> None:
+        with workspace_tempdir() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            (repo / "apps").mkdir(parents=True)
+            (repo / "release").mkdir()
+            (repo / "runner").mkdir()
+            source = root / "source"
+            source.mkdir()
+            entry = source / "main.py"
+            entry.write_text(
+                "\n".join(
+                    [
+                        "token = None",
+                        "from pathlib import Path",
+                        "Path('assets/runtime.json').read_text()",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (source / "README.md").write_text("Set OPENAI_API_KEY in your environment.\n", encoding="utf-8")
+            (source / "config.example.yaml").write_text('api_key: "<your key>"\n', encoding="utf-8")
+            (source / ".env").write_text("OPENAI_API_KEY=sk-realisticvalue1234567890\n", encoding="utf-8")
+            (source / "storage_state.json").write_text('{"cookies": [{"value": "abc"}]}\n', encoding="utf-8")
+            (source / "logs").mkdir()
+            (source / "logs" / "run.log").write_text("token=sk-logvalue123456789012345\n", encoding="utf-8")
+            (source / "assets").mkdir()
+            (source / "assets" / "runtime.json").write_text('{"api_key": "sk-packagedvalue1234567890"}\n', encoding="utf-8")
+
+            context = create_context(ImportOptions(entry=entry, action="suggest", app_id="secret_app", name="Secret App"), repo)
+            inventory = classify_files(context)
+            report = scan_secrets(source, inventory)
+            findings_by_path = {finding.path.relative_to(source).as_posix(): finding for finding in report.findings}
+
+            self.assertFalse(findings_by_path["README.md"].blocks_apply)
+            self.assertTrue(findings_by_path["README.md"].false_positive_candidate)
+            self.assertFalse(findings_by_path["config.example.yaml"].blocks_apply)
+            self.assertTrue(findings_by_path["config.example.yaml"].false_positive_candidate)
+            if "main.py" in findings_by_path:
+                self.assertFalse(findings_by_path["main.py"].blocks_apply)
+            self.assertTrue(findings_by_path[".env"].blocks_apply)
+            self.assertTrue(findings_by_path["storage_state.json"].blocks_apply)
+            self.assertTrue(findings_by_path["assets/runtime.json"].blocks_apply)
+            self.assertFalse(findings_by_path["logs/run.log"].blocks_apply)
+            self.assertEqual(findings_by_path["logs/run.log"].inventory_status, "exclude")
+            self.assertTrue(report.blocks_apply)
+            self.assertTrue(report.blocks_ai_submission)
+
     def test_nested_runtime_files_and_requirements_are_detected(self) -> None:
         with workspace_tempdir() as temp:
             root = Path(temp)

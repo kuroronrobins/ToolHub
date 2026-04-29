@@ -608,11 +608,11 @@ class OpenAIFallbackTests(unittest.TestCase):
     def test_high_secret_skips_ai(self) -> None:
         with workspace_tempdir() as root:
             context = make_context(root)
-            report = SecretScanReport([SecretFinding(context.entry, "content", "high", "OPENAI_API_KEY")])
+            report = SecretScanReport([SecretFinding(context.entry, "content", "high", "OPENAI_API_KEY", affects_ai_submission=True)])
 
             metadata = suggest_metadata(context, report)
 
-            self.assertIn("high severity secret", metadata["_ai_generation_report"])
+            self.assertIn("secret scan blocked AI submission", metadata["_ai_generation_report"])
 
     def test_metadata_prompt_requests_japanese_output(self) -> None:
         with workspace_tempdir() as root:
@@ -882,6 +882,7 @@ class RuntimeCheckerTests(unittest.TestCase):
             write_text(bin_root / f"{context.app_id}.exe", "fake exe")
             write_text(playwright_root / "_impl" / "_cdp_session.py", "ok")
             write_text(playwright_root / "driver" / "package" / "lib" / "server" / "cookieStore.js", "ok")
+            write_text(bin_root / "certifi" / "cacert.pem", "public ca bundle")
             write_text(bin_root / "credentials.json", "{}")
 
             result = verify_runtime(context, context.output_dir, plan, {"add_data": []})
@@ -889,6 +890,7 @@ class RuntimeCheckerTests(unittest.TestCase):
             forbidden = next(check for check in result.checks if check.name == "forbidden payload files")
             self.assertEqual(forbidden.status, "fail")
             self.assertIn("credentials.json", forbidden.detail)
+            self.assertNotIn("certifi/cacert.pem", forbidden.detail)
             self.assertNotIn("cookieStore.js", forbidden.detail)
             self.assertNotIn("_cdp_session.py", forbidden.detail)
 

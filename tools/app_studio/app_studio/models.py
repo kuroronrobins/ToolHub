@@ -106,13 +106,29 @@ class SecretFinding:
     kind: str
     severity: str
     detail: str
+    included_in_package: bool = False
+    included_reason: str = ""
+    inventory_status: str = "unknown"
+    affects_ai_submission: bool = False
+    blocks_apply: bool = False
+    block_reason: str = ""
+    false_positive_candidate: bool = False
+    recommended_action: str = ""
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "path": str(self.path),
             "kind": self.kind,
             "severity": self.severity,
             "detail": self.detail,
+            "included_in_package": self.included_in_package,
+            "included_reason": self.included_reason,
+            "inventory_status": self.inventory_status,
+            "affects_ai_submission": self.affects_ai_submission,
+            "blocks_apply": self.blocks_apply,
+            "block_reason": self.block_reason,
+            "false_positive_candidate": self.false_positive_candidate,
+            "recommended_action": self.recommended_action,
         }
 
 
@@ -124,8 +140,45 @@ class SecretScanReport:
     def has_high(self) -> bool:
         return any(finding.severity == "high" for finding in self.findings)
 
+    @property
+    def blocks_apply(self) -> bool:
+        return any(finding.blocks_apply for finding in self.findings)
+
+    @property
+    def blocks_ai_submission(self) -> bool:
+        return any(finding.affects_ai_submission and finding.severity in {"high", "medium"} for finding in self.findings)
+
+    @property
+    def blocking_findings(self) -> list[SecretFinding]:
+        return [finding for finding in self.findings if finding.blocks_apply]
+
+    @property
+    def warning_findings(self) -> list[SecretFinding]:
+        return [finding for finding in self.findings if not finding.blocks_apply and finding.severity in {"high", "medium"} and not finding.false_positive_candidate]
+
+    @property
+    def manual_check_findings(self) -> list[SecretFinding]:
+        return [finding for finding in self.findings if not finding.blocks_apply and "manual" in finding.recommended_action.lower()]
+
+    @property
+    def false_positive_candidates(self) -> list[SecretFinding]:
+        return [finding for finding in self.findings if finding.false_positive_candidate]
+
     def to_dict(self) -> dict[str, Any]:
-        return {"findings": [finding.to_dict() for finding in self.findings]}
+        return {
+            "findings": [finding.to_dict() for finding in self.findings],
+            "summary": {
+                "total_findings": len(self.findings),
+                "high_findings": sum(1 for finding in self.findings if finding.severity == "high"),
+                "blocking_findings": len(self.blocking_findings),
+                "warning_findings": len(self.warning_findings),
+                "manual_check_findings": len(self.manual_check_findings),
+                "false_positive_candidates": len(self.false_positive_candidates),
+                "included_package_findings": sum(1 for finding in self.findings if finding.included_in_package),
+                "excluded_findings": sum(1 for finding in self.findings if finding.inventory_status == "exclude"),
+                "ai_blocking_findings": sum(1 for finding in self.findings if finding.affects_ai_submission and finding.severity in {"high", "medium"}),
+            },
+        }
 
 
 @dataclass

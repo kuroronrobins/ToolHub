@@ -28,6 +28,7 @@ def export_suggestion(
     write_json(output_dir / "file_inventory.json", inventory.to_dict())
     write_json(output_dir / "dependency_report.json", dependency_report.to_dict())
     write_text(output_dir / "secret_scan_report.md", secret_report_markdown(secret_report, context.source_root))
+    write_json(output_dir / "secret_scan_report.json", secret_report.to_dict())
     write_text(output_dir / "build_plan.md", artifacts.build_plan_md)
     write_text(output_dir / "proposed_app.yaml", artifacts.app_yaml)
     write_text(output_dir / "proposed_README.md", artifacts.readme)

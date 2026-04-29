@@ -1,0 +1,56 @@
+id: app_20260201_agendasnap
+name: 20260201 AgendaSnap
+
+display:
+  icon: icon.png
+  icon_fallback: icon.svg
+  short_description: "20260201 AgendaSnap をToolHubから起動するアプリです。"
+  categories:
+    - "業務ツール"
+
+detail:
+  description: >
+    20260201 AgendaSnap は、指定されたメインファイルをもとにToolHubへ取り込むためのアプリ定義です。
+  use_cases:
+    - "20260201 AgendaSnap をToolHubからすばやく起動する"
+  inputs:
+    - "アプリ設定に依存"
+  outputs:
+    - "アプリ実行結果"
+  notes:
+    - "正式登録前に実行確認と人間承認が必要です。"
+
+search:
+  keywords:
+    - 20260201 AgendaSnap
+    - app_20260201_agendasnap
+    - ToolHub
+  examples:
+    - "20260201 AgendaSnap を起動したい"
+
+run:
+  runner: exe
+  entry: bin/app_20260201_agendasnap/app_20260201_agendasnap.exe
+  mode: gui
+
+admin:
+  version: 0.1.0
+  owner: admin
+  requirements: requirements.txt
+  log_dir: logs
+
+runtime:
+  distribution_mode: frozen_folder
+  app_env: null
+  required_runtime: null
+  requirements_lock: requirements.lock
+
+build:
+  managed_by: toolhub_app_studio
+  build_mode: frozen-folder
+  source_entry: C:\Users\kuroron\Documents\RD\20260201_AgendaSnap\main.py
+  output_mirror: C:\Users\kuroron\Documents\RD\20260201_AgendaSnap\ToolHub_AppStudio_Output\app_20260201_agendasnap
+
+quality:
+  approval_required: true
+  execution_test_required: true

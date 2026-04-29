@@ -18,6 +18,7 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
   const [openMessage, setOpenMessage] = useState("");
   const [openError, setOpenError] = useState("");
   const warningOnly = Boolean(result && !result.ok && result.executionStatus === "warn" && result.approvalAllowed === true);
+  const secretBlocked = Boolean(result?.applyBlockedBySecretScan || (result?.secretBlockingCount ?? 0) > 0);
   const canApprove = Boolean(
     result?.appId &&
       lastAction === "apply" &&
@@ -59,6 +60,25 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
         </p>
       ) : null}
 
+      {secretBlocked ? (
+        <div className="studio-manual-checks">
+          <strong>秘密情報検査で停止しました</strong>
+          <p>
+            blocking {result?.secretBlockingCount ?? 0} 件 / warning {result?.secretWarningCount ?? 0} 件 / manual check{" "}
+            {result?.secretManualCheckCount ?? 0} 件
+          </p>
+          {result?.secretScanReport ? <p>Report: {result.secretScanReport}</p> : null}
+          {result?.secretBlockingFindings?.length ? (
+            <ul>
+              {result.secretBlockingFindings.slice(0, 10).map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          ) : null}
+          <p>本物の秘密情報は削除し、サンプル値は明確な placeholder にし、配布対象外ファイルは add-data へ入らない状態で再実行してください。</p>
+        </div>
+      ) : null}
+
       <div className="studio-result-list">
         <ResultRow icon={<CheckCircle2 size={18} />} label="アプリID" value={result?.appId ?? "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="登録方式" value={result?.selectedBuildMode === "frozen-folder" ? "配布用exe" : result?.selectedBuildMode ?? "-"} />
@@ -74,6 +94,7 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
         <ResultRow icon={<CircleAlert size={18} />} label="配布物検証" value={executionLabel(result?.executionStatus)} />
         <ResultRow icon={<CircleAlert size={18} />} label="承認可否" value={formatBool(result?.approvalAllowed)} />
         <ResultRow icon={<CircleAlert size={18} />} label="配布物" value={executionLabel(result?.runtimeStatus)} />
+        <ResultRow icon={<CircleAlert size={18} />} label="秘密情報ブロック" value={String(result?.secretBlockingCount ?? 0)} />
         <ResultRow icon={<PackageCheck size={18} />} label="App Pack" value={result?.appPack ?? "未作成"} />
         <ResultRow icon={<ShieldCheck size={18} />} label="次の操作" value={nextAction} />
       </div>

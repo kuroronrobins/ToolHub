@@ -64,10 +64,11 @@ def build_execution_result(context: StudioContext, plan: BuildPlan, output_dir: 
     else:
         checks.append(check("run.entry exists", "pass" if app_entry.is_file() else "fail", str(app_entry)))
 
-    if secret_report and secret_report.has_high:
-        checks.append(check("secret scan", "fail", "High severity secret findings block approval."))
+    if secret_report and secret_report.blocks_apply:
+        checks.append(check("secret scan", "fail", f"{len(secret_report.blocking_findings)} secret finding(s) block approval."))
     elif secret_report:
-        checks.append(check("secret scan", "pass", "No high severity secret findings."))
+        detail = f"No Apply-blocking secret findings. warnings={len(secret_report.warning_findings)}, manual_checks={len(secret_report.manual_check_findings)}"
+        checks.append(check("secret scan", "warn" if secret_report.findings else "pass", detail))
 
     if plan.runner == "python_app_env":
         checks.append(python_runtime_check(context))
