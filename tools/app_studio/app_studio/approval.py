@@ -4,6 +4,8 @@ import copy
 import json
 import shutil
 import subprocess
+import sys
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -19,23 +21,60 @@ def approve_app(repo_root: Path, app_id: str, strict: bool = False, allow_warnin
 
     record_path = repo_root / "data" / "logs" / "app_studio" / f"{app_id}_approval_record.md"
     record_written = False
+    verify_before = run_verify_release(repo_root)
     try:
         entry, result = validate_approval_inputs(repo_root, manifest, app_id, strict, allow_warnings)
+        entry = copy.deepcopy(entry)
         entry["enabled"] = True
         manifest["apps"][app_id] = entry
         write_json(manifest_path, manifest)
 
         package_path = package_app_pack(repo_root, app_id)
+        updated_manifest = load_app_manifest_json(manifest_path)
+        updated_entry = updated_manifest.get("apps", {}).get(app_id, entry)
+        targeted_result = targeted_approval_verification(repo_root, app_id, updated_entry, package_path)
         verify_result = run_verify_release(repo_root)
-        if verify_result.get("status") == "failed":
+        verify_gate = verify_release_gate(app_id, verify_before, verify_result)
+
+        if targeted_result.get("status") == "failed" or verify_gate.get("rollback_required"):
             write_json(manifest_path, original_manifest)
-            record = approval_record("failed", app_id, entry, package_path, result, verify_result, ["verify_release.ps1 failed"])
+            failures = []
+            if targeted_result.get("status") == "failed":
+                failures.extend(targeted_result.get("failures") or ["targeted approval verification failed"])
+            if verify_gate.get("rollback_required"):
+                failures.extend(verify_gate.get("rollback_failures") or ["verify_release.ps1 failed for this app or introduced new failures"])
+            record = approval_record(
+                "rolled_back",
+                app_id,
+                updated_entry if isinstance(updated_entry, dict) else entry,
+                package_path,
+                result,
+                verify_result,
+                failures,
+                verify_before=verify_before,
+                targeted_result=targeted_result,
+                verify_gate=verify_gate,
+                manifest_enabled_after=False,
+            )
             write_text(record_path, record)
             record_written = True
             write_mirror_record(repo_root, app_id, record, package_path)
-            raise RuntimeError("verify_release.ps1 failed; enabled=true was rolled back.")
+            raise RuntimeError("Approval verification failed; enabled=true was rolled back. " + "; ".join(failures[:3]))
 
-        record = approval_record("approved", app_id, entry, package_path, result, verify_result, [])
+        status = "approved_with_global_warnings" if verify_gate.get("global_warning") else "approved"
+        record = approval_record(
+            status,
+            app_id,
+            updated_entry if isinstance(updated_entry, dict) else entry,
+            package_path,
+            result,
+            verify_result,
+            [],
+            verify_before=verify_before,
+            targeted_result=targeted_result,
+            verify_gate=verify_gate,
+            manifest_enabled_after=True,
+        )
         write_text(record_path, record)
         record_written = True
         write_mirror_record(repo_root, app_id, record, package_path)
@@ -43,7 +82,19 @@ def approve_app(repo_root: Path, app_id: str, strict: bool = False, allow_warnin
     except Exception as exc:
         write_json(manifest_path, original_manifest)
         if not record_written:
-            record = approval_record("failed", app_id, {}, None, None, {"status": "not_run"}, [str(exc)])
+            record = approval_record(
+                "failed",
+                app_id,
+                {},
+                None,
+                None,
+                {"status": "not_run"},
+                [str(exc)],
+                verify_before=verify_before,
+                targeted_result={"status": "not_run"},
+                verify_gate={"rollback_required": True, "rollback_reason": str(exc)},
+                manifest_enabled_after=False,
+            )
             write_text(record_path, record)
         raise
 
@@ -154,7 +205,115 @@ def run_verify_release(repo_root: Path) -> dict[str, Any]:
         "exit_code": completed.returncode,
         "stdout": completed.stdout[-4000:],
         "stderr": completed.stderr[-4000:],
+        "failures": verify_failure_lines(completed.stdout),
+        "warnings": verify_warning_lines(completed.stdout),
     }
+
+
+def verify_failure_lines(text: str) -> list[str]:
+    return [line.strip() for line in text.splitlines() if line.strip().startswith("[NG]")]
+
+
+def verify_warning_lines(text: str) -> list[str]:
+    return [line.strip() for line in text.splitlines() if line.strip().startswith("[WARN]")]
+
+
+def verify_release_gate(app_id: str, before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    before_failures = set(str(item) for item in before.get("failures") or [])
+    after_failures = set(str(item) for item in after.get("failures") or [])
+    new_failures = sorted(after_failures - before_failures)
+    app_failures = sorted(item for item in after_failures if verify_line_mentions_app(item, app_id))
+    rollback_failures = sorted(set(new_failures + app_failures))
+    pre_existing_failures = sorted(after_failures & before_failures)
+    rollback_required = bool(rollback_failures)
+    return {
+        "rollback_required": rollback_required,
+        "global_warning": after.get("status") == "failed" and not rollback_required,
+        "verify_release_before": before.get("status", "unknown"),
+        "verify_release_after": after.get("status", "unknown"),
+        "new_failures": new_failures,
+        "pre_existing_failures": pre_existing_failures,
+        "app_failures": app_failures,
+        "rollback_failures": rollback_failures,
+        "rollback_reason": "; ".join(rollback_failures[:5]) if rollback_required else "",
+    }
+
+
+def verify_line_mentions_app(line: str, app_id: str) -> bool:
+    text = line.strip()
+    prefix = f"[NG] {app_id} "
+    return text == f"[NG] {app_id}" or text.startswith(prefix)
+
+
+def targeted_approval_verification(repo_root: Path, app_id: str, manifest_entry: dict[str, Any], package_path: Path | None) -> dict[str, Any]:
+    failures: list[str] = []
+    checks: list[str] = []
+    app_dir = repo_root / "apps" / app_id
+    app_yaml = app_dir / "app.yaml"
+    if manifest_entry.get("enabled") is True:
+        checks.append("manifest enabled=true")
+    else:
+        failures.append("release/app_manifest.json did not keep enabled=true for this app")
+    if app_yaml.is_file():
+        checks.append("app.yaml exists")
+    else:
+        failures.append(f"app.yaml is missing: {app_yaml}")
+
+    run_entry = ""
+    if app_yaml.is_file():
+        try:
+            run_entry = load_run_entry(repo_root, app_id)
+            checks.append(f"app.yaml parses; run.entry={run_entry}")
+        except Exception as exc:
+            failures.append(f"app.yaml parse failed: {exc}")
+    if run_entry:
+        entry_path = app_dir / run_entry
+        if entry_path.is_file():
+            checks.append("run.entry exists")
+        else:
+            failures.append(f"run.entry is missing: {entry_path}")
+
+    marker = app_dir / "bin" / "BUILD_REQUIRED.txt"
+    if marker.exists():
+        failures.append(f"BUILD_REQUIRED.txt remains: {marker}")
+    else:
+        checks.append("BUILD_REQUIRED.txt absent")
+
+    if package_path and package_path.is_file():
+        checks.append(f"app pack exists: {package_path}")
+        try:
+            with zipfile.ZipFile(package_path) as archive:
+                names = {name.replace("\\", "/") for name in archive.namelist()}
+            if f"{app_id}/app.yaml" in names and f"{app_id}/pack_manifest.json" in names:
+                checks.append("app pack contains app.yaml and pack_manifest.json")
+            else:
+                failures.append("app pack does not contain expected app.yaml and pack_manifest.json")
+        except Exception as exc:
+            failures.append(f"app pack could not be inspected: {exc}")
+    else:
+        failures.append(f"app pack is missing: {package_path}")
+
+    return {
+        "status": "failed" if failures else "ok",
+        "checks": checks,
+        "failures": failures,
+    }
+
+
+def load_run_entry(repo_root: Path, app_id: str) -> str:
+    runner_path = repo_root / "runner"
+    if runner_path.is_dir() and str(runner_path) not in sys.path:
+        sys.path.insert(0, str(runner_path))
+    try:
+        from toolhub_runner.manifest import load_app_manifest
+
+        manifest = load_app_manifest(repo_root, app_id)
+        return manifest.run.entry
+    except ModuleNotFoundError:
+        entry = app_yaml_run_entry(repo_root / "apps" / app_id / "app.yaml")
+        if entry:
+            return entry
+        raise
 
 
 def approval_record(
@@ -165,7 +324,14 @@ def approval_record(
     execution_result: dict[str, Any] | None,
     verify_result: dict[str, Any],
     failures: list[str],
+    verify_before: dict[str, Any] | None = None,
+    targeted_result: dict[str, Any] | None = None,
+    verify_gate: dict[str, Any] | None = None,
+    manifest_enabled_after: bool | None = None,
 ) -> str:
+    verify_before = verify_before or {"status": "not_run"}
+    targeted_result = targeted_result or {"status": "not_run"}
+    verify_gate = verify_gate or {}
     return "\n".join(
         [
             "# Approval Record",
@@ -175,16 +341,39 @@ def approval_record(
             f"- app_id: `{app_id}`",
             f"- version: `{manifest_entry.get('version')}`",
             f"- enabled: `{manifest_entry.get('enabled')}`",
+            f"- manifest_enabled_after: `{manifest_enabled_after}`",
             f"- package: `{package_path}`",
+            f"- targeted_verification_status: `{targeted_result.get('status')}`",
+            f"- verify_release_before: `{verify_before.get('status')}`",
+            f"- verify_release_after: `{verify_result.get('status')}`",
+            f"- rollback_reason: `{verify_gate.get('rollback_reason') or ''}`",
             "",
             "## Failures",
             "",
             *(f"- {failure}" for failure in failures),
             "",
+            "## Targeted Verification",
+            "",
+            "```json",
+            json.dumps(targeted_result, ensure_ascii=False, indent=2),
+            "```",
+            "",
+            "## Verify Release Gate",
+            "",
+            "```json",
+            json.dumps(verify_gate, ensure_ascii=False, indent=2),
+            "```",
+            "",
             "## execution_test_result.json",
             "",
             "```json",
             json.dumps(execution_result or {}, ensure_ascii=False, indent=2),
+            "```",
+            "",
+            "## verify_release.ps1 before",
+            "",
+            "```json",
+            json.dumps(verify_before, ensure_ascii=False, indent=2),
             "```",
             "",
             "## verify_release.ps1",

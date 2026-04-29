@@ -19,7 +19,7 @@ from app_studio.ai_metadata_suggester import metadata_prompt, suggest_metadata
 from app_studio.build_profile import analyze_exe_readiness, default_build_profile
 from app_studio.icon_generator import image_api_prompt
 from app_studio.app_env_builder import create_app_env, create_build_env
-from app_studio.approval import approve_app, validate_approval_inputs
+from app_studio.approval import approve_app, validate_approval_inputs, verify_release_gate
 from app_studio.build_planner import make_build_plan
 from app_studio.execution_tester import build_execution_result, record_blocked_execution, run_execution_checks
 from app_studio.exporter import export_suggestion
@@ -32,6 +32,7 @@ from app_studio.models import AppEnvBuildResult, LockGenerationResult
 from app_studio.openai_client import generate_image
 from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
+from app_studio.timing import TimingRecorder
 from app_studio.util import write_json, write_text
 from main import parse_args as parse_app_studio_args, run_import
 
@@ -65,6 +66,22 @@ def make_context(root: Path, app_id: str = "demo_app"):
     context = create_context(ImportOptions(entry=entry, action="apply", app_id=app_id, name="Demo App"), repo)
     context.output_dir.mkdir(parents=True, exist_ok=True)
     return context
+
+
+def test_timing_recorder_separates_estimate_actual_and_overhead() -> None:
+    with workspace_tempdir() as root:
+        context = make_context(root, "timing_demo")
+        recorder = TimingRecorder(context, "apply")
+        with recorder.phase("preflight"):
+            pass
+        data = recorder.to_dict()
+
+    assert data["estimated_total_seconds"] > 0
+    assert data["actual_total_seconds"] >= 0
+    assert data["wall_clock_total_seconds"] >= data["cli_measured_total_seconds"]
+    assert data["unmeasured_overhead_seconds"] >= 0
+    assert data["prediction_source"] in {"history", "heuristic"}
+    assert "prediction_error_seconds" in data
 
 
 def write_minimal_registered_app(repo: Path, app_id: str, enabled: bool = False) -> None:
@@ -539,6 +556,69 @@ class ExecutionAndApprovalTests(unittest.TestCase):
             approve_app(repo, app_id, strict=True, allow_warnings=False)
             manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
             self.assertTrue(manifest["apps"][app_id]["enabled"])
+
+    def test_approval_keeps_enabled_when_verify_failure_is_pre_existing_global_issue(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            write_execution_result(repo, app_id, "pass", True)
+            old_failure = "[NG] old_app app.yaml is missing"
+
+            with patch(
+                "app_studio.approval.run_verify_release",
+                side_effect=[
+                    {"status": "failed", "failures": [old_failure], "warnings": [], "stdout": old_failure, "stderr": "", "exit_code": 1},
+                    {"status": "failed", "failures": [old_failure], "warnings": [], "stdout": old_failure, "stderr": "", "exit_code": 1},
+                ],
+            ):
+                approve_app(repo, app_id, strict=True, allow_warnings=False)
+
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+            record = (repo / "data" / "logs" / "app_studio" / f"{app_id}_approval_record.md").read_text(encoding="utf-8")
+            self.assertTrue(manifest["apps"][app_id]["enabled"])
+            self.assertIn("approved_with_global_warnings", record)
+            self.assertIn("pre_existing_failures", record)
+
+    def test_approval_rolls_back_when_verify_failure_mentions_current_app(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            write_execution_result(repo, app_id, "pass", True)
+            current_failure = "[NG] demo_app app.yaml is missing"
+
+            with patch(
+                "app_studio.approval.run_verify_release",
+                side_effect=[
+                    {"status": "ok", "failures": [], "warnings": [], "stdout": "", "stderr": "", "exit_code": 0},
+                    {"status": "failed", "failures": [current_failure], "warnings": [], "stdout": current_failure, "stderr": "", "exit_code": 1},
+                ],
+            ):
+                with self.assertRaisesRegex(RuntimeError, "rolled back"):
+                    approve_app(repo, app_id, strict=True, allow_warnings=False)
+
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+            record = (repo / "data" / "logs" / "app_studio" / f"{app_id}_approval_record.md").read_text(encoding="utf-8")
+            self.assertFalse(manifest["apps"][app_id]["enabled"])
+            self.assertIn("rolled_back", record)
+            self.assertIn(current_failure, record)
+
+    def test_verify_release_gate_distinguishes_pre_existing_and_current_app_failures(self) -> None:
+        before = {"status": "failed", "failures": ["[NG] old_app app.yaml is missing"]}
+        after_global = {"status": "failed", "failures": ["[NG] old_app app.yaml is missing"]}
+        after_current = {
+            "status": "failed",
+            "failures": ["[NG] old_app app.yaml is missing", "[NG] demo_app app pack sha256 mismatch"],
+        }
+
+        global_gate = verify_release_gate("demo_app", before, after_global)
+        current_gate = verify_release_gate("demo_app", before, after_current)
+
+        self.assertFalse(global_gate["rollback_required"])
+        self.assertTrue(global_gate["global_warning"])
+        self.assertTrue(current_gate["rollback_required"])
+        self.assertIn("[NG] demo_app app pack sha256 mismatch", current_gate["rollback_failures"])
 
     def test_strict_approval_rejects_approval_blocking_warning(self) -> None:
         with workspace_tempdir() as root:

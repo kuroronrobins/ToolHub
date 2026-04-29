@@ -5,6 +5,7 @@ use serde_json::{Map, Value};
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Instant;
 use tauri::State;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -117,7 +118,26 @@ pub struct AppStudioResultSummary {
     pub timing_report: Option<String>,
     pub timing_total_seconds: Option<f64>,
     pub timing_estimated_total_seconds: Option<f64>,
+    pub timing_actual_total_seconds: Option<f64>,
+    pub timing_prediction_error_seconds: Option<f64>,
+    pub timing_prediction_source: Option<String>,
+    pub timing_wall_clock_total_seconds: Option<f64>,
+    pub timing_cli_measured_total_seconds: Option<f64>,
+    pub timing_unmeasured_overhead_seconds: Option<f64>,
     pub timing_phases: Vec<AppStudioTimingPhase>,
+    pub process_wall_clock_seconds: Option<f64>,
+    pub manifest_enabled: Option<bool>,
+    pub approval_record_status: Option<String>,
+    pub approval_record_path: Option<String>,
+    pub approval_failure_summary: Option<String>,
+    pub verify_release_status: Option<String>,
+    pub verify_release_failure_summary: Option<String>,
+    pub catalog_visible: Option<bool>,
+    pub catalog_enabled: Option<bool>,
+    pub catalog_disabled_reason: Option<String>,
+    pub catalog_load_error: Option<String>,
+    pub catalog_root: Option<String>,
+    pub app_studio_repo_root: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -160,7 +180,26 @@ pub struct AppStudioRunResult {
     pub timing_report: Option<String>,
     pub timing_total_seconds: Option<f64>,
     pub timing_estimated_total_seconds: Option<f64>,
+    pub timing_actual_total_seconds: Option<f64>,
+    pub timing_prediction_error_seconds: Option<f64>,
+    pub timing_prediction_source: Option<String>,
+    pub timing_wall_clock_total_seconds: Option<f64>,
+    pub timing_cli_measured_total_seconds: Option<f64>,
+    pub timing_unmeasured_overhead_seconds: Option<f64>,
     pub timing_phases: Vec<AppStudioTimingPhase>,
+    pub process_wall_clock_seconds: Option<f64>,
+    pub manifest_enabled: Option<bool>,
+    pub approval_record_status: Option<String>,
+    pub approval_record_path: Option<String>,
+    pub approval_failure_summary: Option<String>,
+    pub verify_release_status: Option<String>,
+    pub verify_release_failure_summary: Option<String>,
+    pub catalog_visible: Option<bool>,
+    pub catalog_enabled: Option<bool>,
+    pub catalog_disabled_reason: Option<String>,
+    pub catalog_load_error: Option<String>,
+    pub catalog_root: Option<String>,
+    pub app_studio_repo_root: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -621,10 +660,12 @@ fn run_import_action(
     }
     apply_ai_environment(&mut command, &ai_env);
 
+    let process_started = Instant::now();
     let output = command
         .current_dir(&root)
         .output()
         .map_err(|_| "App Studioを起動できませんでした。".to_string())?;
+    let process_wall_clock_seconds = process_started.elapsed().as_secs_f64();
     let stdout = mask_sensitive(&String::from_utf8_lossy(&output.stdout));
     let stderr = mask_sensitive(&String::from_utf8_lossy(&output.stderr));
     let exit_code = output.status.code().unwrap_or(-1);
@@ -676,6 +717,7 @@ fn run_import_action(
         stdout,
         stderr,
         summary,
+        Some(process_wall_clock_seconds),
         if action == "apply" {
             "Applyが完了しました。execution_test_resultを確認してください。"
         } else {
@@ -699,6 +741,7 @@ fn run_approve_action(app_id: String, strict: bool) -> Result<AppStudioRunResult
             ("python_source", python_candidate.source.clone()),
         ],
     );
+    let process_started = Instant::now();
     let output = Command::new(&python)
         .arg(script)
         .arg("approve")
@@ -708,6 +751,7 @@ fn run_approve_action(app_id: String, strict: bool) -> Result<AppStudioRunResult
         .current_dir(&root)
         .output()
         .map_err(|_| "App Studio承認処理を起動できませんでした。".to_string())?;
+    let process_wall_clock_seconds = process_started.elapsed().as_secs_f64();
     let stdout = mask_sensitive(&String::from_utf8_lossy(&output.stdout));
     let stderr = mask_sensitive(&String::from_utf8_lossy(&output.stderr));
     let exit_code = output.status.code().unwrap_or(-1);
@@ -736,6 +780,7 @@ fn run_approve_action(app_id: String, strict: bool) -> Result<AppStudioRunResult
         stdout,
         stderr,
         summary,
+        Some(process_wall_clock_seconds),
         "承認処理が完了しました。",
     ))
 }
@@ -788,6 +833,7 @@ fn result_from_process(
     stdout: String,
     stderr: String,
     summary: AppStudioResultSummary,
+    process_wall_clock_seconds: Option<f64>,
     success_message: &str,
 ) -> AppStudioRunResult {
     let user_message = if ok {
@@ -842,9 +888,28 @@ fn result_from_process(
         approval_blocking_reasons: summary.approval_blocking_reasons,
         non_blocking_warning_summaries: summary.non_blocking_warning_summaries,
         timing_report: summary.timing_report,
-        timing_total_seconds: summary.timing_total_seconds,
+        timing_total_seconds: summary.timing_total_seconds.or(process_wall_clock_seconds),
         timing_estimated_total_seconds: summary.timing_estimated_total_seconds,
+        timing_actual_total_seconds: summary.timing_actual_total_seconds,
+        timing_prediction_error_seconds: summary.timing_prediction_error_seconds,
+        timing_prediction_source: summary.timing_prediction_source,
+        timing_wall_clock_total_seconds: summary.timing_wall_clock_total_seconds,
+        timing_cli_measured_total_seconds: summary.timing_cli_measured_total_seconds,
+        timing_unmeasured_overhead_seconds: summary.timing_unmeasured_overhead_seconds,
         timing_phases: summary.timing_phases,
+        process_wall_clock_seconds,
+        manifest_enabled: summary.manifest_enabled,
+        approval_record_status: summary.approval_record_status,
+        approval_record_path: summary.approval_record_path,
+        approval_failure_summary: summary.approval_failure_summary,
+        verify_release_status: summary.verify_release_status,
+        verify_release_failure_summary: summary.verify_release_failure_summary,
+        catalog_visible: summary.catalog_visible,
+        catalog_enabled: summary.catalog_enabled,
+        catalog_disabled_reason: summary.catalog_disabled_reason,
+        catalog_load_error: summary.catalog_load_error,
+        catalog_root: summary.catalog_root,
+        app_studio_repo_root: summary.app_studio_repo_root,
     }
 }
 
@@ -1286,6 +1351,8 @@ fn read_summary(
     output_dir: Option<&Path>,
 ) -> AppStudioResultSummary {
     let mut summary = AppStudioResultSummary::default();
+    summary.app_studio_repo_root = Some(root.display().to_string());
+    summary.catalog_root = Some(root.display().to_string());
     let output = output_dir
         .map(Path::to_path_buf)
         .or_else(|| app_id.and_then(|id| output_dir_from_app_yaml(root, id)));
@@ -1302,6 +1369,8 @@ fn read_summary(
     }
     read_enabled(root, &mut summary);
     read_version(root, &mut summary);
+    read_approval_record(root, &mut summary);
+    read_catalog_status(root, &mut summary);
     summary
 }
 
@@ -1411,11 +1480,23 @@ fn read_timing_result(output_dir: &Path, summary: &mut AppStudioResultSummary) {
         return;
     };
     summary.timing_report = Some(path.display().to_string());
-    summary.timing_total_seconds = json.get("total_duration_seconds").and_then(Value::as_f64);
+    summary.timing_total_seconds = json
+        .get("actual_total_seconds")
+        .and_then(number_value)
+        .or_else(|| json.get("wall_clock_total_seconds").and_then(number_value))
+        .or_else(|| json.get("total_duration_seconds").and_then(number_value));
     summary.timing_estimated_total_seconds = json
         .get("estimated_total_seconds")
-        .and_then(Value::as_f64)
-        .or_else(|| json.get("estimated_total_seconds").and_then(Value::as_i64).map(|value| value as f64));
+        .and_then(number_value);
+    summary.timing_actual_total_seconds = json.get("actual_total_seconds").and_then(number_value);
+    summary.timing_prediction_error_seconds = json.get("prediction_error_seconds").and_then(number_value);
+    summary.timing_prediction_source = json
+        .get("prediction_source")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    summary.timing_wall_clock_total_seconds = json.get("wall_clock_total_seconds").and_then(number_value);
+    summary.timing_cli_measured_total_seconds = json.get("cli_measured_total_seconds").and_then(number_value);
+    summary.timing_unmeasured_overhead_seconds = json.get("unmeasured_overhead_seconds").and_then(number_value);
     if let Some(items) = json.get("phases").and_then(Value::as_array) {
         summary.timing_phases = items
             .iter()
@@ -1437,6 +1518,13 @@ fn read_timing_result(output_dir: &Path, summary: &mut AppStudioResultSummary) {
             })
             .collect();
     }
+}
+
+fn number_value(value: &Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_i64().map(|number| number as f64))
+        .or_else(|| value.as_u64().map(|number| number as f64))
 }
 
 fn read_runtime_result(output_dir: &Path, summary: &mut AppStudioResultSummary) {
@@ -1483,11 +1571,143 @@ fn read_enabled(root: &Path, summary: &mut AppStudioResultSummary) {
     let Some(json) = read_json(&root.join("release").join("app_manifest.json")) else {
         return;
     };
-    summary.enabled = json
+    summary.manifest_enabled = json
         .get("apps")
         .and_then(|apps| apps.get(app_id))
         .and_then(|entry| entry.get("enabled"))
         .and_then(Value::as_bool);
+    summary.enabled = summary.manifest_enabled;
+}
+
+fn read_approval_record(root: &Path, summary: &mut AppStudioResultSummary) {
+    let Some(app_id) = summary.app_id.as_deref() else {
+        return;
+    };
+    let path = root
+        .join("data")
+        .join("logs")
+        .join("app_studio")
+        .join(format!("{app_id}_approval_record.md"));
+    if !path.is_file() {
+        return;
+    }
+    summary.approval_record_path = Some(path.display().to_string());
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        summary.approval_failure_summary = Some("approval_record.md could not be read".to_string());
+        return;
+    };
+    summary.approval_record_status = parse_record_bullet(&text, "status");
+    summary.verify_release_status = parse_record_bullet(&text, "verify_release_after");
+    let failures = section_bullets(&text, "## Failures");
+    if !failures.is_empty() {
+        summary.approval_failure_summary = Some(failures.join(" | "));
+    }
+    let verify_failures = extract_json_array_preview(&text, "\"rollback_failures\"")
+        .or_else(|| extract_json_array_preview(&text, "\"new_failures\""))
+        .or_else(|| extract_ng_lines_preview(&text));
+    summary.verify_release_failure_summary = verify_failures;
+}
+
+fn read_catalog_status(root: &Path, summary: &mut AppStudioResultSummary) {
+    let Some(app_id) = summary.app_id.as_deref() else {
+        return;
+    };
+    let app_yaml = root.join("apps").join(app_id).join("app.yaml");
+    if !app_yaml.is_file() {
+        summary.catalog_visible = Some(false);
+        summary.catalog_enabled = Some(false);
+        summary.catalog_disabled_reason = Some("app_yaml_missing".to_string());
+        return;
+    }
+    match crate::manifest::load_apps(root) {
+        Ok(apps) => {
+            if let Some(app) = apps.into_iter().find(|app| app.id == app_id) {
+                summary.catalog_enabled = Some(app.enabled);
+                summary.catalog_visible = Some(app.enabled);
+                if !app.enabled {
+                    summary.catalog_disabled_reason = app
+                        .disabled_reason
+                        .or_else(|| Some("disabled_by_manifest_or_catalog_validation".to_string()));
+                }
+            } else {
+                summary.catalog_visible = Some(false);
+                summary.catalog_enabled = Some(false);
+                summary.catalog_disabled_reason = Some("not_found_in_catalog".to_string());
+            }
+        }
+        Err(error) => {
+            summary.catalog_visible = Some(false);
+            summary.catalog_enabled = Some(false);
+            summary.catalog_load_error = Some(error.to_string());
+            summary.catalog_disabled_reason = Some("catalog_load_error".to_string());
+        }
+    }
+}
+
+fn parse_record_bullet(text: &str, key: &str) -> Option<String> {
+    let prefix = format!("- {key}:");
+    text.lines().find_map(|line| {
+        let trimmed = line.trim();
+        trimmed
+            .strip_prefix(&prefix)
+            .map(|value| value.trim().trim_matches('`').trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+fn section_bullets(text: &str, heading: &str) -> Vec<String> {
+    let mut in_section = false;
+    let mut items = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("## ") {
+            in_section = trimmed == heading;
+            continue;
+        }
+        if in_section {
+            if let Some(value) = trimmed.strip_prefix("- ") {
+                if !value.trim().is_empty() {
+                    items.push(value.trim().to_string());
+                }
+            }
+        }
+    }
+    items
+}
+
+fn extract_ng_lines_preview(text: &str) -> Option<String> {
+    let lines = text
+        .lines()
+        .filter(|line| line.contains("[NG]"))
+        .map(|line| line.trim().to_string())
+        .take(5)
+        .collect::<Vec<_>>();
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join(" | "))
+    }
+}
+
+fn extract_json_array_preview(text: &str, key: &str) -> Option<String> {
+    let start = text.find(key)?;
+    let rest = &text[start..];
+    let open = rest.find('[')?;
+    let close = rest[open..].find(']')?;
+    let raw = &rest[open..=open + close];
+    let value: Value = serde_json::from_str(raw).ok()?;
+    let items = value
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .take(5)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if items.is_empty() {
+        None
+    } else {
+        Some(items.join(" | "))
+    }
 }
 
 fn read_version(root: &Path, summary: &mut AppStudioResultSummary) {
@@ -2187,7 +2407,7 @@ mod tests {
             app_id: Some("my_tool".to_string()),
             name: Some("My Tool".to_string()),
             version: None,
-            build_mode: "app-env".to_string(),
+            build_mode: "frozen-folder".to_string(),
             icon_prompt: None,
             metadata: None,
             icon_override: None,
@@ -2425,6 +2645,7 @@ mod tests {
                 approval_allowed: Some(true),
                 ..AppStudioResultSummary::default()
             },
+            Some(1.0),
             "ok",
         );
         assert!(!result.ok);
@@ -2456,6 +2677,51 @@ mod tests {
         assert_eq!(summary.execution_status.as_deref(), Some("warn"));
         assert_eq!(summary.approval_allowed, Some(true));
         assert_eq!(summary.selected_build_mode.as_deref(), Some("existing-exe"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn read_summary_reports_catalog_visibility_for_enabled_app() {
+        let root = temp_project_root();
+        write_catalog_app(&root, "visible_app");
+        write_release_manifest(&root, "visible_app", "1.0.0", true);
+
+        let summary = read_summary(&root, Some("visible_app"), None);
+
+        assert_eq!(summary.manifest_enabled, Some(true));
+        assert_eq!(summary.catalog_visible, Some(true));
+        assert_eq!(summary.catalog_enabled, Some(true));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn read_summary_reports_disabled_catalog_reason() {
+        let root = temp_project_root();
+        write_catalog_app(&root, "disabled_app");
+        write_release_manifest(&root, "disabled_app", "1.0.0", false);
+
+        let summary = read_summary(&root, Some("disabled_app"), None);
+
+        assert_eq!(summary.manifest_enabled, Some(false));
+        assert_eq!(summary.catalog_visible, Some(false));
+        assert_eq!(summary.catalog_enabled, Some(false));
+        assert!(summary.catalog_disabled_reason.is_some());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn read_summary_reports_catalog_parse_error() {
+        let root = temp_project_root();
+        let app_dir = root.join("apps").join("broken_app");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::write(app_dir.join("app.yaml"), "id: [broken\n").unwrap();
+        write_release_manifest(&root, "broken_app", "1.0.0", true);
+
+        let summary = read_summary(&root, Some("broken_app"), None);
+
+        assert_eq!(summary.manifest_enabled, Some(true));
+        assert_eq!(summary.catalog_visible, Some(false));
+        assert!(summary.catalog_disabled_reason.is_some());
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -2557,7 +2823,7 @@ mod tests {
             name: Some("Sample App".to_string()),
             current_version: Some("1.2.3".to_string()),
             new_version: "1.2.2".to_string(),
-            build_mode: "app-env".to_string(),
+            build_mode: "frozen-folder".to_string(),
             icon_prompt: None,
             metadata: None,
             icon_override: None,
@@ -2621,6 +2887,19 @@ mod tests {
             app_dir.join("app.yaml"),
             format!(
                 "id: {app_id}\nname: Sample App\nrun:\n  runner: python\n  entry: main.py\nadmin:\n  version: {version}\nbuild:\n  build_mode: app-env\ndisplay:\n  short_description: Sample\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    fn write_catalog_app(root: &Path, app_id: &str) {
+        let app_dir = root.join("apps").join(app_id);
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::write(app_dir.join("icon.svg"), "<svg viewBox=\"0 0 64 64\"></svg>").unwrap();
+        std::fs::write(
+            app_dir.join("app.yaml"),
+            format!(
+                "id: {app_id}\nname: Visible App\ndisplay:\n  icon: icon.svg\n  short_description: desc\n  categories:\n    - demo\ndetail:\n  description: desc\nrun:\n  runner: cli\n  entry: main.py\n  mode: cli\nadmin:\n  version: 1.0.0\n"
             ),
         )
         .unwrap();

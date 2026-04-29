@@ -484,3 +484,35 @@ Legacy/compatibility notes:
 - `app-env`, `existing-exe`, and Python direct execution are compatibility concepts for existing manifests, historical CLI paths, or old registered apps.
 - The normal new-registration GUI intentionally does not expose existing-exe registration because ToolHub cannot verify that a user-provided exe is portable and complete.
 - Any other section that lists BuildMode choices should be read as legacy background unless it explicitly says it applies to the current normal GUI.
+
+## Approval, catalog visibility, and home refresh diagnostics
+
+App Studio approval and home catalog visibility are separate checks. Approval first verifies the target app, enables the target entry in `release/app_manifest.json`, regenerates the App Pack, and then runs release verification. The home screen only shows apps that can be loaded from the same catalog root and are enabled in `release/app_manifest.json`.
+
+When a newly approved app does not appear after pressing home Refresh, check these fields in the App Studio result panel or diagnostic report:
+
+- `manifest_enabled`: whether `release/app_manifest.json` has `enabled: true` for the app.
+- `approval_record_status`: `approved`, `approved_with_global_warnings`, `rolled_back`, or `failed`.
+- `approval_failure_summary`: the direct approval or rollback reason.
+- `verify_release_status` and `verify_release_failure_summary`: whether release verification failed and which lines failed.
+- `catalog_visible`: whether the home catalog loader can see the app as enabled.
+- `catalog_disabled_reason`: `disabled_by_manifest`, `app_yaml_missing`, `app_yaml_parse_error`, `runner_validation_error`, `not_found_in_catalog`, or another load error.
+- `catalog_root` and `app_studio_repo_root`: the roots used by the catalog reader and App Studio.
+
+App Studio approval no longer treats unrelated pre-existing global `verify_release.ps1` failures as an automatic rollback reason for a newly valid app. It records them as global warnings when they were already present before approval. The target app still rolls back if the target `app_id` has a verification failure, its `app.yaml` cannot be loaded, its `run.entry` is missing, App Pack generation fails, or a new release verification failure is introduced by approval.
+
+The approval record at `data/logs/app_studio/<app_id>_approval_record.md` records `status`, `manifest_enabled_after`, `targeted_verification_status`, `verify_release_before`, `verify_release_after`, `pre_existing_failures`, `new_failures`, and `rollback_reason`. A status of `approved_with_global_warnings` means the app itself passed targeted approval, but unrelated release manifest issues still need cleanup before a strict release build.
+
+## Timing reports and estimates
+
+`timing_report.json` separates estimates from actual measurements:
+
+- `estimated_total_seconds`: predicted Apply duration.
+- `actual_total_seconds`: measured total from the Apply timing recorder.
+- `prediction_error_seconds`: actual minus estimate.
+- `prediction_source`: `history`, `heuristic`, or `unknown`.
+- `wall_clock_total_seconds`: elapsed CLI wall-clock time.
+- `cli_measured_total_seconds`: sum of measured App Studio phases.
+- `unmeasured_overhead_seconds`: time outside measured phases.
+
+The Tauri command result also records `process_wall_clock_seconds`, which is the desktop backend child-process duration. GUI wall-clock time can still be slightly longer because it includes UI state updates, result refresh, and rendering. The result panel shows actual time, estimated time, prediction difference, child-process time, measured phase total, and unmeasured overhead separately so that estimates are not mistaken for actual duration.
