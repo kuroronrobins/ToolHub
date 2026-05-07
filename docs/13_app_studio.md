@@ -654,6 +654,7 @@ must not be deleted by app management operations. See `docs/17_app_management_mo
 
 The PowerShell dry-run planner and the Tauri/Rust planner both expose normalized comparison keys. Full deletion remains
 disabled until parity and rehearsal checks cover the representative cases required by `docs/17_app_management_model.md`.
+The implementation roadmap and phase status are managed in `docs/18_app_delete_execution_plan.md`.
 
 ## App Source Of Truth And Derived Release Data
 

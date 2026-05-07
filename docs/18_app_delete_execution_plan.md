@@ -1,0 +1,317 @@
+# App Delete Execution Plan
+
+## 1. Purpose
+
+This document is the planning and governance document for ToolHub app deletion work.
+
+Future Codex work on App Studio Delete, app hide/show, delete plans, deletion rehearsal, or full-delete execution must
+read this document first. The task prompt should state which phase is being advanced. If a future task changes the
+roadmap, update this document before or alongside the implementation and record the reason in the Plan Revision Log.
+
+This document intentionally separates the plan from implementation. It does not mean full-delete execution is already
+implemented.
+
+## 2. Final Goal
+
+The final App Studio Delete tab handles only two operations:
+
+1. Hide
+   - Set the target entry in `release/app_manifest.json` to `enabled=false`.
+   - Keep `apps/<app_id>/`, App Pack zip files, release staging artifacts, runtime app_env, and history untouched.
+   - Show again by setting `enabled=true`.
+
+2. Full delete
+   - No restore feature.
+   - No backup-based soft delete.
+   - No confirmation input.
+   - Remove ToolHub repo-managed app-owned targets without leaving app-specific repository garbage.
+   - Never delete external source folders, external output mirrors, user data, logs, browser profiles, app_state,
+     shared runtime folders, or other user-owned data.
+
+The final UI should remain simple: hide/show for visibility and full delete for permanent repo-local cleanup.
+
+## 3. Current State
+
+Implemented or established:
+
+- `apps/<app_id>/` is the source of truth for an app.
+- `release/app_manifest.json` is treated as a release index that can be checked and rebuilt from `apps/`.
+- The Delete tab has been simplified to hide, show, and deletion-plan display.
+- The full-delete button is disabled.
+- `scripts/plan_app_delete.ps1 -AppId <id> -DryRun` exists.
+- Tauri/Rust command `app_studio_delete_plan` exists.
+- `scripts/test_app_delete_plan.ps1` validates PowerShell delete-plan target classification.
+- `scripts/test_app_delete_plan_parity.ps1` compares PowerShell delete-plan output with the Tauri/Rust helper output.
+- `scripts/rehearse_app_delete.ps1` creates a temporary app, validates the dry-run plan, and cleans up temporary data.
+- `scripts/rebuild_app_manifest.ps1 -DryRun` previews release index rebuilds from `apps/`.
+- `scripts/check_all.ps1` includes delete-plan, parity, and rehearsal validation.
+
+Not implemented:
+
+- Full-delete execution command.
+- App Pack zip deletion.
+- Release staging deletion.
+- Runtime app_env deletion.
+- Manifest entry deletion by a production command.
+- Backup/history deletion.
+- Delete tab full-delete enablement.
+
+## 4. Architecture Decisions
+
+Source of truth:
+
+- `apps/<app_id>/`
+
+Derived app data:
+
+- `release/app_manifest.json`
+- `release/app_packs/`
+- `release/staging/`
+- `runtime/app_envs/<app_id>/`
+
+History and management-generated data:
+
+- `backups/app_studio/**/<app_id>/`
+- legacy `backups/app_lifecycle/**/<app_id>/`
+
+Shared data:
+
+- `runtime/python/`
+- `runtime/web_automation_runtime/`
+
+Delete exclusions:
+
+- external source folders
+- external App Studio output mirrors
+- user data
+- logs
+- browser profiles
+- app_state
+- shared runtime folders
+
+Manifest entry deletion means removing only the target app entry from `release/app_manifest.json`. It does not mean
+deleting `release/app_manifest.json` itself.
+
+## 5. Roadmap
+
+### Phase 0: Planning Governance
+
+Purpose:
+
+- Create this document.
+- Make the delete execution roadmap explicit.
+- Make future Codex prompts refer to a stable plan.
+
+Completion conditions:
+
+- `docs/18_app_delete_execution_plan.md` exists.
+- Related docs link to this plan.
+- Future prompts can reference this document.
+
+Status:
+
+- Done after this document is added and validated.
+
+### Phase 1: Delete Plan Accuracy
+
+Purpose:
+
+- Make delete-plan target detection precise enough to support a future destructive executor.
+
+Current state:
+
+- Mostly implemented.
+- App Pack matching uses the manifest package path plus `release/app_packs/<app_id>-*.zip`.
+- Staging target and staging candidate are separated.
+- External reference, user data, and shared runtime exclusions are represented.
+
+Completion conditions:
+
+- App Pack detection is strict.
+- Staging target and candidate are separated.
+- External reference, user data, and shared runtime are excluded.
+- app_id substring matches do not pull in unrelated app artifacts.
+- `scripts/test_app_delete_plan.ps1` passes.
+
+### Phase 2: Parity and Rehearsal
+
+Purpose:
+
+- Compare PowerShell and Tauri/Rust delete-plan output.
+- Rehearse future deletion using a temporary app without executing deletion.
+
+Current state:
+
+- Mostly implemented.
+- `scripts/test_app_delete_plan_parity.ps1` exists.
+- `scripts/rehearse_app_delete.ps1` exists.
+- `scripts/check_all.ps1` runs both in dry-run form.
+
+Completion conditions:
+
+- `scripts/test_app_delete_plan_parity.ps1` passes.
+- `scripts/rehearse_app_delete.ps1` passes.
+- The checks are included in `scripts/check_all.ps1`.
+- Temporary app source, manifest changes, App Pack placeholder, staging, runtime app_env, and backup artifacts are
+  removed after rehearsal.
+
+### Phase 3: Full Delete Executor Design
+
+Purpose:
+
+- Design the destructive executor before implementation.
+
+Completion conditions:
+
+- Dry-run and apply behavior are separated.
+- Delete ordering is defined.
+- Failure handling is defined.
+- Exclusion guarantees are documented.
+- The executor can be tested using temporary apps only.
+- No real app deletion is required for design validation.
+
+Design topics to resolve:
+
+- Whether the production executor accepts an existing plan snapshot or rebuilds the plan at execution time.
+- How it refuses stale or unsafe plans.
+- Whether missing generated targets are treated as already clean or as warnings.
+- How manifest entry removal is written and validated.
+- How cleanup is verified after apply.
+
+### Phase 4: Temporary App Full Delete E2E
+
+Purpose:
+
+- Execute full delete only against a temporary app and prove safety.
+
+Completion conditions:
+
+- Temporary `apps/<app_id>/` is deleted.
+- Temporary manifest entry is deleted.
+- Temporary App Pack zip is deleted.
+- Temporary staging target is deleted.
+- Temporary runtime app_env is deleted.
+- Temporary backup/history is deleted.
+- External reference, user data, and shared runtime remain.
+- After cleanup, `git status --short` has no temporary artifacts.
+- `scripts/check_all.ps1` passes.
+
+Constraints:
+
+- Do not use real apps for this phase.
+- Do not delete external source folders.
+- Do not delete user data.
+
+### Phase 5: Production Full Delete Command
+
+Purpose:
+
+- Implement full delete for real apps after temporary E2E safety has been proven.
+
+Completion conditions:
+
+- Tauri command exists.
+- Delete tab Delete button is enabled only for valid plans.
+- The plan is shown before execution.
+- Execution removes repo-managed targets and exclusions remain untouched.
+- App list refreshes after deletion.
+- `scripts/check_all.ps1` passes.
+- Docs are updated.
+
+### Phase 6: Cleanup and Release Readiness
+
+Purpose:
+
+- Prepare app management for formal release and strict verification.
+
+Completion conditions:
+
+- Strict verification failures are intentional and tracked.
+- Stale entry policy is explicit.
+- Full delete no longer leaves app-owned repo garbage.
+- Documentation distinguishes implemented, dry-run, design-only, and unimplemented behavior.
+
+## 6. Plan Management Rules
+
+- Codex must read this document before app deletion work.
+- Codex must state which phase is being advanced.
+- If new work changes the roadmap, update this document and add a Plan Revision Log entry.
+- If unexpected issues appear, do not continue with ad hoc implementation that bypasses this plan.
+- After implementation, update the relevant phase status when appropriate.
+- Do not claim unverified work as verified.
+- If full delete is not implemented, state that it is not implemented.
+- If a destructive change, schema break, app.yaml break, runner I/F break, or user-data deletion becomes necessary,
+  stop and report options instead of implementing it.
+
+## 7. Current Phase Status
+
+| Phase | Status | Evidence | Remaining Work | Next Action |
+| --- | --- | --- | --- | --- |
+| Phase 0: Planning Governance | Done | This document exists and is linked from related docs. | Keep this document current. | Use this plan in future prompts. |
+| Phase 1: Delete Plan Accuracy | Mostly done | `plan_app_delete.ps1`, `app_studio_delete_plan`, `test_app_delete_plan.ps1`. | Continue adding edge-case fixtures as new artifact patterns appear. | Preserve strict matching rules. |
+| Phase 2: Parity and Rehearsal | Mostly done | `test_app_delete_plan_parity.ps1`, `rehearse_app_delete.ps1`, `check_all.ps1`. | Add more fixtures if production artifacts become more varied. | Treat this as the safety baseline. |
+| Phase 3: Full Delete Executor Design | Not started | No executor design document or implementation yet. | Define dry-run/apply split, ordering, failure handling, and exclusions. | Start Phase 3 next. |
+| Phase 4: Temporary App Full Delete E2E | Not started | No destructive temporary-app E2E yet. | Implement temporary-app-only apply tests after Phase 3. | Wait for Phase 3. |
+| Phase 5: Production Full Delete Command | Not started | Full delete command is not implemented. | Implement production command and UI enablement after Phase 4. | Wait for Phase 4. |
+| Phase 6: Cleanup and Release Readiness | Not started | Strict cleanup policy is not complete. | Review stale entries and formal release checks. | Wait for Phase 5. |
+
+## 8. Decision Log
+
+- Delete is limited to two final operations: hide and full delete.
+- Restore is not part of the final app-management model.
+- Backup-based soft delete is not part of the final app-management model.
+- Confirmation input is not required by the final model.
+- Full delete removes repo-managed app-owned targets.
+- Full delete excludes user data, external source, external output mirrors, logs, browser profiles, app_state, and shared
+  runtime.
+- `apps/<app_id>/` is the app source of truth.
+- `release/app_manifest.json` is a release index, not the source of truth.
+- Manifest deletion means removing an app entry, not deleting the manifest file.
+- PowerShell and Tauri/Rust delete-plan outputs must remain comparable.
+
+## 9. Risk Register
+
+| Risk | Mitigation | Owner/Area | Current Status |
+| --- | --- | --- | --- |
+| Accidental deletion | Keep full delete unimplemented until Phase 3 and Phase 4 pass. Use plan-first execution. | Tauri command, scripts | Controlled, executor not implemented. |
+| app_id substring match pulls in another app | Strict App Pack and staging matching. Ambiguous staging matches are excluded candidates. | Delete plan | Mostly mitigated. |
+| Manifest entry remains after source deletion | Future executor must remove the entry and verify rebuild/diagnose output. | Full delete executor | Not implemented. |
+| App Pack remains after source deletion | Future executor must remove manifest package path and `<app_id>-*.zip`. | Full delete executor | Not implemented. |
+| Staging artifact remains | Future executor must delete strict staging targets and leave candidates untouched. | Full delete executor | Not implemented. |
+| User data is deleted by mistake | User data is always an excluded category. Tests must assert it remains. | Delete plan, executor | Mitigated in plan, executor not implemented. |
+| External source is deleted by mistake | External absolute paths are reference-only excluded targets. | Delete plan, executor | Mitigated in plan, executor not implemented. |
+| PowerShell and Tauri logic diverge | Use normalized comparison keys and parity tests. | Scripts, Rust helper | Mostly mitigated for representative fixture. |
+| Work stalls in preparation only | Use this roadmap and require phase progress in completion reports. | Planning governance | Monitored by this document. |
+
+## 10. Next Planned Work
+
+Next phase:
+
+- Phase 3: Full Delete Executor Design.
+
+Next implementation planning tasks:
+
+- Define dry-run and apply separation for the executor.
+- Define delete ordering.
+- Define how an executor validates that a plan is still current.
+- Define failure behavior.
+- Define temporary-app-only E2E helpers.
+- Keep real app deletion out of scope until Phase 4 passes.
+
+## 11. Prompt Contract
+
+Future Codex prompts for this area must follow this contract:
+
+- Begin by reading `docs/18_app_delete_execution_plan.md`.
+- State which phase is being advanced.
+- If the task changes the roadmap, update this document first or in the same work.
+- Record roadmap changes in the Plan Revision Log.
+- Completion reports must include phase progress.
+- Completion reports must distinguish implemented, dry-run-only, design-only, unimplemented, and unverified work.
+- Do not implement production full delete before Phase 3 design and Phase 4 temporary-app E2E are complete.
+
+## 12. Plan Revision Log
+
+| Date | Change | Reason | Impact |
+| --- | --- | --- | --- |
+| 2026-05-08 | Initial plan created. | Move from ad hoc preparation to governed execution. | Future prompts will reference this document and report phase progress. |

@@ -3,6 +3,8 @@
 This document defines the target model for ToolHub app management. The goal is to operate apps safely with two final
 actions: hide and full delete.
 
+For the governed implementation roadmap and phase status, see `docs/18_app_delete_execution_plan.md`.
+
 ## Source Of Truth
 
 The source of truth for one app is `apps/<app_id>/`:

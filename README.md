@@ -145,7 +145,7 @@ ToolHubを再起動すると、`app.yaml` から自動検出されます。
 - 再表示: `apps/<app_id>/app.yaml` が存在する場合だけ `enabled=true` に戻します。
 - 削除計画: `apps/<app_id>/`、App Pack、staging、runtime app_env、App Studio backup などの将来削除対象と、外部参照・ユーザーデータ・共有runtimeの除外対象を表示します。
 
-完全削除の実行、App Pack zip削除、backup削除、release履歴削除、ユーザーデータ削除は未実装です。詳細は [docs/17_app_management_model.md](docs/17_app_management_model.md) を参照してください。
+完全削除の実行、App Pack zip削除、backup削除、release履歴削除、ユーザーデータ削除は未実装です。管理モデルは [docs/17_app_management_model.md](docs/17_app_management_model.md)、実装計画は [docs/18_app_delete_execution_plan.md](docs/18_app_delete_execution_plan.md) を参照してください。
 
 ## 検収方法
 
