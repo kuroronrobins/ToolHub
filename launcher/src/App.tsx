@@ -11,7 +11,7 @@ import { SystemInfoDialog } from "./components/SystemInfoDialog";
 import { UpdateNotice } from "./components/UpdateNotice";
 import { UpdateSummaryDialog } from "./components/UpdateSummaryDialog";
 import { ALL_CATEGORY, enabledApps, getCategoryList } from "./lib/appCatalog";
-import { launchApp, listApps } from "./lib/api";
+import { checkUpdatesMvp, launchApp, listApps } from "./lib/api";
 import { filterApps } from "./lib/search";
 import type { LaunchEvent, RunStatus, ToolApp } from "./lib/types";
 import type { UpdateSummary } from "./lib/updateTypes";
@@ -49,7 +49,17 @@ export default function App() {
 
   useEffect(() => {
     void loadCatalog();
+    void checkForUpdates();
   }, []);
+
+  async function checkForUpdates() {
+    try {
+      const summary = await checkUpdatesMvp();
+      setUpdateSummary(summary);
+    } catch (error) {
+      console.error(error);
+    }
+  }
 
   const categories = useMemo(() => getCategoryList(apps), [apps]);
   const visibleApps = useMemo(() => filterApps(apps, query, category), [apps, category, query]);

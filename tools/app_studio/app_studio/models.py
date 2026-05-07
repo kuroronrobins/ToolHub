@@ -321,10 +321,35 @@ class IconCandidateAsset:
     scores: dict[str, float] = field(default_factory=dict)
     score_total: float = 0.0
     score_basis: str = "prompt_concept_only"
+    semantic_score: float = 0.0
+    specificity_score: float = 0.0
+    small_size_score: float = 0.0
+    aesthetic_score: float = 0.0
+    revision_follow_score: float = 0.0
+    generic_risk_score: float = 0.0
+    quality_total: float = 0.0
+    quality_label: str = ""
+    quality_reasons: list[str] = field(default_factory=list)
+    quality_warnings: list[str] = field(default_factory=list)
     image_evaluation_status: str = "not_run"
     image_evaluation_note: str = "Image pixels were not inspected by this rule-based score."
 
     def manifest_entry(self) -> dict[str, Any]:
+        semantic_score = self.semantic_score or float(self.scores.get("semantic_clarity") or 0.0)
+        specificity_score = self.specificity_score or float(self.scores.get("specificity") or 0.0)
+        small_size_score = self.small_size_score or float(self.scores.get("small_size_legibility") or 0.0)
+        aesthetic_score = self.aesthetic_score or float(self.scores.get("aesthetics") or 0.0)
+        revision_follow_score = self.revision_follow_score or 0.0
+        generic_risk_score = self.generic_risk_score or 0.0
+        quality_total = self.quality_total or _quality_total(
+            semantic_score,
+            specificity_score,
+            small_size_score,
+            aesthetic_score,
+            revision_follow_score,
+            generic_risk_score,
+        )
+        quality_label = self.quality_label or _quality_label(quality_total)
         return {
             "candidate_id": self.candidate_id,
             "number": self.number,
@@ -348,6 +373,16 @@ class IconCandidateAsset:
             "scores": self.scores,
             "score_total": self.score_total,
             "score_basis": self.score_basis,
+            "semantic_score": round(semantic_score, 2),
+            "specificity_score": round(specificity_score, 2),
+            "small_size_score": round(small_size_score, 2),
+            "aesthetic_score": round(aesthetic_score, 2),
+            "revision_follow_score": round(revision_follow_score, 2),
+            "generic_risk_score": round(generic_risk_score, 2),
+            "quality_total": round(quality_total, 2),
+            "quality_label": quality_label,
+            "quality_reasons": self.quality_reasons,
+            "quality_warnings": self.quality_warnings,
             "image_evaluation_status": self.image_evaluation_status,
             "image_evaluation_note": self.image_evaluation_note,
         }
@@ -533,3 +568,26 @@ def approval_category_for_check(status: str, explicit: str = "") -> str:
     if status == "warn":
         return "non_blocking_warning"
     return "info"
+
+
+def _quality_total(
+    semantic_score: float,
+    specificity_score: float,
+    small_size_score: float,
+    aesthetic_score: float,
+    revision_follow_score: float,
+    generic_risk_score: float,
+) -> float:
+    positive = semantic_score + specificity_score + small_size_score + aesthetic_score + revision_follow_score
+    generic_penalty_balance = max(0.0, 10.0 - generic_risk_score)
+    return max(0.0, min(100.0, ((positive + generic_penalty_balance) / 60.0) * 100.0))
+
+
+def _quality_label(total: float) -> str:
+    if total >= 82:
+        return "excellent"
+    if total >= 68:
+        return "good"
+    if total >= 52:
+        return "usable"
+    return "weak"

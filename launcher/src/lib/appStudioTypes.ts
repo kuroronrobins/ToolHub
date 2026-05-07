@@ -285,6 +285,16 @@ export interface AppStudioAiIconCandidate {
   scores?: AppStudioIconScores | null;
   scoreTotal?: number | null;
   scoreBasis?: string | null;
+  semanticScore?: number | null;
+  specificityScore?: number | null;
+  smallSizeScore?: number | null;
+  aestheticScore?: number | null;
+  revisionFollowScore?: number | null;
+  genericRiskScore?: number | null;
+  qualityTotal?: number | null;
+  qualityLabel?: string | null;
+  qualityReasons?: string[];
+  qualityWarnings?: string[];
   imageEvaluationStatus?: string | null;
   imageEvaluationNote?: string | null;
 }
@@ -307,6 +317,14 @@ export interface AppStudioImageApiSummary {
   image_evaluation_status?: string;
   imageEvaluationNote?: string;
   image_evaluation_note?: string;
+  recommendedCandidateId?: string;
+  recommended_candidate_id?: string;
+  recommendedQualityLabel?: string;
+  recommended_quality_label?: string;
+  recommendedQualityTotal?: number;
+  recommended_quality_total?: number;
+  qualityLabelCounts?: Record<string, number>;
+  quality_label_counts?: Record<string, number>;
   revisionMode?: string;
   revision_mode?: string;
   imageQualityMode?: string;

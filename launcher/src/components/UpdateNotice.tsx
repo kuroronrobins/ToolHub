@@ -21,10 +21,10 @@ export function UpdateNotice({ summary, onOpen, onDismiss }: Props) {
       </div>
       <div className="notice-actions">
         <button className="primary-button" type="button" onClick={onOpen}>
-          今すぐ更新
+          詳細を確認
         </button>
         <button className="secondary-button" type="button" onClick={onDismiss}>
-          あとで
+          閉じる
         </button>
       </div>
     </section>

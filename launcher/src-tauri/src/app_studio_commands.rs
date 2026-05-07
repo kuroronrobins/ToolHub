@@ -293,6 +293,16 @@ pub struct AppStudioAiIconCandidateSuggestion {
     pub scores: Option<Value>,
     pub score_total: Option<f64>,
     pub score_basis: Option<String>,
+    pub semantic_score: Option<f64>,
+    pub specificity_score: Option<f64>,
+    pub small_size_score: Option<f64>,
+    pub aesthetic_score: Option<f64>,
+    pub revision_follow_score: Option<f64>,
+    pub generic_risk_score: Option<f64>,
+    pub quality_total: Option<f64>,
+    pub quality_label: Option<String>,
+    pub quality_reasons: Vec<String>,
+    pub quality_warnings: Vec<String>,
     pub image_evaluation_status: Option<String>,
     pub image_evaluation_note: Option<String>,
 }
@@ -1824,6 +1834,21 @@ fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggest
                         .get("score_basis")
                         .and_then(Value::as_str)
                         .map(str::to_string),
+                    semantic_score: item.get("semantic_score").and_then(Value::as_f64),
+                    specificity_score: item.get("specificity_score").and_then(Value::as_f64),
+                    small_size_score: item.get("small_size_score").and_then(Value::as_f64),
+                    aesthetic_score: item.get("aesthetic_score").and_then(Value::as_f64),
+                    revision_follow_score: item
+                        .get("revision_follow_score")
+                        .and_then(Value::as_f64),
+                    generic_risk_score: item.get("generic_risk_score").and_then(Value::as_f64),
+                    quality_total: item.get("quality_total").and_then(Value::as_f64),
+                    quality_label: item
+                        .get("quality_label")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    quality_reasons: string_array(item.get("quality_reasons")),
+                    quality_warnings: string_array(item.get("quality_warnings")),
                     image_evaluation_status: item
                         .get("image_evaluation_status")
                         .and_then(Value::as_str)
@@ -1864,6 +1889,16 @@ fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggest
                 scores: None,
                 score_total: None,
                 score_basis: None,
+                semantic_score: None,
+                specificity_score: None,
+                small_size_score: None,
+                aesthetic_score: None,
+                revision_follow_score: None,
+                generic_risk_score: None,
+                quality_total: None,
+                quality_label: None,
+                quality_reasons: Vec::new(),
+                quality_warnings: Vec::new(),
                 image_evaluation_status: None,
                 image_evaluation_note: None,
             });
@@ -1894,6 +1929,16 @@ fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggest
                 scores: None,
                 score_total: None,
                 score_basis: None,
+                semantic_score: None,
+                specificity_score: None,
+                small_size_score: None,
+                aesthetic_score: None,
+                revision_follow_score: None,
+                generic_risk_score: None,
+                quality_total: None,
+                quality_label: None,
+                quality_reasons: Vec::new(),
+                quality_warnings: Vec::new(),
                 image_evaluation_status: None,
                 image_evaluation_note: None,
             });

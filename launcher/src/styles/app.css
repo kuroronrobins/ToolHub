@@ -496,6 +496,13 @@ button {
   color: #111827;
 }
 
+.update-note-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: #475467;
+  font-size: 0.86rem;
+}
+
 .admin-details dl div {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
@@ -1414,6 +1421,7 @@ button {
   overflow-wrap: anywhere;
 }
 
+.studio-icon-candidate-quality,
 .studio-icon-candidate-prompt {
   display: grid;
   gap: 6px;
@@ -1421,9 +1429,15 @@ button {
   font-size: 0.78rem;
 }
 
+.studio-icon-candidate-quality summary,
 .studio-icon-candidate-prompt summary {
   cursor: pointer;
   font-weight: 700;
+}
+
+.studio-icon-candidate-quality p {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .studio-icon-candidate-prompt pre {

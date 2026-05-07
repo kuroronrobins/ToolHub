@@ -2,11 +2,11 @@
 
 ToolHub App Studio では、すべての Python アプリを無条件にワンクリック exe 化するのではなく、登録方式を分けて安全に運用する。
 
-## 標準の登録方式
+## 現行の通常登録方式
 
-- 軽量 Python アプリ: `app-env`
-- 複数モジュール、GUI、Playwright、多数ファイルを含む Python アプリ: `frozen-folder`
-- 既存 exe アプリ: `existing-exe`
+現行の通常新規登録 GUI は `frozen-folder` 固定です。軽量 Python アプリ、複数モジュール、GUI、Playwright、多数ファイルを含む Python アプリのいずれも、通常 GUI では Python ソースから PyInstaller folder build を作成して登録します。
+
+`app-env`、Python 直接実行、`existing-exe` は legacy / 既存互換 / 将来拡張の説明です。通常新規登録 GUI の選択肢ではありません。既存 exe は、現時点の通常 GUI では portable な配布物として検証できないため直接登録しません。
 
 `frozen-folder` は PyInstaller の `--onedir` 相当を標準とする。`--onefile` は標準採用しない。
 
@@ -29,12 +29,14 @@ App Studio は自動検出した Build Profile を `build_profile.json` に出�
 
 ## 管理されたビルド環境
 
-exe 化は通常のグローバル Python に直接依存させない。`frozen-folder` では次の順に管理対象の Python を使う。
+exe 化は利用者向け runtime に直接依存させません。現行通常登録では、App Studio 出力ディレクトリ配下の内部 `build_env` を作成し、その環境へ PyInstaller とビルド用依存を導入して `frozen-folder` build を行います。`build_env` は作業環境であり、`final_app`、App Pack、`release`、`runtime` には含めません。
+
+次の方式は legacy / 互換説明です。通常新規登録 GUI が作成するものではありません。
 
 1. `runtime/app_envs/<app_id>/Scripts/python.exe`
 2. `runtime/python/python.exe`
 
-管理対象の実行環境が無い場合、App Studio は `app_env` を作成し、PyInstaller をその環境に導入してから frozen-folder build を行う。`--skip-app-env-build` を指定した場合は自動作成せず、管理対象 Python が無ければ fail とする。
+`runtime/app_envs/<app_id>` を通常登録で作成する、または利用者PCの実行方式として使う、という古い説明は現在の通常 GUI には適用しません。
 
 ## 成果物ゲート
 

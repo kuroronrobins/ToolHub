@@ -125,9 +125,10 @@ export function AppStudioAiProposalPanel({
   const metadata = proposal?.metadata;
   const icon = proposal?.icon;
   const selected = selectedIconSource ?? localSelectedIconSource;
-  const iconCandidates = icon ? normalizedIconCandidates(icon) : [];
+  const iconCandidates = icon ? sortIconCandidates(normalizedIconCandidates(icon)) : [];
   const apiCandidates = iconCandidates.filter((candidate) => !candidate.fallback && isApiOrLegacyCandidate(candidate));
   const fallbackCandidates = iconCandidates.filter((candidate) => candidate.fallback || candidate.source?.includes("fallback"));
+  const recommendedCandidateId = stringValue(icon?.imageApiSummary?.recommendedCandidateId ?? icon?.imageApiSummary?.recommended_candidate_id);
   const primaryPreviewLabel = apiCandidates.length ? "AI PNGアイコン候補" : "fallback PNGプレースホルダー";
   const metadataFields = compact ? METADATA_FIELDS.filter((field) => field.compact) : METADATA_FIELDS;
   const imageApiBlocked = imageApiHealth?.ok === false;
@@ -226,6 +227,7 @@ export function AppStudioAiProposalPanel({
               <IconCandidateCard
                 key={candidate.candidateId}
                 candidate={candidate}
+                recommended={recommendedCandidateId === candidate.candidateId}
                 adopted={selectedIconSource === "candidate_png" && selectedIconCandidateId === candidate.candidateId}
                 onAdopt={() => adoptPng("candidate_png", candidate.pngDataUrl, candidate)}
               />
@@ -243,6 +245,7 @@ export function AppStudioAiProposalPanel({
                 <IconCandidateCard
                   key={candidate.candidateId}
                   candidate={candidate}
+                  recommended={recommendedCandidateId === candidate.candidateId}
                   adopted={selectedIconSource === "fallback_png"}
                   onAdopt={adoptFallbackPng}
                   fallbackAction
@@ -365,6 +368,10 @@ function ImageApiSummaryPanel({ icon, candidates }: { icon: AppStudioAiProposal[
   const imageApiSeconds = numberValue(summary?.imageApiSeconds ?? summary?.image_api_seconds);
   const proposalReloadSeconds = numberValue(summary?.proposalReloadSeconds ?? summary?.proposal_reload_seconds);
   const scoreBasis = stringValue(summary?.scoreBasis ?? summary?.score_basis) || "prompt_concept_only";
+  const imageEvaluationStatus = stringValue(summary?.imageEvaluationStatus ?? summary?.image_evaluation_status);
+  const recommendedCandidateId = stringValue(summary?.recommendedCandidateId ?? summary?.recommended_candidate_id);
+  const recommendedQualityTotal = numberValue(summary?.recommendedQualityTotal ?? summary?.recommended_quality_total);
+  const recommendedQualityLabel = stringValue(summary?.recommendedQualityLabel ?? summary?.recommended_quality_label);
   const organizationBlocked = isOrganizationVerificationRequired({ model, errorCategory: failureCategory, fallbackReason: latestFailure, message: latestFailure });
   return (
     <div className={`studio-image-api-summary${apiCount > 0 ? " ok" : " warn"}`}>
@@ -374,6 +381,9 @@ function ImageApiSummaryPanel({ icon, candidates }: { icon: AppStudioAiProposal[
       {stylePreset ? <div><span>style</span><strong>{stylePreset}</strong></div> : null}
       {revisionMode ? <div><span>revision</span><strong>{revisionMode}</strong></div> : null}
       {imageQualityMode ? <div><span>quality</span><strong>{imageQualityMode}</strong></div> : null}
+      {imageEvaluationStatus ? <div><span>画像評価</span><strong>{evaluationStatusLabel(imageEvaluationStatus)}</strong></div> : null}
+      {recommendedCandidateId ? <div><span>推奨候補</span><strong>{recommendedCandidateId}</strong></div> : null}
+      {recommendedQualityTotal !== null ? <div><span>推奨品質</span><strong>{qualityLabelText(recommendedQualityLabel, recommendedQualityTotal)}</strong></div> : null}
       {imageApiSeconds !== null ? <div><span>API秒数</span><strong>{imageApiSeconds.toFixed(1)}秒</strong></div> : null}
       {proposalReloadSeconds !== null ? <div><span>再読込</span><strong>{proposalReloadSeconds.toFixed(2)}秒</strong></div> : null}
       {failureCategory ? <div><span>error_category</span><strong>{failureCategory}</strong></div> : null}
@@ -385,8 +395,12 @@ function ImageApiSummaryPanel({ icon, candidates }: { icon: AppStudioAiProposal[
   );
 }
 
-function IconCandidateCard({ candidate, adopted, onAdopt, fallbackAction = false }: { candidate: AppStudioAiIconCandidate; adopted: boolean; onAdopt: () => void; fallbackAction?: boolean }) {
+function IconCandidateCard({ candidate, adopted, recommended, onAdopt, fallbackAction = false }: { candidate: AppStudioAiIconCandidate; adopted: boolean; recommended: boolean; onAdopt: () => void; fallbackAction?: boolean }) {
   const scoreTotal = typeof candidate.scoreTotal === "number" ? Math.round(candidate.scoreTotal) : null;
+  const qualityTotal = candidateQualityTotal(candidate);
+  const qualityLabel = candidate.qualityLabel || "";
+  const reasons = candidate.qualityReasons ?? [];
+  const warnings = candidate.qualityWarnings ?? [];
   const conceptSummary = candidateConceptSummary(candidate);
   return (
     <article className={`studio-icon-candidate-card${adopted ? " selected" : ""}`}>
@@ -394,6 +408,7 @@ function IconCandidateCard({ candidate, adopted, onAdopt, fallbackAction = false
         <strong>候補 {candidate.number || candidate.candidateId}</strong>
         <span className={candidate.fallback ? "admin-status-pill warn" : "admin-status-pill"}>{candidate.fallback ? "fallback" : sourceLabel(candidate.source)}</span>
       </div>
+      {recommended ? <span className="admin-status-pill ok">推奨</span> : null}
       {candidate.pngDataUrl ? (
         <img className="studio-icon-preview primary-icon-preview" src={candidate.pngDataUrl} alt={`PNGアイコン候補 ${candidate.number}`} />
       ) : (
@@ -408,9 +423,21 @@ function IconCandidateCard({ candidate, adopted, onAdopt, fallbackAction = false
         {candidate.fallbackReason ? <span>reason: {candidate.fallbackReason}</span> : null}
         {candidate.conceptId ? <span>concept: {candidate.conceptId}</span> : null}
         {scoreTotal !== null ? <span>score: {scoreTotal}</span> : null}
-        {candidate.imageEvaluationStatus ? <span>image eval: {candidate.imageEvaluationStatus}</span> : null}
+        {qualityTotal !== null ? <span>quality: {qualityLabelText(qualityLabel, qualityTotal)}</span> : null}
+        {candidate.semanticScore != null ? <span>semantic: {candidate.semanticScore.toFixed(1)}</span> : null}
+        {candidate.smallSizeScore != null ? <span>small: {candidate.smallSizeScore.toFixed(1)}</span> : null}
+        {candidate.genericRiskScore != null ? <span>generic risk: {candidate.genericRiskScore.toFixed(1)}</span> : null}
+        {candidate.imageEvaluationStatus ? <span>image eval: {evaluationStatusLabel(candidate.imageEvaluationStatus)}</span> : null}
         {adopted ? <span>採用中</span> : null}
       </div>
+      {reasons.length || warnings.length || candidate.imageEvaluationNote ? (
+        <details className="studio-icon-candidate-quality">
+          <summary>品質理由</summary>
+          {reasons.length ? <p>理由: {reasons.slice(0, 3).join(" / ")}</p> : null}
+          {warnings.length ? <p>注意: {warnings.slice(0, 4).join(" / ")}</p> : null}
+          {candidate.imageEvaluationNote ? <p>{candidate.imageEvaluationNote}</p> : null}
+        </details>
+      ) : null}
       {conceptSummary ? <p className="admin-muted">{conceptSummary}</p> : null}
       {candidate.prompt ? (
         <details className="studio-icon-candidate-prompt">
@@ -448,6 +475,56 @@ function stringValue(value: unknown): string {
 
 function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function candidateQualityTotal(candidate: AppStudioAiIconCandidate): number | null {
+  if (typeof candidate.qualityTotal === "number" && Number.isFinite(candidate.qualityTotal)) {
+    return candidate.qualityTotal;
+  }
+  if (typeof candidate.scoreTotal === "number" && Number.isFinite(candidate.scoreTotal)) {
+    return Math.min(100, Math.max(0, (candidate.scoreTotal / 50) * 100));
+  }
+  return null;
+}
+
+function sortIconCandidates(candidates: AppStudioAiIconCandidate[]): AppStudioAiIconCandidate[] {
+  return [...candidates].sort((left, right) => {
+    if (left.fallback !== right.fallback) {
+      return left.fallback ? 1 : -1;
+    }
+    return (candidateQualityTotal(right) ?? -1) - (candidateQualityTotal(left) ?? -1);
+  });
+}
+
+function qualityLabelText(label: string | undefined, total: number): string {
+  const shownLabel = label ? `${qualityLabelJa(label)} / ` : "";
+  return `${shownLabel}${Math.round(total)}点`;
+}
+
+function qualityLabelJa(label: string): string {
+  if (label === "excellent") {
+    return "非常に良い";
+  }
+  if (label === "good") {
+    return "良い";
+  }
+  if (label === "usable") {
+    return "採用候補";
+  }
+  if (label === "weak") {
+    return "弱い";
+  }
+  return label;
+}
+
+function evaluationStatusLabel(status: string): string {
+  if (status === "fallback_rule_based") {
+    return "自動簡易評価";
+  }
+  if (status === "not_run") {
+    return "未実行";
+  }
+  return status;
 }
 
 function isApiOrLegacyCandidate(candidate: AppStudioAiIconCandidate): boolean {

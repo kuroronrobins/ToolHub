@@ -1,5 +1,35 @@
 use crate::manifest::{collect_categories, load_apps};
 use crate::runner::{launch_runner, LaunchResult};
+use serde::Serialize;
+use serde_json::Value;
+use std::fs;
+use std::path::Path;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateItem {
+    pub label: String,
+    pub current_version: String,
+    pub next_version: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSummary {
+    pub title: String,
+    pub message: String,
+    pub status: String,
+    pub current_version: String,
+    pub local_manifest_version: Option<String>,
+    pub update_source_configured: bool,
+    pub update_source_url: Option<String>,
+    pub core: Option<UpdateItem>,
+    pub runner: Option<UpdateItem>,
+    pub apps: Vec<UpdateItem>,
+    pub runtime_update: bool,
+    pub notes: Vec<String>,
+    pub unsupported_actions: Vec<String>,
+}
 
 #[tauri::command]
 pub fn list_apps() -> Result<Vec<crate::manifest::AppInfo>, String> {
@@ -47,4 +77,207 @@ pub fn get_recent_logs(app_id: Option<String>) -> Result<Vec<String>, String> {
 
     entries.sort_by(|a, b| b.0.cmp(&a.0));
     Ok(entries.into_iter().take(10).map(|(_, path)| path).collect())
+}
+
+#[tauri::command]
+pub fn check_updates_mvp() -> Result<UpdateSummary, String> {
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    let local_manifest_path = root.join("release").join("manifest.json");
+    let app_manifest_path = root.join("release").join("app_manifest.json");
+    let config_path = root.join("config.default").join("launcher.yaml");
+    let manifest = read_json_file(&local_manifest_path);
+    let app_manifest = read_json_file(&app_manifest_path);
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let local_manifest_version = manifest
+        .as_ref()
+        .and_then(|value| json_string(value, &["toolhub", "version"]))
+        .or_else(|| {
+            manifest
+                .as_ref()
+                .and_then(|value| json_string(value, &["core", "version"]))
+        });
+    let update_source_url = read_update_source_url(&config_path);
+    let update_source_configured = update_source_url.is_some();
+    let mut notes = vec![
+        "これは読み取り専用の更新確認MVPです。".to_string(),
+        "ダウンロード、展開、置換、バックアップ、ロールバック、署名検証は未実装です。".to_string(),
+    ];
+    if !update_source_configured {
+        notes.push(
+            "更新元URLが未設定のため、ローカルのrelease manifestのみ確認しました。".to_string(),
+        );
+    }
+
+    let core = local_manifest_version
+        .as_ref()
+        .filter(|version| version_is_newer(version, &current_version))
+        .map(|version| UpdateItem {
+            label: "ToolHub".to_string(),
+            current_version: current_version.clone(),
+            next_version: version.clone(),
+        });
+    let runner = manifest
+        .as_ref()
+        .and_then(|value| json_string(value, &["runner", "version"]))
+        .filter(|version| version_is_newer(version, &current_version))
+        .map(|version| UpdateItem {
+            label: "Python App Runner".to_string(),
+            current_version: current_version.clone(),
+            next_version: version,
+        });
+    let apps = update_app_items(&root, app_manifest.as_ref());
+    let runtime_update = manifest_has_runtime_update(manifest.as_ref());
+    let has_updates = core.is_some() || runner.is_some() || !apps.is_empty() || runtime_update;
+    let status = if !update_source_configured {
+        "source_not_configured"
+    } else if has_updates {
+        "update_available"
+    } else {
+        "no_update"
+    };
+    let title = match status {
+        "update_available" => "更新候補があります",
+        "no_update" => "更新は見つかりませんでした",
+        _ => "更新元未設定",
+    }
+    .to_string();
+    let message = match status {
+        "update_available" => "ローカルmanifest比較で更新候補を検出しました。ダウンロードと適用はまだ実行できません。",
+        "no_update" => "設定済み更新元とローカルmanifestの比較準備はできています。現在は読み取り専用確認までです。",
+        _ => "ローカルmanifestを確認しましたが、更新元URLが未設定です。ダウンロードと適用は未実装です。",
+    }
+    .to_string();
+
+    Ok(UpdateSummary {
+        title,
+        message,
+        status: status.to_string(),
+        current_version,
+        local_manifest_version,
+        update_source_configured,
+        update_source_url,
+        core,
+        runner,
+        apps,
+        runtime_update,
+        notes,
+        unsupported_actions: vec![
+            "download".to_string(),
+            "extract".to_string(),
+            "replace".to_string(),
+            "backup".to_string(),
+            "rollback".to_string(),
+            "signature_verification".to_string(),
+        ],
+    })
+}
+
+fn read_json_file(path: &Path) -> Option<Value> {
+    let text = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+fn read_update_source_url(path: &Path) -> Option<String> {
+    let text = fs::read_to_string(path).ok()?;
+    let value: serde_yaml::Value = serde_yaml::from_str(&text).ok()?;
+    for key in ["source_url", "manifest_url", "url"] {
+        if let Some(value) = yaml_string(&value, &["updates", key]) {
+            if !value.trim().is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+fn yaml_string(value: &serde_yaml::Value, path: &[&str]) -> Option<String> {
+    let mut current = value;
+    for key in path {
+        let serde_yaml::Value::Mapping(map) = current else {
+            return None;
+        };
+        current = map.get(&serde_yaml::Value::String((*key).to_string()))?;
+    }
+    current
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn json_string(value: &Value, path: &[&str]) -> Option<String> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    current
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn update_app_items(root: &Path, app_manifest: Option<&Value>) -> Vec<UpdateItem> {
+    let mut items = Vec::new();
+    let Ok(apps) = load_apps(root) else {
+        return items;
+    };
+    let Some(app_entries) = app_manifest
+        .and_then(|value| value.get("apps"))
+        .and_then(Value::as_object)
+    else {
+        return items;
+    };
+    for app in apps {
+        let Some(manifest_entry) = app_entries.get(&app.id) else {
+            continue;
+        };
+        let Some(next_version) = manifest_entry.get("version").and_then(Value::as_str) else {
+            continue;
+        };
+        let current_version = app
+            .admin
+            .as_ref()
+            .and_then(|admin| admin.version.clone())
+            .unwrap_or_else(|| "0.0.0".to_string());
+        if version_is_newer(next_version, &current_version) {
+            items.push(UpdateItem {
+                label: app.name,
+                current_version,
+                next_version: next_version.to_string(),
+            });
+        }
+    }
+    items
+}
+
+fn manifest_has_runtime_update(manifest: Option<&Value>) -> bool {
+    let Some(manifest) = manifest else {
+        return false;
+    };
+    for path in [
+        ["runtime", "python", "version"],
+        ["runtime", "web_automation_runtime", "version"],
+    ] {
+        if let Some(version) = json_string(manifest, &path) {
+            if !version.is_empty() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn version_is_newer(next: &str, current: &str) -> bool {
+    let next_parts = parse_version(next);
+    let current_parts = parse_version(current);
+    next_parts > current_parts
+}
+
+fn parse_version(value: &str) -> Vec<u64> {
+    value
+        .split(|character: char| !character.is_ascii_digit())
+        .filter(|part| !part.is_empty())
+        .map(|part| part.parse::<u64>().unwrap_or(0))
+        .collect()
 }

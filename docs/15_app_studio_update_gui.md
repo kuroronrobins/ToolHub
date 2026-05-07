@@ -6,6 +6,8 @@
 
 通常ランチャー画面には更新機能を出しません。React側の表示制御だけでなく、Rust/Tauri command 側で管理者セッションを必須にします。
 
+この GUI は「登録済みアプリを管理者PC上で再ビルド・再登録する」ための MVP です。利用者端末が起動後に配布元manifestを確認し、更新内容を表示する自動更新MVPとは別機能です。配布済みランチャーへ App Pack を配信する publish / auto-update 処理はここでは実行しません。
+
 ## できること
 
 - `apps/<app_id>/app.yaml` と `release/app_manifest.json` から登録済みアプリ一覧を取得する。
@@ -62,5 +64,7 @@ GUI更新操作は次へ記録します。
 - 削除/アンインストールGUI
 - publish GUI
 - 配布済みランチャーへの自動更新配信
+- 利用者向けの更新確認結果から、この更新GUIを直接実行する連携
+- 更新ファイルのダウンロード、展開、置換、バックアップ、ロールバック
 - manifest署名
 - GitHub Releases / GitHub Pages 連携

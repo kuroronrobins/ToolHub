@@ -1,6 +1,15 @@
 import { X } from "lucide-react";
 import type { UpdateItem, UpdateSummary } from "../lib/updateTypes";
 
+const UNSUPPORTED_ACTION_LABELS: Record<string, string> = {
+  download: "ダウンロード",
+  extract: "展開",
+  replace: "置換",
+  backup: "バックアップ",
+  rollback: "ロールバック",
+  signature_verification: "署名検証",
+};
+
 interface Props {
   summary: UpdateSummary | null;
   onClose: () => void;
@@ -38,6 +47,20 @@ export function UpdateSummaryDialog({ summary, onClose }: Props) {
         <section className="detail-section">
           <h3>内容</h3>
           <p>{summary.message}</p>
+          <div className="version-list">
+            <div className="version-row">
+              <span>現在のToolHub</span>
+              <strong>{summary.currentVersion ?? "-"}</strong>
+            </div>
+            <div className="version-row">
+              <span>ローカルmanifest</span>
+              <strong>{summary.localManifestVersion ?? "未確認"}</strong>
+            </div>
+            <div className="version-row">
+              <span>更新元</span>
+              <strong>{summary.updateSourceConfigured ? summary.updateSourceUrl ?? "設定済み" : "未設定"}</strong>
+            </div>
+          </div>
         </section>
 
         <details className="admin-details">
@@ -49,7 +72,20 @@ export function UpdateSummaryDialog({ summary, onClose }: Props) {
               <VersionRow key={item.label} item={item} />
             ))}
             {summary.runtimeUpdate ? <div className="version-row"><span>Web自動化用ランタイム</span><strong>更新あり</strong></div> : null}
+            {!summary.core && !summary.runner && !summary.apps.length && !summary.runtimeUpdate ? (
+              <div className="version-row"><span>更新候補</span><strong>なし</strong></div>
+            ) : null}
           </div>
+          {summary.notes?.length ? (
+            <ul className="update-note-list">
+              {summary.notes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          ) : null}
+          {summary.unsupportedActions?.length ? (
+            <p className="admin-muted">未実装: {summary.unsupportedActions.map((action) => UNSUPPORTED_ACTION_LABELS[action] ?? action).join("、")}</p>
+          ) : null}
         </details>
       </section>
     </div>

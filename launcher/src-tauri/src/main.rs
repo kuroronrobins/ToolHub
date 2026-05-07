@@ -23,6 +23,7 @@ fn main() {
             commands::get_categories,
             commands::launch_app,
             commands::get_recent_logs,
+            commands::check_updates_mvp,
             admin_commands::admin_is_password_set,
             admin_commands::admin_set_password,
             admin_commands::admin_login,

@@ -20,7 +20,7 @@ Icon候補の `source` が `api_generate` または `api_edit` のものだけ�
 
 Icon生成には `iconStylePreset` を使います。選択肢は `modern`、`vivid`、`realistic`、`colored_pencil`、`watercolor`、`flat_vector`、`3d_soft`、`glassmorphism`、`clay`、`custom` です。`custom` では自由入力のスタイル指示を優先し、後段の固定 prompt が色鉛筆風・写実風・ビビッド等の指定を汎用の polished/glass/3D 表現で上書きしないようにします。
 
-再生成時に修正元PNGが選ばれている場合、CLI はそのPNGを一時ファイルとして渡し、OpenAI SDK の画像編集API経路を試みます。画像編集APIが失敗した場合は `candidate_manifest.json` と GUI に失敗理由を残し、fallback候補は暫定プレースホルダーとして分離表示します。画像候補の自動採点は現在 prompt/concept ベースであり、生成画像そのものを vision model で検査した結果ではありません。
+再生成時に修正元PNGが選ばれている場合、CLI はそのPNGを一時ファイルとして渡し、OpenAI SDK の画像編集API経路を試みます。画像編集APIが失敗した場合は `candidate_manifest.json` と GUI に失敗理由を残し、fallback候補は暫定プレースホルダーとして分離表示します。画像候補の自動採点は、MVPでは vision model 評価ではなく、prompt/concept 評価に PNG の小サイズ視認性・コントラスト・余白の簡易検査を加えた deterministic rule-based 評価です。Vision 評価を実行していない場合は `image_evaluation_status: fallback_rule_based` または `not_run` として明示します。
 
 GUIでは CLI process の `exit_code` / `process_ok` と、`execution_test_result.json` の `overall_status` / `approval_allowed` を分けて表示します。通常新規登録の frozen-folder では runner dry execution や Playwright ログイン未確認により `overall_status: warn` になることがあります。警告は `approval_blocking_warning`、`non_blocking_warning`、`info` に分類され、`approval_allowed: true` かつ `approval_blocking_warnings_count: 0` の場合は、デフォルトの慎重モードでも承認できます。App Packが見つからない場合は App Pack 欄だけ `not found` と表示します。Apply後はGUIが `app_studio_read_result` を再実行し、生成済みJSONの内容を表示へ反映します。
 
@@ -165,7 +165,7 @@ AgendaSnap 級の複雑アプリ、音声/GUI/外部DLL/重い依存を含むア
 
 APIキー未設定、AI無効、OpenAI packageなし、API失敗、high/medium secret検出時はAI送信せず deterministic fallback PNG を生成します。fallback/互換用SVGは `icon_work/icon_fallback.svg` と `final_app/icon.svg` に残します。fallback PNG は 512x512 の暫定画像で、API生成成功とは扱いません。モデル名はコードに固定せず、GUIでは管理者画面の Image model 設定、CLIでは `TOOLHUB_APP_STUDIO_IMAGE_MODEL` から読みます。既定候補は OpenAI 公式ドキュメントで GPT Image 系として案内されている `gpt-image-2` です。実環境で利用できるかは「画像生成テスト（実API呼び出し）」で確認してください。
 
-`icon_work/candidate_manifest.json` には候補ごとの `source`、`api`、`model`、`status`、`resolution`、`content_type`、`fallback_reason`、`error_category`、`score_basis`、`image_evaluation_status` を保存します。互換のため `icon_candidate_1.png` は引き続き読み込めますが、manifest のない古い候補は `legacy` として扱います。
+`icon_work/candidate_manifest.json` には候補ごとの `source`、`api`、`model`、`status`、`resolution`、`content_type`、`fallback_reason`、`error_category`、`score_basis`、`image_evaluation_status` に加え、`semantic_score`、`specificity_score`、`small_size_score`、`aesthetic_score`、`revision_follow_score`、`generic_risk_score`、`quality_total`、`quality_label`、`quality_reasons`、`quality_warnings` を保存します。互換のため `icon_candidate_1.png` は引き続き読み込めますが、manifest のない古い候補は `legacy` として扱います。
 
 ## 実行確認と人間承認
 
@@ -449,6 +449,7 @@ AI利用時:
 - `OPENAI_API_KEY` が設定されていることを確認する。
 - AI送信対象の secret finding がある場合はAI送信されず fallback になることを確認する。
 - 生成アイコン候補PNG/URLは人間レビュー用であり、採用したPNGだけが `icon.png` に反映されることを確認する。
+- `candidate_manifest.json` の `quality_label`、`quality_warnings`、`image_evaluation_status` を確認し、`fallback` / `fallback_after_api_failure` をAI生成成功候補と混同しない。
 - 既存 `display.icon: icon.svg` のアプリが引き続き表示できることを確認する。
 
 ## App Studio Import Diagnostic Script
@@ -574,10 +575,25 @@ is a fallback. The normal fallback PNG is generated at 512x512 instead of 64x64.
 When the image API returns 1024x1024 PNG data, that original candidate is kept in
 `icon_work` for review. Manifest schema v2 also stores the function
 interpretation, concept metadata, and rule-based scores for semantic clarity,
-specificity, small-size legibility, aesthetics, and diversity.
+specificity, small-size legibility, aesthetics, and diversity. The current MVP
+also writes quality fields for the generated image candidate itself:
+`semantic_score`, `specificity_score`, `small_size_score`, `aesthetic_score`,
+`revision_follow_score`, `generic_risk_score`, `quality_total`,
+`quality_label`, `quality_reasons`, and `quality_warnings`.
+
+Vision evaluation is not required for registration and is not claimed when it
+does not run. If PNG bytes are available, App Studio performs deterministic
+rule-based checks by decoding the PNG with the standard library, sampling the
+image at small sizes, and checking contrast, visible canvas usage, and
+silhouette preservation. In that case `image_evaluation_status` is
+`fallback_rule_based`. If only a URL candidate exists, or pixels cannot be
+decoded, `image_evaluation_status` stays `not_run` or the note explains that
+only prompt/concept checks were used.
 
 The GUI shows each PNG candidate separately with its source, model, resolution,
-status, score, concept summary, and adoption state. It also shows the
+status, score, quality label, warnings, concept summary, and adoption state. API
+candidates are sorted ahead of fallback candidates, and the highest-quality
+selectable candidate is marked as recommended. It also shows the
 AI-interpreted function summary above the candidate list: primary function,
 inputs, outputs, inferred action flow, recommended motif/composition, and
 generic patterns to avoid. Pressing "このPNGを採用" stores a PNG override that is

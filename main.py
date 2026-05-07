@@ -84,6 +84,55 @@ def has_command(command: str) -> CheckItem:
     return CheckItem(command, path is not None, path or "not found")
 
 
+def local_npm_bin(root: Path, command: str) -> Optional[Path]:
+    bin_dir = root / "launcher" / "node_modules" / ".bin"
+    candidates = [bin_dir / command]
+    if os.name == "nt":
+        candidates.insert(0, bin_dir / f"{command}.cmd")
+        candidates.append(bin_dir / f"{command}.ps1")
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def frontend_dependency_issue(root: Path) -> Optional[str]:
+    launcher_dir = root / "launcher"
+    package_json = launcher_dir / "package.json"
+    package_lock = launcher_dir / "package-lock.json"
+    node_modules = launcher_dir / "node_modules"
+
+    if not package_json.is_file():
+        return "launcher/package.json が見つかりません。"
+    if not package_lock.is_file():
+        return "launcher/package-lock.json が見つかりません。"
+    if not node_modules.is_dir():
+        return "launcher/node_modules が見つかりません。"
+    if local_npm_bin(root, "tauri") or which("tauri"):
+        return None
+    return "Tauri CLI が見つかりません。launcher の npm 依存関係が未復元の可能性があります。"
+
+
+def print_frontend_dependency_help(root: Path, latest_log: Path, detail: str) -> None:
+    logging.error("frontend dependency check failed: %s", detail)
+    print("")
+    print("ToolHubを起動できませんでした。")
+    print("フロントエンド依存関係が未準備です。")
+    print("")
+    print("原因:")
+    print(f"- {detail}")
+    print("")
+    print("次のコマンドを実行してください:")
+    print("")
+    print("cd launcher")
+    print("npm ci")
+    print("cd ..")
+    print("py main.py")
+    print("")
+    print("詳細ログ:")
+    print(latest_log)
+
+
 def check_environment(root: Path) -> List[CheckItem]:
     items: List[CheckItem] = []
 
@@ -94,23 +143,33 @@ def check_environment(root: Path) -> List[CheckItem]:
     launcher_package = root / "launcher" / "package.json"
     items.append(CheckItem("launcher/package.json", launcher_package.is_file(), str(launcher_package)))
 
+    launcher_lock = root / "launcher" / "package-lock.json"
+    items.append(CheckItem("launcher/package-lock.json", launcher_lock.is_file(), str(launcher_lock)))
+
+    node_modules = root / "launcher" / "node_modules"
+    items.append(
+        CheckItem(
+            "launcher/node_modules",
+            node_modules.is_dir(),
+            str(node_modules) if node_modules.is_dir() else "not found; run `cd launcher` then `npm ci`",
+        )
+    )
+
     src_tauri = root / "launcher" / "src-tauri" / "Cargo.toml"
     items.append(CheckItem("launcher/src-tauri/Cargo.toml", src_tauri.is_file(), str(src_tauri)))
 
     for command in ("node", "npm", "rustc", "cargo"):
         items.append(has_command(command))
 
-    tauri_cli = which("tauri")
-    npm_package = root / "launcher" / "package.json"
+    tauri_cli = local_npm_bin(root, "tauri") or (Path(which("tauri")) if which("tauri") else None)
     if tauri_cli:
-        items.append(CheckItem("tauri-cli", True, tauri_cli, required=False))
+        items.append(CheckItem("tauri-cli", True, str(tauri_cli)))
     else:
         items.append(
             CheckItem(
                 "tauri-cli",
-                npm_package.is_file(),
-                "global tauri command not found; npm script can use local @tauri-apps/cli",
-                required=False,
+                False,
+                "not found; run `cd launcher` then `npm ci`",
             )
         )
 
@@ -175,6 +234,12 @@ def launch_dev(root: Path) -> int:
     if missing:
         raise RuntimeError("missing project files: " + ", ".join(missing))
 
+    dependency_issue = frontend_dependency_issue(root)
+    if dependency_issue:
+        latest_log = root / "data" / "logs" / "launcher" / "latest.log"
+        print_frontend_dependency_help(root, latest_log, dependency_issue)
+        return 1
+
     failed_checks = [item.name for item in check_environment(root) if item.required and not item.ok]
     if failed_checks:
         raise RuntimeError("missing development environment: " + ", ".join(failed_checks))
@@ -195,7 +260,7 @@ def print_startup_failure(latest_log: Path, detail: str) -> None:
     print("確認してください：")
     print("- Node.js / npm")
     print("- Rust / cargo")
-    print("- Tauri CLI")
+    print("- launcher の npm 依存関係（cd launcher; npm ci）")
     print("- launcher/package.json")
     print("")
     print("詳細ログ：")

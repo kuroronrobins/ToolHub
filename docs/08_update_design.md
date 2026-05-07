@@ -11,17 +11,22 @@ ToolHubは将来、ToolHub本体と内蔵アプリを安全に更新できる構
 - App Pack sha256検証
 - runtime雛形作成
 - 更新対象とUser Dataを分離する設計docs
+- 非破壊の更新確認MVP
+  - 起動後に読み取り専用の `check_updates_mvp` Tauri command を呼ぶ
+  - `release/manifest.json` / `release/app_manifest.json` をローカル読み込みする
+  - 現在の ToolHub version とローカルmanifest versionを比較する
+  - `config.default/launcher.yaml` の `updates.source_url` / `updates.manifest_url` / `updates.url` が未設定の場合は「更新元未設定」と表示する
+  - 利用者向け通知と詳細ダイアログ、管理者画面の「更新確認MVP」で状態を表示する
 
 未実装:
 
-- 起動後の更新確認
 - manifestのダウンロード
-- 更新内容表示
+- 配布元URLから取得した remote manifest との比較
 - 更新ファイルのダウンロード、展開、原子的置き換え
 - 更新前バックアップとロールバックの実処理
 - manifestやinstallerの署名検証
 
-この文書は現時点では将来設計であり、自動更新本体が動作することを意味しません。
+この文書は現時点では将来設計を含みます。現在動くのはローカルmanifestを読む非破壊MVPまでであり、自動更新本体、ダウンロード、展開、置換、削除、バックアップ、ロールバック、署名検証が動作することを意味しません。
 
 ## Update Units
 
@@ -49,12 +54,15 @@ User Dataは更新対象ではありません。更新処理で削除しない�
 5. 利用者が承認
 6. ダウンロード
 7. sha256検証
-8. 一時フォルダへ展開
-9. `app.yaml` / manifest互換性確認
-10. 更新前バックアップ作成
-11. 原子的に置き換え
-12. 起動確認
-13. 失敗時ロールバック
+8. 署名検証
+9. 一時フォルダへ展開
+10. `app.yaml` / manifest互換性確認
+11. 更新前バックアップ作成
+12. 原子的に置き換え
+13. 起動確認
+14. 失敗時ロールバック
+
+現在の非破壊MVPは 1 と、ローカルmanifestに対する 3/4 の準備表示までです。2、5以降、および remote manifest の取得・署名検証は未実装です。
 
 ## Locations
 

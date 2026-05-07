@@ -1508,11 +1508,15 @@ class IconCandidateExportTests(unittest.TestCase):
             self.assertEqual(manifest["candidates"][0]["concept_id"], "literal_1")
             self.assertEqual(manifest["candidates"][0]["scores"]["semantic_clarity"], 9.0)
             self.assertEqual(manifest["candidates"][0]["score_total"], 25.0)
-            self.assertEqual(manifest["candidates"][0]["score_basis"], "prompt_concept_only")
-            self.assertEqual(manifest["candidates"][0]["image_evaluation_status"], "not_run")
+            self.assertIn(manifest["candidates"][0]["score_basis"], {"prompt_concept_only", "rule_based_pixels_and_prompt", "rule_based_prompt_and_manifest"})
+            self.assertIn("quality_total", manifest["candidates"][0])
+            self.assertIn("quality_label", manifest["candidates"][0])
+            self.assertIn("quality_warnings", manifest["candidates"][0])
+            self.assertIn(manifest["candidates"][0]["image_evaluation_status"], {"fallback_rule_based", "not_run"})
             self.assertEqual(manifest["candidates"][1]["fallback_reason"], "test fallback")
             self.assertEqual(manifest["image_api_summary"]["api_candidate_count"], 1)
             self.assertEqual(manifest["image_api_summary"]["fallback_candidate_count"], 1)
+            self.assertIn("recommended_candidate_id", manifest["image_api_summary"])
 
 
 class RuntimeCheckerTests(unittest.TestCase):

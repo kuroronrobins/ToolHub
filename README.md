@@ -132,7 +132,8 @@ ToolHubは配布アプリケーションなので、再現性のために以下�
 - `main.py`
 - `requirements.txt`
 - `README.md`
-- `icon.svg`
+- `icon.png`
+- `icon.svg`（fallback / 互換用）
 
 ToolHubを再起動すると、`app.yaml` から自動検出されます。
 
@@ -199,8 +200,8 @@ Tauriランチャー経由では、起動時に `%LOCALAPPDATA%\ToolHub\` 配下
 
 - 初回実装では、TauriからReactへのリアルタイムイベントストリーミングは将来拡張の構造に留め、起動結果とログパスを返します。
 - Web操作サンプルは外部サイト依存を避けるため、安全なローカルHTMLデモを優先します。実行環境が未準備の場合は利用者向けエラーと詳細ログを確認できます。
-- 自動更新機能は未実装です。`release/manifest.json`、`release/app_manifest.json`、App Packスクリプト、更新設計docsを用意しています。
-- Rust backendのrunner起動は現時点ではPATH上の `python` / `py` を探します。正式配布前に `runtime/python/python.exe` などの同梱runtimeへ切り替える必要があります。
+- 自動更新は非破壊MVPまでです。起動後にローカルmanifestを読み、更新元URL未設定や比較結果を表示できますが、manifestダウンロード、更新ファイルの取得、展開、置換、バックアップ、ロールバック、署名検証は未実装です。
+- Rust backendのrunner起動は `runtime/python/python.exe` があれば優先し、無い場合はPATH上の `python` / `py` を探します。正式配布前に同梱runtimeの実体作成と検証が必要です。
 - `ToolHub_Setup.exe` の署名、完全なruntime同梱、実機インストール検証は今後の作業です。
 - 現段階の `scripts/prepare_runtime.ps1 -AllowMissingRuntime` はruntimeフォルダとapp_env雛形を作りますが、Python runtime本体とWeb自動化用ランタイム本体は同梱しません。
 - Tauri iconは `launcher/src-tauri/icons/icon.ico` / `icon.png` をGit管理します。必要な場合は `python make_icon.py` で再生成できます。
