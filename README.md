@@ -165,6 +165,16 @@ app manifest の状態だけを確認する場合:
 .\scripts\diagnose_app_manifest.ps1 -Strict
 ```
 
+Release readiness cleanup candidates and non-delete packaging/build work:
+
+```powershell
+.\scripts\report_release_readiness.ps1
+.\scripts\report_release_readiness.ps1 -Json
+```
+
+This report is read-only. It separates disabled stale delete candidates from App Pack rebuild work, shared runtime
+packaging, installer/release build work, intentional warnings, and local build environment blockers.
+
 `release/app_manifest.json` を `apps/` から再生成する計画や、完全削除前の削除予定を確認する場合:
 
 ```powershell

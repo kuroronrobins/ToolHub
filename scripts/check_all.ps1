@@ -220,6 +220,7 @@ try {
     Require-Path "scripts/prepare_runtime.ps1"
     Require-Path "scripts/verify_release.ps1"
     Require-Path "scripts/diagnose_app_manifest.ps1"
+    Require-Path "scripts/report_release_readiness.ps1"
     Require-Path "scripts/rebuild_app_manifest.ps1"
     Require-Path "scripts/plan_app_delete.ps1"
     Require-Path "scripts/test_app_delete_plan.ps1"
@@ -269,6 +270,10 @@ try {
 
     Run-Step "App manifest diagnostic script syntax" {
         & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\diagnose_app_manifest.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "Release readiness report script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\report_release_readiness.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
     }
 
     Run-Step "App manifest rebuild script syntax" {
@@ -343,6 +348,10 @@ try {
     Run-Step "Release manifest verification" {
         & ".\scripts\verify_release.ps1"
     } -Optional
+
+    Run-Step "Release readiness cleanup report" {
+        & ".\scripts\report_release_readiness.ps1"
+    }
 
     Run-Step "App manifest consistency diagnosis" {
         $Args = @()

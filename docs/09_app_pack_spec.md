@@ -2,6 +2,9 @@
 
 App Pack is a generated zip for distributing one ToolHub app. It is not the source of truth for an app.
 
+For release-readiness cleanup classification, including whether a missing App Pack should be regenerated or an app
+should be reviewed as a full-delete candidate, see `docs/20_release_readiness_cleanup.md`.
+
 ## Source Of Truth
 
 The app source of truth is `apps/<app_id>/`:

@@ -5,6 +5,7 @@ actions: hide and full delete.
 
 For the governed implementation roadmap and phase status, see `docs/18_app_delete_execution_plan.md`.
 For the Phase 3 executor contract, see `docs/19_full_delete_executor_design.md`.
+For Phase 6 release-readiness cleanup classification, see `docs/20_release_readiness_cleanup.md`.
 
 ## Source Of Truth
 

@@ -261,6 +261,9 @@ Current state:
 Purpose:
 
 - Prepare app management for formal release and strict verification.
+- Inventory remaining warnings without deleting real apps or generating release artifacts.
+- Classify each warning as app cleanup, hide/show, App Pack rebuild, runtime packaging, installer build, docs/check
+  adjustment, intentional warning, or blocked item.
 
 Completion conditions:
 
@@ -268,6 +271,21 @@ Completion conditions:
 - Stale entry policy is explicit.
 - Full delete no longer leaves app-owned repo garbage.
 - Documentation distinguishes implemented, dry-run, design-only, and unimplemented behavior.
+- Release readiness report identifies delete candidates and non-delete packaging/build work.
+- The next release-prep order is documented before any real stale entry deletion.
+
+Current state:
+
+- In progress.
+- `scripts/report_release_readiness.ps1` provides a read-only inventory with text and JSON output.
+- `docs/20_release_readiness_cleanup.md` records the current warning categories, delete candidates, non-delete
+  candidates, App Pack rebuild targets, runtime/installer tasks, and recommended execution order.
+- Current disabled stale delete candidates are `app_20251123_excelbatchreplace`, `run_3dx_create_ids`, `test`, and
+  `test11`; they are not deleted until owner confirmation.
+- Current App Pack rebuild candidates are the seven apps that still have source but no zip in `release/app_packs/`.
+- Runtime and installer warnings are release-prep tasks, not app deletion tasks.
+- The current strict app_env check needs a policy decision because frozen-folder apps do not use
+  `runtime/app_envs/<app_id>`.
 
 ## 6. Plan Management Rules
 
@@ -291,7 +309,7 @@ Completion conditions:
 | Phase 3: Full Delete Executor Design | Done | `docs/19_full_delete_executor_design.md`, `scripts/execute_app_delete.ps1`, `scripts/test_app_delete_executor_design.ps1`. | None for design scope. | Preserve the design contract as production work starts. |
 | Phase 4: Temporary App Full Delete E2E | Done | `scripts/test_app_full_delete_e2e.ps1`, temporary-only `execute_app_delete.ps1 -Apply -AllowTemporaryAppApply`. | Keep production Apply disabled. | Start Phase 5 production command design and guarded implementation. |
 | Phase 5: Production Full Delete Command | Done | `app_studio_full_delete_apply`, Delete tab full-delete enablement, Rust safety tests, Phase 4 E2E regression. | Keep PowerShell production Apply disabled unless a separate reviewed need appears. | Start Phase 6 cleanup and release readiness. |
-| Phase 6: Cleanup and Release Readiness | Not started | Strict cleanup policy is not complete. | Review stale entries and formal release checks now that production UI deletion exists. | Audit stale entries and formal release checks. |
+| Phase 6: Cleanup and Release Readiness | In progress | `scripts/report_release_readiness.ps1`, `docs/20_release_readiness_cleanup.md`. | Owner must confirm delete candidates; App Packs, runtime, and installer artifacts are still not generated. | Review delete candidates, then handle App Pack/runtime/installer work in order. |
 
 ## 8. Decision Log
 
@@ -323,14 +341,18 @@ Completion conditions:
 
 ## 10. Next Planned Work
 
-Next phase:
+Current phase:
 
 - Phase 6: Cleanup and Release Readiness.
 
 Next implementation planning tasks:
 
-- Review stale entries and formal release checks under the final hide/full-delete model.
-- Decide whether strict verification should require stale cleanup before packaging.
+- Run `scripts/report_release_readiness.ps1` before any stale entry cleanup.
+- Have the owner confirm which disabled stale entries are safe to fully delete.
+- Delete only confirmed stale entries through the authenticated Delete tab/Tauri path.
+- Regenerate App Packs for source apps after cleanup candidates are resolved.
+- Package shared runtime and build installer/release artifacts.
+- Move to strict/formal verification only after stale entry decisions and generated artifacts are handled.
 - Keep the temporary E2E and Rust safety tests as regression guards for future deletion changes.
 - Continue to keep PowerShell production Apply disabled unless it gets its own safety review.
 
@@ -354,3 +376,4 @@ Future Codex prompts for this area must follow this contract:
 | 2026-05-08 | Phase 3 executor design and dry-run skeleton added. | Define full-delete execution boundaries before any destructive implementation. | Phase 4 can now build temporary-app-only Apply against a documented ordering and safety contract. |
 | 2026-05-08 | Phase 4 temporary-app full delete E2E added. | Prove Apply behavior in an isolated fixture before production support. | Production full delete can move to Phase 5 planning while `check_all` keeps the temporary E2E as a regression guard. |
 | 2026-05-08 | Phase 5 production Tauri command and Delete tab enablement added. | Move full delete into the authenticated admin UI path after temporary E2E passed. | Phase 6 can focus on stale cleanup and release readiness; PowerShell production Apply remains disabled. |
+| 2026-05-08 | Phase 6 release readiness inventory started. | Separate stale app cleanup from App Pack, runtime, installer, docs, and local toolchain work before deleting real apps. | `report_release_readiness.ps1` and `docs/20_release_readiness_cleanup.md` now guide the next cleanup order. |

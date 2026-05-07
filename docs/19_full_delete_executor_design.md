@@ -255,3 +255,7 @@ Phase 5 implements production Tauri command support:
 
 Validation must not delete real apps. Safety is covered by Rust helper tests, the temporary-app E2E, cargo check,
 frontend build, and full check scripts.
+
+Phase 6 cleanup and release-readiness classification is tracked in `docs/20_release_readiness_cleanup.md`. That phase
+separates full-delete candidates from App Pack rebuild, runtime packaging, installer build, and local toolchain work
+before any real stale entry deletion.
