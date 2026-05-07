@@ -57,6 +57,29 @@ Future full delete must exclude these categories:
 - `user_data`: `%LOCALAPPDATA%/ToolHub/data/`, logs, browser profiles, and app state.
 - `shared_runtime`: `runtime/python/` and `runtime/web_automation_runtime/`.
 
+`release/app_manifest.json` is represented as an entry-level delete target. The file itself is not a delete target.
+
+## Delete Plan Matching Rules
+
+The deletion plan must avoid app id substring matches. This is especially important for short app ids such as `test`.
+
+App Pack targets are:
+
+- the package path recorded in the manifest entry, when present
+- `release/app_packs/<app_id>-*.zip`
+
+Release staging targets are included only when a path segment clearly belongs to the app:
+
+- a segment exactly equals `<app_id>`
+- a segment exactly equals `<app_id>-<version>`
+- a segment starts with `<app_id>-<version>.` or `<app_id>-<version>-`
+
+Other staging paths that merely contain the app id are reported as `managed_generated_candidate` excluded targets with a
+warning. They are not delete targets until a human or a stricter generator rule proves ownership.
+
+External absolute paths found in `app.yaml`, including `build.source_entry` and `build.output_mirror`, are reference
+information only. They are always excluded from delete targets.
+
 ## Current Delete Tab
 
 The current App Studio Delete tab is an App Management MVP:
@@ -65,6 +88,9 @@ The current App Studio Delete tab is an App Management MVP:
 - Show sets `enabled=true` only when `apps/<app_id>/app.yaml` exists.
 - Plan displays repository-managed delete targets and excluded targets.
 - Full delete execution is disabled/not implemented.
+
+The plan view separates delete targets, excluded targets, warnings, and blocking reasons. It also labels manifest work as
+an entry removal plan rather than file deletion.
 
 Restore, backup-based soft delete, and confirmation-input flows are intentionally removed from the target model.
 
@@ -76,6 +102,9 @@ not included in the rebuilt manifest. `-KeepStale` can preserve them for compati
 
 If an App Pack zip exists, its SHA-256 is recalculated. If the zip is missing, the rebuilt entry uses an empty `sha256`
 instead of preserving a stale hash.
+
+Dry-run output reports added apps, changed apps, stale entries that would be removed, package-missing apps, and entries
+whose rebuilt `sha256` would be empty.
 
 ## Full Delete Status
 

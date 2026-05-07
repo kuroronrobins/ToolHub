@@ -651,3 +651,14 @@ Deletion plans classify `managed_required`, `managed_generated`, and `managed_hi
 `external_reference`, `user_data`, and `shared_runtime` are always excluded. `build.source_entry`,
 `build.output_mirror`, `%LOCALAPPDATA%/ToolHub/data/`, logs, browser profiles, app state, and shared runtime folders
 must not be deleted by app management operations. See `docs/17_app_management_model.md`.
+
+## App Source Of Truth And Derived Release Data
+
+After Apply, the canonical app source is `apps/<app_id>/`. App Studio writes the finalized `app.yaml`, README,
+requirements files, icon files, `bin/`, and bundled assets there. The release manifest entry is derived from that app
+source: `admin.version` provides the app version and `runtime.required_runtime` provides the runtime requirement when
+present. The App Pack is generated from `apps/<app_id>/` and is treated as a derived artifact.
+
+`build.source_entry`, `build.output_mirror`, and any other external absolute paths recorded in `app.yaml` are provenance
+references. They help diagnose how an app was built, but they are not ToolHub-owned app source and must not become delete
+targets in App Management.

@@ -150,6 +150,7 @@ pub struct AppStudioDeletePlan {
     pub manifest_package: Option<String>,
     pub app_pack_paths: Vec<String>,
     pub staging_paths: Vec<String>,
+    pub staging_candidate_paths: Vec<String>,
     pub runtime_app_env: String,
     pub app_studio_backup_paths: Vec<String>,
     pub lifecycle_backup_paths: Vec<String>,
@@ -2695,7 +2696,8 @@ fn build_delete_plan(root: &Path, app_id: &str) -> Result<AppStudioDeletePlan, S
     let manifest_version = manifest_entry.and_then(|entry| json_str(entry, "version"));
     let manifest_package = manifest_entry.and_then(|entry| json_str(entry, "package"));
     let app_pack_paths = collect_app_pack_paths(root, app_id, manifest_package.as_deref());
-    let staging_paths = collect_matching_paths(&root.join("release").join("staging"), app_id);
+    let (staging_paths, staging_candidate_paths) =
+        collect_staging_paths(&root.join("release").join("staging"), app_id, manifest_version.as_deref());
     let runtime_app_env = root.join("runtime").join("app_envs").join(app_id);
     let app_studio_backup_paths = collect_backup_paths(&root.join("backups").join("app_studio"), app_id);
     let lifecycle_backup_paths = collect_backup_paths(&root.join("backups").join("app_lifecycle"), app_id);
@@ -2747,6 +2749,17 @@ fn build_delete_plan(root: &Path, app_id: &str) -> Result<AppStudioDeletePlan, S
             "Generated release staging artifact for this app.",
         );
     }
+    for path in &staging_candidate_paths {
+        push_target(
+            &mut excluded_targets,
+            "managed_generated_candidate",
+            path,
+            path.exists(),
+            false,
+            "review staging candidate",
+            "Name contains app_id but does not match strict staging rules; future delete must not remove it automatically.",
+        );
+    }
     push_target(
         &mut delete_targets,
         "managed_generated",
@@ -2788,6 +2801,9 @@ fn build_delete_plan(root: &Path, app_id: &str) -> Result<AppStudioDeletePlan, S
     if !external_references.is_empty() {
         warnings.push("External absolute paths were found in app.yaml and are excluded from deletion.".to_string());
     }
+    if !staging_candidate_paths.is_empty() {
+        warnings.push("Potential staging artifacts matched only by partial app_id and were excluded from delete targets.".to_string());
+    }
 
     excluded_targets.extend(external_references.clone());
     excluded_targets.extend(user_data_paths.clone());
@@ -2820,6 +2836,7 @@ fn build_delete_plan(root: &Path, app_id: &str) -> Result<AppStudioDeletePlan, S
         manifest_package,
         app_pack_paths: app_pack_paths.iter().map(|path| path.display().to_string()).collect(),
         staging_paths: staging_paths.iter().map(|path| path.display().to_string()).collect(),
+        staging_candidate_paths: staging_candidate_paths.iter().map(|path| path.display().to_string()).collect(),
         runtime_app_env: runtime_app_env.display().to_string(),
         app_studio_backup_paths: app_studio_backup_paths.iter().map(|path| path.display().to_string()).collect(),
         lifecycle_backup_paths: lifecycle_backup_paths.iter().map(|path| path.display().to_string()).collect(),
@@ -2892,29 +2909,79 @@ fn collect_app_pack_paths(root: &Path, app_id: &str, manifest_package: Option<&s
     paths
 }
 
-fn collect_matching_paths(root: &Path, app_id: &str) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    collect_matching_paths_inner(root, app_id, &mut paths);
-    paths.sort();
-    paths
+fn collect_staging_paths(root: &Path, app_id: &str, version: Option<&str>) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let mut targets = Vec::new();
+    let mut candidates = Vec::new();
+    collect_staging_paths_inner(root, root, app_id, version, &mut targets, &mut candidates);
+    targets.sort();
+    targets.dedup();
+    candidates.sort();
+    candidates.dedup();
+    (targets, candidates)
 }
 
-fn collect_matching_paths_inner(root: &Path, app_id: &str, paths: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(root) else {
+fn collect_staging_paths_inner(
+    staging_root: &Path,
+    current: &Path,
+    app_id: &str,
+    version: Option<&str>,
+    targets: &mut Vec<PathBuf>,
+    candidates: &mut Vec<PathBuf>,
+) {
+    let Ok(entries) = fs::read_dir(current) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        let name_matches = path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .is_some_and(|name| name.contains(app_id));
-        if name_matches {
-            paths.push(path.clone());
+        match classify_staging_path(staging_root, &path, app_id, version) {
+            StagingPathMatch::Target => {
+                targets.push(path);
+                continue;
+            }
+            StagingPathMatch::Candidate => {
+                candidates.push(path);
+                continue;
+            }
+            StagingPathMatch::None => {}
         }
         if path.is_dir() {
-            collect_matching_paths_inner(&path, app_id, paths);
+            collect_staging_paths_inner(staging_root, &path, app_id, version, targets, candidates);
         }
+    }
+}
+
+enum StagingPathMatch {
+    Target,
+    Candidate,
+    None,
+}
+
+fn classify_staging_path(staging_root: &Path, path: &Path, app_id: &str, version: Option<&str>) -> StagingPathMatch {
+    let relative = path.strip_prefix(staging_root).unwrap_or(path);
+    let version_prefix = version
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| format!("{app_id}-{value}"));
+    let mut contains_only = false;
+    for component in relative.components() {
+        let Some(segment) = component.as_os_str().to_str() else {
+            continue;
+        };
+        if segment == app_id {
+            return StagingPathMatch::Target;
+        }
+        if let Some(prefix) = version_prefix.as_deref() {
+            if segment == prefix || segment.starts_with(&format!("{prefix}.")) || segment.starts_with(&format!("{prefix}-")) {
+                return StagingPathMatch::Target;
+            }
+        }
+        if segment.to_ascii_lowercase().contains(&app_id.to_ascii_lowercase()) {
+            contains_only = true;
+        }
+    }
+    if contains_only {
+        StagingPathMatch::Candidate
+    } else {
+        StagingPathMatch::None
     }
 }
 

@@ -171,6 +171,15 @@ app manifest の状態だけを確認する場合:
 .\scripts\plan_app_delete.ps1 -AppId addnum_pdf -DryRun
 ```
 
+削除計画は dry-run のみです。App Pack は manifest の package path と
+`release/app_packs/<app_id>-*.zip`、staging は `<app_id>` または
+`<app_id>-<version>` と明確に判定できる path segment だけを削除候補にします。
+部分一致だけの staging 候補は除外対象として表示され、完全削除実行はまだ未実装です。
+
+```powershell
+.\scripts\test_app_delete_plan.ps1
+```
+
 配布物検証は以下を使います。
 
 ```powershell

@@ -99,6 +99,7 @@ export interface AppStudioDeletePlan {
   manifestPackage?: string | null;
   appPackPaths: string[];
   stagingPaths: string[];
+  stagingCandidatePaths: string[];
   runtimeAppEnv: string;
   appStudioBackupPaths: string[];
   lifecycleBackupPaths: string[];

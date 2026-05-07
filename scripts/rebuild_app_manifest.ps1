@@ -156,10 +156,19 @@ $SourceAppIds = @(
 )
 
 $NewApps = [ordered]@{}
+$PackageMissing = @()
+$Sha256Empty = @()
 foreach ($AppId in $SourceAppIds) {
     $ExistingEntry = if ($ExistingApps) { Get-PropertyValue -Object $ExistingApps -Name $AppId -DefaultValue $null } else { $null }
     $AppYamlPath = Join-Path (Join-Path $AppsDir $AppId) "app.yaml"
     $NewApps[$AppId] = Entry-From-AppYaml -AppId $AppId -AppYamlPath $AppYamlPath -ExistingEntry $ExistingEntry
+    $PackagePath = Join-Path $ReleaseDir ([string]$NewApps[$AppId].package)
+    if (-not (Test-Path -LiteralPath $PackagePath -PathType Leaf)) {
+        $PackageMissing += $AppId
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$NewApps[$AppId].sha256)) {
+        $Sha256Empty += $AppId
+    }
 }
 
 if ($KeepStale) {
@@ -198,6 +207,8 @@ $Summary = [ordered]@{
     added = $Added
     removed = $Removed
     changed = $Changed
+    package_missing = $PackageMissing
+    sha256_empty = $Sha256Empty
     would_write = ($Apply -and -not $DryRun -and $OldJson -ne $NewJson)
 }
 
@@ -215,6 +226,10 @@ if ($Json) {
     foreach ($Item in $Removed) { Write-Host "    - $Item" }
     Write-Host "  changed: $($Changed.Count)"
     foreach ($Item in $Changed) { Write-Host "    * $Item" }
+    Write-Host "  package missing: $($PackageMissing.Count)"
+    foreach ($Item in $PackageMissing) { Write-Host "    ! $Item" }
+    Write-Host "  sha256 empty: $($Sha256Empty.Count)"
+    foreach ($Item in $Sha256Empty) { Write-Host "    ! $Item" }
 }
 
 if ($Apply -and -not $DryRun) {

@@ -75,15 +75,77 @@ function Find-BackupPaths {
 }
 
 function Find-StagingPaths {
-    param([string]$TargetAppId)
-    $StagingRoot = Join-Path $ReleaseDir "staging"
-    if (-not (Test-Path -LiteralPath $StagingRoot -PathType Container)) { return @() }
-    return @(
-        Get-ChildItem -LiteralPath $StagingRoot -Recurse -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like "*$TargetAppId*" } |
-            ForEach-Object { $_.FullName } |
-            Sort-Object -Unique
+    param(
+        [string]$TargetAppId,
+        [string]$Version
     )
+    $StagingRoot = Join-Path $ReleaseDir "staging"
+    $Targets = New-Object System.Collections.ArrayList
+    $Candidates = New-Object System.Collections.ArrayList
+    if (Test-Path -LiteralPath $StagingRoot -PathType Container) {
+        Find-StagingPathsInner -RootPath $StagingRoot -CurrentPath $StagingRoot -TargetAppId $TargetAppId -Version $Version -Targets $Targets -Candidates $Candidates
+    }
+    return [pscustomobject]@{
+        targets = @($Targets | Sort-Object -Unique)
+        candidates = @($Candidates | Sort-Object -Unique)
+    }
+}
+
+function Find-StagingPathsInner {
+    param(
+        [string]$RootPath,
+        [string]$CurrentPath,
+        [string]$TargetAppId,
+        [string]$Version,
+        [System.Collections.ArrayList]$Targets,
+        [System.Collections.ArrayList]$Candidates
+    )
+    foreach ($Item in @(Get-ChildItem -LiteralPath $CurrentPath -ErrorAction SilentlyContinue)) {
+        $Match = Get-StagingPathMatch -RootPath $RootPath -Path $Item.FullName -TargetAppId $TargetAppId -Version $Version
+        if ($Match -eq "target") {
+            [void]$Targets.Add($Item.FullName)
+            continue
+        }
+        if ($Match -eq "candidate") {
+            [void]$Candidates.Add($Item.FullName)
+            continue
+        }
+        if ($Item.PSIsContainer) {
+            Find-StagingPathsInner -RootPath $RootPath -CurrentPath $Item.FullName -TargetAppId $TargetAppId -Version $Version -Targets $Targets -Candidates $Candidates
+        }
+    }
+}
+
+function Get-StagingPathMatch {
+    param(
+        [string]$RootPath,
+        [string]$Path,
+        [string]$TargetAppId,
+        [string]$Version
+    )
+    $Base = [System.IO.Path]::GetFullPath($RootPath).TrimEnd("\", "/")
+    $Full = [System.IO.Path]::GetFullPath($Path)
+    if ($Full.StartsWith($Base + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $Relative = $Full.Substring($Base.Length + 1)
+    } else {
+        $Relative = Split-Path -Leaf $Full
+    }
+    $Segments = @($Relative -split "[\\/]+" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $VersionPrefix = if ([string]::IsNullOrWhiteSpace($Version)) { $null } else { "$TargetAppId-$Version" }
+    $ContainsOnly = $false
+    foreach ($Segment in $Segments) {
+        if ($Segment -eq $TargetAppId) {
+            return "target"
+        }
+        if ($VersionPrefix -and ($Segment -eq $VersionPrefix -or $Segment.StartsWith("$VersionPrefix.", [System.StringComparison]::OrdinalIgnoreCase) -or $Segment.StartsWith("$VersionPrefix-", [System.StringComparison]::OrdinalIgnoreCase))) {
+            return "target"
+        }
+        if ($Segment.IndexOf($TargetAppId, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            $ContainsOnly = $true
+        }
+    }
+    if ($ContainsOnly) { return "candidate" }
+    return "none"
 }
 
 function Find-AppPackPaths {
@@ -137,6 +199,7 @@ $Entry = Get-PropertyValue -Object $Manifest.apps -Name $AppId -DefaultValue $nu
 $SourceDir = Join-Path $AppsDir $AppId
 $AppYaml = Join-Path $SourceDir "app.yaml"
 $ManifestPackage = if ($Entry) { [string](Get-PropertyValue -Object $Entry -Name "package" -DefaultValue "") } else { "" }
+$ManifestVersion = if ($Entry) { [string](Get-PropertyValue -Object $Entry -Name "version" -DefaultValue "") } else { "" }
 $RuntimeAppEnv = Join-Path (Join-Path (Join-Path $Root "runtime") "app_envs") $AppId
 $DeleteTargets = New-Object System.Collections.ArrayList
 $ExcludedTargets = New-Object System.Collections.ArrayList
@@ -148,8 +211,12 @@ Add-Target -List $DeleteTargets -Category "managed_required" -Path $AppManifestP
 foreach ($Path in (Find-AppPackPaths -TargetAppId $AppId -ManifestPackage $ManifestPackage)) {
     Add-Target -List $DeleteTargets -Category "managed_generated" -Path $Path -DeleteAllowed $true -Action "delete App Pack zip" -Note "Generated App Pack for this app."
 }
-foreach ($Path in (Find-StagingPaths -TargetAppId $AppId)) {
+$StagingPlan = Find-StagingPaths -TargetAppId $AppId -Version $ManifestVersion
+foreach ($Path in $StagingPlan.targets) {
     Add-Target -List $DeleteTargets -Category "managed_generated" -Path $Path -DeleteAllowed $true -Action "delete staging artifact" -Note "Generated release staging artifact for this app."
+}
+foreach ($Path in $StagingPlan.candidates) {
+    Add-Target -List $ExcludedTargets -Category "managed_generated_candidate" -Path $Path -DeleteAllowed $false -Action "review staging candidate" -Note "Name contains app_id but does not match strict staging rules; future delete must not remove it automatically."
 }
 Add-Target -List $DeleteTargets -Category "managed_generated" -Path $RuntimeAppEnv -DeleteAllowed $true -Action "delete runtime app_env" -Note "App-specific runtime environment."
 
@@ -188,6 +255,9 @@ if (-not (Test-Path -LiteralPath $AppYaml -PathType Leaf)) {
 if ($null -eq $Entry) {
     [void]$Warnings.Add("release/app_manifest.json has no entry for this app.")
 }
+if (@($StagingPlan.candidates).Count -gt 0) {
+    [void]$Warnings.Add("Potential staging artifacts matched only by partial app_id and were excluded from delete targets.")
+}
 
 $Plan = [ordered]@{
     app_id = $AppId
@@ -198,6 +268,9 @@ $Plan = [ordered]@{
     manifest_package = $ManifestPackage
     source_dir = $SourceDir
     app_yaml = $AppYaml
+    app_pack_paths = @(Find-AppPackPaths -TargetAppId $AppId -ManifestPackage $ManifestPackage)
+    staging_paths = @($StagingPlan.targets)
+    staging_candidate_paths = @($StagingPlan.candidates)
     delete_targets = @($DeleteTargets)
     excluded_targets = @($ExcludedTargets)
     warnings = @($Warnings)

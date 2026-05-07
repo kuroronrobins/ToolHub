@@ -67,6 +67,10 @@ The version should come from `apps/<app_id>/app.yaml` `admin.version`. `required
 If the App Pack zip exists, rebuild tools calculate `sha256` from the zip. If the zip does not exist, the rebuild plan
 uses an empty `sha256`; a missing generated zip should not be hidden by preserving an old hash.
 
+An empty `sha256` means the App Pack has not been generated or is not available in this checkout. Normal verification
+warns when the package is missing or the hash is empty. Formal release checks should use `-RequireAppPacks` and strict
+review so missing generated App Packs are not shipped accidentally.
+
 ## Entry State Rules
 
 | State | Meaning | Normal verification | Strict/formal release |
@@ -134,6 +138,11 @@ The plan lists:
 - `shared_runtime`: excluded shared runtime folders
 
 The script never deletes files.
+
+App Pack matching uses the manifest package path plus `release/app_packs/<app_id>-*.zip`. Release staging matching does
+not use plain substring matching: a staging path is a delete target only when a path segment equals `<app_id>`, equals
+`<app_id>-<version>`, or starts with `<app_id>-<version>.` / `<app_id>-<version>-`. Ambiguous partial matches are shown
+as excluded candidates and must not be deleted by an automated full-delete implementation.
 
 ## Verification
 

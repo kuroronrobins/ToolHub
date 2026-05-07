@@ -218,7 +218,7 @@ function DeletionPlanPanel({ plan }: { plan: AppStudioDeletePlan }) {
           <h5>Deletion plan: {plan.appId}</h5>
           <p>
             Execution is not implemented. External references, user data, and shared runtime folders are listed as
-            excluded targets.
+            excluded targets. The manifest row means removing only this app entry, not deleting the manifest file.
           </p>
         </div>
         <button className="secondary-button danger-button" type="button" disabled>
@@ -233,12 +233,21 @@ function DeletionPlanPanel({ plan }: { plan: AppStudioDeletePlan }) {
         <PlanMetric label="Version" value={plan.manifestVersion ?? "-"} />
         <PlanMetric label="Delete targets" value={String(plan.deleteTargets.length)} />
         <PlanMetric label="Excluded" value={String(plan.excludedTargets.length)} />
+        <PlanMetric label="Staging candidates" value={String(plan.stagingCandidatePaths.length)} />
       </div>
 
       {plan.warnings.length ? (
         <div className="admin-warning">
           {plan.warnings.map((warning) => (
             <div key={warning}>{warning}</div>
+          ))}
+        </div>
+      ) : null}
+
+      {plan.blockingReasons.length ? (
+        <div className="admin-error">
+          {plan.blockingReasons.map((reason) => (
+            <div key={reason}>{reason}</div>
           ))}
         </div>
       ) : null}
