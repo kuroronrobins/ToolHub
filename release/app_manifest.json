@@ -5,7 +5,7 @@
     "sample_gui_app": {
       "version": "1.0.0",
       "package": "app_packs/sample_gui_app-1.0.0.zip",
-      "sha256": "dc13c9fb56793e72c5bf8cc324d5d44a94d55d9853c6dac24b05d9b78db52fd7",
+      "sha256": "cd281ec55628dc9f39c63a214023c25654c81159cc76c76e695b85f465b17c17",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": null,
@@ -14,7 +14,7 @@
     "sample_cli_app": {
       "version": "1.0.0",
       "package": "app_packs/sample_cli_app-1.0.0.zip",
-      "sha256": "425bc4696e18b435c0e690bc38a6883969c0d7d2ed180075f1b4633922ab0e15",
+      "sha256": "19aa0f02522babec8da842789a60abc4d41191deae593794ff663bca8ce34ccc",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": null,
@@ -23,7 +23,7 @@
     "sample_playwright_app": {
       "version": "1.0.0",
       "package": "app_packs/sample_playwright_app-1.0.0.zip",
-      "sha256": "bd8316dae60b45a32fe485ddfa9ad9c31fce10c699123753a8651ce3f36c7776",
+      "sha256": "1fdca7279e3d325c7bc18af19d2bb7881c9789ebd03d675f43c6081541f03487",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": "web-runtime-001",
@@ -32,7 +32,7 @@
     "run_xcgate_upload": {
       "version": "0.1.0",
       "package": "app_packs/run_xcgate_upload-0.1.0.zip",
-      "sha256": "4633c45830c263c897fe66185290ad014dcfcb84d03ebd18252b04b213eaf897",
+      "sha256": "44a5e93551f85787f500457b32fcc010d4b4c548f921481b57c12565cccbb13f",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": null,
@@ -41,7 +41,7 @@
     "officetopdf_toc": {
       "version": "0.1.0",
       "package": "app_packs/officetopdf_toc-0.1.0.zip",
-      "sha256": "40c62dbd9383cfda2972332cfcd558c38b3a059088d0bced4eca906daa1cd477",
+      "sha256": "04825531cfd0baafc9710f44fef83acbdaa8016e9e36b0a3e9bcbd7174c59d8c",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": null,
@@ -50,7 +50,7 @@
     "app_20260201_agendasnap": {
       "version": "0.1.0",
       "package": "app_packs/app_20260201_agendasnap-0.1.0.zip",
-      "sha256": "19901b16388b157839b7e0e581a7735ae7c12639a01f7c8932fd99d9b4f4e914",
+      "sha256": "e6554b4e105e8dc23b4b37e39f85b7f0bfcb5f16d5f74b8b6858fcb9ad2982e2",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": null,
@@ -59,7 +59,7 @@
     "addnum_pdf": {
       "version": "0.1.0",
       "package": "app_packs/addnum_pdf-0.1.0.zip",
-      "sha256": "58e1c4a80aeaae96de9a6abe1dc7024ef2dac89ecef1f50da0f6e967d1839392",
+      "sha256": "de74ba6fc688f50c682493e0e3a5831473a51642b24611ee474e3464f0d17ceb",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": null,

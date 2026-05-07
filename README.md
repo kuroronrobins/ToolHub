@@ -209,6 +209,10 @@ packaging, installer/release build work, intentional warnings, and local build e
 .\scripts\verify_release.ps1
 ```
 
+`package_app_pack.ps1` regenerates App Packs from `apps/*/app.yaml`, preserves each manifest entry's `enabled` state,
+and updates `release/app_manifest.json` `package` / `sha256` to match the generated zip. The zip files under
+`release/app_packs/` are local release artifacts and are ignored by Git except for `.gitkeep`.
+
 Tauri bundleが未生成の環境でも、App Pack、runtime雛形、staging、manifest検証まで進める場合は以下を使います。
 
 ```powershell

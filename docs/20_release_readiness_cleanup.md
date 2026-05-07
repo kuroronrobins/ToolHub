@@ -3,8 +3,9 @@
 This document tracks Phase 6 cleanup and formal release readiness work for ToolHub app management.
 
 Phase 6 started as an inventory and ordering phase. After owner confirmation, the four disabled stale entries listed in
-this document were cleaned from `release/app_manifest.json`. Phase 6 still does not delete source-present apps, generate
-App Packs, bundle runtime, or build installers.
+this document were cleaned from `release/app_manifest.json`. App Packs for all seven source apps were regenerated and
+`release/app_manifest.json` now points at the generated zip files with matching SHA256 values. Phase 6 still does not
+delete source-present apps, bundle runtime, or build installers.
 
 ## Current Report Command
 
@@ -20,7 +21,7 @@ blocked local-environment items. It does not write files.
 
 ## Current Snapshot
 
-The current repository snapshot after confirmed stale cleanup is:
+The current repository snapshot after App Pack regeneration is:
 
 - manifest entries: 7
 - app sources: 7
@@ -29,6 +30,9 @@ The current repository snapshot after confirmed stale cleanup is:
 - disabled with source: 2
 - disabled stale: 0
 - source missing from manifest: 0
+- package path missing: 0
+- sha256 mismatch: 0
+- App Pack rebuild candidates: 0
 
 Enabled apps with source:
 
@@ -85,29 +89,34 @@ These should not be treated as cleanup deletion targets in Phase 6:
 - Active source apps: `sample_gui_app`, `sample_cli_app`, `sample_playwright_app`, `officetopdf_toc`,
   `app_20260201_agendasnap`.
 - Hidden but restorable source apps: `run_xcgate_upload`, `addnum_pdf`.
-- Apps with missing App Packs but valid source.
+- Apps with valid source and regenerated App Packs.
 - Runtime and installer warnings.
 - Local toolchain warnings.
 
-## App Pack Rebuild Candidates
+## App Pack Regeneration Results
 
-These have app source but their manifest package zip is absent in `release/app_packs/`:
+These source apps were repackaged with `.\scripts\package_app_pack.ps1`. The generated zip files are local release
+artifacts under `release/app_packs/`, which is ignored by Git except for `.gitkeep`.
 
-- `addnum_pdf`
-- `app_20260201_agendasnap`
-- `officetopdf_toc`
-- `run_xcgate_upload`
-- `sample_cli_app`
-- `sample_gui_app`
-- `sample_playwright_app`
+| app_id | version | package | sha256 | enabled |
+| --- | --- | --- | --- | --- |
+| `addnum_pdf` | `0.1.0` | `app_packs/addnum_pdf-0.1.0.zip` | `de74ba6fc688f50c682493e0e3a5831473a51642b24611ee474e3464f0d17ceb` | `false` |
+| `app_20260201_agendasnap` | `0.1.0` | `app_packs/app_20260201_agendasnap-0.1.0.zip` | `e6554b4e105e8dc23b4b37e39f85b7f0bfcb5f16d5f74b8b6858fcb9ad2982e2` | `true` |
+| `officetopdf_toc` | `0.1.0` | `app_packs/officetopdf_toc-0.1.0.zip` | `04825531cfd0baafc9710f44fef83acbdaa8016e9e36b0a3e9bcbd7174c59d8c` | `true` |
+| `run_xcgate_upload` | `0.1.0` | `app_packs/run_xcgate_upload-0.1.0.zip` | `44a5e93551f85787f500457b32fcc010d4b4c548f921481b57c12565cccbb13f` | `false` |
+| `sample_cli_app` | `1.0.0` | `app_packs/sample_cli_app-1.0.0.zip` | `19aa0f02522babec8da842789a60abc4d41191deae593794ff663bca8ce34ccc` | `true` |
+| `sample_gui_app` | `1.0.0` | `app_packs/sample_gui_app-1.0.0.zip` | `cd281ec55628dc9f39c63a214023c25654c81159cc76c76e695b85f465b17c17` | `true` |
+| `sample_playwright_app` | `1.0.0` | `app_packs/sample_playwright_app-1.0.0.zip` | `1fdca7279e3d325c7bc18af19d2bb7881c9789ebd03d675f43c6081541f03487` | `true` |
 
-Recommended action:
+Current App Pack rebuild candidates:
+
+- none
+
+Regenerate all source app packs again after source changes:
 
 ```powershell
-.\scripts\package_app_pack.ps1 -AppId <app_id>
+.\scripts\package_app_pack.ps1
 ```
-
-Stale entries have been cleaned, so App Pack regeneration is now the next app-specific release readiness task.
 
 ## Runtime Packaging Required
 
@@ -161,18 +170,18 @@ Use Developer PowerShell for Visual Studio, or install Visual Studio Build Tools
 ## Recommended Next Order
 
 1. Run `.\scripts\report_release_readiness.ps1` and capture the current state.
-2. Regenerate App Packs for source apps.
-3. Package shared runtime.
-4. Build installer/release artifacts.
-5. Decide and implement the strict `runtime/app_envs/<app_id>` policy for frozen-folder apps.
-6. Run normal verification.
-7. Move to strict/formal verification after generated artifacts and strict policy are handled.
+2. Package shared runtime.
+3. Build installer/release artifacts.
+4. Decide and implement the strict `runtime/app_envs/<app_id>` policy for frozen-folder apps.
+5. Run normal verification.
+6. Move to strict/formal verification after generated artifacts and strict policy are handled.
 
 ## Remaining Work This Phase Does Not Do
 
 - It does not delete source-present apps.
 - It does not remove manifest entries beyond owner-confirmed disabled stale cleanup.
 - It does not remove App Pack zip files.
+- It does not regenerate App Packs again unless source changes.
 - It does not remove staging artifacts.
 - It does not remove runtime app_env folders.
 - It does not remove backups.

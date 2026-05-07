@@ -97,6 +97,9 @@ Package all source apps:
 
 Without `-AppId`, packaging uses `apps/*/app.yaml` as the target list and skips manifest-only stale entries. If a source
 app is not listed in `release/app_manifest.json`, the script adds a disabled manifest entry derived from `app.yaml`.
+The packaging command updates each target entry's `package` and `sha256` to match the generated zip and preserves the
+existing `enabled` state. Generated zip files under `release/app_packs/` are local release artifacts and may be ignored
+by Git depending on `.gitignore`.
 
 Package one app:
 

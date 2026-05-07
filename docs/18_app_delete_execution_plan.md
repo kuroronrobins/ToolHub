@@ -279,11 +279,13 @@ Current state:
 - In progress.
 - `scripts/report_release_readiness.ps1` provides a read-only inventory with text and JSON output.
 - `docs/20_release_readiness_cleanup.md` records the current warning categories, delete candidates, non-delete
-  candidates, App Pack rebuild targets, runtime/installer tasks, and recommended execution order.
+  candidates, App Pack regeneration results, runtime/installer tasks, and recommended execution order.
 - Owner-confirmed disabled stale entries `app_20251123_excelbatchreplace`, `run_3dx_create_ids`, `test`, and `test11`
   were cleaned from `release/app_manifest.json`.
 - Current disabled stale count is 0 and current delete candidate count is 0.
-- Current App Pack rebuild candidates are the seven apps that still have source but no zip in `release/app_packs/`.
+- App Packs for the seven source apps were regenerated with `scripts/package_app_pack.ps1`.
+- Current App Pack rebuild candidate count is 0; package paths exist and manifest SHA256 values match the generated
+  zip files.
 - Runtime and installer warnings are release-prep tasks, not app deletion tasks.
 - The current strict app_env check needs a policy decision because frozen-folder apps do not use
   `runtime/app_envs/<app_id>`.
@@ -310,7 +312,7 @@ Current state:
 | Phase 3: Full Delete Executor Design | Done | `docs/19_full_delete_executor_design.md`, `scripts/execute_app_delete.ps1`, `scripts/test_app_delete_executor_design.ps1`. | None for design scope. | Preserve the design contract as production work starts. |
 | Phase 4: Temporary App Full Delete E2E | Done | `scripts/test_app_full_delete_e2e.ps1`, temporary-only `execute_app_delete.ps1 -Apply -AllowTemporaryAppApply`. | Keep production Apply disabled. | Start Phase 5 production command design and guarded implementation. |
 | Phase 5: Production Full Delete Command | Done | `app_studio_full_delete_apply`, Delete tab full-delete enablement, Rust safety tests, Phase 4 E2E regression. | Keep PowerShell production Apply disabled unless a separate reviewed need appears. | Start Phase 6 cleanup and release readiness. |
-| Phase 6: Cleanup and Release Readiness | In progress | `scripts/report_release_readiness.ps1`, `docs/20_release_readiness_cleanup.md`, confirmed disabled stale cleanup. | App Packs, runtime, installer artifacts, and strict app_env policy remain. | Regenerate App Packs, then handle runtime, installer, and strict policy work. |
+| Phase 6: Cleanup and Release Readiness | In progress | `scripts/report_release_readiness.ps1`, `docs/20_release_readiness_cleanup.md`, confirmed disabled stale cleanup, App Pack regeneration. | Runtime, installer artifacts, and strict app_env policy remain. | Handle runtime, installer, and strict policy work. |
 
 ## 8. Decision Log
 
@@ -348,11 +350,11 @@ Current phase:
 
 Next implementation planning tasks:
 
-- Run `scripts/report_release_readiness.ps1` before any stale entry cleanup.
-- Regenerate App Packs for source apps after cleanup candidates are resolved.
+- Run `scripts/report_release_readiness.ps1` before each release-readiness step.
+- App Pack regeneration for source apps is complete; regenerate again only after source changes.
 - Package shared runtime and build installer/release artifacts.
 - Decide strict `runtime/app_envs/<app_id>` policy for frozen-folder apps before strict/formal verification.
-- Move to strict/formal verification only after stale entry decisions and generated artifacts are handled.
+- Move to strict/formal verification only after runtime, installer, and strict policy work are handled.
 - Keep the temporary E2E and Rust safety tests as regression guards for future deletion changes.
 - Continue to keep PowerShell production Apply disabled unless it gets its own safety review.
 
@@ -378,3 +380,4 @@ Future Codex prompts for this area must follow this contract:
 | 2026-05-08 | Phase 5 production Tauri command and Delete tab enablement added. | Move full delete into the authenticated admin UI path after temporary E2E passed. | Phase 6 can focus on stale cleanup and release readiness; PowerShell production Apply remains disabled. |
 | 2026-05-08 | Phase 6 release readiness inventory started. | Separate stale app cleanup from App Pack, runtime, installer, docs, and local toolchain work before deleting real apps. | `report_release_readiness.ps1` and `docs/20_release_readiness_cleanup.md` now guide the next cleanup order. |
 | 2026-05-08 | Owner-confirmed disabled stale entries cleaned. | Remove confirmed stale release index entries before App Pack/runtime/installer work. | `app_20251123_excelbatchreplace`, `run_3dx_create_ids`, `test`, and `test11` are no longer delete candidates. |
+| 2026-05-08 | App Packs regenerated for all source apps. | Complete the next Phase 6 release-readiness step after stale cleanup. | `release/app_manifest.json` package and SHA256 fields now match generated App Pack zip files; runtime, installer, and strict app_env policy remain. |
