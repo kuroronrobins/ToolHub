@@ -29,42 +29,6 @@
       "required_runtime": "web-runtime-001",
       "enabled": true
     },
-    "app_20251123_excelbatchreplace": {
-      "version": "0.1.0",
-      "package": "app_packs/app_20251123_excelbatchreplace-0.1.0.zip",
-      "sha256": "1cedd4ac4534a7bc3c5269433afb2bc57071243f84726848404ca56f2fc9ffea",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": null,
-      "enabled": false
-    },
-    "test": {
-      "version": "0.1.0",
-      "package": "app_packs/test-0.1.0.zip",
-      "sha256": "9ea16285370d7ea40a435af5c4a7b8019ae49c7a78f9d418b17f0c5df8925928",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": "python-embedded-toolhub-001",
-      "enabled": false
-    },
-    "test11": {
-      "version": "0.1.0",
-      "package": "app_packs/test11-0.1.0.zip",
-      "sha256": "1f9e177a6044c9cc0c6ebbfbd9279224fb9dcd004779b6080a14a7ac15a0661c",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": "python-embedded-toolhub-001",
-      "enabled": false
-    },
-    "run_3dx_create_ids": {
-      "version": "0.1.0",
-      "package": "app_packs/run_3dx_create_ids-0.1.0.zip",
-      "sha256": "57d068ec7e607f1afa2fcf714cbf9ee2d2862923094f31c0940dd5789e6ae5cd",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": null,
-      "enabled": false
-    },
     "run_xcgate_upload": {
       "version": "0.1.0",
       "package": "app_packs/run_xcgate_upload-0.1.0.zip",

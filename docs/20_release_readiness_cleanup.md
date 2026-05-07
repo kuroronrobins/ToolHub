@@ -2,8 +2,9 @@
 
 This document tracks Phase 6 cleanup and formal release readiness work for ToolHub app management.
 
-Phase 6 is an inventory and ordering phase. It does not delete real apps, remove App Packs, generate runtime bundles, or
-build installers.
+Phase 6 started as an inventory and ordering phase. After owner confirmation, the four disabled stale entries listed in
+this document were cleaned from `release/app_manifest.json`. Phase 6 still does not delete source-present apps, generate
+App Packs, bundle runtime, or build installers.
 
 ## Current Report Command
 
@@ -19,14 +20,14 @@ blocked local-environment items. It does not write files.
 
 ## Current Snapshot
 
-The current repository snapshot is:
+The current repository snapshot after confirmed stale cleanup is:
 
-- manifest entries: 11
+- manifest entries: 7
 - app sources: 7
 - enabled with source: 5
 - enabled missing source: 0
 - disabled with source: 2
-- disabled stale: 4
+- disabled stale: 0
 - source missing from manifest: 0
 
 Enabled apps with source:
@@ -44,10 +45,7 @@ Disabled apps with source:
 
 Disabled stale entries:
 
-- `app_20251123_excelbatchreplace`
-- `run_3dx_create_ids`
-- `test`
-- `test11`
+- none
 
 ## Classification Rules
 
@@ -63,22 +61,22 @@ Do not treat every warning as a deletion request.
 | app-specific `runtime/app_envs/<app_id>` missing | intentional warning / check adjustment candidate | Current normal App Studio frozen-folder registration does not use app_env as app source, but `verify_release.ps1 -Strict` currently escalates it to fail. |
 | Visual Studio C++ tools missing | blocked local build environment | Required for local Windows release builds, not repo cleanup. |
 
-## Delete Candidates
+## Cleaned Delete Candidates
 
-These are candidates for full delete after human confirmation. They are not deleted by this phase.
+The owner confirmed these disabled stale entries could be fully deleted. They were removed from
+`release/app_manifest.json`. No source-present app was deleted, and no App Pack/staging/runtime/backup artifact existed
+for these app ids in this checkout.
 
-| app_id | Current state | Why candidate | Full delete would remove | Exclusions | Pre-check |
-| --- | --- | --- | --- | --- | --- |
-| `app_20251123_excelbatchreplace` | disabled stale | `enabled=false` and source missing | manifest entry, app-specific App Pack/staging/runtime app_env/backups if present | external source, user data, shared runtime | Confirm this is not needed and no source should be restored. |
-| `run_3dx_create_ids` | disabled stale | `enabled=false` and source missing | manifest entry, app-specific App Pack/staging/runtime app_env/backups if present | external source, user data, shared runtime | Confirm this is not needed and no source should be restored. |
-| `test` | disabled stale | `enabled=false` and source missing | manifest entry, app-specific App Pack/staging/runtime app_env/backups if present | external source, user data, shared runtime | Confirm this is a stale test entry. |
-| `test11` | disabled stale | `enabled=false` and source missing | manifest entry, app-specific App Pack/staging/runtime app_env/backups if present | external source, user data, shared runtime | Confirm this is a stale test entry. |
+| app_id | Previous state | Cleanup performed | Repo-local generated artifacts found | Exclusions |
+| --- | --- | --- | --- | --- |
+| `app_20251123_excelbatchreplace` | disabled stale | manifest entry removed | none | external source, user data, shared runtime |
+| `run_3dx_create_ids` | disabled stale | manifest entry removed | none | external source, user data, shared runtime |
+| `test` | disabled stale | manifest entry removed | none | external source, user data, shared runtime |
+| `test11` | disabled stale | manifest entry removed | none | external source, user data, shared runtime |
 
-Recommended action:
+Current delete candidates:
 
-1. Keep them as disabled stale history until the owner confirms deletion.
-2. If confirmed, delete through the authenticated Delete tab full-delete flow.
-3. Re-run `report_release_readiness.ps1`, `diagnose_app_manifest.ps1`, and `verify_release.ps1`.
+- none
 
 ## Do Not Delete Candidates
 
@@ -109,8 +107,7 @@ Recommended action:
 .\scripts\package_app_pack.ps1 -AppId <app_id>
 ```
 
-Run packaging only after cleanup candidates have been reviewed, so stale entries do not distract from generated artifact
-work.
+Stale entries have been cleaned, so App Pack regeneration is now the next app-specific release readiness task.
 
 ## Runtime Packaging Required
 
@@ -164,18 +161,17 @@ Use Developer PowerShell for Visual Studio, or install Visual Studio Build Tools
 ## Recommended Next Order
 
 1. Run `.\scripts\report_release_readiness.ps1` and capture the current state.
-2. Have the owner confirm which disabled stale entries are safe to fully delete.
-3. Fully delete only confirmed stale entries through the authenticated Delete tab or production Tauri command path.
-4. Regenerate App Packs for source apps.
-5. Package shared runtime.
-6. Build installer/release artifacts.
-7. Run normal verification.
-8. Move to strict/formal verification only after stale entry decisions and generated artifacts are handled.
+2. Regenerate App Packs for source apps.
+3. Package shared runtime.
+4. Build installer/release artifacts.
+5. Decide and implement the strict `runtime/app_envs/<app_id>` policy for frozen-folder apps.
+6. Run normal verification.
+7. Move to strict/formal verification after generated artifacts and strict policy are handled.
 
-## What This Phase Does Not Do
+## Remaining Work This Phase Does Not Do
 
-- It does not delete real apps.
-- It does not remove manifest entries.
+- It does not delete source-present apps.
+- It does not remove manifest entries beyond owner-confirmed disabled stale cleanup.
 - It does not remove App Pack zip files.
 - It does not remove staging artifacts.
 - It does not remove runtime app_env folders.
