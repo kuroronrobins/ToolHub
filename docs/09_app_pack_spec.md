@@ -140,6 +140,8 @@ The plan lists:
 
 `plan_app_delete.ps1` never deletes files. `execute_app_delete.ps1` shows the executor ordering for normal apps and
 rejects production `-Apply`. It accepts `-Apply` only for temporary fixture roots with `-AllowTemporaryAppApply`.
+Production full delete is implemented through the authenticated Tauri command `app_studio_full_delete_apply` and the
+App Studio Delete tab, not through the PowerShell script.
 
 App Pack matching uses the manifest package path plus `release/app_packs/<app_id>-*.zip`. Release staging matching does
 not use plain substring matching: a staging path is a delete target only when a path segment equals `<app_id>`, equals
@@ -150,9 +152,10 @@ as excluded candidates and must not be deleted by an automated full-delete imple
 temporary fixture. `scripts/rehearse_app_delete.ps1` creates a temporary repo-local app and generated/history artifacts,
 checks that App Pack and staging targets are included only by the strict rules above, and then restores the manifest and
 removes the temporary files. Both scripts are dry-run validation; they do not delete real App Pack or staging artifacts.
-`scripts/test_app_delete_executor_design.ps1` verifies the dry-run executor skeleton and confirms `-Apply` is still
-rejected without the temporary gate. `scripts/test_app_full_delete_e2e.ps1` verifies that temporary fixture App Pack and
-staging targets are deleted while staging candidates and shared runtime folders remain.
+`scripts/test_app_delete_executor_design.ps1` verifies the dry-run executor skeleton and confirms PowerShell `-Apply` is
+still rejected without the temporary gate. `scripts/test_app_full_delete_e2e.ps1` verifies that temporary fixture App
+Pack and staging targets are deleted while staging candidates and shared runtime folders remain. Rust safety tests cover
+the production Tauri helper without deleting real apps.
 
 ## Verification
 

@@ -635,17 +635,24 @@ Implemented operations:
 
 - Hide: set the existing manifest entry to `enabled=false`.
 - Show: set `enabled=true`, only when `apps/<app_id>/app.yaml` exists.
-- Deletion plan: list repository-managed targets and excluded targets before a future full delete. This is dry-run only.
+- Deletion plan: list repository-managed targets and excluded targets before full delete.
+- Full delete: remove repo-managed app targets through the authenticated Delete tab after a safe plan is displayed.
 
-Not implemented in this phase:
+Full delete removes:
 
-- Full deletion execution.
-- Removing `release/app_manifest.json` entries from the UI.
-- Deleting App Pack zip files.
-- Deleting `release/staging/` artifacts.
-- Deleting `runtime/app_envs/<app_id>/`.
-- Deleting App Studio or legacy lifecycle backups.
-- Restore and backup-based soft delete flows.
+- `apps/<app_id>/`
+- the target entry in `release/app_manifest.json`
+- target App Pack zip files
+- strict `release/staging/` artifacts
+- `runtime/app_envs/<app_id>/`
+- App Studio and legacy lifecycle backups for the app
+
+Not implemented / intentionally not provided:
+
+- PowerShell production `-Apply`
+- restore flows
+- backup-based soft delete flows
+- `DELETE <app_id>` style confirmation input
 
 Deletion plans classify `managed_required`, `managed_generated`, and `managed_history` as future delete targets.
 `external_reference`, `user_data`, and `shared_runtime` are always excluded. `build.source_entry`,
@@ -653,8 +660,9 @@ Deletion plans classify `managed_required`, `managed_generated`, and `managed_hi
 must not be deleted by app management operations. See `docs/17_app_management_model.md`.
 
 The PowerShell dry-run planner and the Tauri/Rust planner both expose normalized comparison keys. Production full
-deletion remains disabled; temporary-app E2E is covered by `scripts/test_app_full_delete_e2e.ps1`. The implementation
-roadmap and phase status are managed in `docs/18_app_delete_execution_plan.md`; the executor contract is in
+deletion is implemented in the authenticated Delete tab; temporary-app E2E remains covered by
+`scripts/test_app_full_delete_e2e.ps1`. The implementation roadmap and phase status are managed in
+`docs/18_app_delete_execution_plan.md`; the executor contract is in
 `docs/19_full_delete_executor_design.md`.
 
 ## App Source Of Truth And Derived Release Data

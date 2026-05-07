@@ -120,6 +120,37 @@ export interface AppStudioManagementActionResult {
   target?: AppStudioManagedApp | null;
 }
 
+export interface AppStudioFullDeleteRecord {
+  category: string;
+  action: string;
+  path: string;
+  normalizedPath: string;
+  comparisonKey: string;
+  status: string;
+  note: string;
+}
+
+export interface AppStudioFullDeletePostCheckSummary {
+  manifestJsonValid: boolean;
+  manifestEntryPresent: boolean;
+  remainingDeleteTargetCount: number;
+  remainingDeleteTargets: string[];
+}
+
+export interface AppStudioFullDeleteResult {
+  ok: boolean;
+  message: string;
+  appId: string;
+  deleted: AppStudioFullDeleteRecord[];
+  alreadyClean: AppStudioFullDeleteRecord[];
+  skipped: AppStudioFullDeleteRecord[];
+  excluded: AppStudioDeletePlanTarget[];
+  failed: AppStudioFullDeleteRecord[];
+  manifestEntryRemoved: boolean;
+  postCheckSummary: AppStudioFullDeletePostCheckSummary;
+  apps: AppStudioManagedApp[];
+}
+
 export interface AppStudioRunResult {
   ok: boolean;
   exitCode: number;

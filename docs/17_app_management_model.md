@@ -110,7 +110,8 @@ The current App Studio Delete tab is an App Management MVP:
 - Hide sets `enabled=false`.
 - Show sets `enabled=true` only when `apps/<app_id>/app.yaml` exists.
 - Plan displays repository-managed delete targets and excluded targets.
-- Full delete execution is disabled/not implemented.
+- Full delete is available through the authenticated admin UI only when a displayed plan is safe and the app state is
+  supported.
 
 The plan view separates delete targets, excluded targets, warnings, and blocking reasons. It also labels manifest work as
 an entry removal plan rather than file deletion.
@@ -131,13 +132,18 @@ whose rebuilt `sha256` would be empty.
 
 ## Full Delete Status
 
-Production full delete is not implemented in this phase. A temporary-fixture Apply path exists for E2E validation only:
+Production full delete is implemented through the Tauri command `app_studio_full_delete_apply` and the App Studio Delete
+tab. The command requires an authenticated admin session, regenerates the plan immediately before deletion, compares the
+displayed snapshot when provided, deletes only repo-managed targets, removes only the target manifest entry, and returns
+post-check details plus a refreshed app list.
+
+A temporary-fixture Apply path remains for E2E validation:
 
 ```powershell
 .\scripts\test_app_full_delete_e2e.ps1
 ```
 
-Before production full delete is implemented, the deletion plan and executor must remain validated against:
+The deletion plan and executor must remain validated against:
 
 - repository-managed required files
 - generated release artifacts
@@ -149,6 +155,9 @@ Before production full delete is implemented, the deletion plan and executor mus
 - PowerShell/Tauri parity for representative fixtures
 - rehearsal cleanup followed by rebuild/diagnose/verify/check validation
 
-No current command deletes production app source, production App Pack zip files, user data, or external source folders.
-`scripts/execute_app_delete.ps1 -AppId <id> -DryRun` remains non-destructive for production apps. `-Apply` is accepted
-only for temp-root fixtures with `-AllowTemporaryAppApply` and a temporary app id prefix.
+The production command may delete production app source and production App Pack/staging/runtime app_env/history targets
+only through the admin UI flow. It must not delete user data, external source folders, shared runtime folders, or staging
+candidates.
+
+`scripts/execute_app_delete.ps1 -AppId <id> -DryRun` remains non-destructive for production apps. PowerShell `-Apply`
+is accepted only for temp-root fixtures with `-AllowTemporaryAppApply` and a temporary app id prefix.

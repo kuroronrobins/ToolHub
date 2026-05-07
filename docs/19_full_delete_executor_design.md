@@ -5,8 +5,8 @@
 This document defines the Phase 3 design for the future ToolHub full-delete executor.
 
 The executor's job is to turn an already validated delete plan into ordered cleanup of repo-managed app-owned targets.
-Phase 3 defined the execution contract and dry-run entry point. Phase 4 adds a guarded Apply mode only for temporary
-fixture roots so a temporary app can be deleted end to end before production deletion is enabled.
+Phase 3 defined the execution contract and dry-run entry point. Phase 4 added a guarded Apply mode only for temporary
+fixture roots. Phase 5 adds the production Tauri command used by the authenticated Delete tab.
 
 ## 2. Scope
 
@@ -68,14 +68,18 @@ cannot become destructive.
 
 ### Apply
 
-Apply mode performs deletion only for a temporary fixture in Phase 4. Production Apply remains unimplemented.
+Apply mode now has two deliberately separate entry points:
+
+- PowerShell: temporary-fixture Apply only, used for Phase 4 E2E.
+- Tauri/Rust: production Apply through `app_studio_full_delete_apply`, used by the authenticated Delete tab.
 
 ```powershell
 .\scripts\execute_app_delete.ps1 -AppId <temp_id> -ProjectRoot <temp_fixture> -Apply -AllowTemporaryAppApply
 ```
 
-Without the temporary gate, `-Apply` is refused. With the gate, it is still refused unless every temporary-only safety
-condition passes.
+PowerShell production `-Apply` remains intentionally unimplemented. This avoids a second destructive production entry
+point outside the admin UI. Without the temporary gate, `-Apply` is refused. With the gate, it is still refused unless
+every temporary-only safety condition passes.
 
 Temporary-only gate:
 
@@ -89,6 +93,17 @@ Temporary-only gate:
 - Every file-system delete target must resolve under `ProjectRoot`.
 - `release/app_manifest.json` may only be changed by removing the target entry.
 - staging candidates and excluded targets must not be deleted.
+
+Production Tauri gate:
+
+- Admin session is required.
+- The plan is regenerated immediately before deletion.
+- The displayed plan snapshot is compared when the UI provides it.
+- Delete targets must be repo-root children.
+- Excluded categories, shared runtime, user data, external references, and staging candidates are forbidden as delete
+  targets.
+- `release/app_manifest.json` may only be modified by removing the target app entry.
+- Missing generated targets are treated as already clean.
 
 ## 4. Delete Ordering
 
@@ -132,8 +147,9 @@ Freshness fields:
 - plan `generated_at`
 - `plan_schema_version`
 
-`plan_app_delete.ps1` and the Tauri helper already expose normalized paths and comparison keys. Phase 4 should add
-`generated_at` and `plan_schema_version` before Apply is enabled.
+`plan_app_delete.ps1` and the Tauri helper already expose normalized paths and comparison keys. Phase 5 compares the
+available stable fields: app id, manifest entry existence, manifest version, manifest package, delete target comparison
+keys, and excluded target comparison keys. `generated_at` and `plan_schema_version` remain optional future hardening.
 
 ## 6. Failure Handling
 
@@ -150,8 +166,8 @@ Failure handling is therefore based on detection and idempotent re-run:
 - Treat a missing manifest entry as already clean only after other targets have been checked.
 - Report leftover generated/history targets after post-delete validation.
 
-The future Apply implementation should return enough detail for the Delete tab and logs to show completed, skipped, and
-failed steps.
+The Tauri Apply implementation returns completed, already-clean, skipped, failed, excluded, manifest-entry, post-check,
+and refreshed app-list details for the Delete tab and admin log.
 
 ## 7. Idempotency
 
@@ -213,8 +229,8 @@ Temporary app E2E steps:
     separate validation so fixture cleanup is not confused with production state.
 16. Clean up any temporary leftovers and confirm `git status --short` has no temporary artifacts.
 
-`scripts/test_app_full_delete_e2e.ps1` is the Phase 4 regression test for this flow. Production deletion must wait until
-Phase 5.
+`scripts/test_app_full_delete_e2e.ps1` is the Phase 4 regression test for this flow. It remains in `check_all` as a
+guard for the Phase 5 production command.
 
 ## 10. Production Command Design
 
@@ -225,7 +241,17 @@ Proposed future commands:
 - `scripts/execute_app_delete.ps1 -AppId <id> -DryRun`
 - `scripts/execute_app_delete.ps1 -AppId <id> -Apply`
 
-Phase 4 implements temporary-fixture Apply in the script entry point. Production `-Apply` is deliberately rejected.
+Phase 4 implements temporary-fixture Apply in the script entry point. Production PowerShell `-Apply` is deliberately
+rejected.
 
-Phase 5 may add production Tauri command support after reviewing the temporary E2E evidence and preserving the
-temporary-only test as a regression guard.
+Phase 5 implements production Tauri command support:
+
+- `app_studio_full_delete_apply(appId, planSnapshot?)`
+- Delete tab displays a plan first.
+- Delete button is enabled only when the current plan is visible, has no blocking reasons, has at least one existing
+  delete target, and the app state is supported.
+- The command regenerates the plan, compares the snapshot when present, executes ordered deletion, removes only the
+  app manifest entry, runs post-checks, and returns a refreshed app management list.
+
+Validation must not delete real apps. Safety is covered by Rust helper tests, the temporary-app E2E, cargo check,
+frontend build, and full check scripts.

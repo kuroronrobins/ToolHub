@@ -3,6 +3,7 @@ import type {
   AppStudioImportRequest,
   AppStudioIconRegenerateRequest,
   AppStudioDeletePlan,
+  AppStudioFullDeleteResult,
   AppStudioManagedApp,
   AppStudioManagementActionResult,
   AppStudioAiProposal,
@@ -28,6 +29,13 @@ export async function appStudioManagementSetEnabled(appId: string, enabled: bool
 
 export async function appStudioDeletePlan(appId: string): Promise<AppStudioDeletePlan> {
   return invoke<AppStudioDeletePlan>("app_studio_delete_plan", { appId });
+}
+
+export async function appStudioFullDeleteApply(
+  appId: string,
+  planSnapshot?: AppStudioDeletePlan | null,
+): Promise<AppStudioFullDeleteResult> {
+  return invoke<AppStudioFullDeleteResult>("app_studio_full_delete_apply", { appId, planSnapshot });
 }
 
 export async function appStudioSuggest(request: AppStudioImportRequest): Promise<AppStudioRunResult> {

@@ -144,8 +144,9 @@ ToolHubを再起動すると、`app.yaml` から自動検出されます。
 - 非表示: `release/app_manifest.json` の対象 entry を `enabled=false` にします。
 - 再表示: `apps/<app_id>/app.yaml` が存在する場合だけ `enabled=true` に戻します。
 - 削除計画: `apps/<app_id>/`、App Pack、staging、runtime app_env、App Studio backup などの将来削除対象と、外部参照・ユーザーデータ・共有runtimeの除外対象を表示します。
+- 完全削除: 管理者セッション中の Delete タブで削除計画を表示し、安全条件を満たす場合だけ repo 内の対象アプリ由来管理対象を削除します。
 
-完全削除の実行、App Pack zip削除、backup削除、release履歴削除、ユーザーデータ削除は未実装です。管理モデルは [docs/17_app_management_model.md](docs/17_app_management_model.md)、実装計画は [docs/18_app_delete_execution_plan.md](docs/18_app_delete_execution_plan.md)、executor設計は [docs/19_full_delete_executor_design.md](docs/19_full_delete_executor_design.md) を参照してください。
+完全削除は外部ソース、外部 output mirror、ユーザーデータ、logs、browser profiles、app_state、共有runtime、曖昧なstaging候補を削除しません。PowerShell production `-Apply` は未実装のままです。管理モデルは [docs/17_app_management_model.md](docs/17_app_management_model.md)、実装計画は [docs/18_app_delete_execution_plan.md](docs/18_app_delete_execution_plan.md)、executor設計は [docs/19_full_delete_executor_design.md](docs/19_full_delete_executor_design.md) を参照してください。
 
 ## 検収方法
 
@@ -175,7 +176,7 @@ app manifest の状態だけを確認する場合:
 削除計画は dry-run のみです。App Pack は manifest の package path と
 `release/app_packs/<app_id>-*.zip`、staging は `<app_id>` または
 `<app_id>-<version>` と明確に判定できる path segment だけを削除候補にします。
-部分一致だけの staging 候補は除外対象として表示されます。`execute_app_delete.ps1` も現時点では dry-run の実行順序表示のみで、`-Apply` は未実装として拒否します。
+部分一致だけの staging 候補は除外対象として表示されます。`execute_app_delete.ps1` の production `-Apply` は未実装として拒否します。production完全削除は管理者画面のTauri command経由で実行します。
 
 ```powershell
 .\scripts\test_app_delete_plan.ps1

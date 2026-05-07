@@ -127,7 +127,7 @@ pub struct AppStudioManagedApp {
     pub recommended_action: String,
 }
 
-#[derive(Debug, Serialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppStudioDeletePlanTarget {
     pub category: String,
@@ -140,7 +140,7 @@ pub struct AppStudioDeletePlanTarget {
     pub note: String,
 }
 
-#[derive(Debug, Serialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppStudioDeletePlan {
     pub app_id: String,
@@ -171,6 +171,43 @@ pub struct AppStudioManagementActionResult {
     pub message: String,
     pub apps: Vec<AppStudioManagedApp>,
     pub target: Option<AppStudioManagedApp>,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioFullDeleteRecord {
+    pub category: String,
+    pub action: String,
+    pub path: String,
+    pub normalized_path: String,
+    pub comparison_key: String,
+    pub status: String,
+    pub note: String,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioFullDeletePostCheckSummary {
+    pub manifest_json_valid: bool,
+    pub manifest_entry_present: bool,
+    pub remaining_delete_target_count: usize,
+    pub remaining_delete_targets: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioFullDeleteResult {
+    pub ok: bool,
+    pub message: String,
+    pub app_id: String,
+    pub deleted: Vec<AppStudioFullDeleteRecord>,
+    pub already_clean: Vec<AppStudioFullDeleteRecord>,
+    pub skipped: Vec<AppStudioFullDeleteRecord>,
+    pub excluded: Vec<AppStudioDeletePlanTarget>,
+    pub failed: Vec<AppStudioFullDeleteRecord>,
+    pub manifest_entry_removed: bool,
+    pub post_check_summary: AppStudioFullDeletePostCheckSummary,
+    pub apps: Vec<AppStudioManagedApp>,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -469,6 +506,17 @@ pub fn app_studio_delete_plan(
 }
 
 #[tauri::command]
+pub fn app_studio_full_delete_apply(
+    app_id: String,
+    plan_snapshot: Option<AppStudioDeletePlan>,
+    session: State<AdminSessionState>,
+) -> Result<AppStudioFullDeleteResult, String> {
+    session.require_authenticated()?;
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    full_delete_apply(&root, &app_id, plan_snapshot.as_ref())
+}
+
+#[tauri::command]
 pub fn app_studio_preflight(
     request: AppStudioImportRequest,
     session: State<AdminSessionState>,
@@ -623,11 +671,13 @@ pub fn app_studio_ai_diagnostics(
     Ok(build_ai_env_plan().diagnostics)
 }
 
-pub(crate) fn run_image_generation_test() -> Result<crate::ai_settings::AiImageGenerationTestResult, String> {
+pub(crate) fn run_image_generation_test(
+) -> Result<crate::ai_settings::AiImageGenerationTestResult, String> {
     run_image_generation_test_for_model(None)
 }
 
-pub(crate) fn run_image_model_probe() -> Result<crate::ai_settings::AiImageModelProbeResult, String> {
+pub(crate) fn run_image_model_probe() -> Result<crate::ai_settings::AiImageModelProbeResult, String>
+{
     const CANDIDATE_MODELS: [&str; 4] = [
         "gpt-image-2",
         "gpt-image-1.5",
@@ -721,7 +771,11 @@ fn run_image_generation_test_for_model(
         status: parsed
             .get("status")
             .and_then(Value::as_str)
-            .unwrap_or(if output.status.success() { "success" } else { "failed" })
+            .unwrap_or(if output.status.success() {
+                "success"
+            } else {
+                "failed"
+            })
             .to_string(),
         content_type: parsed
             .get("content_type")
@@ -848,7 +902,9 @@ fn run_icon_regenerate_action(
     validate_app_id(&app_id)?;
     let output_path = PathBuf::from(request.output_dir.trim());
     if !output_path.is_dir() {
-        return Err("App Studioの出力フォルダが見つかりません。先にSuggestを実行してください。".to_string());
+        return Err(
+            "App Studioの出力フォルダが見つかりません。先にSuggestを実行してください。".to_string(),
+        );
     }
     let instruction = request.user_revision_instruction.trim().to_string();
     if instruction.is_empty() {
@@ -859,7 +915,12 @@ fn run_icon_regenerate_action(
         "tweak" | "refine" | "redesign" | "fresh" => request.revision_mode.trim().to_string(),
         _ => "refine".to_string(),
     };
-    let image_quality_mode = match request.image_quality_mode.as_deref().unwrap_or("standard").trim() {
+    let image_quality_mode = match request
+        .image_quality_mode
+        .as_deref()
+        .unwrap_or("standard")
+        .trim()
+    {
         "draft" | "standard" | "high" => request
             .image_quality_mode
             .as_deref()
@@ -912,7 +973,10 @@ fn run_icon_regenerate_action(
         &[
             ("app_id", app_id.clone()),
             ("output_dir", output_path.display().to_string()),
-            ("base_candidate_id", request.base_candidate_id.unwrap_or_default()),
+            (
+                "base_candidate_id",
+                request.base_candidate_id.unwrap_or_default(),
+            ),
             ("revision_mode", revision_mode.clone()),
             ("candidate_count", candidate_count.to_string()),
             ("image_quality_mode", image_quality_mode.clone()),
@@ -1881,7 +1945,10 @@ fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggest
                         .get("prompt")
                         .and_then(Value::as_str)
                         .map(str::to_string),
-                    model: item.get("model").and_then(Value::as_str).map(str::to_string),
+                    model: item
+                        .get("model")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
                     status: item
                         .get("status")
                         .and_then(Value::as_str)
@@ -1898,7 +1965,10 @@ fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggest
                     url_file_name,
                     png_data_url,
                     url,
-                    notes: item.get("notes").and_then(Value::as_str).map(str::to_string),
+                    notes: item
+                        .get("notes")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
                     revision_of: item
                         .get("revision_of")
                         .and_then(Value::as_str)
@@ -1960,7 +2030,9 @@ fn read_icon_candidates(icon_work: &Path) -> Vec<AppStudioAiIconCandidateSuggest
         }
     }
     if candidates.is_empty() {
-        if let Some(png_data_url) = read_png_data_url_optional(&icon_work.join("icon_candidate_1.png")) {
+        if let Some(png_data_url) =
+            read_png_data_url_optional(&icon_work.join("icon_candidate_1.png"))
+        {
             candidates.push(AppStudioAiIconCandidateSuggestion {
                 candidate_id: "icon_candidate_1".to_string(),
                 number: 1,
@@ -2137,7 +2209,10 @@ fn read_import_plan(output_dir: &Path, summary: &mut AppStudioResultSummary) {
     if let Some(value) = json.get("secret_scan_report").and_then(Value::as_str) {
         summary.secret_scan_report = Some(value.to_string());
     }
-    if let Some(items) = json.get("blocking_secret_findings").and_then(Value::as_array) {
+    if let Some(items) = json
+        .get("blocking_secret_findings")
+        .and_then(Value::as_array)
+    {
         summary.secret_blocking_findings = items
             .iter()
             .filter_map(Value::as_str)
@@ -2171,7 +2246,8 @@ fn read_execution_result(output_dir: &Path, summary: &mut AppStudioResultSummary
         .and_then(Value::as_u64)
         .unwrap_or(0) as usize;
     summary.approval_blocking_reasons = string_array(json.get("approval_blocking_reasons"));
-    summary.non_blocking_warning_summaries = string_array(json.get("non_blocking_warning_summaries"));
+    summary.non_blocking_warning_summaries =
+        string_array(json.get("non_blocking_warning_summaries"));
 }
 
 fn read_timing_result(output_dir: &Path, summary: &mut AppStudioResultSummary) {
@@ -2185,18 +2261,23 @@ fn read_timing_result(output_dir: &Path, summary: &mut AppStudioResultSummary) {
         .and_then(number_value)
         .or_else(|| json.get("wall_clock_total_seconds").and_then(number_value))
         .or_else(|| json.get("total_duration_seconds").and_then(number_value));
-    summary.timing_estimated_total_seconds = json
-        .get("estimated_total_seconds")
-        .and_then(number_value);
+    summary.timing_estimated_total_seconds =
+        json.get("estimated_total_seconds").and_then(number_value);
     summary.timing_actual_total_seconds = json.get("actual_total_seconds").and_then(number_value);
-    summary.timing_prediction_error_seconds = json.get("prediction_error_seconds").and_then(number_value);
+    summary.timing_prediction_error_seconds =
+        json.get("prediction_error_seconds").and_then(number_value);
     summary.timing_prediction_source = json
         .get("prediction_source")
         .and_then(Value::as_str)
         .map(str::to_string);
-    summary.timing_wall_clock_total_seconds = json.get("wall_clock_total_seconds").and_then(number_value);
-    summary.timing_cli_measured_total_seconds = json.get("cli_measured_total_seconds").and_then(number_value);
-    summary.timing_unmeasured_overhead_seconds = json.get("unmeasured_overhead_seconds").and_then(number_value);
+    summary.timing_wall_clock_total_seconds =
+        json.get("wall_clock_total_seconds").and_then(number_value);
+    summary.timing_cli_measured_total_seconds = json
+        .get("cli_measured_total_seconds")
+        .and_then(number_value);
+    summary.timing_unmeasured_overhead_seconds = json
+        .get("unmeasured_overhead_seconds")
+        .and_then(number_value);
     if let Some(items) = json.get("phases").and_then(Value::as_array) {
         summary.timing_phases = items
             .iter()
@@ -2544,7 +2625,13 @@ fn list_managed_apps_from_root(root: &Path) -> Vec<AppStudioManagedApp> {
 
     app_ids
         .into_iter()
-        .map(|app_id| managed_app_from_parts(root, &app_id, release_apps.and_then(|apps| apps.get(&app_id))))
+        .map(|app_id| {
+            managed_app_from_parts(
+                root,
+                &app_id,
+                release_apps.and_then(|apps| apps.get(&app_id)),
+            )
+        })
         .collect()
 }
 
@@ -2593,7 +2680,11 @@ fn managed_app_from_parts(
         .map(|app| app.name.clone())
         .unwrap_or_else(|| app_id.to_string());
     let plan = build_delete_plan(root, app_id).unwrap_or_default();
-    let delete_plan_status = if plan.blocking_reasons.is_empty() { "ready" } else { "blocked" };
+    let delete_plan_status = if plan.blocking_reasons.is_empty() {
+        "ready"
+    } else {
+        "blocked"
+    };
 
     AppStudioManagedApp {
         app_id: app_id.to_string(),
@@ -2621,9 +2712,15 @@ fn management_warning(status: &str, yaml_error: Option<&str>) -> Option<String> 
                 .map(|error| format!("app.yaml could not be read: {error}"))
                 .unwrap_or_else(|| "App definition could not be read.".to_string()),
         ),
-        "enabled_missing_source" => Some("enabled=true but apps/<app_id>/app.yaml is missing.".to_string()),
-        "disabled_stale" => Some("release/app_manifest.json has a disabled entry without app source.".to_string()),
-        "source_missing_from_manifest" => Some("apps/<app_id>/app.yaml exists but release/app_manifest.json has no entry.".to_string()),
+        "enabled_missing_source" => {
+            Some("enabled=true but apps/<app_id>/app.yaml is missing.".to_string())
+        }
+        "disabled_stale" => {
+            Some("release/app_manifest.json has a disabled entry without app source.".to_string())
+        }
+        "source_missing_from_manifest" => Some(
+            "apps/<app_id>/app.yaml exists but release/app_manifest.json has no entry.".to_string(),
+        ),
         _ => None,
     }
 }
@@ -2653,7 +2750,10 @@ fn management_set_enabled(
     let manifest_path = app_manifest_path(root);
     let mut manifest = read_app_manifest_for_write(&manifest_path)?;
     if manifest_app_entry(&manifest, app_id).is_none() {
-        return Err("release/app_manifest.json has no entry for this app. Rebuild the app manifest first.".to_string());
+        return Err(
+            "release/app_manifest.json has no entry for this app. Rebuild the app manifest first."
+                .to_string(),
+        );
     }
     {
         let entry = manifest_app_entry_mut(&mut manifest, app_id)?;
@@ -2670,11 +2770,19 @@ fn management_set_enabled(
     Ok(management_result(
         root,
         app_id,
-        format!("{} was {}.", app_id, if enabled { "shown" } else { "hidden" }),
+        format!(
+            "{} was {}.",
+            app_id,
+            if enabled { "shown" } else { "hidden" }
+        ),
     ))
 }
 
-fn management_result(root: &Path, app_id: &str, message: String) -> AppStudioManagementActionResult {
+fn management_result(
+    root: &Path,
+    app_id: &str,
+    message: String,
+) -> AppStudioManagementActionResult {
     let apps = list_managed_apps_from_root(root);
     let target = apps.iter().find(|app| app.app_id == app_id).cloned();
     AppStudioManagementActionResult {
@@ -2683,6 +2791,439 @@ fn management_result(root: &Path, app_id: &str, message: String) -> AppStudioMan
         apps,
         target,
     }
+}
+
+fn full_delete_apply(
+    root: &Path,
+    app_id: &str,
+    plan_snapshot: Option<&AppStudioDeletePlan>,
+) -> Result<AppStudioFullDeleteResult, String> {
+    let app_id = app_id.trim();
+    validate_app_id(app_id)?;
+    let plan = build_delete_plan(root, app_id)?;
+    validate_full_delete_plan(root, &plan)?;
+    if let Some(snapshot) = plan_snapshot {
+        compare_delete_plan_snapshot(snapshot, &plan)?;
+    }
+
+    let mut deleted = Vec::new();
+    let mut already_clean = Vec::new();
+    let mut skipped = Vec::new();
+    let mut failed = Vec::new();
+    let mut stop_before_manifest = false;
+
+    for target in ordered_full_delete_targets(&plan) {
+        let record = delete_full_delete_target(root, target);
+        match record.status.as_str() {
+            "deleted" => deleted.push(record),
+            "already_clean" => already_clean.push(record),
+            "skipped" => skipped.push(record),
+            _ => {
+                stop_before_manifest = true;
+                failed.push(record);
+                break;
+            }
+        }
+    }
+
+    let mut manifest_entry_removed = false;
+    if stop_before_manifest {
+        if let Some(target) = plan
+            .delete_targets
+            .iter()
+            .find(|target| is_manifest_entry_target(target))
+        {
+            skipped.push(full_delete_record_from_target(
+                target,
+                "skipped",
+                "Manifest entry was not removed because an earlier delete step failed.",
+            ));
+        }
+    } else if let Some(target) = plan
+        .delete_targets
+        .iter()
+        .find(|target| is_manifest_entry_target(target))
+    {
+        match remove_manifest_entry(root, app_id, target) {
+            Ok((record, removed)) => {
+                manifest_entry_removed = removed;
+                match record.status.as_str() {
+                    "deleted" => deleted.push(record),
+                    "already_clean" => already_clean.push(record),
+                    "skipped" => skipped.push(record),
+                    _ => failed.push(record),
+                }
+            }
+            Err(error) => failed.push(full_delete_record_from_target(target, "failed", &error)),
+        }
+    }
+
+    let post_check_summary = full_delete_post_check(root, app_id);
+    let ok = failed.is_empty()
+        && !post_check_summary.manifest_entry_present
+        && post_check_summary.remaining_delete_target_count == 0;
+    let message = if ok {
+        format!("{app_id} was fully deleted from repository-managed targets.")
+    } else {
+        format!("{app_id} full delete did not complete. Review failed and remaining targets.")
+    };
+    let result = AppStudioFullDeleteResult {
+        ok,
+        message,
+        app_id: app_id.to_string(),
+        deleted,
+        already_clean,
+        skipped,
+        excluded: plan.excluded_targets.clone(),
+        failed,
+        manifest_entry_removed,
+        post_check_summary,
+        apps: list_managed_apps_from_root(root),
+    };
+
+    append_app_studio_gui_log(
+        "app_management_full_delete",
+        &[
+            ("app_id", app_id.to_string()),
+            ("ok", result.ok.to_string()),
+            ("deleted", result.deleted.len().to_string()),
+            ("already_clean", result.already_clean.len().to_string()),
+            ("failed", result.failed.len().to_string()),
+            (
+                "manifest_entry_removed",
+                result.manifest_entry_removed.to_string(),
+            ),
+        ],
+    );
+
+    Ok(result)
+}
+
+fn validate_full_delete_plan(root: &Path, plan: &AppStudioDeletePlan) -> Result<(), String> {
+    let mut errors = Vec::new();
+    if !plan.blocking_reasons.is_empty() {
+        errors.extend(plan.blocking_reasons.iter().cloned());
+    }
+    if plan.delete_targets.is_empty() {
+        errors.push("Deletion plan has no delete targets.".to_string());
+    }
+    if !plan.manifest_entry_exists && Path::new(&plan.source_dir).exists() {
+        errors.push(
+            "apps/<app_id>/ exists without a release/app_manifest.json entry. Rebuild the manifest before full delete."
+                .to_string(),
+        );
+    }
+
+    let manifest_path = app_manifest_path(root);
+    let manifest_normalized = normalize_plan_path(&manifest_path.display().to_string());
+    let mut delete_normalized_paths = BTreeSet::new();
+    for target in &plan.delete_targets {
+        if !target.delete_allowed {
+            errors.push(format!(
+                "Delete target is not marked deleteAllowed=true: {}",
+                target.path
+            ));
+        }
+        if matches!(
+            target.category.as_str(),
+            "external_reference" | "user_data" | "shared_runtime" | "managed_generated_candidate"
+        ) {
+            errors.push(format!(
+                "Forbidden category appears in delete targets: {}",
+                target.path
+            ));
+        }
+        if !target.normalized_path.trim().is_empty() {
+            delete_normalized_paths.insert(target.normalized_path.clone());
+        }
+        if is_manifest_entry_target(target) {
+            if target.normalized_path != manifest_normalized {
+                errors.push(format!(
+                    "Manifest entry target must point to release/app_manifest.json: {}",
+                    target.path
+                ));
+            }
+            continue;
+        }
+        if let Err(error) = resolve_safe_delete_target_path(root, target) {
+            errors.push(error);
+        }
+        if is_shared_runtime_path(root, Path::new(&target.path)) {
+            errors.push(format!(
+                "Shared runtime cannot be a delete target: {}",
+                target.path
+            ));
+        }
+    }
+
+    for target in &plan.excluded_targets {
+        if target.delete_allowed {
+            errors.push(format!(
+                "Excluded target must be deleteAllowed=false: {}",
+                target.path
+            ));
+        }
+        if delete_normalized_paths.contains(&target.normalized_path) {
+            errors.push(format!(
+                "Excluded target overlaps a delete target: {}",
+                target.path
+            ));
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Full delete safety check failed: {}",
+            errors.join(" / ")
+        ))
+    }
+}
+
+fn compare_delete_plan_snapshot(
+    snapshot: &AppStudioDeletePlan,
+    fresh: &AppStudioDeletePlan,
+) -> Result<(), String> {
+    let mut mismatches = Vec::new();
+    if snapshot.app_id != fresh.app_id {
+        mismatches.push("appId changed".to_string());
+    }
+    if snapshot.manifest_entry_exists != fresh.manifest_entry_exists {
+        mismatches.push("manifest entry existence changed".to_string());
+    }
+    if snapshot.manifest_version != fresh.manifest_version {
+        mismatches.push("manifest version changed".to_string());
+    }
+    if snapshot.manifest_package != fresh.manifest_package {
+        mismatches.push("manifest package changed".to_string());
+    }
+    let snapshot_delete_keys: BTreeSet<&str> = snapshot
+        .delete_targets
+        .iter()
+        .map(|target| target.comparison_key.as_str())
+        .collect();
+    let fresh_delete_keys: BTreeSet<&str> = fresh
+        .delete_targets
+        .iter()
+        .map(|target| target.comparison_key.as_str())
+        .collect();
+    if snapshot_delete_keys != fresh_delete_keys {
+        mismatches.push("delete target set changed".to_string());
+    }
+    let snapshot_excluded_keys: BTreeSet<&str> = snapshot
+        .excluded_targets
+        .iter()
+        .map(|target| target.comparison_key.as_str())
+        .collect();
+    let fresh_excluded_keys: BTreeSet<&str> = fresh
+        .excluded_targets
+        .iter()
+        .map(|target| target.comparison_key.as_str())
+        .collect();
+    if snapshot_excluded_keys != fresh_excluded_keys {
+        mismatches.push("excluded target set changed".to_string());
+    }
+
+    if mismatches.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Deletion plan changed after it was displayed. Reload the plan before deleting. ({})",
+            mismatches.join(", ")
+        ))
+    }
+}
+
+fn ordered_full_delete_targets(plan: &AppStudioDeletePlan) -> Vec<&AppStudioDeletePlanTarget> {
+    let mut ordered = Vec::new();
+    let mut seen = BTreeSet::new();
+    for action in [
+        "delete App Pack zip",
+        "delete staging artifact",
+        "delete runtime app_env",
+        "delete App Studio backup",
+        "delete legacy lifecycle backup",
+        "delete apps/<app_id>/",
+    ] {
+        for target in plan
+            .delete_targets
+            .iter()
+            .filter(|target| target.action == action && !is_manifest_entry_target(target))
+        {
+            seen.insert(target.comparison_key.clone());
+            ordered.push(target);
+        }
+    }
+    for target in plan.delete_targets.iter().filter(|target| {
+        !is_manifest_entry_target(target) && !seen.contains(&target.comparison_key)
+    }) {
+        ordered.push(target);
+    }
+    ordered
+}
+
+fn delete_full_delete_target(
+    root: &Path,
+    target: &AppStudioDeletePlanTarget,
+) -> AppStudioFullDeleteRecord {
+    let Ok(path) = resolve_safe_delete_target_path(root, target) else {
+        return full_delete_record_from_target(
+            target,
+            "failed",
+            "Target path failed safety resolution.",
+        );
+    };
+    if !path.exists() {
+        return full_delete_record_from_target(
+            target,
+            "already_clean",
+            "Target was already missing.",
+        );
+    }
+    let delete_result = if path.is_dir() {
+        fs::remove_dir_all(&path)
+    } else {
+        fs::remove_file(&path)
+    };
+    match delete_result {
+        Ok(()) if !path.exists() => full_delete_record_from_target(
+            target,
+            "deleted",
+            "Deleted repository-managed app target.",
+        ),
+        Ok(()) => full_delete_record_from_target(
+            target,
+            "failed",
+            "Target still exists after deletion attempt.",
+        ),
+        Err(error) => full_delete_record_from_target(target, "failed", &error.to_string()),
+    }
+}
+
+fn remove_manifest_entry(
+    root: &Path,
+    app_id: &str,
+    target: &AppStudioDeletePlanTarget,
+) -> Result<(AppStudioFullDeleteRecord, bool), String> {
+    let manifest_path = app_manifest_path(root);
+    let mut manifest = read_app_manifest_for_write(&manifest_path)?;
+    let apps = manifest
+        .get_mut("apps")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "release/app_manifest.json apps object was not found.".to_string())?;
+    let removed = apps.remove(app_id).is_some();
+    if removed {
+        write_json_file(&manifest_path, &manifest)?;
+        Ok((
+            full_delete_record_from_target(
+                target,
+                "deleted",
+                "Removed only the app entry from release/app_manifest.json.",
+            ),
+            true,
+        ))
+    } else {
+        Ok((
+            full_delete_record_from_target(
+                target,
+                "already_clean",
+                "Manifest entry was already absent.",
+            ),
+            false,
+        ))
+    }
+}
+
+fn full_delete_post_check(root: &Path, app_id: &str) -> AppStudioFullDeletePostCheckSummary {
+    let manifest = read_json(&app_manifest_path(root));
+    let manifest_json_valid = manifest.is_some();
+    let manifest_entry_present = manifest
+        .as_ref()
+        .and_then(|value| value.get("apps"))
+        .and_then(|apps| apps.get(app_id))
+        .is_some();
+    let fresh_plan = build_delete_plan(root, app_id).unwrap_or_default();
+    let remaining_delete_targets: Vec<String> = fresh_plan
+        .delete_targets
+        .iter()
+        .filter(|target| !is_manifest_entry_target(target) && target.exists)
+        .map(|target| target.comparison_key.clone())
+        .collect();
+    AppStudioFullDeletePostCheckSummary {
+        manifest_json_valid,
+        manifest_entry_present,
+        remaining_delete_target_count: remaining_delete_targets.len(),
+        remaining_delete_targets,
+    }
+}
+
+fn full_delete_record_from_target(
+    target: &AppStudioDeletePlanTarget,
+    status: &str,
+    note: &str,
+) -> AppStudioFullDeleteRecord {
+    AppStudioFullDeleteRecord {
+        category: target.category.clone(),
+        action: target.action.clone(),
+        path: target.path.clone(),
+        normalized_path: target.normalized_path.clone(),
+        comparison_key: target.comparison_key.clone(),
+        status: status.to_string(),
+        note: note.to_string(),
+    }
+}
+
+fn resolve_safe_delete_target_path(
+    root: &Path,
+    target: &AppStudioDeletePlanTarget,
+) -> Result<PathBuf, String> {
+    let path = PathBuf::from(&target.path);
+    if path
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(format!(
+            "Delete target contains path traversal: {}",
+            target.path
+        ));
+    }
+    let full_path = if path.is_absolute() {
+        path
+    } else {
+        root.join(path)
+    };
+    if !path_is_strict_child_of(&full_path, root) {
+        return Err(format!(
+            "Delete target is not safely inside the project root: {}",
+            target.path
+        ));
+    }
+    Ok(full_path)
+}
+
+fn path_is_strict_child_of(path: &Path, root: &Path) -> bool {
+    let root_path = root.to_path_buf();
+    let full_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root_path.join(path)
+    };
+    let root_norm = normalize_plan_path(&root_path.display().to_string());
+    let full_norm = normalize_plan_path(&full_path.display().to_string());
+    full_norm != root_norm && full_norm.starts_with(&format!("{root_norm}/"))
+}
+
+fn is_manifest_entry_target(target: &AppStudioDeletePlanTarget) -> bool {
+    target.action == "remove app_manifest entry"
+}
+
+fn is_shared_runtime_path(root: &Path, path: &Path) -> bool {
+    let shared_python = root.join("runtime").join("python");
+    let shared_web = root.join("runtime").join("web_automation_runtime");
+    let path_norm = normalize_plan_path(&path.display().to_string());
+    path_norm == normalize_plan_path(&shared_python.display().to_string())
+        || path_norm == normalize_plan_path(&shared_web.display().to_string())
 }
 
 fn build_delete_plan(root: &Path, app_id: &str) -> Result<AppStudioDeletePlan, String> {
@@ -2698,11 +3239,16 @@ fn build_delete_plan(root: &Path, app_id: &str) -> Result<AppStudioDeletePlan, S
     let manifest_version = manifest_entry.and_then(|entry| json_str(entry, "version"));
     let manifest_package = manifest_entry.and_then(|entry| json_str(entry, "package"));
     let app_pack_paths = collect_app_pack_paths(root, app_id, manifest_package.as_deref());
-    let (staging_paths, staging_candidate_paths) =
-        collect_staging_paths(&root.join("release").join("staging"), app_id, manifest_version.as_deref());
+    let (staging_paths, staging_candidate_paths) = collect_staging_paths(
+        &root.join("release").join("staging"),
+        app_id,
+        manifest_version.as_deref(),
+    );
     let runtime_app_env = root.join("runtime").join("app_envs").join(app_id);
-    let app_studio_backup_paths = collect_backup_paths(&root.join("backups").join("app_studio"), app_id);
-    let lifecycle_backup_paths = collect_backup_paths(&root.join("backups").join("app_lifecycle"), app_id);
+    let app_studio_backup_paths =
+        collect_backup_paths(&root.join("backups").join("app_studio"), app_id);
+    let lifecycle_backup_paths =
+        collect_backup_paths(&root.join("backups").join("app_lifecycle"), app_id);
     let external_references = collect_external_references(root, &app_yaml);
     let user_data_paths = user_data_excluded_targets(app_id);
 
@@ -2794,14 +3340,21 @@ fn build_delete_plan(root: &Path, app_id: &str) -> Result<AppStudioDeletePlan, S
         );
     }
 
-    if !source_dir.exists() && !manifest_entry_exists && app_pack_paths.is_empty() && app_studio_backup_paths.is_empty() {
+    if !source_dir.exists()
+        && !manifest_entry_exists
+        && app_pack_paths.is_empty()
+        && app_studio_backup_paths.is_empty()
+    {
         warnings.push("No repository-managed app source, manifest entry, App Pack, or App Studio backup was found.".to_string());
     }
     if source_dir.exists() && !app_yaml.is_file() {
         warnings.push("apps/<app_id>/ exists but app.yaml is missing.".to_string());
     }
     if !external_references.is_empty() {
-        warnings.push("External absolute paths were found in app.yaml and are excluded from deletion.".to_string());
+        warnings.push(
+            "External absolute paths were found in app.yaml and are excluded from deletion."
+                .to_string(),
+        );
     }
     if !staging_candidate_paths.is_empty() {
         warnings.push("Potential staging artifacts matched only by partial app_id and were excluded from delete targets.".to_string());
@@ -2839,12 +3392,27 @@ fn build_delete_plan(root: &Path, app_id: &str) -> Result<AppStudioDeletePlan, S
         manifest_enabled,
         manifest_version,
         manifest_package,
-        app_pack_paths: app_pack_paths.iter().map(|path| path.display().to_string()).collect(),
-        staging_paths: staging_paths.iter().map(|path| path.display().to_string()).collect(),
-        staging_candidate_paths: staging_candidate_paths.iter().map(|path| path.display().to_string()).collect(),
+        app_pack_paths: app_pack_paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect(),
+        staging_paths: staging_paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect(),
+        staging_candidate_paths: staging_candidate_paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect(),
         runtime_app_env: runtime_app_env.display().to_string(),
-        app_studio_backup_paths: app_studio_backup_paths.iter().map(|path| path.display().to_string()).collect(),
-        lifecycle_backup_paths: lifecycle_backup_paths.iter().map(|path| path.display().to_string()).collect(),
+        app_studio_backup_paths: app_studio_backup_paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect(),
+        lifecycle_backup_paths: lifecycle_backup_paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect(),
         external_references,
         user_data_paths,
         delete_targets,
@@ -2911,7 +3479,11 @@ fn sort_delete_plan_targets(targets: &mut [AppStudioDeletePlanTarget]) {
     targets.sort_by(|a, b| a.comparison_key.cmp(&b.comparison_key));
 }
 
-fn collect_app_pack_paths(root: &Path, app_id: &str, manifest_package: Option<&str>) -> Vec<PathBuf> {
+fn collect_app_pack_paths(
+    root: &Path,
+    app_id: &str,
+    manifest_package: Option<&str>,
+) -> Vec<PathBuf> {
     let app_packs_dir = root.join("release").join("app_packs");
     let mut paths = Vec::new();
     if let Some(package) = manifest_package {
@@ -2924,7 +3496,10 @@ fn collect_app_pack_paths(root: &Path, app_id: &str, manifest_package: Option<&s
             let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
                 continue;
             };
-            if name.starts_with(&prefix) && name.ends_with(".zip") && !paths.iter().any(|existing| existing == &path) {
+            if name.starts_with(&prefix)
+                && name.ends_with(".zip")
+                && !paths.iter().any(|existing| existing == &path)
+            {
                 paths.push(path);
             }
         }
@@ -2933,7 +3508,11 @@ fn collect_app_pack_paths(root: &Path, app_id: &str, manifest_package: Option<&s
     paths
 }
 
-fn collect_staging_paths(root: &Path, app_id: &str, version: Option<&str>) -> (Vec<PathBuf>, Vec<PathBuf>) {
+fn collect_staging_paths(
+    root: &Path,
+    app_id: &str,
+    version: Option<&str>,
+) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let mut targets = Vec::new();
     let mut candidates = Vec::new();
     collect_staging_paths_inner(root, root, app_id, version, &mut targets, &mut candidates);
@@ -2980,7 +3559,12 @@ enum StagingPathMatch {
     None,
 }
 
-fn classify_staging_path(staging_root: &Path, path: &Path, app_id: &str, version: Option<&str>) -> StagingPathMatch {
+fn classify_staging_path(
+    staging_root: &Path,
+    path: &Path,
+    app_id: &str,
+    version: Option<&str>,
+) -> StagingPathMatch {
     let relative = path.strip_prefix(staging_root).unwrap_or(path);
     let version_prefix = version
         .filter(|value| !value.trim().is_empty())
@@ -2994,11 +3578,17 @@ fn classify_staging_path(staging_root: &Path, path: &Path, app_id: &str, version
             return StagingPathMatch::Target;
         }
         if let Some(prefix) = version_prefix.as_deref() {
-            if segment == prefix || segment.starts_with(&format!("{prefix}.")) || segment.starts_with(&format!("{prefix}-")) {
+            if segment == prefix
+                || segment.starts_with(&format!("{prefix}."))
+                || segment.starts_with(&format!("{prefix}-"))
+            {
                 return StagingPathMatch::Target;
             }
         }
-        if segment.to_ascii_lowercase().contains(&app_id.to_ascii_lowercase()) {
+        if segment
+            .to_ascii_lowercase()
+            .contains(&app_id.to_ascii_lowercase())
+        {
             contains_only = true;
         }
     }
@@ -3071,13 +3661,23 @@ fn collect_external_references_inner(
         }
         serde_yaml::Value::Sequence(items) => {
             for (index, item) in items.iter().enumerate() {
-                collect_external_references_inner(root, item, &format!("{logical_path}[{index}]"), refs);
+                collect_external_references_inner(
+                    root,
+                    item,
+                    &format!("{logical_path}[{index}]"),
+                    refs,
+                );
             }
         }
         serde_yaml::Value::Mapping(map) => {
             for (key, item) in map {
                 let key_text = key.as_str().unwrap_or("?");
-                collect_external_references_inner(root, item, &format!("{logical_path}.{key_text}"), refs);
+                collect_external_references_inner(
+                    root,
+                    item,
+                    &format!("{logical_path}.{key_text}"),
+                    refs,
+                );
             }
         }
         _ => {}
@@ -3108,20 +3708,34 @@ fn user_data_excluded_targets(app_id: &str) -> Vec<AppStudioDeletePlanTarget> {
 }
 
 fn path_starts_with(path: &Path, base: &Path) -> bool {
-    let Ok(full_path) = path.canonicalize().or_else(|_| Ok::<PathBuf, std::io::Error>(path.to_path_buf())) else {
+    let Ok(full_path) = path
+        .canonicalize()
+        .or_else(|_| Ok::<PathBuf, std::io::Error>(path.to_path_buf()))
+    else {
         return false;
     };
-    let Ok(full_base) = base.canonicalize().or_else(|_| Ok::<PathBuf, std::io::Error>(base.to_path_buf())) else {
+    let Ok(full_base) = base
+        .canonicalize()
+        .or_else(|_| Ok::<PathBuf, std::io::Error>(base.to_path_buf()))
+    else {
         return false;
     };
     full_path.starts_with(full_base)
 }
 
 fn read_app_manifest_for_write(path: &Path) -> Result<Value, String> {
-    let text = fs::read_to_string(path)
-        .map_err(|error| format!("release/app_manifest.json could not be read: {} ({error})", path.display()))?;
-    serde_json::from_str(&text)
-        .map_err(|error| format!("release/app_manifest.json could not be parsed: {} ({error})", path.display()))
+    let text = fs::read_to_string(path).map_err(|error| {
+        format!(
+            "release/app_manifest.json could not be read: {} ({error})",
+            path.display()
+        )
+    })?;
+    serde_json::from_str(&text).map_err(|error| {
+        format!(
+            "release/app_manifest.json could not be parsed: {} ({error})",
+            path.display()
+        )
+    })
 }
 
 fn app_manifest_path(root: &Path) -> PathBuf {
@@ -3146,7 +3760,10 @@ fn manifest_app_entry_mut<'a>(
 }
 
 fn manifest_entry_enabled(entry: &Value) -> bool {
-    entry.get("enabled").and_then(Value::as_bool).unwrap_or(true)
+    entry
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
 }
 
 fn json_str(value: &Value, key: &str) -> Option<String> {
@@ -3159,11 +3776,19 @@ fn json_str(value: &Value, key: &str) -> Option<String> {
 }
 
 fn write_json_file<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
-    let text = serde_json::to_string_pretty(value)
-        .map_err(|error| format!("JSON could not be generated for {} ({error})", path.display()))?;
+    let text = serde_json::to_string_pretty(value).map_err(|error| {
+        format!(
+            "JSON could not be generated for {} ({error})",
+            path.display()
+        )
+    })?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("folder could not be created: {} ({error})", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "folder could not be created: {} ({error})",
+                parent.display()
+            )
+        })?;
     }
     fs::write(path, format!("{text}\n"))
         .map_err(|error| format!("JSON could not be written: {} ({error})", path.display()))
@@ -3384,7 +4009,9 @@ fn write_icon_override_file(
     Ok(Some((path, source)))
 }
 
-fn write_icon_revision_image_file(request: &AppStudioImportRequest) -> Result<Option<PathBuf>, String> {
+fn write_icon_revision_image_file(
+    request: &AppStudioImportRequest,
+) -> Result<Option<PathBuf>, String> {
     let Some(data_url) = request
         .icon_revision_image
         .as_deref()
@@ -4261,7 +4888,10 @@ mod tests {
                 .and_then(Value::as_u64),
             Some(1)
         );
-        assert_eq!(proposal.icon.candidates[0].concept_id.as_deref(), Some("literal_1"));
+        assert_eq!(
+            proposal.icon.candidates[0].concept_id.as_deref(),
+            Some("literal_1")
+        );
         assert_eq!(proposal.icon.candidates[0].score_total, Some(42.0));
         assert_eq!(
             proposal.icon.candidates[0].api.as_deref(),
@@ -4331,7 +4961,10 @@ mod tests {
             &plan.delete_targets,
             "managed_generated",
             "delete App Pack zip",
-            &root.join("release").join("app_packs").join(format!("{app_id}-{version}.zip")),
+            &root
+                .join("release")
+                .join("app_packs")
+                .join(format!("{app_id}-{version}.zip")),
             true,
         );
         assert_target(
@@ -4345,18 +4978,27 @@ mod tests {
             &plan.delete_targets,
             "managed_generated",
             "delete staging artifact",
-            &root.join("release").join("staging").join(format!("{app_id}-{version}")),
+            &root
+                .join("release")
+                .join("staging")
+                .join(format!("{app_id}-{version}")),
             true,
         );
         assert_no_target(
             &plan.delete_targets,
-            &root.join("release").join("staging").join(format!("{app_id}_other")),
+            &root
+                .join("release")
+                .join("staging")
+                .join(format!("{app_id}_other")),
         );
         assert_target(
             &plan.excluded_targets,
             "managed_generated_candidate",
             "review staging candidate",
-            &root.join("release").join("staging").join(format!("{app_id}_other")),
+            &root
+                .join("release")
+                .join("staging")
+                .join(format!("{app_id}_other")),
             false,
         );
         assert_target(
@@ -4400,6 +5042,80 @@ mod tests {
             .iter()
             .chain(plan.excluded_targets.iter())
             .all(|target| !target.normalized_path.is_empty() && !target.comparison_key.is_empty()));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn full_delete_apply_removes_only_repo_managed_targets() {
+        let root = temp_project_root();
+        let app_id = "deleteplan_apply";
+        let version = "0.1.0";
+        write_delete_plan_fixture(&root, app_id, version);
+        std::fs::create_dir_all(root.join("runtime").join("python")).unwrap();
+        std::fs::create_dir_all(root.join("runtime").join("web_automation_runtime")).unwrap();
+        let snapshot = build_delete_plan(&root, app_id).unwrap();
+
+        let result = full_delete_apply(&root, app_id, Some(&snapshot)).unwrap();
+
+        assert!(result.ok, "{result:?}");
+        assert!(result.manifest_entry_removed);
+        assert!(!root.join("apps").join(app_id).exists());
+        assert!(!root
+            .join("release")
+            .join("app_packs")
+            .join(format!("{app_id}-{version}.zip"))
+            .exists());
+        assert!(!root.join("release").join("staging").join(app_id).exists());
+        assert!(!root
+            .join("release")
+            .join("staging")
+            .join(format!("{app_id}-{version}"))
+            .exists());
+        assert!(root
+            .join("release")
+            .join("staging")
+            .join(format!("{app_id}_other"))
+            .exists());
+        assert!(!root.join("runtime").join("app_envs").join(app_id).exists());
+        assert!(root.join("runtime").join("python").exists());
+        assert!(root.join("runtime").join("web_automation_runtime").exists());
+        let manifest = read_json(&root.join("release").join("app_manifest.json")).unwrap();
+        assert!(manifest_app_entry(&manifest, app_id).is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn full_delete_apply_rejects_stale_snapshot() {
+        let root = temp_project_root();
+        let app_id = "deleteplan_stale";
+        write_delete_plan_fixture(&root, app_id, "0.1.0");
+        let mut snapshot = build_delete_plan(&root, app_id).unwrap();
+        snapshot.manifest_version = Some("9.9.9".to_string());
+
+        let result = full_delete_apply(&root, app_id, Some(&snapshot));
+
+        assert!(result.is_err());
+        assert!(root.join("apps").join(app_id).exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn full_delete_safety_rejects_outside_delete_target() {
+        let root = temp_project_root();
+        let app_id = "deleteplan_unsafe";
+        write_delete_plan_fixture(&root, app_id, "0.1.0");
+        let mut plan = build_delete_plan(&root, app_id).unwrap();
+        let outside = std::env::temp_dir().join("toolhub_outside_delete_target");
+        plan.delete_targets[0].path = outside.display().to_string();
+        plan.delete_targets[0].normalized_path = normalize_plan_path(&plan.delete_targets[0].path);
+        plan.delete_targets[0].comparison_key = format!(
+            "{}|{}|{}",
+            plan.delete_targets[0].category,
+            plan.delete_targets[0].action,
+            plan.delete_targets[0].normalized_path
+        );
+
+        assert!(validate_full_delete_plan(&root, &plan).is_err());
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -4515,7 +5231,11 @@ mod tests {
     fn write_catalog_app(root: &Path, app_id: &str) {
         let app_dir = root.join("apps").join(app_id);
         std::fs::create_dir_all(&app_dir).unwrap();
-        std::fs::write(app_dir.join("icon.svg"), "<svg viewBox=\"0 0 64 64\"></svg>").unwrap();
+        std::fs::write(
+            app_dir.join("icon.svg"),
+            "<svg viewBox=\"0 0 64 64\"></svg>",
+        )
+        .unwrap();
         std::fs::write(
             app_dir.join("app.yaml"),
             format!(
@@ -4613,7 +5333,9 @@ mod tests {
     fn assert_no_target(targets: &[AppStudioDeletePlanTarget], path: &Path) {
         let normalized = normalize_plan_path(&path.display().to_string());
         assert!(
-            targets.iter().all(|target| target.normalized_path != normalized),
+            targets
+                .iter()
+                .all(|target| target.normalized_path != normalized),
             "unexpected target: {}",
             path.display()
         );

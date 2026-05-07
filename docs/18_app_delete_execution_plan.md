@@ -49,16 +49,15 @@ Implemented or established:
   only for temporary fixture apps.
 - `scripts/test_app_full_delete_e2e.ps1` proves temporary-app full delete removes managed targets and preserves
   exclusions.
+- Tauri/Rust command `app_studio_full_delete_apply` implements production full delete behind an authenticated admin
+  session, fresh-plan validation, snapshot comparison, and repo-root safety checks.
+- The Delete tab enables the full-delete button only after a deletion plan is displayed and passes UI-side safety
+  conditions.
 
 Not implemented:
 
-- Production full-delete execution command.
-- Production App Pack zip deletion.
-- Production release staging deletion.
-- Production runtime app_env deletion.
-- Manifest entry deletion by a production command.
-- Production backup/history deletion.
-- Delete tab full-delete enablement.
+- PowerShell production `-Apply`; the script remains dry-run plus temporary-fixture E2E only.
+- Automated production-root delete tests against real apps.
 
 ## 4. Architecture Decisions
 
@@ -181,7 +180,7 @@ Current state:
   checks, and temporary-app E2E requirements.
 - `scripts/execute_app_delete.ps1` provides a dry-run-only executor entry point.
 - `scripts/test_app_delete_executor_design.ps1` verifies dry-run output and confirms `-Apply` is rejected.
-- Full delete Apply remains unimplemented.
+- At the end of Phase 3, full delete Apply remained unimplemented.
 
 Resolved design decisions:
 
@@ -248,6 +247,15 @@ Completion conditions:
 - `scripts/check_all.ps1` passes.
 - Docs are updated.
 
+Current state:
+
+- Done for the guarded production UI path.
+- `app_studio_full_delete_apply` regenerates the plan, compares the visible snapshot when provided, rejects unsafe
+  targets, deletes only repo-managed targets, removes only the target manifest entry, and returns post-check details.
+- The Delete tab keeps hide/show, displays the plan, and enables full delete only for supported states with visible,
+  unblocked plans.
+- PowerShell production Apply remains intentionally unimplemented to avoid a second destructive production entry point.
+
 ### Phase 6: Cleanup and Release Readiness
 
 Purpose:
@@ -282,8 +290,8 @@ Completion conditions:
 | Phase 2: Parity and Rehearsal | Mostly done | `test_app_delete_plan_parity.ps1`, `rehearse_app_delete.ps1`, `check_all.ps1`. | Add more fixtures if production artifacts become more varied. | Treat this as the safety baseline. |
 | Phase 3: Full Delete Executor Design | Done | `docs/19_full_delete_executor_design.md`, `scripts/execute_app_delete.ps1`, `scripts/test_app_delete_executor_design.ps1`. | None for design scope. | Preserve the design contract as production work starts. |
 | Phase 4: Temporary App Full Delete E2E | Done | `scripts/test_app_full_delete_e2e.ps1`, temporary-only `execute_app_delete.ps1 -Apply -AllowTemporaryAppApply`. | Keep production Apply disabled. | Start Phase 5 production command design and guarded implementation. |
-| Phase 5: Production Full Delete Command | Not started | Production full delete command is not implemented. | Implement production command and UI enablement after reviewing Phase 4 evidence. | Define production safety gates and UI flow. |
-| Phase 6: Cleanup and Release Readiness | Not started | Strict cleanup policy is not complete. | Review stale entries and formal release checks. | Wait for Phase 5. |
+| Phase 5: Production Full Delete Command | Done | `app_studio_full_delete_apply`, Delete tab full-delete enablement, Rust safety tests, Phase 4 E2E regression. | Keep PowerShell production Apply disabled unless a separate reviewed need appears. | Start Phase 6 cleanup and release readiness. |
+| Phase 6: Cleanup and Release Readiness | Not started | Strict cleanup policy is not complete. | Review stale entries and formal release checks now that production UI deletion exists. | Audit stale entries and formal release checks. |
 
 ## 8. Decision Log
 
@@ -303,13 +311,13 @@ Completion conditions:
 
 | Risk | Mitigation | Owner/Area | Current Status |
 | --- | --- | --- | --- |
-| Accidental deletion | Keep production full delete unimplemented until Phase 5. Use plan-first execution and temporary-only Apply gates. | Tauri command, scripts | Controlled, production root is rejected. |
+| Accidental deletion | Use admin session, plan-first UI, fresh plan validation, snapshot comparison, and repo-root-only deletion. Keep PowerShell production Apply disabled. | Tauri command, scripts | Mitigated for UI path; real-app delete was not run in validation. |
 | app_id substring match pulls in another app | Strict App Pack and staging matching. Ambiguous staging matches are excluded candidates. | Delete plan | Mostly mitigated. |
-| Manifest entry remains after source deletion | Future executor must remove the entry and verify rebuild/diagnose output. | Full delete executor | Not implemented. |
-| App Pack remains after source deletion | Future executor must remove manifest package path and `<app_id>-*.zip`. | Full delete executor | Not implemented. |
-| Staging artifact remains | Future executor must delete strict staging targets and leave candidates untouched. | Full delete executor | Not implemented. |
-| User data is deleted by mistake | User data is always an excluded category. Tests must assert it remains. | Delete plan, executor | Mitigated in plan, executor not implemented. |
-| External source is deleted by mistake | External absolute paths are reference-only excluded targets. | Delete plan, executor | Mitigated in plan, executor not implemented. |
+| Manifest entry remains after source deletion | Executor removes only the target entry and reports post-check state. | Full delete executor | Implemented in Tauri path. |
+| App Pack remains after source deletion | Executor deletes manifest package path and `<app_id>-*.zip` targets from the plan. | Full delete executor | Implemented in Tauri path; production real-app deletion not exercised. |
+| Staging artifact remains | Executor deletes strict staging targets and leaves candidates untouched. | Full delete executor | Implemented in Tauri path; production real-app deletion not exercised. |
+| User data is deleted by mistake | User data is always an excluded category and forbidden in delete targets. | Delete plan, executor | Mitigated in plan and Tauri safety checks. |
+| External source is deleted by mistake | External absolute paths are reference-only excluded targets and forbidden in delete targets. | Delete plan, executor | Mitigated in plan and Tauri safety checks. |
 | PowerShell and Tauri logic diverge | Use normalized comparison keys and parity tests. | Scripts, Rust helper | Mostly mitigated for representative fixture. |
 | Work stalls in preparation only | Use this roadmap and require phase progress in completion reports. | Planning governance | Monitored by this document. |
 
@@ -317,14 +325,14 @@ Completion conditions:
 
 Next phase:
 
-- Phase 5: Production Full Delete Command.
+- Phase 6: Cleanup and Release Readiness.
 
 Next implementation planning tasks:
 
-- Keep production full delete disabled until the production safety gate is designed.
-- Decide how the UI will present the fresh plan immediately before execution.
-- Add production Tauri command only after preserving the temporary-only E2E test as a regression guard.
-- Require post-delete diagnosis, manifest rebuild dry-run, release verification, and check_all.
+- Review stale entries and formal release checks under the final hide/full-delete model.
+- Decide whether strict verification should require stale cleanup before packaging.
+- Keep the temporary E2E and Rust safety tests as regression guards for future deletion changes.
+- Continue to keep PowerShell production Apply disabled unless it gets its own safety review.
 
 ## 11. Prompt Contract
 
@@ -336,7 +344,7 @@ Future Codex prompts for this area must follow this contract:
 - Record roadmap changes in the Plan Revision Log.
 - Completion reports must include phase progress.
 - Completion reports must distinguish implemented, dry-run-only, design-only, unimplemented, and unverified work.
-- Do not implement production full delete before Phase 3 design and Phase 4 temporary-app E2E are complete.
+- Do not bypass the Phase 5 Tauri safety path when changing production full delete.
 
 ## 12. Plan Revision Log
 
@@ -345,3 +353,4 @@ Future Codex prompts for this area must follow this contract:
 | 2026-05-08 | Initial plan created. | Move from ad hoc preparation to governed execution. | Future prompts will reference this document and report phase progress. |
 | 2026-05-08 | Phase 3 executor design and dry-run skeleton added. | Define full-delete execution boundaries before any destructive implementation. | Phase 4 can now build temporary-app-only Apply against a documented ordering and safety contract. |
 | 2026-05-08 | Phase 4 temporary-app full delete E2E added. | Prove Apply behavior in an isolated fixture before production support. | Production full delete can move to Phase 5 planning while `check_all` keeps the temporary E2E as a regression guard. |
+| 2026-05-08 | Phase 5 production Tauri command and Delete tab enablement added. | Move full delete into the authenticated admin UI path after temporary E2E passed. | Phase 6 can focus on stale cleanup and release readiness; PowerShell production Apply remains disabled. |

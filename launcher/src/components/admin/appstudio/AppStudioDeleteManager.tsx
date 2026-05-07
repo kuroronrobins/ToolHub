@@ -2,10 +2,11 @@ import { AlertTriangle, Eye, EyeOff, FileSearch, RefreshCw, Trash2 } from "lucid
 import { useEffect, useMemo, useState } from "react";
 import {
   appStudioDeletePlan,
+  appStudioFullDeleteApply,
   appStudioManagementListApps,
   appStudioManagementSetEnabled,
 } from "../../../lib/appStudioApi";
-import type { AppStudioDeletePlan, AppStudioManagedApp } from "../../../lib/appStudioTypes";
+import type { AppStudioDeletePlan, AppStudioFullDeleteResult, AppStudioManagedApp } from "../../../lib/appStudioTypes";
 
 const STATUS_LABELS: Record<string, string> = {
   active: "Active",
@@ -28,6 +29,7 @@ const STATUS_CLASS: Record<string, string> = {
 export function AppStudioDeleteManager() {
   const [apps, setApps] = useState<AppStudioManagedApp[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<AppStudioDeletePlan | null>(null);
+  const [lastDeleteResult, setLastDeleteResult] = useState<AppStudioFullDeleteResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -42,6 +44,7 @@ export function AppStudioDeleteManager() {
     setError("");
     try {
       setApps(await appStudioManagementListApps());
+      setLastDeleteResult(null);
     } catch (loadError) {
       setError(errorMessage(loadError, "App management data could not be loaded."));
     } finally {
@@ -57,6 +60,7 @@ export function AppStudioDeleteManager() {
       const result = await appStudioManagementSetEnabled(app.appId, enabled);
       setMessage(result.message);
       setApps(result.apps);
+      setLastDeleteResult(null);
       if (selectedPlan?.appId === app.appId) {
         setSelectedPlan(await appStudioDeletePlan(app.appId));
       }
@@ -73,8 +77,35 @@ export function AppStudioDeleteManager() {
     setMessage("");
     try {
       setSelectedPlan(await appStudioDeletePlan(app.appId));
+      setLastDeleteResult(null);
     } catch (planError) {
       setError(errorMessage(planError, "The deletion plan could not be prepared."));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function runFullDelete(app: AppStudioManagedApp) {
+    if (!selectedPlan || selectedPlan.appId !== app.appId) {
+      setError("Display the deletion plan before running full delete.");
+      return;
+    }
+    setBusy(`${app.appId}:delete`);
+    setError("");
+    setMessage("");
+    setLastDeleteResult(null);
+    try {
+      const result = await appStudioFullDeleteApply(app.appId, selectedPlan);
+      setApps(result.apps);
+      setLastDeleteResult(result);
+      if (result.ok) {
+        setMessage(result.message);
+        setSelectedPlan(null);
+      } else {
+        setError(fullDeleteFailureMessage(result));
+      }
+    } catch (deleteError) {
+      setError(errorMessage(deleteError, "Full deletion was refused."));
     } finally {
       setBusy("");
     }
@@ -94,7 +125,7 @@ export function AppStudioDeleteManager() {
           <h4>App management</h4>
           <p>
             The app source of truth is <code>apps/&lt;app_id&gt;/</code>. This tab can hide or show indexed apps and
-            display a dry-run deletion plan. Full deletion is disabled until executor design and temporary-app E2E pass.
+            run full deletion only after a deletion plan is visible and passes the final safety check.
           </p>
         </div>
         <button className="secondary-button" type="button" onClick={() => void reload()} disabled={loading || !!busy}>
@@ -185,8 +216,9 @@ export function AppStudioDeleteManager() {
                     <button
                       className="secondary-button danger-button"
                       type="button"
-                      disabled
-                      title="Full deletion is disabled until the executor design and temporary-app E2E are complete."
+                      disabled={busy !== "" || !canRunFullDelete(app, selectedPlan)}
+                      title={fullDeleteButtonTitle(app, selectedPlan)}
+                      onClick={() => void runFullDelete(app)}
                     >
                       <Trash2 size={15} aria-hidden="true" />
                       Delete
@@ -205,25 +237,48 @@ export function AppStudioDeleteManager() {
         </table>
       </div>
 
-      {selectedPlan ? <DeletionPlanPanel plan={selectedPlan} /> : null}
+      {selectedPlan ? (
+        <DeletionPlanPanel
+          plan={selectedPlan}
+          busy={busy === `${selectedPlan.appId}:delete`}
+          deleteEnabled={canRunFullDelete(apps.find((app) => app.appId === selectedPlan.appId), selectedPlan)}
+          onDelete={() => {
+            const app = apps.find((candidate) => candidate.appId === selectedPlan.appId);
+            if (app) {
+              void runFullDelete(app);
+            }
+          }}
+        />
+      ) : null}
+      {lastDeleteResult ? <FullDeleteResultPanel result={lastDeleteResult} /> : null}
     </section>
   );
 }
 
-function DeletionPlanPanel({ plan }: { plan: AppStudioDeletePlan }) {
+function DeletionPlanPanel({
+  plan,
+  busy,
+  deleteEnabled,
+  onDelete,
+}: {
+  plan: AppStudioDeletePlan;
+  busy: boolean;
+  deleteEnabled: boolean;
+  onDelete: () => void;
+}) {
   return (
     <section className="studio-delete-plan">
       <div className="studio-delete-plan-head">
         <div>
           <h5>Deletion plan: {plan.appId}</h5>
           <p>
-            This is a dry-run plan and does not delete files. External references, user data, and shared runtime folders
-            are excluded targets. The manifest row means removing only this app entry, not deleting the manifest file.
+            Full delete removes repo-managed targets only. External references, user data, shared runtime folders, and
+            staging candidates are excluded. The manifest row means removing only this app entry, not deleting the file.
           </p>
         </div>
-        <button className="secondary-button danger-button" type="button" disabled>
+        <button className="secondary-button danger-button" type="button" disabled={!deleteEnabled || busy} onClick={onDelete}>
           <Trash2 size={16} aria-hidden="true" />
-          Full deletion is not implemented
+          {busy ? "Deleting..." : "Run full delete"}
         </button>
       </div>
 
@@ -265,6 +320,41 @@ function DeletionPlanPanel({ plan }: { plan: AppStudioDeletePlan }) {
   );
 }
 
+function FullDeleteResultPanel({ result }: { result: AppStudioFullDeleteResult }) {
+  return (
+    <section className="studio-delete-plan">
+      <div className="studio-delete-plan-head">
+        <div>
+          <h5>Full delete result: {result.appId}</h5>
+          <p>{result.message}</p>
+        </div>
+        <span className={`studio-delete-pill ${result.ok ? "ok" : "danger"}`}>{result.ok ? "completed" : "needs review"}</span>
+      </div>
+      <div className="studio-delete-plan-grid">
+        <PlanMetric label="Deleted" value={String(result.deleted.length)} />
+        <PlanMetric label="Already clean" value={String(result.alreadyClean.length)} />
+        <PlanMetric label="Failed" value={String(result.failed.length)} />
+        <PlanMetric label="Manifest entry removed" value={result.manifestEntryRemoved ? "yes" : "no"} />
+        <PlanMetric label="Remaining targets" value={String(result.postCheckSummary.remainingDeleteTargetCount)} />
+      </div>
+      {result.failed.length ? (
+        <details open className="admin-details">
+          <summary>Failed targets</summary>
+          <ResultRecordList records={result.failed} />
+        </details>
+      ) : null}
+      <details className="admin-details">
+        <summary>Deleted targets</summary>
+        <ResultRecordList records={result.deleted} />
+      </details>
+      <details className="admin-details">
+        <summary>Excluded targets preserved</summary>
+        <TargetList targets={result.excluded} />
+      </details>
+    </section>
+  );
+}
+
 function PlanMetric({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -296,8 +386,61 @@ function TargetList({ targets }: { targets: AppStudioDeletePlan["deleteTargets"]
   );
 }
 
+function ResultRecordList({ records }: { records: AppStudioFullDeleteResult["deleted"] }) {
+  if (!records.length) {
+    return <p className="admin-muted">No records.</p>;
+  }
+  return (
+    <div className="studio-delete-target-list">
+      {records.map((record) => (
+        <div key={`${record.status}:${record.comparisonKey}`} className="studio-delete-target-row">
+          <span className={`studio-delete-pill ${record.status === "failed" ? "danger" : "warn"}`}>{record.status}</span>
+          <div>
+            <strong>{record.action}</strong>
+            <code>{record.path}</code>
+            <small>{record.note}</small>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function statusLabel(status: string): string {
   return STATUS_LABELS[status] ?? status;
+}
+
+function canRunFullDelete(app: AppStudioManagedApp | undefined, plan: AppStudioDeletePlan | null): boolean {
+  if (!app || !plan || plan.appId !== app.appId) {
+    return false;
+  }
+  const supportedStatuses = new Set(["active", "disabled_with_source", "disabled_stale", "enabled_missing_source"]);
+  return (
+    supportedStatuses.has(app.managementStatus) &&
+    plan.blockingReasons.length === 0 &&
+    plan.deleteTargets.some((target) => target.deleteAllowed && target.exists)
+  );
+}
+
+function fullDeleteButtonTitle(app: AppStudioManagedApp, plan: AppStudioDeletePlan | null): string {
+  if (!plan || plan.appId !== app.appId) {
+    return "Display the deletion plan before running full delete.";
+  }
+  if (plan.blockingReasons.length) {
+    return "The deletion plan has blocking reasons.";
+  }
+  if (!canRunFullDelete(app, plan)) {
+    return "This app state is not supported for full delete.";
+  }
+  return "Permanently remove repo-managed targets for this app.";
+}
+
+function fullDeleteFailureMessage(result: AppStudioFullDeleteResult): string {
+  const failed = result.failed.map((record) => `${record.action}: ${record.note}`).join(" / ");
+  const remaining = result.postCheckSummary.remainingDeleteTargets.join(" / ");
+  return [result.message, failed ? `Failed: ${failed}` : "", remaining ? `Remaining: ${remaining}` : ""]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function errorMessage(error: unknown, fallback: string): string {

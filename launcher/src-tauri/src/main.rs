@@ -41,6 +41,7 @@ fn main() {
             app_studio_commands::app_studio_management_list_apps,
             app_studio_commands::app_studio_management_set_enabled,
             app_studio_commands::app_studio_delete_plan,
+            app_studio_commands::app_studio_full_delete_apply,
             app_studio_commands::app_studio_suggest,
             app_studio_commands::app_studio_apply,
             app_studio_commands::app_studio_update_suggest,

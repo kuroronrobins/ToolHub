@@ -323,6 +323,15 @@ try {
         & ".\scripts\test_app_full_delete_e2e.ps1"
     }
 
+    if (Get-Command cargo -ErrorAction SilentlyContinue) {
+        Run-Step "Rust full delete safety tests" {
+            Push-Location "launcher/src-tauri"
+            try { & cargo "test" "full_delete" "--" "--nocapture" } finally { Pop-Location }
+        }
+    } else {
+        Skip "Rust full delete safety tests: cargo was not found."
+    }
+
     Run-Step "Python runner tests" {
         & $Python "-m" "unittest" "discover" "-s" "runner/tests"
     }
