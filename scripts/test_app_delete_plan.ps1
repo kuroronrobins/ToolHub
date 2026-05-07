@@ -48,7 +48,8 @@ foreach ($Path in @($AppDir, $StrictStagingDir, $StrictVersionStaging, $Ambiguou
     }
 }
 
-$OriginalManifest = Get-Content -Raw -Encoding UTF8 $ManifestPath
+$OriginalManifestBytes = [System.IO.File]::ReadAllBytes($ManifestPath)
+$OriginalManifest = [System.Text.Encoding]::UTF8.GetString($OriginalManifestBytes)
 
 try {
     New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
@@ -115,9 +116,11 @@ build:
     Assert-True (@($ExcludedTargets | Where-Object { $_.category -eq "user_data" -and $_.delete_allowed -eq $false }).Count -ge 1) "user data is excluded"
     Assert-True (@($ExcludedTargets | Where-Object { $_.category -eq "shared_runtime" -and $_.delete_allowed -eq $false }).Count -ge 2) "shared runtime is excluded"
     Assert-True (@($Plan.staging_candidate_paths).Count -eq 1) "staging candidates are reported separately"
+    Assert-True (@($DeleteTargets | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.normalized_path) -or [string]::IsNullOrWhiteSpace([string]$_.comparison_key) }).Count -eq 0) "delete targets have comparison fields"
+    Assert-True (@($ExcludedTargets | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.normalized_path) -or [string]::IsNullOrWhiteSpace([string]$_.comparison_key) }).Count -eq 0) "excluded targets have comparison fields"
 }
 finally {
-    [System.IO.File]::WriteAllText($ManifestPath, $OriginalManifest, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllBytes($ManifestPath, $OriginalManifestBytes)
     foreach ($Path in @($AppDir, $StrictStagingDir, $StrictVersionStaging, $AmbiguousStagingDir, $AppPackPath, $RuntimeAppEnv, $BackupStampDir)) {
         Remove-TestPath $Path
     }

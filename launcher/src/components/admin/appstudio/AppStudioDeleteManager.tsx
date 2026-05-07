@@ -94,7 +94,7 @@ export function AppStudioDeleteManager() {
           <h4>App management</h4>
           <p>
             The app source of truth is <code>apps/&lt;app_id&gt;/</code>. This tab can hide or show indexed apps and
-            display a deletion plan. Full deletion is not implemented here yet.
+            display a dry-run deletion plan. Full deletion is disabled until parity and rehearsal checks are complete.
           </p>
         </div>
         <button className="secondary-button" type="button" onClick={() => void reload()} disabled={loading || !!busy}>
@@ -217,8 +217,8 @@ function DeletionPlanPanel({ plan }: { plan: AppStudioDeletePlan }) {
         <div>
           <h5>Deletion plan: {plan.appId}</h5>
           <p>
-            Execution is not implemented. External references, user data, and shared runtime folders are listed as
-            excluded targets. The manifest row means removing only this app entry, not deleting the manifest file.
+            This is a dry-run plan and does not delete files. External references, user data, and shared runtime folders
+            are excluded targets. The manifest row means removing only this app entry, not deleting the manifest file.
           </p>
         </div>
         <button className="secondary-button danger-button" type="button" disabled>

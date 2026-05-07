@@ -635,7 +635,7 @@ Implemented operations:
 
 - Hide: set the existing manifest entry to `enabled=false`.
 - Show: set `enabled=true`, only when `apps/<app_id>/app.yaml` exists.
-- Deletion plan: list repository-managed targets and excluded targets before a future full delete.
+- Deletion plan: list repository-managed targets and excluded targets before a future full delete. This is dry-run only.
 
 Not implemented in this phase:
 
@@ -651,6 +651,9 @@ Deletion plans classify `managed_required`, `managed_generated`, and `managed_hi
 `external_reference`, `user_data`, and `shared_runtime` are always excluded. `build.source_entry`,
 `build.output_mirror`, `%LOCALAPPDATA%/ToolHub/data/`, logs, browser profiles, app state, and shared runtime folders
 must not be deleted by app management operations. See `docs/17_app_management_model.md`.
+
+The PowerShell dry-run planner and the Tauri/Rust planner both expose normalized comparison keys. Full deletion remains
+disabled until parity and rehearsal checks cover the representative cases required by `docs/17_app_management_model.md`.
 
 ## App Source Of Truth And Derived Release Data
 

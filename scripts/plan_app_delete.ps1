@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$AppId,
+    [string]$ProjectRoot,
     [switch]$DryRun,
     [switch]$Json
 )
@@ -9,10 +10,25 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
-$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$Root = if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
+    (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+} else {
+    (Resolve-Path -LiteralPath $ProjectRoot).Path
+}
 $ReleaseDir = Join-Path $Root "release"
 $AppsDir = Join-Path $Root "apps"
 $AppManifestPath = Join-Path $ReleaseDir "app_manifest.json"
+
+function Normalize-PlanPath {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return "" }
+    try {
+        $Full = [System.IO.Path]::GetFullPath($Path)
+    } catch {
+        $Full = $Path
+    }
+    return $Full.Replace("\", "/").TrimEnd("/").ToLowerInvariant()
+}
 
 function Add-Target {
     param(
@@ -24,12 +40,15 @@ function Add-Target {
         [string]$Note
     )
     $Exists = Test-Path -LiteralPath $Path
+    $NormalizedPath = Normalize-PlanPath $Path
     [void]$List.Add([ordered]@{
         category = $Category
         path = $Path
+        normalized_path = $NormalizedPath
         exists = $Exists
         delete_allowed = $DeleteAllowed
         action = $Action
+        comparison_key = "$Category|$Action|$NormalizedPath"
         note = $Note
     })
 }
@@ -258,6 +277,9 @@ if ($null -eq $Entry) {
 if (@($StagingPlan.candidates).Count -gt 0) {
     [void]$Warnings.Add("Potential staging artifacts matched only by partial app_id and were excluded from delete targets.")
 }
+
+$DeleteTargets = @($DeleteTargets | Sort-Object -Property comparison_key)
+$ExcludedTargets = @($ExcludedTargets | Sort-Object -Property comparison_key)
 
 $Plan = [ordered]@{
     app_id = $AppId

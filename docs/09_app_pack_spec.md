@@ -144,6 +144,11 @@ not use plain substring matching: a staging path is a delete target only when a 
 `<app_id>-<version>`, or starts with `<app_id>-<version>.` / `<app_id>-<version>-`. Ambiguous partial matches are shown
 as excluded candidates and must not be deleted by an automated full-delete implementation.
 
+`scripts/test_app_delete_plan_parity.ps1` compares the PowerShell planner and the Tauri/Rust helper on the same
+temporary fixture. `scripts/rehearse_app_delete.ps1` creates a temporary repo-local app and generated/history artifacts,
+checks that App Pack and staging targets are included only by the strict rules above, and then restores the manifest and
+removes the temporary files. Both scripts are dry-run validation; they do not delete real App Pack or staging artifacts.
+
 ## Verification
 
 ```powershell

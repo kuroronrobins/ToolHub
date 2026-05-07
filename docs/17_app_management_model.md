@@ -80,6 +80,26 @@ warning. They are not delete targets until a human or a stricter generator rule 
 External absolute paths found in `app.yaml`, including `build.source_entry` and `build.output_mirror`, are reference
 information only. They are always excluded from delete targets.
 
+Every target includes a normalized comparison path and comparison key so the PowerShell dry-run and the Tauri/Rust
+planner can be compared without unstable path separator or ordering differences.
+
+## Parity And Rehearsal
+
+Two validation layers must pass before a destructive full-delete command is considered:
+
+- `scripts/test_app_delete_plan_parity.ps1` builds a temporary fixture, runs `scripts/plan_app_delete.ps1 -Json`, then
+  asks a Rust unit-test hook to export the Tauri-side helper output for the same fixture. It compares delete targets,
+  excluded targets, manifest-entry representation, staging targets, staging candidates, external references, user data,
+  and shared runtime exclusions. This does not use Tauri IPC or a GUI session.
+- `scripts/rehearse_app_delete.ps1` creates a temporary app in the current repository, adds temporary generated/history
+  artifacts, verifies the dry-run plan, and restores all temporary changes. It does not execute deletion. With
+  `-RunValidation`, it also runs manifest rebuild dry-run, app manifest diagnosis, and release verification after
+  cleanup. `-RunCheckAll` additionally runs the full local check.
+
+The parity test proves that the PowerShell and Tauri helper contracts match for the representative fixture. The
+rehearsal proves that a realistic repo-local temporary app can be planned and cleaned up without leaving source,
+manifest, App Pack, staging, runtime app_env, or backup artifacts behind.
+
 ## Current Delete Tab
 
 The current App Studio Delete tab is an App Management MVP:
@@ -117,5 +137,7 @@ Full delete is not implemented in this phase. Before it is implemented, the dele
 - excluded external references
 - excluded user data
 - excluded shared runtime folders
+- PowerShell/Tauri parity for representative fixtures
+- rehearsal cleanup followed by rebuild/diagnose/verify/check validation
 
 No current command deletes existing app source, App Pack zip files, user data, or external source folders.

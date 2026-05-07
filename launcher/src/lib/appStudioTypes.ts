@@ -83,9 +83,11 @@ export interface AppStudioManagedApp {
 export interface AppStudioDeletePlanTarget {
   category: string;
   path: string;
+  normalizedPath: string;
   exists: boolean;
   deleteAllowed: boolean;
   action: string;
+  comparisonKey: string;
   note: string;
 }
 

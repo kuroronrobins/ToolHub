@@ -178,7 +178,12 @@ app manifest の状態だけを確認する場合:
 
 ```powershell
 .\scripts\test_app_delete_plan.ps1
+.\scripts\test_app_delete_plan_parity.ps1
+.\scripts\rehearse_app_delete.ps1
 ```
+
+`test_app_delete_plan_parity.ps1` は PowerShell版とTauri/Rust helper版の削除計画を同じ一時fixtureで比較します。
+`rehearse_app_delete.ps1` は一時appを作って削除計画だけを検証し、manifestや一時生成物を元に戻します。どちらも実削除は行いません。
 
 配布物検証は以下を使います。
 

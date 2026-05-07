@@ -223,6 +223,8 @@ try {
     Require-Path "scripts/rebuild_app_manifest.ps1"
     Require-Path "scripts/plan_app_delete.ps1"
     Require-Path "scripts/test_app_delete_plan.ps1"
+    Require-Path "scripts/test_app_delete_plan_parity.ps1"
+    Require-Path "scripts/rehearse_app_delete.ps1"
     Require-Path "scripts/diagnose_app_studio_import.ps1"
     Require-Path "docs/07_installer_distribution.md"
     Require-Path "docs/08_update_design.md"
@@ -276,8 +278,24 @@ try {
         & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\test_app_delete_plan.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
     }
 
+    Run-Step "App delete plan parity script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\test_app_delete_plan_parity.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "App delete rehearsal script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\rehearse_app_delete.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
     Run-Step "App delete plan dry-run tests" {
         & ".\scripts\test_app_delete_plan.ps1"
+    }
+
+    Run-Step "App delete plan parity tests" {
+        & ".\scripts\test_app_delete_plan_parity.ps1"
+    }
+
+    Run-Step "App delete rehearsal dry-run" {
+        & ".\scripts\rehearse_app_delete.ps1"
     }
 
     Run-Step "Python runner tests" {

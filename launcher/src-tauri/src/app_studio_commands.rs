@@ -132,9 +132,11 @@ pub struct AppStudioManagedApp {
 pub struct AppStudioDeletePlanTarget {
     pub category: String,
     pub path: String,
+    pub normalized_path: String,
     pub exists: bool,
     pub delete_allowed: bool,
     pub action: String,
+    pub comparison_key: String,
     pub note: String,
 }
 
@@ -2813,7 +2815,7 @@ fn build_delete_plan(root: &Path, app_id: &str) -> Result<AppStudioDeletePlan, S
         &root.join("runtime").join("python"),
         root.join("runtime").join("python").exists(),
         false,
-        "exclude shared Python runtime",
+        "exclude shared runtime",
         "Shared runtime is not app-owned.",
     );
     push_target(
@@ -2822,9 +2824,12 @@ fn build_delete_plan(root: &Path, app_id: &str) -> Result<AppStudioDeletePlan, S
         &root.join("runtime").join("web_automation_runtime"),
         root.join("runtime").join("web_automation_runtime").exists(),
         false,
-        "exclude shared web automation runtime",
+        "exclude shared runtime",
         "Shared runtime is not app-owned.",
     );
+
+    sort_delete_plan_targets(&mut delete_targets);
+    sort_delete_plan_targets(&mut excluded_targets);
 
     Ok(AppStudioDeletePlan {
         app_id: app_id.to_string(),
@@ -2858,12 +2863,17 @@ fn push_target(
     action: &str,
     note: &str,
 ) {
+    let path_text = path.display().to_string();
+    let normalized_path = normalize_plan_path(&path_text);
+    let comparison_key = format!("{category}|{action}|{normalized_path}");
     targets.push(AppStudioDeletePlanTarget {
         category: category.to_string(),
-        path: path.display().to_string(),
+        path: path_text,
+        normalized_path,
         exists,
         delete_allowed,
         action: action.to_string(),
+        comparison_key,
         note: note.to_string(),
     });
 }
@@ -2877,14 +2887,28 @@ fn push_target_string(
     action: &str,
     note: &str,
 ) {
+    let normalized_path = normalize_plan_path(path);
+    let comparison_key = format!("{category}|{action}|{normalized_path}");
     targets.push(AppStudioDeletePlanTarget {
         category: category.to_string(),
         path: path.to_string(),
+        normalized_path,
         exists,
         delete_allowed,
         action: action.to_string(),
+        comparison_key,
         note: note.to_string(),
     });
+}
+
+fn normalize_plan_path(path: &str) -> String {
+    path.replace('\\', "/")
+        .trim_end_matches('/')
+        .to_ascii_lowercase()
+}
+
+fn sort_delete_plan_targets(targets: &mut [AppStudioDeletePlanTarget]) {
+    targets.sort_by(|a, b| a.comparison_key.cmp(&b.comparison_key));
 }
 
 fn collect_app_pack_paths(root: &Path, app_id: &str, manifest_package: Option<&str>) -> Vec<PathBuf> {
@@ -3038,8 +3062,10 @@ fn collect_external_references_inner(
                     trimmed,
                     path.exists(),
                     false,
-                    &format!("exclude app.yaml {logical_path}"),
-                    "External absolute path recorded in app.yaml. Future delete must not remove it.",
+                    "exclude external app.yaml reference",
+                    &format!(
+                        "External absolute path recorded in app.yaml at {logical_path}. Future delete must not remove it."
+                    ),
                 );
             }
         }
@@ -4279,6 +4305,118 @@ mod tests {
     }
 
     #[test]
+    fn delete_plan_contract_matches_powershell_fixture_expectations() {
+        let root = temp_project_root();
+        let app_id = "deleteplan_probe";
+        let version = "0.1.0";
+        write_delete_plan_fixture(&root, app_id, version);
+
+        let plan = build_delete_plan(&root, app_id).unwrap();
+
+        assert_target(
+            &plan.delete_targets,
+            "managed_required",
+            "delete apps/<app_id>/",
+            &root.join("apps").join(app_id),
+            true,
+        );
+        assert_target(
+            &plan.delete_targets,
+            "managed_required",
+            "remove app_manifest entry",
+            &root.join("release").join("app_manifest.json"),
+            true,
+        );
+        assert_target(
+            &plan.delete_targets,
+            "managed_generated",
+            "delete App Pack zip",
+            &root.join("release").join("app_packs").join(format!("{app_id}-{version}.zip")),
+            true,
+        );
+        assert_target(
+            &plan.delete_targets,
+            "managed_generated",
+            "delete staging artifact",
+            &root.join("release").join("staging").join(app_id),
+            true,
+        );
+        assert_target(
+            &plan.delete_targets,
+            "managed_generated",
+            "delete staging artifact",
+            &root.join("release").join("staging").join(format!("{app_id}-{version}")),
+            true,
+        );
+        assert_no_target(
+            &plan.delete_targets,
+            &root.join("release").join("staging").join(format!("{app_id}_other")),
+        );
+        assert_target(
+            &plan.excluded_targets,
+            "managed_generated_candidate",
+            "review staging candidate",
+            &root.join("release").join("staging").join(format!("{app_id}_other")),
+            false,
+        );
+        assert_target(
+            &plan.delete_targets,
+            "managed_generated",
+            "delete runtime app_env",
+            &root.join("runtime").join("app_envs").join(app_id),
+            true,
+        );
+        assert_target(
+            &plan.delete_targets,
+            "managed_history",
+            "delete App Studio backup",
+            &root
+                .join("backups")
+                .join("app_studio")
+                .join("20990101_000000_delete_plan_test")
+                .join(app_id),
+            true,
+        );
+        assert!(plan
+            .excluded_targets
+            .iter()
+            .any(|target| target.category == "external_reference" && !target.delete_allowed));
+        assert!(plan
+            .excluded_targets
+            .iter()
+            .any(|target| target.category == "user_data" && !target.delete_allowed));
+        assert_eq!(
+            plan.excluded_targets
+                .iter()
+                .filter(|target| target.category == "shared_runtime" && !target.delete_allowed)
+                .count(),
+            2
+        );
+        assert_eq!(plan.staging_candidate_paths.len(), 1);
+        assert_targets_sorted(&plan.delete_targets);
+        assert_targets_sorted(&plan.excluded_targets);
+        assert!(plan
+            .delete_targets
+            .iter()
+            .chain(plan.excluded_targets.iter())
+            .all(|target| !target.normalized_path.is_empty() && !target.comparison_key.is_empty()));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn delete_plan_parity_export_from_env() {
+        let Ok(root) = std::env::var("TOOLHUB_DELETE_PLAN_PARITY_ROOT") else {
+            return;
+        };
+        let app_id = std::env::var("TOOLHUB_DELETE_PLAN_PARITY_APP_ID")
+            .unwrap_or_else(|_| "deleteplan_probe".to_string());
+        let out = std::env::var("TOOLHUB_DELETE_PLAN_PARITY_OUT")
+            .expect("TOOLHUB_DELETE_PLAN_PARITY_OUT must be set when parity root is set");
+        let plan = build_delete_plan(Path::new(&root), &app_id).unwrap();
+        std::fs::write(out, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
+    }
+
+    #[test]
     fn version_bump_handles_simple_semver() {
         assert_eq!(bump_version("1.2.3", "patch").unwrap(), "1.2.4");
         assert_eq!(bump_version("1.2.3", "minor").unwrap(), "1.3.0");
@@ -4395,5 +4533,99 @@ mod tests {
             ),
         )
         .unwrap();
+    }
+
+    fn write_delete_plan_fixture(root: &Path, app_id: &str, version: &str) {
+        let app_dir = root.join("apps").join(app_id);
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::write(
+            app_dir.join("app.yaml"),
+            format!(
+                "id: {app_id}\nname: Delete Plan Probe\nadmin:\n  version: {version}\nruntime:\n  required_runtime: python-embedded-toolhub-001\nbuild:\n  source_entry: C:\\External\\ToolHubProbe\\main.py\n  output_mirror: C:\\External\\ToolHubProbe\\ToolHub_AppStudio_Output\\{app_id}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("release").join("app_packs")).unwrap();
+        std::fs::write(
+            root.join("release")
+                .join("app_packs")
+                .join(format!("{app_id}-{version}.zip")),
+            "placeholder",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("release").join("staging").join(app_id)).unwrap();
+        std::fs::create_dir_all(
+            root.join("release")
+                .join("staging")
+                .join(format!("{app_id}-{version}")),
+        )
+        .unwrap();
+        std::fs::create_dir_all(
+            root.join("release")
+                .join("staging")
+                .join(format!("{app_id}_other")),
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("runtime").join("app_envs").join(app_id)).unwrap();
+        std::fs::create_dir_all(
+            root.join("backups")
+                .join("app_studio")
+                .join("20990101_000000_delete_plan_test")
+                .join(app_id),
+        )
+        .unwrap();
+        std::fs::create_dir_all(
+            root.join("backups")
+                .join("app_lifecycle")
+                .join("20990101_000000_delete_plan_test")
+                .join(app_id),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("release").join("app_manifest.json"),
+            format!(
+                "{{\"apps\":{{\"{app_id}\":{{\"version\":\"{version}\",\"package\":\"app_packs/{app_id}-{version}.zip\",\"sha256\":\"\",\"required_core\":\">=0.1.0\",\"required_runner\":\">=0.1.0\",\"required_runtime\":\"python-embedded-toolhub-001\",\"enabled\":false}}}}}}"
+            ),
+        )
+        .unwrap();
+    }
+
+    fn assert_target(
+        targets: &[AppStudioDeletePlanTarget],
+        category: &str,
+        action: &str,
+        path: &Path,
+        delete_allowed: bool,
+    ) {
+        let normalized = normalize_plan_path(&path.display().to_string());
+        assert!(
+            targets.iter().any(|target| {
+                target.category == category
+                    && target.action == action
+                    && target.normalized_path == normalized
+                    && target.delete_allowed == delete_allowed
+            }),
+            "missing target: {category} / {action} / {}",
+            path.display()
+        );
+    }
+
+    fn assert_no_target(targets: &[AppStudioDeletePlanTarget], path: &Path) {
+        let normalized = normalize_plan_path(&path.display().to_string());
+        assert!(
+            targets.iter().all(|target| target.normalized_path != normalized),
+            "unexpected target: {}",
+            path.display()
+        );
+    }
+
+    fn assert_targets_sorted(targets: &[AppStudioDeletePlanTarget]) {
+        let keys: Vec<&str> = targets
+            .iter()
+            .map(|target| target.comparison_key.as_str())
+            .collect();
+        let mut sorted = keys.clone();
+        sorted.sort_unstable();
+        assert_eq!(keys, sorted);
     }
 }
