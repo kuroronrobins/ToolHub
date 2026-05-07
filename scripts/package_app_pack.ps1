@@ -38,13 +38,22 @@ function Require-File {
     }
 }
 
+function Entry-Enabled {
+    param([object]$Entry)
+    if ($null -eq $Entry.PSObject.Properties["enabled"]) {
+        return $true
+    }
+    return [bool]$Entry.enabled
+}
+
 if (-not (Test-Path -LiteralPath $AppManifestPath -PathType Leaf)) {
     throw "release/app_manifest.json was not found."
 }
 
 $AppManifest = Get-Content -Raw -Encoding UTF8 $AppManifestPath | ConvertFrom-Json
 $KnownAppIds = @($AppManifest.apps.PSObject.Properties.Name)
-$TargetAppIds = if ($AppId -and $AppId.Count -gt 0) { $AppId } else { $KnownAppIds }
+$ExplicitTargets = $AppId -and $AppId.Count -gt 0
+$TargetAppIds = if ($ExplicitTargets) { $AppId } else { $KnownAppIds }
 
 New-Item -ItemType Directory -Force -Path $AppPacksDir | Out-Null
 Reset-Directory $StageRoot
@@ -55,16 +64,21 @@ foreach ($Id in $TargetAppIds) {
     }
 
     $AppDir = Join-Path (Join-Path $Root "apps") $Id
-    if (-not (Test-Path -LiteralPath $AppDir -PathType Container)) {
-        throw "App directory is missing: $AppDir"
+    $AppYaml = Join-Path $AppDir "app.yaml"
+    $Entry = $AppManifest.apps.$Id
+    $Enabled = Entry-Enabled $Entry
+    if (-not (Test-Path -LiteralPath $AppYaml -PathType Leaf)) {
+        if (-not $ExplicitTargets -and -not $Enabled) {
+            Write-Host "[SKIP] $Id is enabled=false and apps/<app_id>/app.yaml is missing; treating it as a stale manifest entry."
+            continue
+        }
+        throw "App source is missing for $Id (enabled=$Enabled): $AppYaml"
     }
 
-    Require-File (Join-Path $AppDir "app.yaml")
     Require-File (Join-Path $AppDir "README.md")
     Require-File (Join-Path $AppDir "requirements.txt")
     Require-File (Join-Path $AppDir "icon.svg")
 
-    $Entry = $AppManifest.apps.$Id
     $Version = [string]$Entry.version
     if ([string]::IsNullOrWhiteSpace($Version)) {
         throw "Version is missing in app_manifest.json for $Id"

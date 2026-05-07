@@ -145,6 +145,15 @@ ToolHubを再起動すると、`app.yaml` から自動検出されます。
 .\scripts\check_all.ps1
 ```
 
+`check_all.ps1` の通常検証では、`release/app_manifest.json` の `enabled=true` かつ `apps/<app_id>/app.yaml` がない entry は fail です。`enabled=false` かつ source missing の古い entry は stale / hidden history として warn に留めます。Strict検証や正式配布前の整理では fail 対象です。
+
+app manifest の状態だけを確認する場合:
+
+```powershell
+.\scripts\diagnose_app_manifest.ps1
+.\scripts\diagnose_app_manifest.ps1 -Strict
+```
+
 配布物検証は以下を使います。
 
 ```powershell

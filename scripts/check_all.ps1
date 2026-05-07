@@ -219,6 +219,7 @@ try {
     Require-Path "scripts/package_app_pack.ps1"
     Require-Path "scripts/prepare_runtime.ps1"
     Require-Path "scripts/verify_release.ps1"
+    Require-Path "scripts/diagnose_app_manifest.ps1"
     Require-Path "scripts/diagnose_app_studio_import.ps1"
     Require-Path "docs/07_installer_distribution.md"
     Require-Path "docs/08_update_design.md"
@@ -255,6 +256,10 @@ try {
         & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\diagnose_app_studio_import.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
     }
 
+    Run-Step "App manifest diagnostic script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\diagnose_app_manifest.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
     Run-Step "Python runner tests" {
         & $Python "-m" "unittest" "discover" "-s" "runner/tests"
     }
@@ -267,23 +272,10 @@ try {
         & ".\scripts\verify_release.ps1"
     } -Optional
 
-    Write-Host ""
-    Write-Host "== App manifest version checks =="
-    $AppManifest = Get-Content -Raw -Encoding UTF8 "release/app_manifest.json" | ConvertFrom-Json
-    foreach ($Prop in $AppManifest.apps.PSObject.Properties) {
-        $Id = $Prop.Name
-        $AppYaml = Join-Path "apps" (Join-Path $Id "app.yaml")
-        if (-not (Test-Path -LiteralPath $AppYaml -PathType Leaf)) {
-            Fail "Missing app.yaml for $Id"
-            continue
-        }
-        $Text = Get-Content -Raw -Encoding UTF8 $AppYaml
-        if ($Text -match "version:\s*['""]?$([regex]::Escape([string]$Prop.Value.version))['""]?") {
-            Pass "$Id app.yaml version matches app_manifest"
-        } else {
-            Warn "$Id app.yaml admin.version was not matched to app_manifest version"
-        }
-        if ($Prop.Value.package) { Pass "$Id app pack target: $($Prop.Value.package)" } else { Fail "$Id app pack target is missing" }
+    Run-Step "App manifest consistency diagnosis" {
+        $Args = @()
+        if ($Strict) { $Args += "-Strict" }
+        & ".\scripts\diagnose_app_manifest.ps1" @Args
     }
 
     Write-Host ""

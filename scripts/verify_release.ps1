@@ -26,6 +26,14 @@ function Warn($Message) {
 }
 function Fail($Message) { Write-Host "[NG] $Message"; $script:Failed = $true }
 
+function Entry-Enabled {
+    param([object]$Entry)
+    if ($null -eq $Entry.PSObject.Properties["enabled"]) {
+        return $true
+    }
+    return [bool]$Entry.enabled
+}
+
 function Read-Json($Path) {
     try {
         return Get-Content -Raw -Encoding UTF8 $Path | ConvertFrom-Json
@@ -134,8 +142,38 @@ if ($AppManifest) {
         $Id = $Prop.Name
         $Entry = $Prop.Value
         $AppDir = Join-Path (Join-Path $Root "apps") $Id
-        if (Test-Path -LiteralPath (Join-Path $AppDir "app.yaml") -PathType Leaf) { Pass "$Id app.yaml exists" } else { Fail "$Id app.yaml is missing" }
+        $AppYaml = Join-Path $AppDir "app.yaml"
+        $Enabled = Entry-Enabled $Entry
+        $HasAppYaml = Test-Path -LiteralPath $AppYaml -PathType Leaf
+
+        if ($HasAppYaml) {
+            Pass "$Id app.yaml exists"
+        } elseif ($Enabled) {
+            Fail "$Id enabled=true app.yaml is missing: $AppYaml. Restore the app source, set enabled=false if this is stale history, or remove it later through a deliberate full-delete flow."
+            continue
+        } else {
+            if ($Strict) {
+                Fail "$Id enabled=false stale entry is missing app.yaml: $AppYaml. Restore source or clean it through the future full-delete flow before strict release."
+            } else {
+                Warn "$Id enabled=false stale entry is missing app.yaml: $AppYaml. Normal verification keeps this as disabled history; strict release should restore or clean it."
+            }
+            if ($RequireAppPacks) {
+                if ($Entry.package) {
+                    $StalePackPath = Join-Path $ReleaseDir ([string]$Entry.package)
+                    if (Test-Path -LiteralPath $StalePackPath -PathType Leaf) {
+                        Pass "$Id disabled stale app pack exists"
+                    } else {
+                        Fail "$Id disabled stale app pack is missing while -RequireAppPacks is set: $StalePackPath"
+                    }
+                } else {
+                    Fail "$Id disabled stale package path is missing while -RequireAppPacks is set"
+                }
+            }
+            continue
+        }
+
         if ($Entry.version) { Pass "$Id version is set" } else { Fail "$Id version is missing" }
+        if ($Entry.package) { Pass "$Id package path is set" } else { Fail "$Id package path is missing" }
         if ($Entry.required_core) { Pass "$Id required_core is set" } else { Fail "$Id required_core is missing" }
         if ($Entry.required_runner) { Pass "$Id required_runner is set" } else { Fail "$Id required_runner is missing" }
         $AppEnv = Join-Path (Join-Path $Root "runtime\app_envs") $Id
@@ -167,7 +205,7 @@ if ($AppManifest) {
                 Warn "$Id app pack is not present yet: $PackPath"
             }
         } else {
-            Fail "$Id package path is missing"
+            # Already reported above as a required app_manifest field.
         }
     }
 }

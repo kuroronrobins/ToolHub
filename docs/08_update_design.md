@@ -15,6 +15,8 @@ ToolHubは将来、ToolHub本体と内蔵アプリを安全に更新できる構
   - 起動後に読み取り専用の `check_updates_mvp` Tauri command を呼ぶ
   - `release/manifest.json` / `release/app_manifest.json` をローカル読み込みする
   - 現在の ToolHub version とローカルmanifest versionを比較する
+  - app単位の更新候補は `release/app_manifest.json` の `enabled=true` かつ `apps/<app_id>/app.yaml` がある active app を主対象にする
+  - `enabled=false` の disabled / stale entry は通常ユーザー向け更新候補に出さず、管理者向け診断・整理対象として扱う
   - 更新設定は `%LOCALAPPDATA%\ToolHub\config\launcher.yaml` のユーザー設定を優先し、存在しない場合だけ `config.default/launcher.yaml` にフォールバックする
   - `updates.source_url` / `updates.manifest_url` / `updates.url` が未設定の場合は `source_not_configured` として扱う
   - 通常ユーザー向け通知は `update_available` の場合だけ表示する

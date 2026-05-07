@@ -93,6 +93,8 @@ GUI で実行できる操作:
 
 Apply 後は `execution_test_result.json`、`runtime_check_result.json`、App Pack、`enabled` 状態を GUI に表示します。`fail` がある場合は承認できません。GUIでは `AllowWarnings` と `StrictApproval` を選択できます。
 
+`release/app_manifest.json` に entry が残っていても、`apps/<app_id>/app.yaml` が存在しないものは通常表示対象ではありません。`enabled=false` かつ source missing の entry は stale / hidden history として通常検証では警告扱いにできますが、Strict 検証や正式配布前には復元、disabled維持、または将来の完全削除フローで整理する対象です。`enabled=true` で source missing の entry は通常ランチャー表示と更新確認に影響するため不整合です。
+
 AppId / Name 自動提案:
 
 - `main.py`, `app.py`, `__main__.py`, `launcher.py`, `run.py` のような汎用Entry名では親フォルダ名から提案します。
