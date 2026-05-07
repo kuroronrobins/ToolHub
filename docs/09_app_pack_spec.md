@@ -1,41 +1,57 @@
 # App Pack Spec
 
-App Packは内蔵アプリをアプリ単位で配布・更新するためのzipです。
+App Pack is a generated zip for distributing one ToolHub app. It is not the source of truth for an app.
 
-## File Name
+## Source Of Truth
 
-```text
-release/app_packs/<app_id>-<version>.zip
-```
+The app source of truth is `apps/<app_id>/`:
+
+- `app.yaml`
+- `README.md`
+- `requirements.txt`
+- `requirements.lock`
+- `icon.png` or `icon.svg`
+- `bin/`
+- bundled assets required by the app
+
+`release/app_manifest.json` remains for compatibility, launcher visibility, and update checks, but it is a release
+index. It must be diagnosable and rebuildable from `apps/<app_id>/app.yaml`.
+
+Generated or derived locations:
+
+- `release/app_manifest.json`
+- `release/app_packs/<app_id>-<version>.zip`
+- `release/staging/`
+- `runtime/app_envs/<app_id>/`
+
+History locations:
+
+- `backups/app_studio/**/<app_id>/`
+- `backups/app_lifecycle/**/<app_id>/` legacy only
+
+External source paths recorded in `app.yaml`, user data, logs, browser profiles, app state, and shared runtime folders
+are not App Pack sources and are not deletion targets.
 
 ## Zip Layout
 
 ```text
 <app_id>/
-├─ app.yaml
-├─ main.py
-├─ requirements.txt
-├─ pack_manifest.json
-├─ requirements.lock
-├─ README.md
-├─ icon.svg
-└─ src/
+  app.yaml
+  README.md
+  requirements.txt
+  requirements.lock
+  icon.png or icon.svg
+  bin/
+  pack_manifest.json
+  assets/
 ```
 
-`scripts/package_app_pack.ps1` はアプリフォルダ全体をコピーしてzip化し、`pack_manifest.json` を追加します。
+`scripts/package_app_pack.ps1` copies `apps/<app_id>/`, removes cache files, adds `pack_manifest.json`, then creates
+the zip.
 
-パッケージ時に必須として確認するファイル:
+## Manifest Entry
 
-- `app.yaml`
-- `README.md`
-- `requirements.txt`
-- `icon.svg`
-
-`main.py` はサンプルとPython系runnerの標準entryです。`app.yaml` の `run.entry` が `main.py` を指す場合は実行時に必要です。`requirements.lock` と `src/` はアプリに必要な場合だけ含めます。
-
-## Required Metadata
-
-`release/app_manifest.json` には以下を持たせます。
+Each `release/app_manifest.json` entry keeps the existing schema:
 
 - `version`
 - `package`
@@ -45,81 +61,84 @@ release/app_packs/<app_id>-<version>.zip
 - `required_runtime`
 - `enabled`
 
-`sha256` は `scripts/package_app_pack.ps1` 実行後に自動記入します。空の場合は未生成または未検証状態です。
+The version should come from `apps/<app_id>/app.yaml` `admin.version`. `required_runtime` should come from
+`runtime.required_runtime` when present. `enabled` is operational state and is preserved when rebuilding the index.
 
-## App Manifest Entry State
+If the App Pack zip exists, rebuild tools calculate `sha256` from the zip. If the zip does not exist, the rebuild plan
+uses an empty `sha256`; a missing generated zip should not be hidden by preserving an old hash.
 
-`release/app_manifest.json` の entry は、`enabled` と `apps/<app_id>/app.yaml` の有無で次の状態に分けます。
+## Entry State Rules
 
-| State | Meaning | Normal verification | Strict / formal release |
+| State | Meaning | Normal verification | Strict/formal release |
 | --- | --- | --- | --- |
-| `enabled=true` and source exists | 通常表示・更新対象の active app | `app.yaml`、`version`、`package`、`required_core`、`required_runner` を必須確認 | 必須確認。App Packやruntime未整備も fail 対象 |
-| `enabled=true` and source missing | 表示・更新対象なのに実体がない危険な不整合 | fail | fail |
-| `enabled=false` and source exists | 未承認、非表示、または一時停止中の app | metadata と App Pack target を確認。App Pack 未生成は warn | fail 可能 |
-| `enabled=false` and source missing | stale / removed / hidden history | warn。通常検証では履歴として残せる | fail。正式配布前に復元、維持理由の確認、または将来の完全削除フローで整理 |
-| source exists but manifest missing | `apps/` にあるが配布manifestにない app | warn | fail |
+| `enabled=true` and source exists | Active app | pass when metadata and package checks pass | pass only when package/runtime checks pass |
+| `enabled=true` and source missing | Dangerous inconsistency | fail | fail |
+| `enabled=false` and source exists | Hidden or not yet approved app | warn/pass depending package state | may fail until reviewed |
+| `enabled=false` and source missing | Stale release index/history | warn | fail or require cleanup decision |
+| source exists but manifest missing | App source not listed in release index | warn | fail |
 
-通常検証で disabled stale entry を fail にしない理由は、App Studio の仮登録、非表示、削除準備、過去の検証履歴を保持できるようにするためです。ただし `enabled=true` の missing source は通常ランチャー表示や更新確認に影響するため、常に fail です。
+Normal verification keeps disabled stale entries as warnings so old history does not block local development. Strict
+verification can fail them before formal release.
 
-## Compatibility
+## Packaging
 
-互換性条件:
-
-- `required_core`
-- `required_runner`
-- `required_runtime`
-
-例:
-
-```json
-{
-  "version": "1.0.0",
-  "package": "app_packs/sample_cli_app-1.0.0.zip",
-  "sha256": "...",
-  "required_core": ">=0.1.0",
-  "required_runner": ">=0.1.0",
-  "required_runtime": null,
-  "enabled": true
-}
-```
-
-## Packaging Command
-
-manifest上の対象アプリ:
+Package all source apps:
 
 ```powershell
 .\scripts\package_app_pack.ps1
 ```
 
-引数なしの場合は `release/app_manifest.json` の entry を対象にします。`enabled=false` かつ `apps/<app_id>/app.yaml` がない stale entry は skip し、`enabled=true` で source missing の entry は fail します。`-AppId` で明示指定した app に source がない場合も fail します。
+Without `-AppId`, packaging uses `apps/*/app.yaml` as the target list and skips manifest-only stale entries. If a source
+app is not listed in `release/app_manifest.json`, the script adds a disabled manifest entry derived from `app.yaml`.
 
-App Studio のライフサイクル管理でバックアップ付き削除を行った app は、manifest entry を残したまま `enabled=false` かつ source missing の `disabled_stale` になります。この状態は通常の全体 App Pack 生成対象から除外されます。App Pack zip はライフサイクル操作では削除しません。正式配布前や Strict 検証では、復元するか、stale として維持する理由を確認するか、将来の完全削除フローで整理します。
-
-単一アプリ:
+Package one app:
 
 ```powershell
 .\scripts\package_app_pack.ps1 -AppId sample_cli_app
 ```
 
+Explicit packaging fails when `apps/<app_id>/app.yaml` is missing.
+
+## Manifest Rebuild
+
+Dry-run a rebuild from `apps/`:
+
+```powershell
+.\scripts\rebuild_app_manifest.ps1 -DryRun
+```
+
+Apply a rebuild intentionally:
+
+```powershell
+.\scripts\rebuild_app_manifest.ps1 -Apply
+```
+
+Default rebuild output excludes stale entries whose source no longer exists. Use `-KeepStale` only when compatibility
+or investigation requires preserving those entries.
+
+## Delete Plan
+
+Preview future full deletion targets:
+
+```powershell
+.\scripts\plan_app_delete.ps1 -AppId addnum_pdf -DryRun
+```
+
+The plan lists:
+
+- `managed_required`: `apps/<app_id>/` and the manifest entry
+- `managed_generated`: App Pack zip, staging artifacts, `runtime/app_envs/<app_id>/`
+- `managed_history`: App Studio and legacy lifecycle backups
+- `external_reference`: excluded external paths from `app.yaml`
+- `user_data`: excluded `%LOCALAPPDATA%/ToolHub/...` paths
+- `shared_runtime`: excluded shared runtime folders
+
+The script never deletes files.
+
 ## Verification
 
 ```powershell
 .\scripts\verify_release.ps1
-```
-
-manifestとapp sourceの診断:
-
-```powershell
 .\scripts\diagnose_app_manifest.ps1
 .\scripts\diagnose_app_manifest.ps1 -Strict
 ```
-
-検証内容:
-
-- zipの存在
-- sha256一致
-- zip内部に `<app_id>/app.yaml` がある
-- zip内部に `<app_id>/pack_manifest.json` がある
-- manifestに互換性条件がある
-- active / disabled / stale / missing source の分類
-

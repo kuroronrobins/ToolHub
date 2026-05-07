@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Boxes, FileCheck2, PackagePlus, Trash2 } from "lucide-react";
 import { AppStudioImportWizard } from "./appstudio/AppStudioImportWizard";
-import { AppStudioLifecycleManager } from "./appstudio/AppStudioLifecycleManager";
+import { AppStudioDeleteManager } from "./appstudio/AppStudioDeleteManager";
 import { AppStudioUpdateWizard } from "./appstudio/AppStudioUpdateWizard";
 
 type StudioTab = "new" | "update" | "delete" | "publish";
@@ -20,7 +20,7 @@ export function AppStudioShell() {
       </div>
       <p className="admin-muted">
         App Studio runs the CLI workflow from the administrator screen. New registration is available, and existing app
-        update is now available as an MVP. Delete now provides safe lifecycle management; publish prep remains a
+        update is now available as an MVP. Delete now focuses on hide/show and deletion plans; publish prep remains a
         placeholder.
       </p>
 
@@ -45,7 +45,7 @@ export function AppStudioShell() {
 
       {activeTab === "new" ? <AppStudioImportWizard /> : null}
       {activeTab === "update" ? <AppStudioUpdateWizard /> : null}
-      {activeTab === "delete" ? <AppStudioLifecycleManager /> : null}
+      {activeTab === "delete" ? <AppStudioDeleteManager /> : null}
       {activeTab === "publish" ? (
         <div className="admin-card-grid">
           <button className="admin-work-card" type="button" disabled>

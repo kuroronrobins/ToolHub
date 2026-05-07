@@ -220,11 +220,14 @@ try {
     Require-Path "scripts/prepare_runtime.ps1"
     Require-Path "scripts/verify_release.ps1"
     Require-Path "scripts/diagnose_app_manifest.ps1"
+    Require-Path "scripts/rebuild_app_manifest.ps1"
+    Require-Path "scripts/plan_app_delete.ps1"
     Require-Path "scripts/diagnose_app_studio_import.ps1"
     Require-Path "docs/07_installer_distribution.md"
     Require-Path "docs/08_update_design.md"
     Require-Path "docs/09_app_pack_spec.md"
     Require-Path "docs/10_runtime_packaging.md"
+    Require-Path "docs/17_app_management_model.md"
     Require-Path "runtime/README.md" -Optional
     Require-Path "config.default/launcher.yaml"
     Test-TauriBundleConfig
@@ -258,6 +261,14 @@ try {
 
     Run-Step "App manifest diagnostic script syntax" {
         & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\diagnose_app_manifest.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "App manifest rebuild script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\rebuild_app_manifest.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "App delete plan script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\plan_app_delete.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
     }
 
     Run-Step "Python runner tests" {

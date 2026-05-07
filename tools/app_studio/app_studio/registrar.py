@@ -25,15 +25,7 @@ def apply_registration(context: StudioContext, plan: BuildPlan, final_app_dir: P
     manifest.setdefault("schema_version", 1)
     manifest.setdefault("channel", "stable")
     manifest.setdefault("apps", {})
-    manifest["apps"][context.app_id] = {
-        "version": context.version,
-        "package": f"app_packs/{context.app_id}-{context.version}.zip",
-        "sha256": "",
-        "required_core": ">=0.1.0",
-        "required_runner": ">=0.1.0",
-        "required_runtime": plan.required_runtime,
-        "enabled": False,
-    }
+    manifest["apps"][context.app_id] = manifest_entry_from_app_source(target, context, plan)
     write_json(manifest_path, manifest)
     package_path = package_app_pack(context.repo_root, context.app_id)
     copy_pack_to_output(package_path, output_dir)
@@ -63,6 +55,56 @@ def load_app_manifest_json(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {"schema_version": 1, "channel": "stable", "apps": {}}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def manifest_entry_from_app_source(app_dir: Path, context: StudioContext, plan: BuildPlan) -> dict[str, Any]:
+    app_yaml = app_dir / "app.yaml"
+    text = app_yaml.read_text(encoding="utf-8") if app_yaml.is_file() else ""
+    version = yaml_section_scalar(text, "admin", "version") or context.version
+    required_runtime = yaml_section_scalar(text, "runtime", "required_runtime")
+    if required_runtime is None:
+        required_runtime = plan.required_runtime
+    return {
+        "version": version,
+        "package": f"app_packs/{context.app_id}-{version}.zip",
+        "sha256": "",
+        "required_core": ">=0.1.0",
+        "required_runner": ">=0.1.0",
+        "required_runtime": required_runtime,
+        "enabled": False,
+    }
+
+
+def yaml_section_scalar(text: str, section: str, key: str) -> str | None:
+    in_section = False
+    section_indent = -1
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if not in_section:
+            if indent == 0 and stripped == f"{section}:":
+                in_section = True
+                section_indent = indent
+            continue
+        if indent <= section_indent:
+            break
+        if stripped.startswith(f"{key}:"):
+            value = stripped.split(":", 1)[1].strip()
+            return normalize_yaml_scalar(value)
+    return None
+
+
+def normalize_yaml_scalar(value: str) -> str | None:
+    text = value.strip()
+    if " #" in text:
+        text = text.split(" #", 1)[0].strip()
+    if len(text) >= 2 and ((text[0] == text[-1] == '"') or (text[0] == text[-1] == "'")):
+        text = text[1:-1]
+    if text in {"", "null", "~"}:
+        return None
+    return text
 
 
 def package_app_pack(repo_root: Path, app_id: str) -> Path:

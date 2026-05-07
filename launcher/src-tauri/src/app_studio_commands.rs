@@ -109,60 +109,65 @@ pub struct AppStudioRegisteredApp {
 
 #[derive(Debug, Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct AppStudioLifecycleApp {
+pub struct AppStudioManagedApp {
     pub app_id: String,
     pub name: String,
     pub version: Option<String>,
     pub enabled: Option<bool>,
-    pub lifecycle_status: String,
+    pub management_status: String,
     pub has_source: bool,
-    pub app_yaml_path: Option<String>,
+    pub source_dir: String,
+    pub app_yaml_path: String,
     pub package_path: Option<String>,
     pub package_exists: bool,
-    pub required_runtime: Option<String>,
-    pub runner: Option<String>,
-    pub entry: Option<String>,
-    pub description: Option<String>,
+    pub delete_plan_status: String,
+    pub delete_target_count: usize,
+    pub excluded_target_count: usize,
     pub warning: Option<String>,
     pub recommended_action: String,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct AppStudioLifecycleBackup {
-    pub backup_id: String,
-    pub app_id: String,
-    pub operation: String,
-    pub created_at: String,
-    pub backup_path: String,
-    pub backup_app_dir: Option<String>,
-    pub manifest_before: Option<String>,
-    pub enabled_before: Option<bool>,
-    pub restorable: bool,
-    pub restore_blocked_reason: Option<String>,
+pub struct AppStudioDeletePlanTarget {
+    pub category: String,
+    pub path: String,
+    pub exists: bool,
+    pub delete_allowed: bool,
+    pub action: String,
+    pub note: String,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct AppStudioLifecycleActionResult {
-    pub ok: bool,
-    pub message: String,
-    pub apps: Vec<AppStudioLifecycleApp>,
-    pub target: Option<AppStudioLifecycleApp>,
-    pub backup: Option<AppStudioLifecycleBackup>,
+pub struct AppStudioDeletePlan {
+    pub app_id: String,
+    pub source_dir: String,
+    pub app_yaml: String,
+    pub manifest_entry_exists: bool,
+    pub manifest_enabled: Option<bool>,
+    pub manifest_version: Option<String>,
+    pub manifest_package: Option<String>,
+    pub app_pack_paths: Vec<String>,
+    pub staging_paths: Vec<String>,
+    pub runtime_app_env: String,
+    pub app_studio_backup_paths: Vec<String>,
+    pub lifecycle_backup_paths: Vec<String>,
+    pub external_references: Vec<AppStudioDeletePlanTarget>,
+    pub user_data_paths: Vec<AppStudioDeletePlanTarget>,
+    pub delete_targets: Vec<AppStudioDeletePlanTarget>,
+    pub excluded_targets: Vec<AppStudioDeletePlanTarget>,
+    pub warnings: Vec<String>,
+    pub blocking_reasons: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
-struct LifecycleBackupMetadata {
-    app_id: String,
-    operation: String,
-    created_at: String,
-    source_app_dir: Option<String>,
-    backup_app_dir: Option<String>,
-    manifest_before: Option<String>,
-    manifest_after: Option<String>,
-    enabled_before: Option<bool>,
+pub struct AppStudioManagementActionResult {
+    pub ok: bool,
+    pub message: String,
+    pub apps: Vec<AppStudioManagedApp>,
+    pub target: Option<AppStudioManagedApp>,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -431,55 +436,33 @@ pub fn app_studio_list_registered_apps(
 }
 
 #[tauri::command]
-pub fn app_studio_lifecycle_list_apps(
+pub fn app_studio_management_list_apps(
     session: State<AdminSessionState>,
-) -> Result<Vec<AppStudioLifecycleApp>, String> {
+) -> Result<Vec<AppStudioManagedApp>, String> {
     session.require_authenticated()?;
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
-    Ok(list_lifecycle_apps_from_root(&root))
+    Ok(list_managed_apps_from_root(&root))
 }
 
 #[tauri::command]
-pub fn app_studio_lifecycle_set_enabled(
+pub fn app_studio_management_set_enabled(
     app_id: String,
     enabled: bool,
-    confirmation_text: Option<String>,
     session: State<AdminSessionState>,
-) -> Result<AppStudioLifecycleActionResult, String> {
+) -> Result<AppStudioManagementActionResult, String> {
     session.require_authenticated()?;
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
-    lifecycle_set_enabled(&root, &app_id, enabled, confirmation_text.as_deref())
+    management_set_enabled(&root, &app_id, enabled)
 }
 
 #[tauri::command]
-pub fn app_studio_lifecycle_soft_delete(
+pub fn app_studio_delete_plan(
     app_id: String,
-    confirmation_text: String,
     session: State<AdminSessionState>,
-) -> Result<AppStudioLifecycleActionResult, String> {
+) -> Result<AppStudioDeletePlan, String> {
     session.require_authenticated()?;
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
-    lifecycle_soft_delete(&root, &app_id, &confirmation_text)
-}
-
-#[tauri::command]
-pub fn app_studio_lifecycle_list_backups(
-    session: State<AdminSessionState>,
-) -> Result<Vec<AppStudioLifecycleBackup>, String> {
-    session.require_authenticated()?;
-    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
-    Ok(list_lifecycle_backups(&root))
-}
-
-#[tauri::command]
-pub fn app_studio_lifecycle_restore_backup(
-    backup_id: String,
-    confirmation_text: String,
-    session: State<AdminSessionState>,
-) -> Result<AppStudioLifecycleActionResult, String> {
-    session.require_authenticated()?;
-    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
-    lifecycle_restore_backup(&root, &backup_id, &confirmation_text)
+    build_delete_plan(&root, &app_id)
 }
 
 #[tauri::command]
@@ -2534,7 +2517,7 @@ fn apply_release_manifest_data(app: &mut AppStudioRegisteredApp, release: Option
     }
 }
 
-fn list_lifecycle_apps_from_root(root: &Path) -> Vec<AppStudioLifecycleApp> {
+fn list_managed_apps_from_root(root: &Path) -> Vec<AppStudioManagedApp> {
     let release = read_json(&app_manifest_path(root));
     let release_apps = release
         .as_ref()
@@ -2556,19 +2539,19 @@ fn list_lifecycle_apps_from_root(root: &Path) -> Vec<AppStudioLifecycleApp> {
         }
     }
 
-    let mut apps = Vec::new();
-    for app_id in app_ids {
-        apps.push(lifecycle_app_from_parts(root, &app_id, release_apps.and_then(|apps| apps.get(&app_id))));
-    }
-    apps
+    app_ids
+        .into_iter()
+        .map(|app_id| managed_app_from_parts(root, &app_id, release_apps.and_then(|apps| apps.get(&app_id))))
+        .collect()
 }
 
-fn lifecycle_app_from_parts(
+fn managed_app_from_parts(
     root: &Path,
     app_id: &str,
     manifest_entry: Option<&Value>,
-) -> AppStudioLifecycleApp {
-    let app_yaml = root.join("apps").join(app_id).join("app.yaml");
+) -> AppStudioManagedApp {
+    let source_dir = root.join("apps").join(app_id);
+    let app_yaml = source_dir.join("app.yaml");
     let has_source = app_yaml.is_file();
     let yaml_app = if has_source {
         Some(read_registered_app_from_yaml(&app_yaml, app_id))
@@ -2581,7 +2564,7 @@ fn lifecycle_app_from_parts(
         .and_then(|result| result.as_ref().err())
         .cloned();
     let enabled = manifest_entry.map(manifest_entry_enabled);
-    let lifecycle_status = if yaml_error.is_some() {
+    let management_status = if yaml_error.is_some() {
         "invalid_manifest"
     } else if let Some(enabled) = enabled {
         match (enabled, has_source) {
@@ -2606,423 +2589,446 @@ fn lifecycle_app_from_parts(
     let name = yaml_ok
         .map(|app| app.name.clone())
         .unwrap_or_else(|| app_id.to_string());
-    let runner = yaml_ok.and_then(|app| app.runner.clone());
-    let entry = yaml_ok.and_then(|app| app.entry.clone());
-    let description = yaml_ok.and_then(|app| app.description.clone());
-    let required_runtime = manifest_entry.and_then(|entry| json_str(entry, "required_runtime"));
-    let warning = lifecycle_warning(lifecycle_status, yaml_error.as_deref());
-    let recommended_action = lifecycle_recommended_action(lifecycle_status).to_string();
+    let plan = build_delete_plan(root, app_id).unwrap_or_default();
+    let delete_plan_status = if plan.blocking_reasons.is_empty() { "ready" } else { "blocked" };
 
-    AppStudioLifecycleApp {
+    AppStudioManagedApp {
         app_id: app_id.to_string(),
         name,
         version,
         enabled,
-        lifecycle_status: lifecycle_status.to_string(),
+        management_status: management_status.to_string(),
         has_source,
-        app_yaml_path: Some(app_yaml.display().to_string()),
+        source_dir: source_dir.display().to_string(),
+        app_yaml_path: app_yaml.display().to_string(),
         package_path: package_path.map(|path| path.display().to_string()),
         package_exists,
-        required_runtime,
-        runner,
-        entry,
-        description,
-        warning,
-        recommended_action,
+        delete_plan_status: delete_plan_status.to_string(),
+        delete_target_count: plan.delete_targets.len(),
+        excluded_target_count: plan.excluded_targets.len(),
+        warning: management_warning(management_status, yaml_error.as_deref()),
+        recommended_action: management_recommended_action(management_status).to_string(),
     }
 }
 
-fn lifecycle_warning(status: &str, yaml_error: Option<&str>) -> Option<String> {
+fn management_warning(status: &str, yaml_error: Option<&str>) -> Option<String> {
     match status {
         "invalid_manifest" => Some(
             yaml_error
-                .map(|error| format!("app.yamlを読み込めません: {error}"))
-                .unwrap_or_else(|| "アプリ定義を読み込めません。".to_string()),
+                .map(|error| format!("app.yaml could not be read: {error}"))
+                .unwrap_or_else(|| "App definition could not be read.".to_string()),
         ),
-        "enabled_missing_source" => {
-            Some("enabled=trueですが apps/<app_id>/app.yaml がありません。無効化してください。".to_string())
-        }
-        "disabled_stale" => Some(
-            "enabled=falseでapp sourceがありません。通常検証では履歴として扱い、Strictでは整理対象です。"
-                .to_string(),
-        ),
-        "source_missing_from_manifest" => Some(
-            "apps/<app_id>/app.yaml はありますが release/app_manifest.json に entry がありません。"
-                .to_string(),
-        ),
+        "enabled_missing_source" => Some("enabled=true but apps/<app_id>/app.yaml is missing.".to_string()),
+        "disabled_stale" => Some("release/app_manifest.json has a disabled entry without app source.".to_string()),
+        "source_missing_from_manifest" => Some("apps/<app_id>/app.yaml exists but release/app_manifest.json has no entry.".to_string()),
         _ => None,
     }
 }
 
-fn lifecycle_recommended_action(status: &str) -> &'static str {
+fn management_recommended_action(status: &str) -> &'static str {
     match status {
-        "active" => "必要に応じて非表示、またはバックアップ付き削除を実行できます。",
-        "disabled_with_source" => "sourceがあるため再表示できます。不要ならバックアップ付き削除できます。",
-        "disabled_stale" => "復元候補を確認してください。完全削除は未実装です。",
-        "enabled_missing_source" => "通常表示や更新確認に影響するため、まず無効化してください。",
-        "source_missing_from_manifest" => "今回のMVPでは診断のみです。manifestへの追加は未実装です。",
-        "invalid_manifest" => "app.yamlを修正してから操作してください。",
-        _ => "状態を確認してください。",
+        "active" => "Hide if it should not be shown, or inspect the deletion plan before future full delete.",
+        "disabled_with_source" => "Can be shown again or inspected with a deletion plan.",
+        "disabled_stale" => "Future full delete should remove the stale manifest entry and generated artifacts.",
+        "enabled_missing_source" => "Hide first, then recover apps/<app_id>/ from source control or inspect the deletion plan.",
+        "source_missing_from_manifest" => "Rebuild the app manifest from apps/ before release.",
+        "invalid_manifest" => "Fix app.yaml before changing visibility.",
+        _ => "Review the app state.",
     }
 }
 
-fn lifecycle_set_enabled(
+fn management_set_enabled(
     root: &Path,
     app_id: &str,
     enabled: bool,
-    _confirmation_text: Option<&str>,
-) -> Result<AppStudioLifecycleActionResult, String> {
+) -> Result<AppStudioManagementActionResult, String> {
     let app_id = app_id.trim();
     validate_app_id(app_id)?;
     if enabled && !root.join("apps").join(app_id).join("app.yaml").is_file() {
-        return Err("再表示するには apps/<app_id>/app.yaml が必要です。".to_string());
+        return Err("apps/<app_id>/app.yaml is required before showing the app.".to_string());
     }
     let manifest_path = app_manifest_path(root);
     let mut manifest = read_app_manifest_for_write(&manifest_path)?;
-    let enabled_before = manifest_app_entry(&manifest, app_id).map(manifest_entry_enabled);
-    if enabled_before.is_none() {
-        return Err("release/app_manifest.json に対象app_idがありません。今回のMVPではentry作成は行いません。".to_string());
+    if manifest_app_entry(&manifest, app_id).is_none() {
+        return Err("release/app_manifest.json has no entry for this app. Rebuild the app manifest first.".to_string());
     }
-
-    let backup_dir = create_lifecycle_backup_dir(root, app_id)?;
-    let before_path = backup_dir.join("app_manifest.before.json");
-    write_json_file(&before_path, &manifest)?;
-
     {
         let entry = manifest_app_entry_mut(&mut manifest, app_id)?;
         entry.insert("enabled".to_string(), Value::Bool(enabled));
     }
     write_json_file(&manifest_path, &manifest)?;
-    let after_path = backup_dir.join("app_manifest.after.json");
-    write_json_file(&after_path, &manifest)?;
-    let metadata = LifecycleBackupMetadata {
-        app_id: app_id.to_string(),
-        operation: if enabled { "set_enabled_true" } else { "set_enabled_false" }.to_string(),
-        created_at: chrono::Local::now().to_rfc3339(),
-        source_app_dir: Some(root.join("apps").join(app_id).display().to_string()),
-        backup_app_dir: None,
-        manifest_before: Some(before_path.display().to_string()),
-        manifest_after: Some(after_path.display().to_string()),
-        enabled_before,
-    };
-    write_json_file(&backup_dir.join("metadata.json"), &metadata)?;
     append_app_studio_gui_log(
-        "lifecycle_set_enabled",
+        "app_management_set_enabled",
         &[
             ("app_id", app_id.to_string()),
             ("enabled", enabled.to_string()),
-            ("backup", backup_dir.display().to_string()),
         ],
     );
-    Ok(lifecycle_result(
+    Ok(management_result(
         root,
         app_id,
-        format!(
-            "{} を{}にしました。",
-            app_id,
-            if enabled { "再表示" } else { "非表示" }
-        ),
-        Some(backup_to_summary(root, backup_dir)),
+        format!("{} was {}.", app_id, if enabled { "shown" } else { "hidden" }),
     ))
 }
 
-fn lifecycle_soft_delete(
-    root: &Path,
-    app_id: &str,
-    confirmation_text: &str,
-) -> Result<AppStudioLifecycleActionResult, String> {
-    let app_id = app_id.trim();
-    validate_app_id(app_id)?;
-    require_confirmation(confirmation_text, &format!("DELETE {app_id}"))?;
-    let app_dir = root.join("apps").join(app_id);
-    let app_yaml = app_dir.join("app.yaml");
-    let manifest_path = app_manifest_path(root);
-    let mut manifest = read_app_manifest_for_write(&manifest_path)?;
-    let enabled_before = manifest_app_entry(&manifest, app_id).map(manifest_entry_enabled);
-    if enabled_before.is_none() {
-        return Err("release/app_manifest.json に対象app_idがありません。完全削除やentry作成は未実装です。".to_string());
-    }
-    if !app_yaml.is_file() {
-        if enabled_before == Some(false) {
-            return Ok(lifecycle_result(
-                root,
-                app_id,
-                "app source は既に存在しません。disabled stale として扱っています。".to_string(),
-                None,
-            ));
-        }
-        return Err("app source がないためバックアップ付き削除は実行できません。先に無効化してください。".to_string());
-    }
-
-    let backup_dir = create_lifecycle_backup_dir(root, app_id)?;
-    let before_path = backup_dir.join("app_manifest.before.json");
-    write_json_file(&before_path, &manifest)?;
-    let backup_app_dir = backup_dir.join("app");
-    copy_dir_recursive(&app_dir, &backup_app_dir)?;
-    {
-        let entry = manifest_app_entry_mut(&mut manifest, app_id)?;
-        entry.insert("enabled".to_string(), Value::Bool(false));
-    }
-    write_json_file(&manifest_path, &manifest)?;
-    let after_path = backup_dir.join("app_manifest.after.json");
-    write_json_file(&after_path, &manifest)?;
-    let metadata = LifecycleBackupMetadata {
-        app_id: app_id.to_string(),
-        operation: "soft_delete".to_string(),
-        created_at: chrono::Local::now().to_rfc3339(),
-        source_app_dir: Some(app_dir.display().to_string()),
-        backup_app_dir: Some(backup_app_dir.display().to_string()),
-        manifest_before: Some(before_path.display().to_string()),
-        manifest_after: Some(after_path.display().to_string()),
-        enabled_before,
-    };
-    write_json_file(&backup_dir.join("metadata.json"), &metadata)?;
-    fs::remove_dir_all(&app_dir).map_err(|error| {
-        format!(
-            "backup作成後に apps/<app_id>/ の退避で失敗しました: {} ({error})",
-            app_dir.display()
-        )
-    })?;
-    append_app_studio_gui_log(
-        "lifecycle_soft_delete",
-        &[
-            ("app_id", app_id.to_string()),
-            ("backup", backup_dir.display().to_string()),
-        ],
-    );
-    Ok(lifecycle_result(
-        root,
-        app_id,
-        "アプリ本体をバックアップへ退避し、manifestはenabled=falseにしました。".to_string(),
-        Some(backup_to_summary(root, backup_dir)),
-    ))
-}
-
-fn lifecycle_restore_backup(
-    root: &Path,
-    backup_id: &str,
-    confirmation_text: &str,
-) -> Result<AppStudioLifecycleActionResult, String> {
-    let backup_dir = backup_dir_from_id(root, backup_id)?;
-    let metadata = read_lifecycle_backup_metadata(&backup_dir)?;
-    validate_app_id(&metadata.app_id)?;
-    require_confirmation(confirmation_text, &format!("RESTORE {}", metadata.app_id))?;
-    let backup_app_dir = metadata
-        .backup_app_dir
-        .as_deref()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| backup_dir.join("app"));
-    if !backup_app_dir.join("app.yaml").is_file() {
-        return Err("backup内に app/app.yaml がないため復元できません。".to_string());
-    }
-    let app_dir = root.join("apps").join(&metadata.app_id);
-    if app_dir.exists() {
-        return Err("apps/<app_id>/ が既に存在するため上書き復元は行いません。先に別操作で退避してください。".to_string());
-    }
-    let manifest_path = app_manifest_path(root);
-    let mut manifest = read_app_manifest_for_write(&manifest_path)?;
-    if manifest_app_entry(&manifest, &metadata.app_id).is_none() {
-        return Err("release/app_manifest.json に対象app_idがありません。今回のMVPではentry自動生成は行いません。".to_string());
-    }
-    let stamp = lifecycle_timestamp();
-    let before_path = backup_dir.join(format!("app_manifest.restore_before.{stamp}.json"));
-    write_json_file(&before_path, &manifest)?;
-    if let Err(error) = copy_dir_recursive(&backup_app_dir, &app_dir) {
-        let _ = fs::remove_dir_all(&app_dir);
-        return Err(error);
-    }
-    {
-        let entry = manifest_app_entry_mut(&mut manifest, &metadata.app_id)?;
-        entry.insert("enabled".to_string(), Value::Bool(false));
-    }
-    write_json_file(&manifest_path, &manifest)?;
-    let after_path = backup_dir.join(format!("app_manifest.restore_after.{stamp}.json"));
-    write_json_file(&after_path, &manifest)?;
-    let restore_record = serde_json::json!({
-        "app_id": metadata.app_id,
-        "operation": "restore_backup",
-        "created_at": chrono::Local::now().to_rfc3339(),
-        "backup_id": backup_id,
-        "restored_to": app_dir.display().to_string(),
-        "manifest_before": before_path.display().to_string(),
-        "manifest_after": after_path.display().to_string(),
-        "enabled_after": false
-    });
-    write_json_file(&backup_dir.join(format!("restore_record.{stamp}.json")), &restore_record)?;
-    append_app_studio_gui_log(
-        "lifecycle_restore_backup",
-        &[
-            ("app_id", metadata.app_id.clone()),
-            ("backup_id", backup_id.to_string()),
-        ],
-    );
-    Ok(lifecycle_result(
-        root,
-        &metadata.app_id,
-        "バックアップから apps/<app_id>/ へ復元しました。復元直後はenabled=falseです。".to_string(),
-        Some(backup_to_summary(root, backup_dir)),
-    ))
-}
-
-fn lifecycle_result(
-    root: &Path,
-    app_id: &str,
-    message: String,
-    backup: Option<AppStudioLifecycleBackup>,
-) -> AppStudioLifecycleActionResult {
-    let apps = list_lifecycle_apps_from_root(root);
+fn management_result(root: &Path, app_id: &str, message: String) -> AppStudioManagementActionResult {
+    let apps = list_managed_apps_from_root(root);
     let target = apps.iter().find(|app| app.app_id == app_id).cloned();
-    AppStudioLifecycleActionResult {
+    AppStudioManagementActionResult {
         ok: true,
         message,
         apps,
         target,
-        backup,
     }
 }
 
-fn list_lifecycle_backups(root: &Path) -> Vec<AppStudioLifecycleBackup> {
-    let backup_root = root.join("backups").join("app_lifecycle");
-    let mut backups = Vec::new();
-    let Ok(stamps) = fs::read_dir(&backup_root) else {
-        return backups;
-    };
-    for stamp in stamps.flatten() {
-        let stamp_path = stamp.path();
-        if !stamp_path.is_dir() {
-            continue;
-        }
-        let Some(stamp_name) = stamp_path.file_name().and_then(|value| value.to_str()) else {
-            continue;
-        };
-        let Ok(app_dirs) = fs::read_dir(&stamp_path) else {
-            continue;
-        };
-        for app_dir in app_dirs.flatten() {
-            let path = app_dir.path();
-            if !path.is_dir() {
-                continue;
-            }
-            let Some(app_id) = path.file_name().and_then(|value| value.to_str()) else {
+fn build_delete_plan(root: &Path, app_id: &str) -> Result<AppStudioDeletePlan, String> {
+    let app_id = app_id.trim();
+    validate_app_id(app_id)?;
+    let source_dir = root.join("apps").join(app_id);
+    let app_yaml = source_dir.join("app.yaml");
+    let manifest_path = app_manifest_path(root);
+    let manifest = read_json(&manifest_path).unwrap_or_else(|| serde_json::json!({ "apps": {} }));
+    let manifest_entry = manifest_app_entry(&manifest, app_id);
+    let manifest_entry_exists = manifest_entry.is_some();
+    let manifest_enabled = manifest_entry.map(manifest_entry_enabled);
+    let manifest_version = manifest_entry.and_then(|entry| json_str(entry, "version"));
+    let manifest_package = manifest_entry.and_then(|entry| json_str(entry, "package"));
+    let app_pack_paths = collect_app_pack_paths(root, app_id, manifest_package.as_deref());
+    let staging_paths = collect_matching_paths(&root.join("release").join("staging"), app_id);
+    let runtime_app_env = root.join("runtime").join("app_envs").join(app_id);
+    let app_studio_backup_paths = collect_backup_paths(&root.join("backups").join("app_studio"), app_id);
+    let lifecycle_backup_paths = collect_backup_paths(&root.join("backups").join("app_lifecycle"), app_id);
+    let external_references = collect_external_references(root, &app_yaml);
+    let user_data_paths = user_data_excluded_targets(app_id);
+
+    let mut delete_targets = Vec::new();
+    let mut excluded_targets = Vec::new();
+    let mut warnings = Vec::new();
+    let blocking_reasons = Vec::new();
+
+    push_target(
+        &mut delete_targets,
+        "managed_required",
+        &source_dir,
+        source_dir.exists(),
+        true,
+        "delete apps/<app_id>/",
+        "Application source of truth. Future full delete removes it.",
+    );
+    push_target(
+        &mut delete_targets,
+        "managed_required",
+        &manifest_path,
+        manifest_entry_exists,
+        true,
+        "remove app_manifest entry",
+        "release/app_manifest.json is a generated index; future full delete removes only this app entry.",
+    );
+    for path in &app_pack_paths {
+        push_target(
+            &mut delete_targets,
+            "managed_generated",
+            path,
+            path.exists(),
+            true,
+            "delete App Pack zip",
+            "Generated App Pack for this app.",
+        );
+    }
+    for path in &staging_paths {
+        push_target(
+            &mut delete_targets,
+            "managed_generated",
+            path,
+            path.exists(),
+            true,
+            "delete staging artifact",
+            "Generated release staging artifact for this app.",
+        );
+    }
+    push_target(
+        &mut delete_targets,
+        "managed_generated",
+        &runtime_app_env,
+        runtime_app_env.exists(),
+        true,
+        "delete runtime app_env",
+        "App-specific runtime environment. Shared runtimes are excluded.",
+    );
+    for path in &app_studio_backup_paths {
+        push_target(
+            &mut delete_targets,
+            "managed_history",
+            path,
+            path.exists(),
+            true,
+            "delete App Studio backup",
+            "Repository-local app backup/history for this app.",
+        );
+    }
+    for path in &lifecycle_backup_paths {
+        push_target(
+            &mut delete_targets,
+            "managed_history",
+            path,
+            path.exists(),
+            true,
+            "delete legacy lifecycle backup",
+            "Repository-local legacy lifecycle backup/history for this app.",
+        );
+    }
+
+    if !source_dir.exists() && !manifest_entry_exists && app_pack_paths.is_empty() && app_studio_backup_paths.is_empty() {
+        warnings.push("No repository-managed app source, manifest entry, App Pack, or App Studio backup was found.".to_string());
+    }
+    if source_dir.exists() && !app_yaml.is_file() {
+        warnings.push("apps/<app_id>/ exists but app.yaml is missing.".to_string());
+    }
+    if !external_references.is_empty() {
+        warnings.push("External absolute paths were found in app.yaml and are excluded from deletion.".to_string());
+    }
+
+    excluded_targets.extend(external_references.clone());
+    excluded_targets.extend(user_data_paths.clone());
+    push_target(
+        &mut excluded_targets,
+        "shared_runtime",
+        &root.join("runtime").join("python"),
+        root.join("runtime").join("python").exists(),
+        false,
+        "exclude shared Python runtime",
+        "Shared runtime is not app-owned.",
+    );
+    push_target(
+        &mut excluded_targets,
+        "shared_runtime",
+        &root.join("runtime").join("web_automation_runtime"),
+        root.join("runtime").join("web_automation_runtime").exists(),
+        false,
+        "exclude shared web automation runtime",
+        "Shared runtime is not app-owned.",
+    );
+
+    Ok(AppStudioDeletePlan {
+        app_id: app_id.to_string(),
+        source_dir: source_dir.display().to_string(),
+        app_yaml: app_yaml.display().to_string(),
+        manifest_entry_exists,
+        manifest_enabled,
+        manifest_version,
+        manifest_package,
+        app_pack_paths: app_pack_paths.iter().map(|path| path.display().to_string()).collect(),
+        staging_paths: staging_paths.iter().map(|path| path.display().to_string()).collect(),
+        runtime_app_env: runtime_app_env.display().to_string(),
+        app_studio_backup_paths: app_studio_backup_paths.iter().map(|path| path.display().to_string()).collect(),
+        lifecycle_backup_paths: lifecycle_backup_paths.iter().map(|path| path.display().to_string()).collect(),
+        external_references,
+        user_data_paths,
+        delete_targets,
+        excluded_targets,
+        warnings,
+        blocking_reasons,
+    })
+}
+
+fn push_target(
+    targets: &mut Vec<AppStudioDeletePlanTarget>,
+    category: &str,
+    path: &Path,
+    exists: bool,
+    delete_allowed: bool,
+    action: &str,
+    note: &str,
+) {
+    targets.push(AppStudioDeletePlanTarget {
+        category: category.to_string(),
+        path: path.display().to_string(),
+        exists,
+        delete_allowed,
+        action: action.to_string(),
+        note: note.to_string(),
+    });
+}
+
+fn push_target_string(
+    targets: &mut Vec<AppStudioDeletePlanTarget>,
+    category: &str,
+    path: &str,
+    exists: bool,
+    delete_allowed: bool,
+    action: &str,
+    note: &str,
+) {
+    targets.push(AppStudioDeletePlanTarget {
+        category: category.to_string(),
+        path: path.to_string(),
+        exists,
+        delete_allowed,
+        action: action.to_string(),
+        note: note.to_string(),
+    });
+}
+
+fn collect_app_pack_paths(root: &Path, app_id: &str, manifest_package: Option<&str>) -> Vec<PathBuf> {
+    let app_packs_dir = root.join("release").join("app_packs");
+    let mut paths = Vec::new();
+    if let Some(package) = manifest_package {
+        paths.push(root.join("release").join(package));
+    }
+    if let Ok(entries) = fs::read_dir(&app_packs_dir) {
+        let prefix = format!("{app_id}-");
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
                 continue;
             };
-            if let Ok(summary) = lifecycle_backup_summary(root, &path, &format!("{stamp_name}/{app_id}")) {
-                backups.push(summary);
+            if name.starts_with(&prefix) && name.ends_with(".zip") && !paths.iter().any(|existing| existing == &path) {
+                paths.push(path);
             }
         }
     }
-    backups.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(a.app_id.cmp(&b.app_id)));
-    backups
+    paths.sort();
+    paths
 }
 
-fn backup_to_summary(root: &Path, backup_dir: PathBuf) -> AppStudioLifecycleBackup {
-    let backup_id = backup_id_from_dir(root, &backup_dir).unwrap_or_default();
-    lifecycle_backup_summary(root, &backup_dir, &backup_id).unwrap_or_else(|_| AppStudioLifecycleBackup {
-        backup_id,
-        backup_path: backup_dir.display().to_string(),
-        ..AppStudioLifecycleBackup::default()
-    })
+fn collect_matching_paths(root: &Path, app_id: &str) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    collect_matching_paths_inner(root, app_id, &mut paths);
+    paths.sort();
+    paths
 }
 
-fn lifecycle_backup_summary(
+fn collect_matching_paths_inner(root: &Path, app_id: &str, paths: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name_matches = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .is_some_and(|name| name.contains(app_id));
+        if name_matches {
+            paths.push(path.clone());
+        }
+        if path.is_dir() {
+            collect_matching_paths_inner(&path, app_id, paths);
+        }
+    }
+}
+
+fn collect_backup_paths(root: &Path, app_id: &str) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    collect_backup_paths_inner(root, app_id, &mut paths);
+    paths.sort();
+    paths
+}
+
+fn collect_backup_paths_inner(root: &Path, app_id: &str, paths: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if path.file_name().and_then(|value| value.to_str()) == Some(app_id) {
+                paths.push(path.clone());
+            }
+            collect_backup_paths_inner(&path, app_id, paths);
+        }
+    }
+}
+
+fn collect_external_references(root: &Path, app_yaml: &Path) -> Vec<AppStudioDeletePlanTarget> {
+    let Ok(text) = fs::read_to_string(app_yaml) else {
+        return Vec::new();
+    };
+    let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&text) else {
+        return Vec::new();
+    };
+    let mut refs = Vec::new();
+    collect_external_references_inner(root, &yaml, "$", &mut refs);
+    refs.sort_by(|a, b| a.path.cmp(&b.path).then(a.action.cmp(&b.action)));
+    refs.dedup_by(|a, b| a.path == b.path && a.action == b.action);
+    refs
+}
+
+fn collect_external_references_inner(
     root: &Path,
-    backup_dir: &Path,
-    backup_id: &str,
-) -> Result<AppStudioLifecycleBackup, String> {
-    let metadata = read_lifecycle_backup_metadata(backup_dir)?;
-    let backup_app_dir = metadata
-        .backup_app_dir
-        .as_deref()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| backup_dir.join("app"));
-    let app_dir = root.join("apps").join(&metadata.app_id);
-    let manifest_has_entry = read_json(&app_manifest_path(root))
-        .and_then(|json| json.get("apps").and_then(|apps| apps.get(&metadata.app_id)).cloned())
-        .is_some();
-    let mut restorable = true;
-    let mut blocked = None;
-    if !backup_app_dir.join("app.yaml").is_file() {
-        restorable = false;
-        blocked = Some("backup内に app/app.yaml がありません。".to_string());
-    } else if app_dir.exists() {
-        restorable = false;
-        blocked = Some("apps/<app_id>/ が既に存在するため上書き復元できません。".to_string());
-    } else if !manifest_has_entry {
-        restorable = false;
-        blocked = Some("release/app_manifest.json にentryがないため自動復元できません。".to_string());
+    value: &serde_yaml::Value,
+    logical_path: &str,
+    refs: &mut Vec<AppStudioDeletePlanTarget>,
+) {
+    match value {
+        serde_yaml::Value::String(text) => {
+            let trimmed = text.trim();
+            let path = Path::new(trimmed);
+            if path.is_absolute() && !path_starts_with(path, root) {
+                push_target_string(
+                    refs,
+                    "external_reference",
+                    trimmed,
+                    path.exists(),
+                    false,
+                    &format!("exclude app.yaml {logical_path}"),
+                    "External absolute path recorded in app.yaml. Future delete must not remove it.",
+                );
+            }
+        }
+        serde_yaml::Value::Sequence(items) => {
+            for (index, item) in items.iter().enumerate() {
+                collect_external_references_inner(root, item, &format!("{logical_path}[{index}]"), refs);
+            }
+        }
+        serde_yaml::Value::Mapping(map) => {
+            for (key, item) in map {
+                let key_text = key.as_str().unwrap_or("?");
+                collect_external_references_inner(root, item, &format!("{logical_path}.{key_text}"), refs);
+            }
+        }
+        _ => {}
     }
-    Ok(AppStudioLifecycleBackup {
-        backup_id: backup_id.to_string(),
-        app_id: metadata.app_id,
-        operation: metadata.operation,
-        created_at: metadata.created_at,
-        backup_path: backup_dir.display().to_string(),
-        backup_app_dir: Some(backup_app_dir.display().to_string()),
-        manifest_before: metadata.manifest_before,
-        enabled_before: metadata.enabled_before,
-        restorable,
-        restore_blocked_reason: blocked,
-    })
 }
 
-fn read_lifecycle_backup_metadata(backup_dir: &Path) -> Result<LifecycleBackupMetadata, String> {
-    let path = backup_dir.join("metadata.json");
-    let text = fs::read_to_string(&path)
-        .map_err(|error| format!("backup metadataを読み込めません: {} ({error})", path.display()))?;
-    serde_json::from_str(&text)
-        .map_err(|error| format!("backup metadataを解析できません: {} ({error})", path.display()))
-}
-
-fn backup_dir_from_id(root: &Path, backup_id: &str) -> Result<PathBuf, String> {
-    let normalized = backup_id.replace('\\', "/");
-    let parts = normalized.split('/').collect::<Vec<_>>();
-    if parts.len() != 2 || parts.iter().any(|part| part.trim().is_empty()) {
-        return Err("backupIdは <timestamp>/<app_id> 形式で指定してください。".to_string());
+fn user_data_excluded_targets(app_id: &str) -> Vec<AppStudioDeletePlanTarget> {
+    let user_root = crate::setup::user_data_root();
+    let mut targets = Vec::new();
+    for path in [
+        user_root.join("data"),
+        user_root.join("data").join("logs"),
+        user_root.join("data").join("browser_profiles"),
+        user_root.join("data").join("app_state"),
+        user_root.join("data").join("app_state").join(app_id),
+    ] {
+        push_target(
+            &mut targets,
+            "user_data",
+            &path,
+            path.exists(),
+            false,
+            "exclude user data",
+            "User data is outside repository-managed app deletion.",
+        );
     }
-    validate_app_id(parts[1])?;
-    if !parts[0]
-        .chars()
-        .all(|character| character.is_ascii_digit() || character == '_' || character == '-')
-    {
-        return Err("backupIdのtimestampが不正です。".to_string());
-    }
-    let path = root
-        .join("backups")
-        .join("app_lifecycle")
-        .join(parts[0])
-        .join(parts[1]);
-    if !path.is_dir() {
-        return Err("backupが見つかりません。".to_string());
-    }
-    Ok(path)
+    targets
 }
 
-fn backup_id_from_dir(root: &Path, backup_dir: &Path) -> Option<String> {
-    let base = root.join("backups").join("app_lifecycle");
-    let relative = backup_dir.strip_prefix(base).ok()?;
-    Some(relative.to_string_lossy().replace('\\', "/"))
-}
-
-fn create_lifecycle_backup_dir(root: &Path, app_id: &str) -> Result<PathBuf, String> {
-    let dir = root
-        .join("backups")
-        .join("app_lifecycle")
-        .join(lifecycle_timestamp())
-        .join(app_id);
-    fs::create_dir_all(&dir)
-        .map_err(|error| format!("lifecycle backup folderを作成できません: {} ({error})", dir.display()))?;
-    Ok(dir)
-}
-
-fn lifecycle_timestamp() -> String {
-    chrono::Local::now().format("%Y%m%d_%H%M%S_%3f").to_string()
+fn path_starts_with(path: &Path, base: &Path) -> bool {
+    let Ok(full_path) = path.canonicalize().or_else(|_| Ok::<PathBuf, std::io::Error>(path.to_path_buf())) else {
+        return false;
+    };
+    let Ok(full_base) = base.canonicalize().or_else(|_| Ok::<PathBuf, std::io::Error>(base.to_path_buf())) else {
+        return false;
+    };
+    full_path.starts_with(full_base)
 }
 
 fn read_app_manifest_for_write(path: &Path) -> Result<Value, String> {
     let text = fs::read_to_string(path)
-        .map_err(|error| format!("release/app_manifest.json を読み込めません: {} ({error})", path.display()))?;
+        .map_err(|error| format!("release/app_manifest.json could not be read: {} ({error})", path.display()))?;
     serde_json::from_str(&text)
-        .map_err(|error| format!("release/app_manifest.json を解析できません: {} ({error})", path.display()))
+        .map_err(|error| format!("release/app_manifest.json could not be parsed: {} ({error})", path.display()))
 }
 
 fn app_manifest_path(root: &Path) -> PathBuf {
@@ -3040,10 +3046,10 @@ fn manifest_app_entry_mut<'a>(
     let apps = manifest
         .get_mut("apps")
         .and_then(Value::as_object_mut)
-        .ok_or_else(|| "release/app_manifest.json の apps object が見つかりません。".to_string())?;
+        .ok_or_else(|| "release/app_manifest.json apps object was not found.".to_string())?;
     apps.get_mut(app_id)
         .and_then(Value::as_object_mut)
-        .ok_or_else(|| "release/app_manifest.json に対象app_idがありません。".to_string())
+        .ok_or_else(|| "release/app_manifest.json has no entry for this app.".to_string())
 }
 
 fn manifest_entry_enabled(entry: &Value) -> bool {
@@ -3061,48 +3067,13 @@ fn json_str(value: &Value, key: &str) -> Option<String> {
 
 fn write_json_file<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     let text = serde_json::to_string_pretty(value)
-        .map_err(|error| format!("JSONを生成できません: {} ({error})", path.display()))?;
+        .map_err(|error| format!("JSON could not be generated for {} ({error})", path.display()))?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
-            .map_err(|error| format!("フォルダを作成できません: {} ({error})", parent.display()))?;
+            .map_err(|error| format!("folder could not be created: {} ({error})", parent.display()))?;
     }
     fs::write(path, format!("{text}\n"))
-        .map_err(|error| format!("JSONを書き込めません: {} ({error})", path.display()))
-}
-
-fn copy_dir_recursive(source: &Path, target: &Path) -> Result<(), String> {
-    if target.exists() {
-        return Err(format!("コピー先が既に存在します: {}", target.display()));
-    }
-    fs::create_dir_all(target)
-        .map_err(|error| format!("コピー先を作成できません: {} ({error})", target.display()))?;
-    for entry in fs::read_dir(source)
-        .map_err(|error| format!("コピー元を読み込めません: {} ({error})", source.display()))?
-    {
-        let entry = entry.map_err(|error| format!("コピー元entryを読み込めません: {error}"))?;
-        let path = entry.path();
-        let destination = target.join(entry.file_name());
-        let file_type = entry
-            .file_type()
-            .map_err(|error| format!("ファイル種別を確認できません: {} ({error})", path.display()))?;
-        if file_type.is_dir() {
-            copy_dir_recursive(&path, &destination)?;
-        } else if file_type.is_file() {
-            fs::copy(&path, &destination)
-                .map_err(|error| format!("ファイルをコピーできません: {} ({error})", path.display()))?;
-        } else {
-            return Err(format!("通常ファイル/フォルダ以外はlifecycle backup対象外です: {}", path.display()));
-        }
-    }
-    Ok(())
-}
-
-fn require_confirmation(actual: &str, expected: &str) -> Result<(), String> {
-    if actual.trim() == expected {
-        Ok(())
-    } else {
-        Err(format!("確認入力が一致しません。`{expected}` と入力してください。"))
-    }
+        .map_err(|error| format!("JSON could not be written: {} ({error})", path.display()))
 }
 
 fn yaml_str(value: &serde_yaml::Value, path: &[&str]) -> Option<String> {

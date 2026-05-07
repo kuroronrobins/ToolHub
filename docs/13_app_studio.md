@@ -93,7 +93,7 @@ GUI で実行できる操作:
 
 Apply 後は `execution_test_result.json`、`runtime_check_result.json`、App Pack、`enabled` 状態を GUI に表示します。`fail` がある場合は承認できません。GUIでは `AllowWarnings` と `StrictApproval` を選択できます。
 
-`release/app_manifest.json` に entry が残っていても、`apps/<app_id>/app.yaml` が存在しないものは通常表示対象ではありません。`enabled=false` かつ source missing の entry は stale / hidden history として通常検証では警告扱いにできますが、Strict 検証や正式配布前には復元、disabled維持、または将来の完全削除フローで整理する対象です。`enabled=true` で source missing の entry は通常ランチャー表示と更新確認に影響するため不整合です。
+`release/app_manifest.json` に entry が残っていても、`apps/<app_id>/app.yaml` が存在しないものは通常表示対象ではありません。`enabled=false` かつ source missing の entry は stale / hidden history として通常検証では警告扱いにできますが、Strict 検証や正式配布前には disabled 維持理由の確認、または将来の完全削除フローで整理する対象です。`enabled=true` で source missing の entry は通常ランチャー表示と更新確認に影響するため不整合です。
 
 AppId / Name 自動提案:
 
@@ -626,27 +626,28 @@ new composition. `fresh` does not send the previous PNG and weakens inheritance
 from the previous prompt. Regeneration writes `icon_regeneration_timing.json`
 with manifest read, prompt build, image API call, file write, and total timing.
 
-## Delete Tab / Lifecycle MVP
+## Delete Tab / App Management
 
-Delete タブは placeholder ではなく、管理者向けのアプリライフサイクル管理MVPです。完全削除ではなく、`release/app_manifest.json` と `apps/<app_id>/` の状態を一覧し、安全な管理操作だけを実行します。
+Delete is now an App Management tab. The source of truth for an app is `apps/<app_id>/`, and
+`release/app_manifest.json` is treated as a release index that can be rebuilt or checked from `apps/`.
 
-表示する状態は `active`、`disabled_with_source`、`disabled_stale`、`enabled_missing_source`、`source_missing_from_manifest`、`invalid_manifest` です。分類は `scripts/diagnose_app_manifest.ps1` と同じ意味です。
+Implemented operations:
 
-実装済みの操作:
+- Hide: set the existing manifest entry to `enabled=false`.
+- Show: set `enabled=true`, only when `apps/<app_id>/app.yaml` exists.
+- Deletion plan: list repository-managed targets and excluded targets before a future full delete.
 
-- 非表示: manifest entry を削除せず `enabled=false` にします。
-- 再表示: `apps/<app_id>/app.yaml` が存在する場合だけ `enabled=true` にします。
-- バックアップ付き削除: `apps/<app_id>/` を `backups/app_lifecycle/<timestamp>/<app_id>/app/` に保存してから active location から退避し、manifest は `enabled=false` にします。
-- 復元: lifecycle backup から `apps/<app_id>/` へ戻します。ただし復元直後は `enabled=false` のままです。
+Not implemented in this phase:
 
-未実装の操作:
+- Full deletion execution.
+- Removing `release/app_manifest.json` entries from the UI.
+- Deleting App Pack zip files.
+- Deleting `release/staging/` artifacts.
+- Deleting `runtime/app_envs/<app_id>/`.
+- Deleting App Studio or legacy lifecycle backups.
+- Restore and backup-based soft delete flows.
 
-- manifest entry の完全削除
-- App Pack zip の削除
-- backup の削除
-- release 履歴の削除
-- ユーザーデータ削除
-- manifest entry がない source の自動登録
-- 既存 `apps/<app_id>/` への上書き復元
-
-バックアップ付き削除は `DELETE <app_id>`、復元は `RESTORE <app_id>` の確認入力を要求します。操作前後の manifest snapshot と metadata は `backups/app_lifecycle/` に保存し、管理者ログへ概要を記録します。詳細は `docs/17_app_lifecycle.md` を参照してください。
+Deletion plans classify `managed_required`, `managed_generated`, and `managed_history` as future delete targets.
+`external_reference`, `user_data`, and `shared_runtime` are always excluded. `build.source_entry`,
+`build.output_mirror`, `%LOCALAPPDATA%/ToolHub/data/`, logs, browser profiles, app state, and shared runtime folders
+must not be deleted by app management operations. See `docs/17_app_management_model.md`.

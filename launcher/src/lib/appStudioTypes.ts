@@ -53,7 +53,7 @@ export interface AppStudioRegisteredApp {
   warning?: string | null;
 }
 
-export type AppStudioLifecycleStatus =
+export type AppStudioManagementStatus =
   | "active"
   | "disabled_with_source"
   | "disabled_stale"
@@ -62,43 +62,59 @@ export type AppStudioLifecycleStatus =
   | "invalid_manifest"
   | string;
 
-export interface AppStudioLifecycleApp {
+export interface AppStudioManagedApp {
   appId: string;
   name: string;
   version?: string | null;
   enabled?: boolean | null;
-  lifecycleStatus: AppStudioLifecycleStatus;
+  managementStatus: AppStudioManagementStatus;
   hasSource: boolean;
-  appYamlPath?: string | null;
+  sourceDir: string;
+  appYamlPath: string;
   packagePath?: string | null;
   packageExists: boolean;
-  requiredRuntime?: string | null;
-  runner?: string | null;
-  entry?: string | null;
-  description?: string | null;
+  deletePlanStatus: "ready" | "blocked" | string;
+  deleteTargetCount: number;
+  excludedTargetCount: number;
   warning?: string | null;
   recommendedAction: string;
 }
 
-export interface AppStudioLifecycleBackup {
-  backupId: string;
-  appId: string;
-  operation: string;
-  createdAt: string;
-  backupPath: string;
-  backupAppDir?: string | null;
-  manifestBefore?: string | null;
-  enabledBefore?: boolean | null;
-  restorable: boolean;
-  restoreBlockedReason?: string | null;
+export interface AppStudioDeletePlanTarget {
+  category: string;
+  path: string;
+  exists: boolean;
+  deleteAllowed: boolean;
+  action: string;
+  note: string;
 }
 
-export interface AppStudioLifecycleActionResult {
+export interface AppStudioDeletePlan {
+  appId: string;
+  sourceDir: string;
+  appYaml: string;
+  manifestEntryExists: boolean;
+  manifestEnabled?: boolean | null;
+  manifestVersion?: string | null;
+  manifestPackage?: string | null;
+  appPackPaths: string[];
+  stagingPaths: string[];
+  runtimeAppEnv: string;
+  appStudioBackupPaths: string[];
+  lifecycleBackupPaths: string[];
+  externalReferences: AppStudioDeletePlanTarget[];
+  userDataPaths: AppStudioDeletePlanTarget[];
+  deleteTargets: AppStudioDeletePlanTarget[];
+  excludedTargets: AppStudioDeletePlanTarget[];
+  warnings: string[];
+  blockingReasons: string[];
+}
+
+export interface AppStudioManagementActionResult {
   ok: boolean;
   message: string;
-  apps: AppStudioLifecycleApp[];
-  target?: AppStudioLifecycleApp | null;
-  backup?: AppStudioLifecycleBackup | null;
+  apps: AppStudioManagedApp[];
+  target?: AppStudioManagedApp | null;
 }
 
 export interface AppStudioRunResult {

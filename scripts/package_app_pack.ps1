@@ -9,6 +9,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ReleaseDir = Join-Path $Root "release"
+$AppsDir = Join-Path $Root "apps"
 $AppManifestPath = Join-Path $ReleaseDir "app_manifest.json"
 $AppPacksDir = Join-Path $ReleaseDir "app_packs"
 $StageRoot = Join-Path $ReleaseDir "staging\app_pack_build"
@@ -46,6 +47,98 @@ function Entry-Enabled {
     return [bool]$Entry.enabled
 }
 
+function Set-EntryProperty {
+    param(
+        [object]$Entry,
+        [string]$Name,
+        [object]$Value
+    )
+    $Property = $Entry.PSObject.Properties[$Name]
+    if ($Property) {
+        $Property.Value = $Value
+    } else {
+        $Entry | Add-Member -NotePropertyName $Name -NotePropertyValue $Value
+    }
+}
+
+function Normalize-YamlScalar {
+    param([string]$Value)
+    if ($null -eq $Value) { return $null }
+    $Text = $Value.Trim()
+    $CommentIndex = $Text.IndexOf(" #")
+    if ($CommentIndex -ge 0) {
+        $Text = $Text.Substring(0, $CommentIndex).Trim()
+    }
+    if (($Text.StartsWith('"') -and $Text.EndsWith('"')) -or ($Text.StartsWith("'") -and $Text.EndsWith("'"))) {
+        $Text = $Text.Substring(1, $Text.Length - 2)
+    }
+    if ($Text -eq "" -or $Text -eq "null" -or $Text -eq "~") {
+        return $null
+    }
+    return $Text
+}
+
+function Read-YamlSectionScalar {
+    param(
+        [string]$Text,
+        [string]$Section,
+        [string]$Key
+    )
+    $Lines = $Text -split "`r?`n"
+    $InSection = $false
+    $SectionIndent = -1
+    foreach ($Line in $Lines) {
+        if (-not $InSection) {
+            $SectionPattern = "^(\s*)$([regex]::Escape($Section))\s*:\s*(?:#.*)?$"
+            if ($Line -match $SectionPattern) {
+                $InSection = $true
+                $SectionIndent = $Matches[1].Length
+            }
+            continue
+        }
+
+        if ($Line.Trim() -eq "") { continue }
+        if ($Line -match "^(\s*)\S") {
+            $Indent = $Matches[1].Length
+            if ($Indent -le $SectionIndent) { break }
+        }
+        $KeyPattern = "^\s*$([regex]::Escape($Key))\s*:\s*(.+?)\s*$"
+        if ($Line -match $KeyPattern) {
+            return Normalize-YamlScalar $Matches[1]
+        }
+    }
+    return $null
+}
+
+function Get-SourceAppIds {
+    if (-not (Test-Path -LiteralPath $AppsDir -PathType Container)) {
+        return @()
+    }
+    return @(
+        Get-ChildItem -LiteralPath $AppsDir -Directory |
+            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "app.yaml") -PathType Leaf } |
+            ForEach-Object { $_.Name } |
+            Sort-Object
+    )
+}
+
+function New-AppManifestEntry {
+    param(
+        [string]$Id,
+        [string]$Version,
+        [string]$RequiredRuntime
+    )
+    return [pscustomobject]@{
+        version = $Version
+        package = "app_packs/$Id-$Version.zip"
+        sha256 = ""
+        required_core = ">=0.1.0"
+        required_runner = ">=0.1.0"
+        required_runtime = $RequiredRuntime
+        enabled = $false
+    }
+}
+
 if (-not (Test-Path -LiteralPath $AppManifestPath -PathType Leaf)) {
     throw "release/app_manifest.json was not found."
 }
@@ -53,35 +146,47 @@ if (-not (Test-Path -LiteralPath $AppManifestPath -PathType Leaf)) {
 $AppManifest = Get-Content -Raw -Encoding UTF8 $AppManifestPath | ConvertFrom-Json
 $KnownAppIds = @($AppManifest.apps.PSObject.Properties.Name)
 $ExplicitTargets = $AppId -and $AppId.Count -gt 0
-$TargetAppIds = if ($ExplicitTargets) { $AppId } else { $KnownAppIds }
+$SourceAppIds = Get-SourceAppIds
+$TargetAppIds = if ($ExplicitTargets) { $AppId } else { $SourceAppIds }
 
 New-Item -ItemType Directory -Force -Path $AppPacksDir | Out-Null
 Reset-Directory $StageRoot
 
 foreach ($Id in $TargetAppIds) {
-    if ($KnownAppIds -notcontains $Id) {
-        throw "App is not listed in release/app_manifest.json: $Id"
-    }
-
     $AppDir = Join-Path (Join-Path $Root "apps") $Id
     $AppYaml = Join-Path $AppDir "app.yaml"
-    $Entry = $AppManifest.apps.$Id
-    $Enabled = Entry-Enabled $Entry
     if (-not (Test-Path -LiteralPath $AppYaml -PathType Leaf)) {
-        if (-not $ExplicitTargets -and -not $Enabled) {
-            Write-Host "[SKIP] $Id is enabled=false and apps/<app_id>/app.yaml is missing; treating it as a stale manifest entry."
-            continue
-        }
-        throw "App source is missing for $Id (enabled=$Enabled): $AppYaml"
+        throw "App source is missing for ${Id}: $AppYaml"
+    }
+
+    $YamlText = Get-Content -Raw -Encoding UTF8 $AppYaml
+    $YamlVersion = Read-YamlSectionScalar -Text $YamlText -Section "admin" -Key "version"
+    $YamlRequiredRuntime = Read-YamlSectionScalar -Text $YamlText -Section "runtime" -Key "required_runtime"
+
+    if ($KnownAppIds -contains $Id) {
+        $Entry = $AppManifest.apps.$Id
+    } else {
+        $VersionForNewEntry = if ([string]::IsNullOrWhiteSpace($YamlVersion)) { "0.1.0" } else { $YamlVersion }
+        $Entry = New-AppManifestEntry -Id $Id -Version $VersionForNewEntry -RequiredRuntime $YamlRequiredRuntime
+        $AppManifest.apps | Add-Member -NotePropertyName $Id -NotePropertyValue $Entry
+        $KnownAppIds += $Id
+        Write-Host "[INFO] $Id was found in apps/ but not in app_manifest; adding disabled manifest entry from app.yaml."
     }
 
     Require-File (Join-Path $AppDir "README.md")
     Require-File (Join-Path $AppDir "requirements.txt")
-    Require-File (Join-Path $AppDir "icon.svg")
+    if (-not (Test-Path -LiteralPath (Join-Path $AppDir "icon.svg") -PathType Leaf) -and
+        -not (Test-Path -LiteralPath (Join-Path $AppDir "icon.png") -PathType Leaf)) {
+        throw "Required app icon is missing: $AppDir\icon.svg or $AppDir\icon.png"
+    }
 
-    $Version = [string]$Entry.version
+    $Version = if ([string]::IsNullOrWhiteSpace($YamlVersion)) { [string]$Entry.version } else { $YamlVersion }
     if ([string]::IsNullOrWhiteSpace($Version)) {
-        throw "Version is missing in app_manifest.json for $Id"
+        throw "Version is missing in app.yaml/admin.version and app_manifest.json for $Id"
+    }
+    Set-EntryProperty -Entry $Entry -Name "version" -Value $Version
+    if (-not [string]::IsNullOrWhiteSpace($YamlRequiredRuntime)) {
+        Set-EntryProperty -Entry $Entry -Name "required_runtime" -Value $YamlRequiredRuntime
     }
 
     $PackageRelative = "app_packs/$Id-$Version.zip"
@@ -115,8 +220,8 @@ foreach ($Id in $TargetAppIds) {
     $Hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $PackagePath).Hash.ToLowerInvariant()
     $Size = (Get-Item -LiteralPath $PackagePath).Length
 
-    $Entry.package = $PackageRelative
-    $Entry.sha256 = $Hash
+    Set-EntryProperty -Entry $Entry -Name "package" -Value $PackageRelative
+    Set-EntryProperty -Entry $Entry -Name "sha256" -Value $Hash
 
     Write-Host "Packaged $Id $Version -> $PackageRelative"
     Write-Host "  sha256: $Hash"

@@ -139,14 +139,13 @@ ToolHubを再起動すると、`app.yaml` から自動検出されます。
 
 ## 管理者向けアプリ管理
 
-管理者画面の App Studio では、新規登録、既存アプリ更新MVPに加えて、Delete タブでアプリライフサイクル管理MVPを利用できます。
+管理者画面の App Studio では、新規登録、既存アプリ更新MVPに加えて、Delete タブでアプリ管理MVPを利用できます。
 
 - 非表示: `release/app_manifest.json` の対象 entry を `enabled=false` にします。
 - 再表示: `apps/<app_id>/app.yaml` が存在する場合だけ `enabled=true` に戻します。
-- バックアップ付き削除: `apps/<app_id>/` を `backups/app_lifecycle/` に退避し、manifest entry は残したまま `enabled=false` にします。
-- 復元: lifecycle backup から `apps/<app_id>/` へ戻します。復元直後は `enabled=false` のままです。
+- 削除計画: `apps/<app_id>/`、App Pack、staging、runtime app_env、App Studio backup などの将来削除対象と、外部参照・ユーザーデータ・共有runtimeの除外対象を表示します。
 
-完全削除、App Pack zip削除、backup削除、release履歴削除、ユーザーデータ削除は未実装です。詳細は [docs/17_app_lifecycle.md](docs/17_app_lifecycle.md) を参照してください。
+完全削除の実行、App Pack zip削除、backup削除、release履歴削除、ユーザーデータ削除は未実装です。詳細は [docs/17_app_management_model.md](docs/17_app_management_model.md) を参照してください。
 
 ## 検収方法
 
@@ -163,6 +162,13 @@ app manifest の状態だけを確認する場合:
 ```powershell
 .\scripts\diagnose_app_manifest.ps1
 .\scripts\diagnose_app_manifest.ps1 -Strict
+```
+
+`release/app_manifest.json` を `apps/` から再生成する計画や、完全削除前の削除予定を確認する場合:
+
+```powershell
+.\scripts\rebuild_app_manifest.ps1 -DryRun
+.\scripts\plan_app_delete.ps1 -AppId addnum_pdf -DryRun
 ```
 
 配布物検証は以下を使います。

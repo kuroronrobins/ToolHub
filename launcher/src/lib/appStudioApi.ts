@@ -2,9 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppStudioImportRequest,
   AppStudioIconRegenerateRequest,
-  AppStudioLifecycleActionResult,
-  AppStudioLifecycleApp,
-  AppStudioLifecycleBackup,
+  AppStudioDeletePlan,
+  AppStudioManagedApp,
+  AppStudioManagementActionResult,
   AppStudioAiProposal,
   AppStudioAiDiagnostics,
   AppStudioPreflightResult,
@@ -18,24 +18,16 @@ export async function appStudioListRegisteredApps(): Promise<AppStudioRegistered
   return invoke<AppStudioRegisteredApp[]>("app_studio_list_registered_apps");
 }
 
-export async function appStudioLifecycleListApps(): Promise<AppStudioLifecycleApp[]> {
-  return invoke<AppStudioLifecycleApp[]>("app_studio_lifecycle_list_apps");
+export async function appStudioManagementListApps(): Promise<AppStudioManagedApp[]> {
+  return invoke<AppStudioManagedApp[]>("app_studio_management_list_apps");
 }
 
-export async function appStudioLifecycleSetEnabled(appId: string, enabled: boolean, confirmationText = ""): Promise<AppStudioLifecycleActionResult> {
-  return invoke<AppStudioLifecycleActionResult>("app_studio_lifecycle_set_enabled", { appId, enabled, confirmationText });
+export async function appStudioManagementSetEnabled(appId: string, enabled: boolean): Promise<AppStudioManagementActionResult> {
+  return invoke<AppStudioManagementActionResult>("app_studio_management_set_enabled", { appId, enabled });
 }
 
-export async function appStudioLifecycleSoftDelete(appId: string, confirmationText: string): Promise<AppStudioLifecycleActionResult> {
-  return invoke<AppStudioLifecycleActionResult>("app_studio_lifecycle_soft_delete", { appId, confirmationText });
-}
-
-export async function appStudioLifecycleListBackups(): Promise<AppStudioLifecycleBackup[]> {
-  return invoke<AppStudioLifecycleBackup[]>("app_studio_lifecycle_list_backups");
-}
-
-export async function appStudioLifecycleRestoreBackup(backupId: string, confirmationText: string): Promise<AppStudioLifecycleActionResult> {
-  return invoke<AppStudioLifecycleActionResult>("app_studio_lifecycle_restore_backup", { backupId, confirmationText });
+export async function appStudioDeletePlan(appId: string): Promise<AppStudioDeletePlan> {
+  return invoke<AppStudioDeletePlan>("app_studio_delete_plan", { appId });
 }
 
 export async function appStudioSuggest(request: AppStudioImportRequest): Promise<AppStudioRunResult> {
