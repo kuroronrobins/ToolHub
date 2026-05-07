@@ -109,8 +109,8 @@ try {
     $DryRunExit = $LASTEXITCODE
     $DryRunText = ($DryRunOutput | Out-String)
     Assert-True ($DryRunExit -eq 0) "DryRun exits successfully"
-    Assert-True ($DryRunText.Contains("Full delete executor dry-run")) "DryRun prints executor heading"
-    Assert-True ($DryRunText.Contains("Apply is not implemented")) "DryRun states Apply is not implemented"
+    Assert-True ($DryRunText.Contains("Full delete executor")) "DryRun prints executor heading"
+    Assert-True ($DryRunText.Contains("production Apply is not implemented")) "DryRun states production Apply is not implemented"
     Assert-True ($DryRunText.Contains("Delete ordering")) "DryRun prints delete ordering"
     Assert-True ($DryRunText.Contains("Excluded targets")) "DryRun prints excluded targets"
 
@@ -134,8 +134,19 @@ try {
         $ErrorActionPreference = $PreviousErrorActionPreference
     }
     $ApplyText = ($ApplyOutput | Out-String)
-    Assert-True ($ApplyExit -ne 0) "Apply is rejected in Phase 3"
-    Assert-True ($ApplyText.Contains("Apply is not implemented in Phase 3")) "Apply rejection explains Phase 3 status"
+    Assert-True ($ApplyExit -ne 0) "Apply without temporary gate is rejected"
+    Assert-True ($ApplyText.Contains("Apply requires -AllowTemporaryAppApply")) "Apply rejection requires temporary gate"
+
+    $ErrorActionPreference = "Continue"
+    try {
+        $UnsafeApplyOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $Executor -AppId $AppId -ProjectRoot $FixtureRoot -Apply -AllowTemporaryAppApply 2>&1
+        $UnsafeApplyExit = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+    $UnsafeApplyText = ($UnsafeApplyOutput | Out-String)
+    Assert-True ($UnsafeApplyExit -ne 0) "Temporary Apply rejects unsafe app_id prefix"
+    Assert-True ($UnsafeApplyText.Contains("temporary app ids")) "Unsafe app_id rejection explains prefix gate"
 
     foreach ($Path in $Paths.GetEnumerator()) {
         Assert-True (Test-Path -LiteralPath $Path.Value) "Apply rejection did not delete $($Path.Key)"

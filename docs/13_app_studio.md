@@ -652,9 +652,9 @@ Deletion plans classify `managed_required`, `managed_generated`, and `managed_hi
 `build.output_mirror`, `%LOCALAPPDATA%/ToolHub/data/`, logs, browser profiles, app state, and shared runtime folders
 must not be deleted by app management operations. See `docs/17_app_management_model.md`.
 
-The PowerShell dry-run planner and the Tauri/Rust planner both expose normalized comparison keys. Full deletion remains
-disabled until the executor design and temporary-app E2E complete. The implementation roadmap and phase status are
-managed in `docs/18_app_delete_execution_plan.md`; the executor contract is in
+The PowerShell dry-run planner and the Tauri/Rust planner both expose normalized comparison keys. Production full
+deletion remains disabled; temporary-app E2E is covered by `scripts/test_app_full_delete_e2e.ps1`. The implementation
+roadmap and phase status are managed in `docs/18_app_delete_execution_plan.md`; the executor contract is in
 `docs/19_full_delete_executor_design.md`.
 
 ## App Source Of Truth And Derived Release Data

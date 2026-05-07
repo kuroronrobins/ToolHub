@@ -131,7 +131,13 @@ whose rebuilt `sha256` would be empty.
 
 ## Full Delete Status
 
-Full delete is not implemented in this phase. Before it is implemented, the deletion plan must be validated against:
+Production full delete is not implemented in this phase. A temporary-fixture Apply path exists for E2E validation only:
+
+```powershell
+.\scripts\test_app_full_delete_e2e.ps1
+```
+
+Before production full delete is implemented, the deletion plan and executor must remain validated against:
 
 - repository-managed required files
 - generated release artifacts
@@ -143,6 +149,6 @@ Full delete is not implemented in this phase. Before it is implemented, the dele
 - PowerShell/Tauri parity for representative fixtures
 - rehearsal cleanup followed by rebuild/diagnose/verify/check validation
 
-No current command deletes existing app source, App Pack zip files, user data, or external source folders.
-`scripts/execute_app_delete.ps1 -AppId <id> -DryRun` exists only as a non-destructive executor skeleton. Its `-Apply`
-mode is intentionally rejected until temporary-app E2E safety is proven.
+No current command deletes production app source, production App Pack zip files, user data, or external source folders.
+`scripts/execute_app_delete.ps1 -AppId <id> -DryRun` remains non-destructive for production apps. `-Apply` is accepted
+only for temp-root fixtures with `-AllowTemporaryAppApply` and a temporary app id prefix.

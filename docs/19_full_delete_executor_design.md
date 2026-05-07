@@ -5,8 +5,8 @@
 This document defines the Phase 3 design for the future ToolHub full-delete executor.
 
 The executor's job is to turn an already validated delete plan into ordered cleanup of repo-managed app-owned targets.
-This phase does not implement destructive deletion. It defines the execution contract and adds a dry-run-only entry point
-so Phase 4 can test a temporary app end to end before production deletion is enabled.
+Phase 3 defined the execution contract and dry-run entry point. Phase 4 adds a guarded Apply mode only for temporary
+fixture roots so a temporary app can be deleted end to end before production deletion is enabled.
 
 ## 2. Scope
 
@@ -68,13 +68,27 @@ cannot become destructive.
 
 ### Apply
 
-Apply mode will perform deletion in a future phase. In Phase 3 it is explicitly refused.
+Apply mode performs deletion only for a temporary fixture in Phase 4. Production Apply remains unimplemented.
 
 ```powershell
-.\scripts\execute_app_delete.ps1 -AppId <id> -Apply
+.\scripts\execute_app_delete.ps1 -AppId <temp_id> -ProjectRoot <temp_fixture> -Apply -AllowTemporaryAppApply
 ```
 
-The expected Phase 3 result is failure with a message that Apply is not implemented.
+Without the temporary gate, `-Apply` is refused. With the gate, it is still refused unless every temporary-only safety
+condition passes.
+
+Temporary-only gate:
+
+- `-Apply` must be explicit.
+- `-AllowTemporaryAppApply` must be explicit.
+- `-ProjectRoot` must be explicit.
+- `ProjectRoot` must not be the production repository root.
+- `ProjectRoot` must be under the system temp directory.
+- `app_id` must start with `__delete_e2e_` or `delete_e2e_`.
+- The regenerated plan must have no safety errors.
+- Every file-system delete target must resolve under `ProjectRoot`.
+- `release/app_manifest.json` may only be changed by removing the target entry.
+- staging candidates and excluded targets must not be deleted.
 
 ## 4. Delete Ordering
 
@@ -177,7 +191,7 @@ staging rules.
 
 ## 9. Temporary App E2E Plan
 
-Phase 4 should implement Apply only for a temporary fixture first.
+Phase 4 implements Apply only for a temporary fixture.
 
 Temporary app E2E steps:
 
@@ -194,10 +208,13 @@ Temporary app E2E steps:
 11. Verify every delete target is gone.
 12. Verify external references, user-data references, shared runtime, and staging candidates remain.
 13. Verify the manifest entry is gone and the manifest file remains valid JSON.
-14. Run `diagnose_app_manifest`, `rebuild_app_manifest -DryRun`, `verify_release`, and `check_all`.
-15. Clean up any temporary leftovers and confirm `git status --short` has no temporary artifacts.
+14. Re-run Apply to prove idempotency.
+15. Run production-repo `diagnose_app_manifest`, `rebuild_app_manifest -DryRun`, `verify_release`, and `check_all` as
+    separate validation so fixture cleanup is not confused with production state.
+16. Clean up any temporary leftovers and confirm `git status --short` has no temporary artifacts.
 
-Production deletion must wait until this temporary E2E passes.
+`scripts/test_app_full_delete_e2e.ps1` is the Phase 4 regression test for this flow. Production deletion must wait until
+Phase 5.
 
 ## 10. Production Command Design
 
@@ -208,7 +225,7 @@ Proposed future commands:
 - `scripts/execute_app_delete.ps1 -AppId <id> -DryRun`
 - `scripts/execute_app_delete.ps1 -AppId <id> -Apply`
 
-Phase 3 implements only the non-destructive script entry point. `-Apply` is deliberately rejected.
+Phase 4 implements temporary-fixture Apply in the script entry point. Production `-Apply` is deliberately rejected.
 
-Phase 4 may add a guarded Apply mode for temporary fixtures only. Phase 5 may add production Tauri command support after
-temporary E2E proves that repo-managed targets are removed and exclusions remain untouched.
+Phase 5 may add production Tauri command support after reviewing the temporary E2E evidence and preserving the
+temporary-only test as a regression guard.
