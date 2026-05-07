@@ -3,7 +3,7 @@ use crate::runner::{launch_runner, LaunchResult};
 use serde::Serialize;
 use serde_json::Value;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,12 +23,24 @@ pub struct UpdateSummary {
     pub local_manifest_version: Option<String>,
     pub update_source_configured: bool,
     pub update_source_url: Option<String>,
+    pub config_source: String,
+    pub config_path: Option<String>,
+    pub local_manifest_path: String,
+    pub app_manifest_path: String,
     pub core: Option<UpdateItem>,
     pub runner: Option<UpdateItem>,
     pub apps: Vec<UpdateItem>,
     pub runtime_update: bool,
     pub notes: Vec<String>,
     pub unsupported_actions: Vec<String>,
+}
+
+#[derive(Debug)]
+struct UpdateConfigLookup {
+    source_url: Option<String>,
+    config_source: String,
+    config_path: Option<PathBuf>,
+    notes: Vec<String>,
 }
 
 #[tauri::command]
@@ -84,9 +96,12 @@ pub fn check_updates_mvp() -> Result<UpdateSummary, String> {
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
     let local_manifest_path = root.join("release").join("manifest.json");
     let app_manifest_path = root.join("release").join("app_manifest.json");
-    let config_path = root.join("config.default").join("launcher.yaml");
-    let manifest = read_json_file(&local_manifest_path);
-    let app_manifest = read_json_file(&app_manifest_path);
+    let mut notes = vec![
+        "これは読み取り専用の更新確認MVPです。".to_string(),
+        "ダウンロード、展開、置換、バックアップ、ロールバック、署名検証は未実装です。".to_string(),
+    ];
+    let manifest = read_json_file(&local_manifest_path, "release manifest", &mut notes);
+    let app_manifest = read_json_file(&app_manifest_path, "app manifest", &mut notes);
     let current_version = env!("CARGO_PKG_VERSION").to_string();
     let local_manifest_version = manifest
         .as_ref()
@@ -96,12 +111,10 @@ pub fn check_updates_mvp() -> Result<UpdateSummary, String> {
                 .as_ref()
                 .and_then(|value| json_string(value, &["core", "version"]))
         });
-    let update_source_url = read_update_source_url(&config_path);
+    let config_lookup = read_update_config(&root);
+    notes.extend(config_lookup.notes);
+    let update_source_url = config_lookup.source_url;
     let update_source_configured = update_source_url.is_some();
-    let mut notes = vec![
-        "これは読み取り専用の更新確認MVPです。".to_string(),
-        "ダウンロード、展開、置換、バックアップ、ロールバック、署名検証は未実装です。".to_string(),
-    ];
     if !update_source_configured {
         notes.push(
             "更新元URLが未設定のため、ローカルのrelease manifestのみ確認しました。".to_string(),
@@ -142,7 +155,7 @@ pub fn check_updates_mvp() -> Result<UpdateSummary, String> {
     }
     .to_string();
     let message = match status {
-        "update_available" => "ローカルmanifest比較で更新候補を検出しました。ダウンロードと適用はまだ実行できません。",
+        "update_available" => "更新候補があります。ただし現在は確認のみで、適用は管理者機能です。",
         "no_update" => "設定済み更新元とローカルmanifestの比較準備はできています。現在は読み取り専用確認までです。",
         _ => "ローカルmanifestを確認しましたが、更新元URLが未設定です。ダウンロードと適用は未実装です。",
     }
@@ -156,6 +169,13 @@ pub fn check_updates_mvp() -> Result<UpdateSummary, String> {
         local_manifest_version,
         update_source_configured,
         update_source_url,
+        config_source: config_lookup.config_source,
+        config_path: config_lookup
+            .config_path
+            .as_ref()
+            .map(|path| path.display().to_string()),
+        local_manifest_path: local_manifest_path.display().to_string(),
+        app_manifest_path: app_manifest_path.display().to_string(),
         core,
         runner,
         apps,
@@ -172,22 +192,126 @@ pub fn check_updates_mvp() -> Result<UpdateSummary, String> {
     })
 }
 
-fn read_json_file(path: &Path) -> Option<Value> {
-    let text = fs::read_to_string(path).ok()?;
-    serde_json::from_str(&text).ok()
+fn read_json_file(path: &Path, label: &str, notes: &mut Vec<String>) -> Option<Value> {
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) => {
+            notes.push(format!(
+                "{label}を読み取れませんでした: {} ({error})",
+                path.display()
+            ));
+            return None;
+        }
+    };
+    match serde_json::from_str(&text) {
+        Ok(value) => Some(value),
+        Err(error) => {
+            notes.push(format!(
+                "{label}をJSONとして解析できませんでした: {} ({error})",
+                path.display()
+            ));
+            None
+        }
+    }
 }
 
-fn read_update_source_url(path: &Path) -> Option<String> {
-    let text = fs::read_to_string(path).ok()?;
-    let value: serde_yaml::Value = serde_yaml::from_str(&text).ok()?;
-    for key in ["source_url", "manifest_url", "url"] {
-        if let Some(value) = yaml_string(&value, &["updates", key]) {
-            if !value.trim().is_empty() {
-                return Some(value);
+fn read_update_config(root: &Path) -> UpdateConfigLookup {
+    let user_config_path = crate::setup::user_data_root()
+        .join("config")
+        .join("launcher.yaml");
+    if user_config_path.is_file() {
+        match read_update_source_url(&user_config_path) {
+            Ok(source_url) => {
+                let mut notes = Vec::new();
+                if source_url.is_none() {
+                    notes.push("ユーザー設定に更新元URLが設定されていません。".to_string());
+                }
+                return UpdateConfigLookup {
+                    source_url,
+                    config_source: "user".to_string(),
+                    config_path: Some(user_config_path),
+                    notes,
+                };
+            }
+            Err(error) => {
+                let default_lookup = read_default_update_config(root);
+                let mut notes = vec![format!(
+                    "ユーザー設定を読み取れなかったためdefault設定を参照しました: {} ({error})",
+                    user_config_path.display()
+                )];
+                notes.extend(default_lookup.notes);
+                return UpdateConfigLookup {
+                    notes,
+                    ..default_lookup
+                };
             }
         }
     }
-    None
+
+    let mut default_lookup = read_default_update_config(root);
+    default_lookup.notes.insert(
+        0,
+        format!(
+            "ユーザー設定ファイルがないためdefault設定を参照しました: {}",
+            user_config_path.display()
+        ),
+    );
+    default_lookup
+}
+
+fn read_default_update_config(root: &Path) -> UpdateConfigLookup {
+    let default_config_path = root.join("config.default").join("launcher.yaml");
+    if default_config_path.is_file() {
+        match read_update_source_url(&default_config_path) {
+            Ok(source_url) => {
+                let mut notes = Vec::new();
+                if source_url.is_none() {
+                    notes.push("default設定に更新元URLが設定されていません。".to_string());
+                }
+                return UpdateConfigLookup {
+                    source_url,
+                    config_source: "default".to_string(),
+                    config_path: Some(default_config_path),
+                    notes,
+                };
+            }
+            Err(error) => {
+                return UpdateConfigLookup {
+                    source_url: None,
+                    config_source: "missing".to_string(),
+                    config_path: Some(default_config_path.clone()),
+                    notes: vec![format!(
+                        "default設定を読み取れませんでした: {} ({error})",
+                        default_config_path.display()
+                    )],
+                };
+            }
+        }
+    }
+
+    UpdateConfigLookup {
+        source_url: None,
+        config_source: "missing".to_string(),
+        config_path: None,
+        notes: vec![format!(
+            "default設定ファイルが見つかりません: {}",
+            default_config_path.display()
+        )],
+    }
+}
+
+fn read_update_source_url(path: &Path) -> Result<Option<String>, String> {
+    let text = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let value: serde_yaml::Value =
+        serde_yaml::from_str(&text).map_err(|error| error.to_string())?;
+    for key in ["source_url", "manifest_url", "url"] {
+        if let Some(value) = yaml_string(&value, &["updates", key]) {
+            if !value.trim().is_empty() {
+                return Ok(Some(value));
+            }
+        }
+    }
+    Ok(None)
 }
 
 fn yaml_string(value: &serde_yaml::Value, path: &[&str]) -> Option<String> {

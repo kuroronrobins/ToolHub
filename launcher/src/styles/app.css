@@ -494,6 +494,8 @@ button {
 
 .version-row strong {
   color: #111827;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
 .update-note-list {

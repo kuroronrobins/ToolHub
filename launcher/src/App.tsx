@@ -55,7 +55,12 @@ export default function App() {
   async function checkForUpdates() {
     try {
       const summary = await checkUpdatesMvp();
-      setUpdateSummary(summary);
+      if (shouldShowUserUpdateNotice(summary)) {
+        setUpdateSummary(summary);
+      } else {
+        setUpdateSummary(null);
+        setUpdateDialogOpen(false);
+      }
     } catch (error) {
       console.error(error);
     }
@@ -157,4 +162,8 @@ export default function App() {
       />
     </div>
   );
+}
+
+function shouldShowUserUpdateNotice(summary: UpdateSummary | null): summary is UpdateSummary {
+  return summary?.status === "update_available";
 }

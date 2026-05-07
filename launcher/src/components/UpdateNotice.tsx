@@ -8,7 +8,7 @@ interface Props {
 }
 
 export function UpdateNotice({ summary, onOpen, onDismiss }: Props) {
-  if (!summary) {
+  if (!summary || summary.status !== "update_available") {
     return null;
   }
 
@@ -16,8 +16,8 @@ export function UpdateNotice({ summary, onOpen, onDismiss }: Props) {
     <section className="update-notice" role="status">
       <Download size={20} aria-hidden="true" />
       <div>
-        <strong>{summary.title}</strong>
-        <p>{summary.message}</p>
+        <strong>更新候補があります</strong>
+        <p>更新候補があります。ただし現在は確認のみで、適用は管理者機能です。</p>
       </div>
       <div className="notice-actions">
         <button className="primary-button" type="button" onClick={onOpen}>

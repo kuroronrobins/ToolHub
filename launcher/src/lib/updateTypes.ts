@@ -12,6 +12,10 @@ export interface UpdateSummary {
   localManifestVersion?: string | null;
   updateSourceConfigured?: boolean;
   updateSourceUrl?: string | null;
+  configSource?: "user" | "default" | "missing" | string;
+  configPath?: string | null;
+  localManifestPath?: string;
+  appManifestPath?: string;
   core?: UpdateItem;
   runner?: UpdateItem;
   apps: UpdateItem[];

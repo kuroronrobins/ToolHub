@@ -10,6 +10,12 @@ const UNSUPPORTED_ACTION_LABELS: Record<string, string> = {
   signature_verification: "署名検証",
 };
 
+const CONFIG_SOURCE_LABELS: Record<string, string> = {
+  user: "ユーザー設定",
+  default: "default設定",
+  missing: "未確認",
+};
+
 interface Props {
   summary: UpdateSummary | null;
   onClose: () => void;
@@ -75,6 +81,10 @@ export function UpdateSummaryDialog({ summary, onClose }: Props) {
             {!summary.core && !summary.runner && !summary.apps.length && !summary.runtimeUpdate ? (
               <div className="version-row"><span>更新候補</span><strong>なし</strong></div>
             ) : null}
+            <div className="version-row"><span>設定種別</span><strong>{summary.configSource ? CONFIG_SOURCE_LABELS[summary.configSource] ?? summary.configSource : "-"}</strong></div>
+            <div className="version-row"><span>設定ファイル</span><strong>{summary.configPath ?? "-"}</strong></div>
+            <div className="version-row"><span>manifest</span><strong>{summary.localManifestPath ?? "-"}</strong></div>
+            <div className="version-row"><span>app manifest</span><strong>{summary.appManifestPath ?? "-"}</strong></div>
           </div>
           {summary.notes?.length ? (
             <ul className="update-note-list">
