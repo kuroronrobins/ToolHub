@@ -625,3 +625,28 @@ available. `redesign` treats the previous image as reference only and prefers a
 new composition. `fresh` does not send the previous PNG and weakens inheritance
 from the previous prompt. Regeneration writes `icon_regeneration_timing.json`
 with manifest read, prompt build, image API call, file write, and total timing.
+
+## Delete Tab / Lifecycle MVP
+
+Delete タブは placeholder ではなく、管理者向けのアプリライフサイクル管理MVPです。完全削除ではなく、`release/app_manifest.json` と `apps/<app_id>/` の状態を一覧し、安全な管理操作だけを実行します。
+
+表示する状態は `active`、`disabled_with_source`、`disabled_stale`、`enabled_missing_source`、`source_missing_from_manifest`、`invalid_manifest` です。分類は `scripts/diagnose_app_manifest.ps1` と同じ意味です。
+
+実装済みの操作:
+
+- 非表示: manifest entry を削除せず `enabled=false` にします。
+- 再表示: `apps/<app_id>/app.yaml` が存在する場合だけ `enabled=true` にします。
+- バックアップ付き削除: `apps/<app_id>/` を `backups/app_lifecycle/<timestamp>/<app_id>/app/` に保存してから active location から退避し、manifest は `enabled=false` にします。
+- 復元: lifecycle backup から `apps/<app_id>/` へ戻します。ただし復元直後は `enabled=false` のままです。
+
+未実装の操作:
+
+- manifest entry の完全削除
+- App Pack zip の削除
+- backup の削除
+- release 履歴の削除
+- ユーザーデータ削除
+- manifest entry がない source の自動登録
+- 既存 `apps/<app_id>/` への上書き復元
+
+バックアップ付き削除は `DELETE <app_id>`、復元は `RESTORE <app_id>` の確認入力を要求します。操作前後の manifest snapshot と metadata は `backups/app_lifecycle/` に保存し、管理者ログへ概要を記録します。詳細は `docs/17_app_lifecycle.md` を参照してください。

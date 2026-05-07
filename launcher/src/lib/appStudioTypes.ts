@@ -53,6 +53,54 @@ export interface AppStudioRegisteredApp {
   warning?: string | null;
 }
 
+export type AppStudioLifecycleStatus =
+  | "active"
+  | "disabled_with_source"
+  | "disabled_stale"
+  | "enabled_missing_source"
+  | "source_missing_from_manifest"
+  | "invalid_manifest"
+  | string;
+
+export interface AppStudioLifecycleApp {
+  appId: string;
+  name: string;
+  version?: string | null;
+  enabled?: boolean | null;
+  lifecycleStatus: AppStudioLifecycleStatus;
+  hasSource: boolean;
+  appYamlPath?: string | null;
+  packagePath?: string | null;
+  packageExists: boolean;
+  requiredRuntime?: string | null;
+  runner?: string | null;
+  entry?: string | null;
+  description?: string | null;
+  warning?: string | null;
+  recommendedAction: string;
+}
+
+export interface AppStudioLifecycleBackup {
+  backupId: string;
+  appId: string;
+  operation: string;
+  createdAt: string;
+  backupPath: string;
+  backupAppDir?: string | null;
+  manifestBefore?: string | null;
+  enabledBefore?: boolean | null;
+  restorable: boolean;
+  restoreBlockedReason?: string | null;
+}
+
+export interface AppStudioLifecycleActionResult {
+  ok: boolean;
+  message: string;
+  apps: AppStudioLifecycleApp[];
+  target?: AppStudioLifecycleApp | null;
+  backup?: AppStudioLifecycleBackup | null;
+}
+
 export interface AppStudioRunResult {
   ok: boolean;
   exitCode: number;

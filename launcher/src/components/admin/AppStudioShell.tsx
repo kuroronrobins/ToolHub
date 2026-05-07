@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Boxes, FileCheck2, PackagePlus, Trash2 } from "lucide-react";
 import { AppStudioImportWizard } from "./appstudio/AppStudioImportWizard";
+import { AppStudioLifecycleManager } from "./appstudio/AppStudioLifecycleManager";
 import { AppStudioUpdateWizard } from "./appstudio/AppStudioUpdateWizard";
 
 type StudioTab = "new" | "update" | "delete" | "publish";
@@ -19,7 +20,8 @@ export function AppStudioShell() {
       </div>
       <p className="admin-muted">
         App Studio runs the CLI workflow from the administrator screen. New registration is available, and existing app
-        update is now available as an MVP. Delete and publish workflows remain placeholders.
+        update is now available as an MVP. Delete now provides safe lifecycle management; publish prep remains a
+        placeholder.
       </p>
 
       <div className="studio-tab-row" role="tablist" aria-label="App Studio sections">
@@ -43,7 +45,8 @@ export function AppStudioShell() {
 
       {activeTab === "new" ? <AppStudioImportWizard /> : null}
       {activeTab === "update" ? <AppStudioUpdateWizard /> : null}
-      {activeTab === "delete" || activeTab === "publish" ? (
+      {activeTab === "delete" ? <AppStudioLifecycleManager /> : null}
+      {activeTab === "publish" ? (
         <div className="admin-card-grid">
           <button className="admin-work-card" type="button" disabled>
             <PackagePlus size={22} aria-hidden="true" />
@@ -54,11 +57,6 @@ export function AppStudioShell() {
             <Boxes size={22} aria-hidden="true" />
             <strong>Existing app update</strong>
             <span>Use the Existing app update tab for the update MVP.</span>
-          </button>
-          <button className="admin-work-card danger" type="button" disabled>
-            <Trash2 size={22} aria-hidden="true" />
-            <strong>Delete / uninstall</strong>
-            <span>Not implemented. Future dangerous operations should require re-authentication.</span>
           </button>
           <button className="admin-work-card" type="button" disabled>
             <FileCheck2 size={22} aria-hidden="true" />

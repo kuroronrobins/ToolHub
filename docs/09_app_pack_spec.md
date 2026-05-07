@@ -93,6 +93,8 @@ manifest上の対象アプリ:
 
 引数なしの場合は `release/app_manifest.json` の entry を対象にします。`enabled=false` かつ `apps/<app_id>/app.yaml` がない stale entry は skip し、`enabled=true` で source missing の entry は fail します。`-AppId` で明示指定した app に source がない場合も fail します。
 
+App Studio のライフサイクル管理でバックアップ付き削除を行った app は、manifest entry を残したまま `enabled=false` かつ source missing の `disabled_stale` になります。この状態は通常の全体 App Pack 生成対象から除外されます。App Pack zip はライフサイクル操作では削除しません。正式配布前や Strict 検証では、復元するか、stale として維持する理由を確認するか、将来の完全削除フローで整理します。
+
 単一アプリ:
 
 ```powershell

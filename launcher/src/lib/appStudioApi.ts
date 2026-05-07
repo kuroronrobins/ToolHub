@@ -2,6 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppStudioImportRequest,
   AppStudioIconRegenerateRequest,
+  AppStudioLifecycleActionResult,
+  AppStudioLifecycleApp,
+  AppStudioLifecycleBackup,
   AppStudioAiProposal,
   AppStudioAiDiagnostics,
   AppStudioPreflightResult,
@@ -13,6 +16,26 @@ import type {
 
 export async function appStudioListRegisteredApps(): Promise<AppStudioRegisteredApp[]> {
   return invoke<AppStudioRegisteredApp[]>("app_studio_list_registered_apps");
+}
+
+export async function appStudioLifecycleListApps(): Promise<AppStudioLifecycleApp[]> {
+  return invoke<AppStudioLifecycleApp[]>("app_studio_lifecycle_list_apps");
+}
+
+export async function appStudioLifecycleSetEnabled(appId: string, enabled: boolean, confirmationText = ""): Promise<AppStudioLifecycleActionResult> {
+  return invoke<AppStudioLifecycleActionResult>("app_studio_lifecycle_set_enabled", { appId, enabled, confirmationText });
+}
+
+export async function appStudioLifecycleSoftDelete(appId: string, confirmationText: string): Promise<AppStudioLifecycleActionResult> {
+  return invoke<AppStudioLifecycleActionResult>("app_studio_lifecycle_soft_delete", { appId, confirmationText });
+}
+
+export async function appStudioLifecycleListBackups(): Promise<AppStudioLifecycleBackup[]> {
+  return invoke<AppStudioLifecycleBackup[]>("app_studio_lifecycle_list_backups");
+}
+
+export async function appStudioLifecycleRestoreBackup(backupId: string, confirmationText: string): Promise<AppStudioLifecycleActionResult> {
+  return invoke<AppStudioLifecycleActionResult>("app_studio_lifecycle_restore_backup", { backupId, confirmationText });
 }
 
 export async function appStudioSuggest(request: AppStudioImportRequest): Promise<AppStudioRunResult> {

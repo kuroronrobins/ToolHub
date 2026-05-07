@@ -3,6 +3,8 @@ use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -103,6 +105,64 @@ pub struct AppStudioRegisteredApp {
     pub entry: Option<String>,
     pub description: Option<String>,
     pub warning: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioLifecycleApp {
+    pub app_id: String,
+    pub name: String,
+    pub version: Option<String>,
+    pub enabled: Option<bool>,
+    pub lifecycle_status: String,
+    pub has_source: bool,
+    pub app_yaml_path: Option<String>,
+    pub package_path: Option<String>,
+    pub package_exists: bool,
+    pub required_runtime: Option<String>,
+    pub runner: Option<String>,
+    pub entry: Option<String>,
+    pub description: Option<String>,
+    pub warning: Option<String>,
+    pub recommended_action: String,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioLifecycleBackup {
+    pub backup_id: String,
+    pub app_id: String,
+    pub operation: String,
+    pub created_at: String,
+    pub backup_path: String,
+    pub backup_app_dir: Option<String>,
+    pub manifest_before: Option<String>,
+    pub enabled_before: Option<bool>,
+    pub restorable: bool,
+    pub restore_blocked_reason: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioLifecycleActionResult {
+    pub ok: bool,
+    pub message: String,
+    pub apps: Vec<AppStudioLifecycleApp>,
+    pub target: Option<AppStudioLifecycleApp>,
+    pub backup: Option<AppStudioLifecycleBackup>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+struct LifecycleBackupMetadata {
+    app_id: String,
+    operation: String,
+    created_at: String,
+    source_app_dir: Option<String>,
+    backup_app_dir: Option<String>,
+    manifest_before: Option<String>,
+    manifest_after: Option<String>,
+    enabled_before: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -368,6 +428,58 @@ pub fn app_studio_list_registered_apps(
     session.require_authenticated()?;
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
     Ok(list_registered_apps_from_root(&root))
+}
+
+#[tauri::command]
+pub fn app_studio_lifecycle_list_apps(
+    session: State<AdminSessionState>,
+) -> Result<Vec<AppStudioLifecycleApp>, String> {
+    session.require_authenticated()?;
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    Ok(list_lifecycle_apps_from_root(&root))
+}
+
+#[tauri::command]
+pub fn app_studio_lifecycle_set_enabled(
+    app_id: String,
+    enabled: bool,
+    confirmation_text: Option<String>,
+    session: State<AdminSessionState>,
+) -> Result<AppStudioLifecycleActionResult, String> {
+    session.require_authenticated()?;
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    lifecycle_set_enabled(&root, &app_id, enabled, confirmation_text.as_deref())
+}
+
+#[tauri::command]
+pub fn app_studio_lifecycle_soft_delete(
+    app_id: String,
+    confirmation_text: String,
+    session: State<AdminSessionState>,
+) -> Result<AppStudioLifecycleActionResult, String> {
+    session.require_authenticated()?;
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    lifecycle_soft_delete(&root, &app_id, &confirmation_text)
+}
+
+#[tauri::command]
+pub fn app_studio_lifecycle_list_backups(
+    session: State<AdminSessionState>,
+) -> Result<Vec<AppStudioLifecycleBackup>, String> {
+    session.require_authenticated()?;
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    Ok(list_lifecycle_backups(&root))
+}
+
+#[tauri::command]
+pub fn app_studio_lifecycle_restore_backup(
+    backup_id: String,
+    confirmation_text: String,
+    session: State<AdminSessionState>,
+) -> Result<AppStudioLifecycleActionResult, String> {
+    session.require_authenticated()?;
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    lifecycle_restore_backup(&root, &backup_id, &confirmation_text)
 }
 
 #[tauri::command]
@@ -2419,6 +2531,577 @@ fn apply_release_manifest_data(app: &mut AppStudioRegisteredApp, release: Option
     }
     if let Some(enabled) = entry.get("enabled").and_then(Value::as_bool) {
         app.enabled = enabled;
+    }
+}
+
+fn list_lifecycle_apps_from_root(root: &Path) -> Vec<AppStudioLifecycleApp> {
+    let release = read_json(&app_manifest_path(root));
+    let release_apps = release
+        .as_ref()
+        .and_then(|value| value.get("apps"))
+        .and_then(Value::as_object);
+    let mut app_ids = BTreeSet::new();
+    if let Some(apps) = release_apps {
+        app_ids.extend(apps.keys().cloned());
+    }
+    let apps_dir = root.join("apps");
+    if let Ok(entries) = fs::read_dir(&apps_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() && path.join("app.yaml").is_file() {
+                if let Some(id) = path.file_name().and_then(|value| value.to_str()) {
+                    app_ids.insert(id.to_string());
+                }
+            }
+        }
+    }
+
+    let mut apps = Vec::new();
+    for app_id in app_ids {
+        apps.push(lifecycle_app_from_parts(root, &app_id, release_apps.and_then(|apps| apps.get(&app_id))));
+    }
+    apps
+}
+
+fn lifecycle_app_from_parts(
+    root: &Path,
+    app_id: &str,
+    manifest_entry: Option<&Value>,
+) -> AppStudioLifecycleApp {
+    let app_yaml = root.join("apps").join(app_id).join("app.yaml");
+    let has_source = app_yaml.is_file();
+    let yaml_app = if has_source {
+        Some(read_registered_app_from_yaml(&app_yaml, app_id))
+    } else {
+        None
+    };
+    let yaml_ok = yaml_app.as_ref().and_then(|result| result.as_ref().ok());
+    let yaml_error = yaml_app
+        .as_ref()
+        .and_then(|result| result.as_ref().err())
+        .cloned();
+    let enabled = manifest_entry.map(manifest_entry_enabled);
+    let lifecycle_status = if yaml_error.is_some() {
+        "invalid_manifest"
+    } else if let Some(enabled) = enabled {
+        match (enabled, has_source) {
+            (true, true) => "active",
+            (false, true) => "disabled_with_source",
+            (false, false) => "disabled_stale",
+            (true, false) => "enabled_missing_source",
+        }
+    } else if has_source {
+        "source_missing_from_manifest"
+    } else {
+        "invalid_manifest"
+    };
+    let package_relative = manifest_entry.and_then(|entry| json_str(entry, "package"));
+    let package_path = package_relative
+        .as_ref()
+        .map(|package| root.join("release").join(package));
+    let package_exists = package_path.as_ref().is_some_and(|path| path.is_file());
+    let version = manifest_entry
+        .and_then(|entry| json_str(entry, "version"))
+        .or_else(|| yaml_ok.map(|app| app.version.clone()));
+    let name = yaml_ok
+        .map(|app| app.name.clone())
+        .unwrap_or_else(|| app_id.to_string());
+    let runner = yaml_ok.and_then(|app| app.runner.clone());
+    let entry = yaml_ok.and_then(|app| app.entry.clone());
+    let description = yaml_ok.and_then(|app| app.description.clone());
+    let required_runtime = manifest_entry.and_then(|entry| json_str(entry, "required_runtime"));
+    let warning = lifecycle_warning(lifecycle_status, yaml_error.as_deref());
+    let recommended_action = lifecycle_recommended_action(lifecycle_status).to_string();
+
+    AppStudioLifecycleApp {
+        app_id: app_id.to_string(),
+        name,
+        version,
+        enabled,
+        lifecycle_status: lifecycle_status.to_string(),
+        has_source,
+        app_yaml_path: Some(app_yaml.display().to_string()),
+        package_path: package_path.map(|path| path.display().to_string()),
+        package_exists,
+        required_runtime,
+        runner,
+        entry,
+        description,
+        warning,
+        recommended_action,
+    }
+}
+
+fn lifecycle_warning(status: &str, yaml_error: Option<&str>) -> Option<String> {
+    match status {
+        "invalid_manifest" => Some(
+            yaml_error
+                .map(|error| format!("app.yamlを読み込めません: {error}"))
+                .unwrap_or_else(|| "アプリ定義を読み込めません。".to_string()),
+        ),
+        "enabled_missing_source" => {
+            Some("enabled=trueですが apps/<app_id>/app.yaml がありません。無効化してください。".to_string())
+        }
+        "disabled_stale" => Some(
+            "enabled=falseでapp sourceがありません。通常検証では履歴として扱い、Strictでは整理対象です。"
+                .to_string(),
+        ),
+        "source_missing_from_manifest" => Some(
+            "apps/<app_id>/app.yaml はありますが release/app_manifest.json に entry がありません。"
+                .to_string(),
+        ),
+        _ => None,
+    }
+}
+
+fn lifecycle_recommended_action(status: &str) -> &'static str {
+    match status {
+        "active" => "必要に応じて非表示、またはバックアップ付き削除を実行できます。",
+        "disabled_with_source" => "sourceがあるため再表示できます。不要ならバックアップ付き削除できます。",
+        "disabled_stale" => "復元候補を確認してください。完全削除は未実装です。",
+        "enabled_missing_source" => "通常表示や更新確認に影響するため、まず無効化してください。",
+        "source_missing_from_manifest" => "今回のMVPでは診断のみです。manifestへの追加は未実装です。",
+        "invalid_manifest" => "app.yamlを修正してから操作してください。",
+        _ => "状態を確認してください。",
+    }
+}
+
+fn lifecycle_set_enabled(
+    root: &Path,
+    app_id: &str,
+    enabled: bool,
+    _confirmation_text: Option<&str>,
+) -> Result<AppStudioLifecycleActionResult, String> {
+    let app_id = app_id.trim();
+    validate_app_id(app_id)?;
+    if enabled && !root.join("apps").join(app_id).join("app.yaml").is_file() {
+        return Err("再表示するには apps/<app_id>/app.yaml が必要です。".to_string());
+    }
+    let manifest_path = app_manifest_path(root);
+    let mut manifest = read_app_manifest_for_write(&manifest_path)?;
+    let enabled_before = manifest_app_entry(&manifest, app_id).map(manifest_entry_enabled);
+    if enabled_before.is_none() {
+        return Err("release/app_manifest.json に対象app_idがありません。今回のMVPではentry作成は行いません。".to_string());
+    }
+
+    let backup_dir = create_lifecycle_backup_dir(root, app_id)?;
+    let before_path = backup_dir.join("app_manifest.before.json");
+    write_json_file(&before_path, &manifest)?;
+
+    {
+        let entry = manifest_app_entry_mut(&mut manifest, app_id)?;
+        entry.insert("enabled".to_string(), Value::Bool(enabled));
+    }
+    write_json_file(&manifest_path, &manifest)?;
+    let after_path = backup_dir.join("app_manifest.after.json");
+    write_json_file(&after_path, &manifest)?;
+    let metadata = LifecycleBackupMetadata {
+        app_id: app_id.to_string(),
+        operation: if enabled { "set_enabled_true" } else { "set_enabled_false" }.to_string(),
+        created_at: chrono::Local::now().to_rfc3339(),
+        source_app_dir: Some(root.join("apps").join(app_id).display().to_string()),
+        backup_app_dir: None,
+        manifest_before: Some(before_path.display().to_string()),
+        manifest_after: Some(after_path.display().to_string()),
+        enabled_before,
+    };
+    write_json_file(&backup_dir.join("metadata.json"), &metadata)?;
+    append_app_studio_gui_log(
+        "lifecycle_set_enabled",
+        &[
+            ("app_id", app_id.to_string()),
+            ("enabled", enabled.to_string()),
+            ("backup", backup_dir.display().to_string()),
+        ],
+    );
+    Ok(lifecycle_result(
+        root,
+        app_id,
+        format!(
+            "{} を{}にしました。",
+            app_id,
+            if enabled { "再表示" } else { "非表示" }
+        ),
+        Some(backup_to_summary(root, backup_dir)),
+    ))
+}
+
+fn lifecycle_soft_delete(
+    root: &Path,
+    app_id: &str,
+    confirmation_text: &str,
+) -> Result<AppStudioLifecycleActionResult, String> {
+    let app_id = app_id.trim();
+    validate_app_id(app_id)?;
+    require_confirmation(confirmation_text, &format!("DELETE {app_id}"))?;
+    let app_dir = root.join("apps").join(app_id);
+    let app_yaml = app_dir.join("app.yaml");
+    let manifest_path = app_manifest_path(root);
+    let mut manifest = read_app_manifest_for_write(&manifest_path)?;
+    let enabled_before = manifest_app_entry(&manifest, app_id).map(manifest_entry_enabled);
+    if enabled_before.is_none() {
+        return Err("release/app_manifest.json に対象app_idがありません。完全削除やentry作成は未実装です。".to_string());
+    }
+    if !app_yaml.is_file() {
+        if enabled_before == Some(false) {
+            return Ok(lifecycle_result(
+                root,
+                app_id,
+                "app source は既に存在しません。disabled stale として扱っています。".to_string(),
+                None,
+            ));
+        }
+        return Err("app source がないためバックアップ付き削除は実行できません。先に無効化してください。".to_string());
+    }
+
+    let backup_dir = create_lifecycle_backup_dir(root, app_id)?;
+    let before_path = backup_dir.join("app_manifest.before.json");
+    write_json_file(&before_path, &manifest)?;
+    let backup_app_dir = backup_dir.join("app");
+    copy_dir_recursive(&app_dir, &backup_app_dir)?;
+    {
+        let entry = manifest_app_entry_mut(&mut manifest, app_id)?;
+        entry.insert("enabled".to_string(), Value::Bool(false));
+    }
+    write_json_file(&manifest_path, &manifest)?;
+    let after_path = backup_dir.join("app_manifest.after.json");
+    write_json_file(&after_path, &manifest)?;
+    let metadata = LifecycleBackupMetadata {
+        app_id: app_id.to_string(),
+        operation: "soft_delete".to_string(),
+        created_at: chrono::Local::now().to_rfc3339(),
+        source_app_dir: Some(app_dir.display().to_string()),
+        backup_app_dir: Some(backup_app_dir.display().to_string()),
+        manifest_before: Some(before_path.display().to_string()),
+        manifest_after: Some(after_path.display().to_string()),
+        enabled_before,
+    };
+    write_json_file(&backup_dir.join("metadata.json"), &metadata)?;
+    fs::remove_dir_all(&app_dir).map_err(|error| {
+        format!(
+            "backup作成後に apps/<app_id>/ の退避で失敗しました: {} ({error})",
+            app_dir.display()
+        )
+    })?;
+    append_app_studio_gui_log(
+        "lifecycle_soft_delete",
+        &[
+            ("app_id", app_id.to_string()),
+            ("backup", backup_dir.display().to_string()),
+        ],
+    );
+    Ok(lifecycle_result(
+        root,
+        app_id,
+        "アプリ本体をバックアップへ退避し、manifestはenabled=falseにしました。".to_string(),
+        Some(backup_to_summary(root, backup_dir)),
+    ))
+}
+
+fn lifecycle_restore_backup(
+    root: &Path,
+    backup_id: &str,
+    confirmation_text: &str,
+) -> Result<AppStudioLifecycleActionResult, String> {
+    let backup_dir = backup_dir_from_id(root, backup_id)?;
+    let metadata = read_lifecycle_backup_metadata(&backup_dir)?;
+    validate_app_id(&metadata.app_id)?;
+    require_confirmation(confirmation_text, &format!("RESTORE {}", metadata.app_id))?;
+    let backup_app_dir = metadata
+        .backup_app_dir
+        .as_deref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| backup_dir.join("app"));
+    if !backup_app_dir.join("app.yaml").is_file() {
+        return Err("backup内に app/app.yaml がないため復元できません。".to_string());
+    }
+    let app_dir = root.join("apps").join(&metadata.app_id);
+    if app_dir.exists() {
+        return Err("apps/<app_id>/ が既に存在するため上書き復元は行いません。先に別操作で退避してください。".to_string());
+    }
+    let manifest_path = app_manifest_path(root);
+    let mut manifest = read_app_manifest_for_write(&manifest_path)?;
+    if manifest_app_entry(&manifest, &metadata.app_id).is_none() {
+        return Err("release/app_manifest.json に対象app_idがありません。今回のMVPではentry自動生成は行いません。".to_string());
+    }
+    let stamp = lifecycle_timestamp();
+    let before_path = backup_dir.join(format!("app_manifest.restore_before.{stamp}.json"));
+    write_json_file(&before_path, &manifest)?;
+    if let Err(error) = copy_dir_recursive(&backup_app_dir, &app_dir) {
+        let _ = fs::remove_dir_all(&app_dir);
+        return Err(error);
+    }
+    {
+        let entry = manifest_app_entry_mut(&mut manifest, &metadata.app_id)?;
+        entry.insert("enabled".to_string(), Value::Bool(false));
+    }
+    write_json_file(&manifest_path, &manifest)?;
+    let after_path = backup_dir.join(format!("app_manifest.restore_after.{stamp}.json"));
+    write_json_file(&after_path, &manifest)?;
+    let restore_record = serde_json::json!({
+        "app_id": metadata.app_id,
+        "operation": "restore_backup",
+        "created_at": chrono::Local::now().to_rfc3339(),
+        "backup_id": backup_id,
+        "restored_to": app_dir.display().to_string(),
+        "manifest_before": before_path.display().to_string(),
+        "manifest_after": after_path.display().to_string(),
+        "enabled_after": false
+    });
+    write_json_file(&backup_dir.join(format!("restore_record.{stamp}.json")), &restore_record)?;
+    append_app_studio_gui_log(
+        "lifecycle_restore_backup",
+        &[
+            ("app_id", metadata.app_id.clone()),
+            ("backup_id", backup_id.to_string()),
+        ],
+    );
+    Ok(lifecycle_result(
+        root,
+        &metadata.app_id,
+        "バックアップから apps/<app_id>/ へ復元しました。復元直後はenabled=falseです。".to_string(),
+        Some(backup_to_summary(root, backup_dir)),
+    ))
+}
+
+fn lifecycle_result(
+    root: &Path,
+    app_id: &str,
+    message: String,
+    backup: Option<AppStudioLifecycleBackup>,
+) -> AppStudioLifecycleActionResult {
+    let apps = list_lifecycle_apps_from_root(root);
+    let target = apps.iter().find(|app| app.app_id == app_id).cloned();
+    AppStudioLifecycleActionResult {
+        ok: true,
+        message,
+        apps,
+        target,
+        backup,
+    }
+}
+
+fn list_lifecycle_backups(root: &Path) -> Vec<AppStudioLifecycleBackup> {
+    let backup_root = root.join("backups").join("app_lifecycle");
+    let mut backups = Vec::new();
+    let Ok(stamps) = fs::read_dir(&backup_root) else {
+        return backups;
+    };
+    for stamp in stamps.flatten() {
+        let stamp_path = stamp.path();
+        if !stamp_path.is_dir() {
+            continue;
+        }
+        let Some(stamp_name) = stamp_path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let Ok(app_dirs) = fs::read_dir(&stamp_path) else {
+            continue;
+        };
+        for app_dir in app_dirs.flatten() {
+            let path = app_dir.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let Some(app_id) = path.file_name().and_then(|value| value.to_str()) else {
+                continue;
+            };
+            if let Ok(summary) = lifecycle_backup_summary(root, &path, &format!("{stamp_name}/{app_id}")) {
+                backups.push(summary);
+            }
+        }
+    }
+    backups.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(a.app_id.cmp(&b.app_id)));
+    backups
+}
+
+fn backup_to_summary(root: &Path, backup_dir: PathBuf) -> AppStudioLifecycleBackup {
+    let backup_id = backup_id_from_dir(root, &backup_dir).unwrap_or_default();
+    lifecycle_backup_summary(root, &backup_dir, &backup_id).unwrap_or_else(|_| AppStudioLifecycleBackup {
+        backup_id,
+        backup_path: backup_dir.display().to_string(),
+        ..AppStudioLifecycleBackup::default()
+    })
+}
+
+fn lifecycle_backup_summary(
+    root: &Path,
+    backup_dir: &Path,
+    backup_id: &str,
+) -> Result<AppStudioLifecycleBackup, String> {
+    let metadata = read_lifecycle_backup_metadata(backup_dir)?;
+    let backup_app_dir = metadata
+        .backup_app_dir
+        .as_deref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| backup_dir.join("app"));
+    let app_dir = root.join("apps").join(&metadata.app_id);
+    let manifest_has_entry = read_json(&app_manifest_path(root))
+        .and_then(|json| json.get("apps").and_then(|apps| apps.get(&metadata.app_id)).cloned())
+        .is_some();
+    let mut restorable = true;
+    let mut blocked = None;
+    if !backup_app_dir.join("app.yaml").is_file() {
+        restorable = false;
+        blocked = Some("backup内に app/app.yaml がありません。".to_string());
+    } else if app_dir.exists() {
+        restorable = false;
+        blocked = Some("apps/<app_id>/ が既に存在するため上書き復元できません。".to_string());
+    } else if !manifest_has_entry {
+        restorable = false;
+        blocked = Some("release/app_manifest.json にentryがないため自動復元できません。".to_string());
+    }
+    Ok(AppStudioLifecycleBackup {
+        backup_id: backup_id.to_string(),
+        app_id: metadata.app_id,
+        operation: metadata.operation,
+        created_at: metadata.created_at,
+        backup_path: backup_dir.display().to_string(),
+        backup_app_dir: Some(backup_app_dir.display().to_string()),
+        manifest_before: metadata.manifest_before,
+        enabled_before: metadata.enabled_before,
+        restorable,
+        restore_blocked_reason: blocked,
+    })
+}
+
+fn read_lifecycle_backup_metadata(backup_dir: &Path) -> Result<LifecycleBackupMetadata, String> {
+    let path = backup_dir.join("metadata.json");
+    let text = fs::read_to_string(&path)
+        .map_err(|error| format!("backup metadataを読み込めません: {} ({error})", path.display()))?;
+    serde_json::from_str(&text)
+        .map_err(|error| format!("backup metadataを解析できません: {} ({error})", path.display()))
+}
+
+fn backup_dir_from_id(root: &Path, backup_id: &str) -> Result<PathBuf, String> {
+    let normalized = backup_id.replace('\\', "/");
+    let parts = normalized.split('/').collect::<Vec<_>>();
+    if parts.len() != 2 || parts.iter().any(|part| part.trim().is_empty()) {
+        return Err("backupIdは <timestamp>/<app_id> 形式で指定してください。".to_string());
+    }
+    validate_app_id(parts[1])?;
+    if !parts[0]
+        .chars()
+        .all(|character| character.is_ascii_digit() || character == '_' || character == '-')
+    {
+        return Err("backupIdのtimestampが不正です。".to_string());
+    }
+    let path = root
+        .join("backups")
+        .join("app_lifecycle")
+        .join(parts[0])
+        .join(parts[1]);
+    if !path.is_dir() {
+        return Err("backupが見つかりません。".to_string());
+    }
+    Ok(path)
+}
+
+fn backup_id_from_dir(root: &Path, backup_dir: &Path) -> Option<String> {
+    let base = root.join("backups").join("app_lifecycle");
+    let relative = backup_dir.strip_prefix(base).ok()?;
+    Some(relative.to_string_lossy().replace('\\', "/"))
+}
+
+fn create_lifecycle_backup_dir(root: &Path, app_id: &str) -> Result<PathBuf, String> {
+    let dir = root
+        .join("backups")
+        .join("app_lifecycle")
+        .join(lifecycle_timestamp())
+        .join(app_id);
+    fs::create_dir_all(&dir)
+        .map_err(|error| format!("lifecycle backup folderを作成できません: {} ({error})", dir.display()))?;
+    Ok(dir)
+}
+
+fn lifecycle_timestamp() -> String {
+    chrono::Local::now().format("%Y%m%d_%H%M%S_%3f").to_string()
+}
+
+fn read_app_manifest_for_write(path: &Path) -> Result<Value, String> {
+    let text = fs::read_to_string(path)
+        .map_err(|error| format!("release/app_manifest.json を読み込めません: {} ({error})", path.display()))?;
+    serde_json::from_str(&text)
+        .map_err(|error| format!("release/app_manifest.json を解析できません: {} ({error})", path.display()))
+}
+
+fn app_manifest_path(root: &Path) -> PathBuf {
+    root.join("release").join("app_manifest.json")
+}
+
+fn manifest_app_entry<'a>(manifest: &'a Value, app_id: &str) -> Option<&'a Value> {
+    manifest.get("apps").and_then(|apps| apps.get(app_id))
+}
+
+fn manifest_app_entry_mut<'a>(
+    manifest: &'a mut Value,
+    app_id: &str,
+) -> Result<&'a mut Map<String, Value>, String> {
+    let apps = manifest
+        .get_mut("apps")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "release/app_manifest.json の apps object が見つかりません。".to_string())?;
+    apps.get_mut(app_id)
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "release/app_manifest.json に対象app_idがありません。".to_string())
+}
+
+fn manifest_entry_enabled(entry: &Value) -> bool {
+    entry.get("enabled").and_then(Value::as_bool).unwrap_or(true)
+}
+
+fn json_str(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn write_json_file<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(value)
+        .map_err(|error| format!("JSONを生成できません: {} ({error})", path.display()))?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("フォルダを作成できません: {} ({error})", parent.display()))?;
+    }
+    fs::write(path, format!("{text}\n"))
+        .map_err(|error| format!("JSONを書き込めません: {} ({error})", path.display()))
+}
+
+fn copy_dir_recursive(source: &Path, target: &Path) -> Result<(), String> {
+    if target.exists() {
+        return Err(format!("コピー先が既に存在します: {}", target.display()));
+    }
+    fs::create_dir_all(target)
+        .map_err(|error| format!("コピー先を作成できません: {} ({error})", target.display()))?;
+    for entry in fs::read_dir(source)
+        .map_err(|error| format!("コピー元を読み込めません: {} ({error})", source.display()))?
+    {
+        let entry = entry.map_err(|error| format!("コピー元entryを読み込めません: {error}"))?;
+        let path = entry.path();
+        let destination = target.join(entry.file_name());
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("ファイル種別を確認できません: {} ({error})", path.display()))?;
+        if file_type.is_dir() {
+            copy_dir_recursive(&path, &destination)?;
+        } else if file_type.is_file() {
+            fs::copy(&path, &destination)
+                .map_err(|error| format!("ファイルをコピーできません: {} ({error})", path.display()))?;
+        } else {
+            return Err(format!("通常ファイル/フォルダ以外はlifecycle backup対象外です: {}", path.display()));
+        }
+    }
+    Ok(())
+}
+
+fn require_confirmation(actual: &str, expected: &str) -> Result<(), String> {
+    if actual.trim() == expected {
+        Ok(())
+    } else {
+        Err(format!("確認入力が一致しません。`{expected}` と入力してください。"))
     }
 }
 

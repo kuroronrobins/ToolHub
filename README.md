@@ -137,6 +137,17 @@ ToolHubは配布アプリケーションなので、再現性のために以下�
 
 ToolHubを再起動すると、`app.yaml` から自動検出されます。
 
+## 管理者向けアプリ管理
+
+管理者画面の App Studio では、新規登録、既存アプリ更新MVPに加えて、Delete タブでアプリライフサイクル管理MVPを利用できます。
+
+- 非表示: `release/app_manifest.json` の対象 entry を `enabled=false` にします。
+- 再表示: `apps/<app_id>/app.yaml` が存在する場合だけ `enabled=true` に戻します。
+- バックアップ付き削除: `apps/<app_id>/` を `backups/app_lifecycle/` に退避し、manifest entry は残したまま `enabled=false` にします。
+- 復元: lifecycle backup から `apps/<app_id>/` へ戻します。復元直後は `enabled=false` のままです。
+
+完全削除、App Pack zip削除、backup削除、release履歴削除、ユーザーデータ削除は未実装です。詳細は [docs/17_app_lifecycle.md](docs/17_app_lifecycle.md) を参照してください。
+
 ## 検収方法
 
 可能な範囲のチェックは以下で実行します。
