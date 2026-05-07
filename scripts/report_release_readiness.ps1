@@ -288,7 +288,7 @@ foreach ($SourceId in $SourceIds) {
 
 $PythonExe = Join-Path (Join-Path $RuntimeDir "python") "python.exe"
 if (-not (Test-Path -LiteralPath $PythonExe -PathType Leaf)) {
-    Add-ListItem $Report "runtime_packaging_required" (New-ItemRecord -Category "runtime_packaging_required" -Id "python-runtime" -State "missing" -Reason "Shared Python runtime executable is not bundled." -RecommendedAction "Resolve through runtime packaging, not app deletion." -Path (To-RelativePath $PythonExe))
+    Add-ListItem $Report "runtime_packaging_required" (New-ItemRecord -Category "runtime_packaging_required" -Id "python-runtime" -State "python_runtime_missing" -Reason "Shared Python runtime executable is not bundled." -RecommendedAction "Place an approved Python runtime archive locally and run prepare_runtime.ps1 -PythonArchive <zip> -PythonSha256 <sha256>; do not resolve this by deleting apps." -Path (To-RelativePath $PythonExe))
 }
 
 $WebRuntimeDir = Join-Path $RuntimeDir "web_automation_runtime"
@@ -298,7 +298,7 @@ if (Test-Path -LiteralPath $WebRuntimeDir -PathType Container) {
         Where-Object { $_.Name -notin @(".gitkeep", "README.md") })
 }
 if ($WebRuntimeFiles.Count -eq 0) {
-    Add-ListItem $Report "runtime_packaging_required" (New-ItemRecord -Category "runtime_packaging_required" -Id "web-automation-runtime" -State "missing" -Reason "Shared web automation runtime files are not bundled." -RecommendedAction "Resolve through runtime packaging, not app deletion." -Path (To-RelativePath $WebRuntimeDir))
+    Add-ListItem $Report "runtime_packaging_required" (New-ItemRecord -Category "runtime_packaging_required" -Id "web-automation-runtime" -State "web_runtime_missing" -Reason "Shared web automation runtime files are not bundled." -RecommendedAction "Place an approved web automation runtime archive locally and run prepare_runtime.ps1 -WebRuntimeArchive <zip> -WebRuntimeSha256 <sha256>; do not resolve this by deleting apps." -Path (To-RelativePath $WebRuntimeDir))
 }
 
 if ($ReleaseManifest -and $ReleaseManifest.toolhub -and $ReleaseManifest.toolhub.installer -and $ReleaseManifest.toolhub.installer.file) {

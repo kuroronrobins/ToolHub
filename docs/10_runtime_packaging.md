@@ -1,152 +1,165 @@
 # Runtime Packaging
 
-## App Studio 通常新規登録と runtime の扱い
+This document describes how ToolHub prepares shared runtime files for release. Runtime packaging is a release-readiness
+task, not app cleanup. Runtime binaries are intentionally not committed to Git and are never downloaded automatically by
+ToolHub scripts.
 
-App Studio の通常新規登録フローでは、通常ユーザー向け配布として Python ソースから frozen-folder / exe を作成します。配布時に `.py` を直接実行する方式は使いません。生成される `app.yaml` は `run.runner: exe` と `run.entry: bin/<app_id>/<app_id>.exe` を指し、`required_runtime` は原則 `null` です。
+## Current App Studio Policy
 
-この通常フローでは、利用者向け `app_env` を `runtime/app_envs/<app_id>` に作成しません。PyInstaller build のために必要な Python 環境は、App Studio 出力ディレクトリ配下の内部 `build_env` として扱います。`build_env` は build-only の作業環境であり、App Pack、release、runtime、`final_app` には含めません。
+Normal App Studio registration creates frozen-folder apps under `apps/<app_id>/`.
 
-`runtime/app_envs/` と app-env 実行方式は既存アプリとの互換性のために残ります。ただし通常新規登録 GUI では選択肢として露出せず、新規の通常ユーザー向け配布は frozen-folder / exe に固定します。
+```text
+Python source -> build_env -> PyInstaller frozen-folder -> apps/<app_id>/
+```
 
-ToolHubは、利用者がPython、Node.js、Rust、各アプリの依存関係、Web自動化用ランタイムを手動導入しなくても動作することを目標にします。
+For these normal apps:
+
+- `apps/<app_id>/` is the app source of truth.
+- `run.runner` is normally `exe`.
+- `run.entry` points at `bin/<app_id>/<app_id>.exe`.
+- `runtime/app_envs/<app_id>` is not required at runtime.
+- `build_env` is a build-only environment and must not be copied into `runtime/`, App Packs, or `final_app`.
+
+The `runtime/app_envs/` folder remains only for legacy compatibility and possible future app-env execution modes.
 
 ## Runtime Layout
 
 ```text
 runtime/
-├─ python/
-├─ app_envs/
-│  ├─ sample_gui_app/
-│  ├─ sample_cli_app/
-│  └─ sample_playwright_app/
-└─ web_automation_runtime/
+|- README.md
+|- runtime_manifest.example.json
+|- python/
+|- app_envs/
+`- web_automation_runtime/
 ```
 
-`runtime/` はrelease時に配置する成果物です。巨大なPython runtime、app_env、Web自動化用ランタイム本体はGit管理に含めません。GitにはREADME、`.gitkeep`、スクリプト、manifest、docsだけを置きます。
+Tracked files are limited to docs, scripts, `.gitkeep`, and manifest examples. Large runtime artifacts are local release
+inputs and remain ignored by Git.
 
-## Prepare Runtime Script
+## Preparing Runtime
 
-雛形作成:
+Prepare placeholder folders and warnings when no approved archive is available:
 
 ```powershell
 .\scripts\prepare_runtime.ps1 -AllowMissingRuntime
 ```
 
-このコマンドは以下を作成します。
-
-- `runtime/README.md`
-- `runtime/python/`
-- `runtime/app_envs/`
-- `runtime/app_envs/<app_id>/`
-- `runtime/web_automation_runtime/`
-
-ローカルruntime archiveを展開する場合:
+Prepare Python runtime from an internally approved archive:
 
 ```powershell
-.\scripts\prepare_runtime.ps1 -SourceArchive .\vendor\runtime\python.zip -SourceSha256 <sha256>
+.\scripts\prepare_runtime.ps1 `
+  -PythonArchive .\vendor\runtime\python-runtime.zip `
+  -PythonSha256 <sha256>
 ```
 
-デフォルトでは外部サイトから自動ダウンロードしません。社内で承認済みのruntime archiveを `vendor/runtime/` または `tools/runtime_sources/` に置き、sha256を確認して展開します。
+Prepare Web automation runtime from an internally approved archive:
 
-## Python Runtime
+```powershell
+.\scripts\prepare_runtime.ps1 `
+  -WebRuntimeArchive .\vendor\runtime\web-automation-runtime.zip `
+  -WebRuntimeSha256 <sha256>
+```
 
-正式配布では利用者にPythonインストールを要求しません。第一候補は `runtime/python/` にPython embedded runtimeを固定配置する方式です。
+Prepare both in one run:
 
-現行のRust backendはまだ同梱runtimeを使っておらず、PATH上の `python` / `py` を探してPython runnerを起動します。これは開発・検証用の暫定実装です。正式配布前に `runtime/python/python.exe` を優先する実装へ切り替え、利用者にPython導入を要求しない状態にする必要があります。
+```powershell
+.\scripts\prepare_runtime.ps1 `
+  -PythonArchive .\vendor\runtime\python-runtime.zip `
+  -PythonSha256 <sha256> `
+  -WebRuntimeArchive .\vendor\runtime\web-automation-runtime.zip `
+  -WebRuntimeSha256 <sha256>
+```
 
-検証対象:
+Operational flags:
+
+- `-AllowMissingRuntime`: treat missing archives/runtime as warnings.
+- `-SkipPython`: skip Python runtime checks and extraction.
+- `-SkipWebRuntime`: skip Web runtime checks and extraction.
+- `-CleanDestination`: clear the target runtime folder before extraction.
+- `-DryRun`: preview writes/extraction without changing files.
+- `-CreateAppEnvSkeletons`: create compatibility-only `runtime/app_envs/<app_id>/` skeletons.
+
+`-SourceArchive` and `-SourceSha256` are retained as aliases for `-PythonArchive` and `-PythonSha256`.
+
+## Safety Rules
+
+`prepare_runtime.ps1` follows these safety rules:
+
+- It never downloads runtime files from the internet.
+- It expands only explicitly provided local archives.
+- It verifies SHA256 before extraction when a hash is provided.
+- A SHA256 mismatch stops extraction.
+- Python archives extract only to `runtime/python/`.
+- Web runtime archives extract only to `runtime/web_automation_runtime/`.
+- Archive path traversal is rejected before files are written.
+- Runtime binaries remain ignored by Git.
+
+## Runtime Verification
+
+Use read-only verification:
+
+```powershell
+.\scripts\verify_runtime.ps1
+.\scripts\verify_runtime.ps1 -Json
+```
+
+Normal mode reports missing runtime as warnings so local development can continue. Strict runtime verification fails
+until shared runtime files are present:
+
+```powershell
+.\scripts\verify_runtime.ps1 -RequireRuntime
+```
+
+The verifier checks:
 
 - `runtime/python/python.exe`
-- 標準ライブラリ
-- runner実行に必要な最小依存
-- アプリenv作成に必要なpipまたは同等の導入手順
+- `python.exe --version`
+- a minimal Python stdlib import check when Python exists
+- non-placeholder files in `runtime/web_automation_runtime/`
+- whether app_env directories are missing, skeleton-only, or present with files
 
-現段階ではPython runtime実体は未同梱です。`prepare_runtime.ps1 -AllowMissingRuntime` ではWARN扱いにし、`verify_release.ps1 -RequireRuntime` ではNG扱いにします。
+Missing `runtime/app_envs/<app_id>` is informational for normal frozen-folder apps and is not a runtime packaging
+failure.
 
-## App Dependency Modes
+## Runtime Manifest Example
 
-ToolHubでは2方式を許容します。
+`runtime/runtime_manifest.example.json` documents the intended local runtime state. It is an example, not a generated
+authoritative manifest. Runtime binaries and local runtime archive manifests remain outside Git unless a separate
+release policy explicitly approves them.
 
-方式A: app_env方式
+## Release Readiness Relation
 
-```text
-runtime/app_envs/<app_id>/
+Runtime warnings are tracked by:
+
+```powershell
+.\scripts\report_release_readiness.ps1
+.\scripts\verify_release.ps1
 ```
 
-アプリごとのPython環境を固定配置します。当面の正式方針です。`requirements.lock` を使って依存関係を固定し、release時にapp_envを作成します。
+Current warning categories:
 
-方式B: exe方式
+- `runtime_packaging_required`: shared Python or Web runtime is missing.
+- `docs_check_adjustment_candidates`: strict app_env policy still needs a decision for frozen-folder apps.
+- `intentional_warnings`: hidden apps with source or missing app_env folders that are not deletion candidates.
 
-PyInstaller等で内蔵アプリを個別exe化し、`run.runner: exe` として扱います。重いアプリ、外部ベンダー提供アプリ、ライセンスや依存関係の都合でPython envを分けたいアプリに使います。
-
-## Future app.yaml Fields
-
-既存の必須仕様は維持します。将来、配布情報を以下のように追加できます。
-
-```yaml
-runtime:
-  required_runtime: python-embedded-toolhub-001
-  app_env: sample_csv_merger
-  requirements_lock: requirements.lock
-
-distribution:
-  mode: app_env
-  package: app_packs/sample_csv_merger-1.0.0.zip
-```
-
-初回実装ではランチャーUIには表示しません。管理者向けdocs、manifest、検収で使う情報として扱います。
-
-## App Manifest Relation
-
-`release/app_manifest.json` は各App Packのruntime要求を持ちます。
-
-```json
-{
-  "required_runtime": "web-runtime-001"
-}
-```
-
-軽量Pythonアプリは `required_runtime: null` を許容します。Web操作アプリはWeb自動化用ランタイムのIDを宣言します。
-
-## Web Automation Runtime
-
-利用者向け表現は「Web自動化用ランタイム」に統一します。利用者向けUIに内部技術名、ブラウザ製品名、手動インストール手順を表示しません。
-
-管理者向けには、Web操作アプリが内部で専用runnerとブラウザ実行環境を必要とすることを説明してよいです。実体は `runtime/web_automation_runtime/` に配置し、ToolHub Coreや軽量App Packとは別のHeavy Runtime更新単位として扱います。
-
-現段階ではWeb自動化用ランタイム実体は未同梱です。`prepare_runtime.ps1 -AllowMissingRuntime` ではWARN扱いにし、`verify_release.ps1 -RequireRuntime` ではNG扱いにします。
-
-`sample_playwright_app` は検証安定性のため `headless=True` でローカルHTMLを操作します。正常時もブラウザウィンドウは表示されません。
-
-## Heavy Runtime Update
-
-Heavy Runtimeは更新サイズが大きく、更新頻度もCoreやApp Packと異なります。
-
-方針:
-
-- `release/manifest.json` でruntime IDとversionを管理する。
-- App Packは `required_runtime` で必要runtimeを宣言する。
-- sha256検証後に一時フォルダへ展開する。
-- 更新前にバックアップを作る。
-- User Dataは更新対象にしない。
-- 失敗時は更新前状態へロールバックする。
+These warnings must not be resolved by deleting apps.
 
 ## Git Policy
 
-Gitに含める:
+Commit:
 
 - `runtime/README.md`
 - `runtime/**/.gitkeep`
-- runtime準備スクリプト
-- runtime設計docs
-- manifest雛形
+- `runtime/runtime_manifest.example.json`
+- runtime preparation and verification scripts
+- runtime docs
 
-Gitに含めない:
+Do not commit:
 
-- `runtime/python/*`
-- `runtime/app_envs/*` の実体
-- `runtime/web_automation_runtime/*` の実体
+- `runtime/python/*` runtime binaries
+- `runtime/app_envs/*` runtime environment contents
+- `runtime/web_automation_runtime/*` runtime binaries
 - `vendor/runtime/`
 - `tools/runtime_sources/`
 
-この方針は `.gitignore` に反映します。
+This policy is enforced by `.gitignore`.

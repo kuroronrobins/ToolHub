@@ -213,6 +213,18 @@ packaging, installer/release build work, intentional warnings, and local build e
 and updates `release/app_manifest.json` `package` / `sha256` to match the generated zip. The zip files under
 `release/app_packs/` are local release artifacts and are ignored by Git except for `.gitkeep`.
 
+Runtime binaries are also local release artifacts and are not tracked by Git. Use approved local archives and explicit
+SHA256 values:
+
+```powershell
+.\scripts\prepare_runtime.ps1 -PythonArchive <python.zip> -PythonSha256 <sha256>
+.\scripts\prepare_runtime.ps1 -WebRuntimeArchive <web-runtime.zip> -WebRuntimeSha256 <sha256>
+.\scripts\verify_runtime.ps1
+```
+
+Without approved archives, `.\scripts\prepare_runtime.ps1 -AllowMissingRuntime` keeps placeholder folders and reports
+warnings only. `.\scripts\verify_runtime.ps1 -RequireRuntime` is expected to fail until runtime binaries are bundled.
+
 Tauri bundleが未生成の環境でも、App Pack、runtime雛形、staging、manifest検証まで進める場合は以下を使います。
 
 ```powershell

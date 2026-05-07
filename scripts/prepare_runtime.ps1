@@ -1,9 +1,16 @@
 param(
-    [string]$SourceArchive,
-    [string]$SourceSha256,
+    [Alias("SourceArchive")]
+    [string]$PythonArchive,
+    [Alias("SourceSha256")]
+    [string]$PythonSha256,
+    [string]$WebRuntimeArchive,
+    [string]$WebRuntimeSha256,
     [switch]$SkipPython,
     [switch]$SkipWebRuntime,
-    [switch]$AllowMissingRuntime
+    [switch]$CreateAppEnvSkeletons,
+    [switch]$AllowMissingRuntime,
+    [switch]$CleanDestination,
+    [switch]$DryRun
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,7 +27,9 @@ $AppsDir = Join-Path $Root "apps"
 function Assert-InRoot {
     param([string]$Path)
     $Full = [System.IO.Path]::GetFullPath($Path)
-    if (-not $Full.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $TrimChars = [char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $RootWithSlash = $Root.TrimEnd($TrimChars) + [System.IO.Path]::DirectorySeparatorChar
+    if (-not ($Full.Equals($Root, [System.StringComparison]::OrdinalIgnoreCase) -or $Full.StartsWith($RootWithSlash, [System.StringComparison]::OrdinalIgnoreCase))) {
         throw "Refusing path outside workspace: $Full"
     }
     return $Full
@@ -29,39 +38,167 @@ function Assert-InRoot {
 function Ensure-Directory {
     param([string]$Path)
     $Full = Assert-InRoot $Path
-    New-Item -ItemType Directory -Force -Path $Full | Out-Null
+    if ($DryRun) {
+        Write-Host "[DRYRUN] ensure directory: $Full"
+    } else {
+        New-Item -ItemType Directory -Force -Path $Full | Out-Null
+    }
     return $Full
 }
 
 function Touch-GitKeep {
     param([string]$Path)
     $GitKeep = Join-Path $Path ".gitkeep"
+    if ($DryRun) {
+        Write-Host "[DRYRUN] ensure .gitkeep: $GitKeep"
+        return
+    }
     if (-not (Test-Path -LiteralPath $GitKeep -PathType Leaf)) {
         New-Item -ItemType File -Path $GitKeep | Out-Null
     }
 }
 
-function Expand-ArchiveIfProvided {
+function Set-TextFile {
+    param(
+        [string]$Path,
+        [string]$Content
+    )
+    $Full = Assert-InRoot $Path
+    if ($DryRun) {
+        Write-Host "[DRYRUN] write text file: $Full"
+        return
+    }
+    $Content | Set-Content -Encoding UTF8 $Full
+}
+
+function Resolve-ArchivePath {
+    param([string]$Archive)
+    if ([string]::IsNullOrWhiteSpace($Archive)) {
+        return $null
+    }
+    if (-not (Test-Path -LiteralPath $Archive -PathType Leaf)) {
+        throw "Runtime archive was not found: $Archive"
+    }
+    return (Resolve-Path -LiteralPath $Archive).Path
+}
+
+function Assert-ArchiveHash {
+    param(
+        [string]$Archive,
+        [string]$ExpectedSha256
+    )
+    if ([string]::IsNullOrWhiteSpace($ExpectedSha256)) {
+        Write-Host "[WARN] No sha256 was provided for archive: $Archive"
+        return
+    }
+    $Actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $Archive).Hash.ToLowerInvariant()
+    if ($Actual -ne $ExpectedSha256.ToLowerInvariant()) {
+        throw "Runtime archive sha256 mismatch. archive=$Archive expected=$ExpectedSha256 actual=$Actual"
+    }
+    Write-Host "[OK] Archive sha256 matches: $Archive"
+}
+
+function Clear-Destination {
+    param([string]$Destination)
+    $Full = Assert-InRoot $Destination
+    if (-not (Test-Path -LiteralPath $Full -PathType Container)) {
+        return
+    }
+    $Children = @(Get-ChildItem -LiteralPath $Full -Force)
+    if ($Children.Count -eq 0) {
+        return
+    }
+    if ($DryRun) {
+        foreach ($Child in $Children) {
+            Write-Host "[DRYRUN] remove existing runtime item: $($Child.FullName)"
+        }
+        return
+    }
+    foreach ($Child in $Children) {
+        Remove-Item -LiteralPath $Child.FullName -Recurse -Force
+    }
+}
+
+function Expand-ZipSafe {
     param(
         [string]$Archive,
         [string]$ExpectedSha256,
-        [string]$Destination
+        [string]$Destination,
+        [string]$Label
     )
-    if ([string]::IsNullOrWhiteSpace($Archive)) {
+    $ArchivePath = Resolve-ArchivePath $Archive
+    if ($null -eq $ArchivePath) {
         return $false
     }
-    if (-not (Test-Path -LiteralPath $Archive -PathType Leaf)) {
-        throw "Runtime source archive was not found: $Archive"
-    }
-    if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) {
-        $Actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $Archive).Hash.ToLowerInvariant()
-        if ($Actual -ne $ExpectedSha256.ToLowerInvariant()) {
-            throw "Runtime source archive sha256 mismatch. expected=$ExpectedSha256 actual=$Actual"
+
+    Assert-ArchiveHash -Archive $ArchivePath -ExpectedSha256 $ExpectedSha256
+    $DestinationFull = Ensure-Directory $Destination
+    $DestinationPrefix = $DestinationFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $Zip = [System.IO.Compression.ZipFile]::OpenRead($ArchivePath)
+    try {
+        foreach ($Entry in $Zip.Entries) {
+            if ([string]::IsNullOrWhiteSpace($Entry.FullName)) {
+                continue
+            }
+            $TargetPath = [System.IO.Path]::GetFullPath((Join-Path $DestinationFull $Entry.FullName))
+            if (-not ($TargetPath.Equals($DestinationFull, [System.StringComparison]::OrdinalIgnoreCase) -or $TargetPath.StartsWith($DestinationPrefix, [System.StringComparison]::OrdinalIgnoreCase))) {
+                throw "Archive entry escapes runtime destination: $($Entry.FullName)"
+            }
         }
+
+        if ($CleanDestination) {
+            Clear-Destination $DestinationFull
+            Ensure-Directory $DestinationFull | Out-Null
+        }
+
+        foreach ($Entry in $Zip.Entries) {
+            if ([string]::IsNullOrWhiteSpace($Entry.FullName)) {
+                continue
+            }
+            $TargetPath = [System.IO.Path]::GetFullPath((Join-Path $DestinationFull $Entry.FullName))
+            if ($Entry.FullName.EndsWith("/") -or $Entry.FullName.EndsWith("\")) {
+                if ($DryRun) {
+                    Write-Host "[DRYRUN] extract directory: $TargetPath"
+                } else {
+                    New-Item -ItemType Directory -Force -Path $TargetPath | Out-Null
+                }
+                continue
+            }
+            $TargetDir = Split-Path -Parent $TargetPath
+            if ($DryRun) {
+                Write-Host "[DRYRUN] extract file: $TargetPath"
+                continue
+            }
+            New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
+            $InStream = $Entry.Open()
+            try {
+                $OutStream = [System.IO.File]::Create($TargetPath)
+                try {
+                    $InStream.CopyTo($OutStream)
+                } finally {
+                    $OutStream.Dispose()
+                }
+            } finally {
+                $InStream.Dispose()
+            }
+        }
+    } finally {
+        $Zip.Dispose()
     }
-    $Destination = Ensure-Directory $Destination
-    Expand-Archive -LiteralPath $Archive -DestinationPath $Destination -Force
+
+    Write-Host "[OK] Expanded $Label archive to $(Split-Path -Leaf $DestinationFull)"
     return $true
+}
+
+function Get-NonPlaceholderItems {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        return @()
+    }
+    return @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notin @(".gitkeep", "README.md") })
 }
 
 Ensure-Directory $RuntimeDir | Out-Null
@@ -86,66 +223,84 @@ runtime/
 `- web_automation_runtime/
 ```
 
-Large runtime artifacts are intentionally not tracked in Git. Place local runtime archives under `vendor/runtime/` or `tools/runtime_sources/` and pass them to `prepare_runtime.ps1 -SourceArchive <path>`.
+Large runtime artifacts are intentionally not tracked in Git. Place approved local runtime archives under
+`vendor/runtime/`, `tools/runtime_sources/`, or another internal location and pass them explicitly:
 
-Default behavior does not download anything from the internet.
+```powershell
+.\scripts\prepare_runtime.ps1 -PythonArchive <python.zip> -PythonSha256 <sha256>
+.\scripts\prepare_runtime.ps1 -WebRuntimeArchive <web-runtime.zip> -WebRuntimeSha256 <sha256>
+```
+
+Default behavior does not download anything from the internet. Normal frozen-folder apps do not require
+`runtime/app_envs/<app_id>`; create compatibility skeletons only with `-CreateAppEnvSkeletons`.
 '@
-$RuntimeReadme | Set-Content -Encoding UTF8 (Join-Path $RuntimeDir "README.md")
+Set-TextFile -Path (Join-Path $RuntimeDir "README.md") -Content $RuntimeReadme
+
+if (-not [string]::IsNullOrWhiteSpace($PythonSha256) -and [string]::IsNullOrWhiteSpace($PythonArchive)) {
+    throw "-PythonSha256 requires -PythonArchive."
+}
+if (-not [string]::IsNullOrWhiteSpace($WebRuntimeSha256) -and [string]::IsNullOrWhiteSpace($WebRuntimeArchive)) {
+    throw "-WebRuntimeSha256 requires -WebRuntimeArchive."
+}
 
 if (-not $SkipPython) {
-    $Expanded = Expand-ArchiveIfProvided -Archive $SourceArchive -ExpectedSha256 $SourceSha256 -Destination $PythonDir
+    $Expanded = Expand-ZipSafe -Archive $PythonArchive -ExpectedSha256 $PythonSha256 -Destination $PythonDir -Label "Python runtime"
+    Touch-GitKeep $PythonDir
     $PythonExe = Join-Path $PythonDir "python.exe"
     if (Test-Path -LiteralPath $PythonExe -PathType Leaf) {
         Write-Host "[OK] Python runtime found: $PythonExe"
     } elseif ($Expanded) {
-        Write-Host "[WARN] Source archive was expanded, but runtime/python/python.exe was not found."
+        Write-Host "[WARN] Python archive was expanded, but runtime/python/python.exe was not found."
     } elseif ($AllowMissingRuntime) {
-        Write-Host "[WARN] Python runtime is not bundled yet. This is allowed for skeleton packaging."
+        Write-Host "[WARN] Python runtime is not bundled yet. Provide -PythonArchive and -PythonSha256 when an approved archive is available."
     } else {
-        throw "Python runtime is missing. Pass -AllowMissingRuntime for skeleton packaging."
+        throw "Python runtime is missing. Pass -AllowMissingRuntime for skeleton packaging or provide -PythonArchive."
     }
 }
 
-if (Test-Path -LiteralPath $AppsDir -PathType Container) {
-    Get-ChildItem -LiteralPath $AppsDir -Directory | ForEach-Object {
-        $AppId = $_.Name
-        $EnvDir = Ensure-Directory (Join-Path $AppEnvsDir $AppId)
-        Touch-GitKeep $EnvDir
-        $EnvReadme = @"
+if ($CreateAppEnvSkeletons) {
+    if (Test-Path -LiteralPath $AppsDir -PathType Container) {
+        Get-ChildItem -LiteralPath $AppsDir -Directory | Sort-Object Name | ForEach-Object {
+            $AppId = $_.Name
+            $AppYaml = Join-Path $_.FullName "app.yaml"
+            if (Test-Path -LiteralPath $AppYaml -PathType Leaf) {
+                $EnvDir = Ensure-Directory (Join-Path $AppEnvsDir $AppId)
+                Touch-GitKeep $EnvDir
+                $EnvReadme = @"
 # $AppId app environment
 
-This folder is reserved for the per-app runtime environment.
+This folder is reserved for a legacy per-app runtime environment.
 
-Preferred distribution mode A:
-- Put the app-specific Python environment here.
-- Use `requirements.lock` to make dependencies reproducible.
-
-Allowed distribution mode B:
-- Package the app as an exe and use `run.runner: exe`.
+Normal App Studio registration builds frozen-folder apps and does not use this directory at runtime.
 "@
-        $EnvReadme | Set-Content -Encoding UTF8 (Join-Path $EnvDir "README.md")
-        Write-Host "[OK] Prepared app env skeleton: runtime/app_envs/$AppId"
+                Set-TextFile -Path (Join-Path $EnvDir "README.md") -Content $EnvReadme
+                Write-Host "[OK] Prepared app env skeleton: runtime/app_envs/$AppId"
+            }
+        }
     }
+} else {
+    Write-Host "[INFO] App env skeleton creation skipped. Normal frozen-folder apps do not require runtime/app_envs/<app_id>."
 }
 
 if (-not $SkipWebRuntime) {
-    $Marker = Join-Path $WebRuntimeDir "README.md"
-    @"
+    $WebExpanded = Expand-ZipSafe -Archive $WebRuntimeArchive -ExpectedSha256 $WebRuntimeSha256 -Destination $WebRuntimeDir -Label "Web automation runtime"
+    Touch-GitKeep $WebRuntimeDir
+    $WebRuntimeReadme = @'
 # Web Automation Runtime
 
-This folder is reserved for the runtime required by web-operation apps.
+This folder is reserved for approved web automation runtime files. Runtime files are intentionally not tracked in Git.
+'@
+    Set-TextFile -Path (Join-Path $WebRuntimeDir "README.md") -Content $WebRuntimeReadme
 
-User-facing UI must call this "Web自動化用ランタイム". Internal implementation details may be documented only for administrators.
-"@ | Set-Content -Encoding UTF8 $Marker
-
-    $RuntimeFiles = Get-ChildItem -LiteralPath $WebRuntimeDir -Force -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -notin @(".gitkeep", "README.md") }
+    $RuntimeFiles = Get-NonPlaceholderItems $WebRuntimeDir
     if ($RuntimeFiles.Count -gt 0) {
         Write-Host "[OK] Web automation runtime files are present."
+    } elseif ($WebExpanded) {
+        Write-Host "[WARN] Web runtime archive was expanded, but no non-placeholder runtime files were found."
     } elseif ($AllowMissingRuntime) {
-        Write-Host "[WARN] Web automation runtime is not bundled yet. This is allowed for skeleton packaging."
+        Write-Host "[WARN] Web automation runtime is not bundled yet. Provide -WebRuntimeArchive and -WebRuntimeSha256 when an approved archive is available."
     } else {
-        throw "Web automation runtime is missing. Pass -AllowMissingRuntime for skeleton packaging."
+        throw "Web automation runtime is missing. Pass -AllowMissingRuntime for skeleton packaging or provide -WebRuntimeArchive."
     }
 }
 

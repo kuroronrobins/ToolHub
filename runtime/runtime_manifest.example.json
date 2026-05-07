@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "python_runtime": {
+    "id": "python-embedded-toolhub-001",
+    "path": "runtime/python/python.exe",
+    "status": "missing_or_local_only",
+    "managed_by_git": false
+  },
+  "web_automation_runtime": {
+    "id": "web-runtime-001",
+    "path": "runtime/web_automation_runtime/",
+    "status": "missing_or_local_only",
+    "managed_by_git": false
+  },
+  "app_envs": {
+    "path": "runtime/app_envs/",
+    "normal_frozen_folder_apps_require_app_env": false,
+    "managed_by_git": false
+  }
+}

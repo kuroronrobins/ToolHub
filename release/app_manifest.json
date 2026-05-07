@@ -1,69 +1,69 @@
 {
-  "schema_version": 1,
-  "channel": "stable",
   "apps": {
-    "sample_gui_app": {
-      "version": "1.0.0",
-      "package": "app_packs/sample_gui_app-1.0.0.zip",
-      "sha256": "cd281ec55628dc9f39c63a214023c25654c81159cc76c76e695b85f465b17c17",
+    "addnum_pdf": {
+      "enabled": false,
+      "package": "app_packs/addnum_pdf-0.1.0.zip",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": null,
-      "enabled": true
+      "sha256": "de74ba6fc688f50c682493e0e3a5831473a51642b24611ee474e3464f0d17ceb",
+      "version": "0.1.0"
+    },
+    "app_20260201_agendasnap": {
+      "enabled": true,
+      "package": "app_packs/app_20260201_agendasnap-0.1.0.zip",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": null,
+      "sha256": "e6554b4e105e8dc23b4b37e39f85b7f0bfcb5f16d5f74b8b6858fcb9ad2982e2",
+      "version": "0.1.0"
+    },
+    "officetopdf_toc": {
+      "enabled": true,
+      "package": "app_packs/officetopdf_toc-0.1.0.zip",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": null,
+      "sha256": "04825531cfd0baafc9710f44fef83acbdaa8016e9e36b0a3e9bcbd7174c59d8c",
+      "version": "0.1.0"
+    },
+    "run_xcgate_upload": {
+      "enabled": false,
+      "package": "app_packs/run_xcgate_upload-0.1.0.zip",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": null,
+      "sha256": "44a5e93551f85787f500457b32fcc010d4b4c548f921481b57c12565cccbb13f",
+      "version": "0.1.0"
     },
     "sample_cli_app": {
-      "version": "1.0.0",
+      "enabled": true,
       "package": "app_packs/sample_cli_app-1.0.0.zip",
-      "sha256": "19aa0f02522babec8da842789a60abc4d41191deae593794ff663bca8ce34ccc",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": null,
-      "enabled": true
+      "sha256": "19aa0f02522babec8da842789a60abc4d41191deae593794ff663bca8ce34ccc",
+      "version": "1.0.0"
+    },
+    "sample_gui_app": {
+      "enabled": true,
+      "package": "app_packs/sample_gui_app-1.0.0.zip",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": null,
+      "sha256": "cd281ec55628dc9f39c63a214023c25654c81159cc76c76e695b85f465b17c17",
+      "version": "1.0.0"
     },
     "sample_playwright_app": {
-      "version": "1.0.0",
+      "enabled": true,
       "package": "app_packs/sample_playwright_app-1.0.0.zip",
-      "sha256": "1fdca7279e3d325c7bc18af19d2bb7881c9789ebd03d675f43c6081541f03487",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": "web-runtime-001",
-      "enabled": true
-    },
-    "run_xcgate_upload": {
-      "version": "0.1.0",
-      "package": "app_packs/run_xcgate_upload-0.1.0.zip",
-      "sha256": "44a5e93551f85787f500457b32fcc010d4b4c548f921481b57c12565cccbb13f",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": null,
-      "enabled": false
-    },
-    "officetopdf_toc": {
-      "version": "0.1.0",
-      "package": "app_packs/officetopdf_toc-0.1.0.zip",
-      "sha256": "04825531cfd0baafc9710f44fef83acbdaa8016e9e36b0a3e9bcbd7174c59d8c",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": null,
-      "enabled": true
-    },
-    "app_20260201_agendasnap": {
-      "version": "0.1.0",
-      "package": "app_packs/app_20260201_agendasnap-0.1.0.zip",
-      "sha256": "e6554b4e105e8dc23b4b37e39f85b7f0bfcb5f16d5f74b8b6858fcb9ad2982e2",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": null,
-      "enabled": true
-    },
-    "addnum_pdf": {
-      "version": "0.1.0",
-      "package": "app_packs/addnum_pdf-0.1.0.zip",
-      "sha256": "de74ba6fc688f50c682493e0e3a5831473a51642b24611ee474e3464f0d17ceb",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": null,
-      "enabled": false
+      "sha256": "1fdca7279e3d325c7bc18af19d2bb7881c9789ebd03d675f43c6081541f03487",
+      "version": "1.0.0"
     }
-  }
+  },
+  "channel": "stable",
+  "schema_version": 1
 }

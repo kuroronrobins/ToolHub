@@ -4,8 +4,9 @@ This document tracks Phase 6 cleanup and formal release readiness work for ToolH
 
 Phase 6 started as an inventory and ordering phase. After owner confirmation, the four disabled stale entries listed in
 this document were cleaned from `release/app_manifest.json`. App Packs for all seven source apps were regenerated and
-`release/app_manifest.json` now points at the generated zip files with matching SHA256 values. Phase 6 still does not
-delete source-present apps, bundle runtime, or build installers.
+`release/app_manifest.json` now points at the generated zip files with matching SHA256 values. Runtime packaging
+operations are now scripted for approved local archives, but runtime binaries are still not bundled in this checkout.
+Phase 6 still does not delete source-present apps or build installers.
 
 ## Current Report Command
 
@@ -127,6 +128,14 @@ Current runtime readiness items:
 
 These are shared runtime packaging tasks. They must not be resolved by deleting apps.
 
+Current runtime packaging status:
+
+- `scripts/prepare_runtime.ps1` accepts separate `-PythonArchive` / `-WebRuntimeArchive` inputs.
+- `-PythonSha256` and `-WebRuntimeSha256` verify approved archives before extraction.
+- Extraction is restricted to `runtime/python/` and `runtime/web_automation_runtime/`.
+- `scripts/verify_runtime.ps1` reports normal warnings and strict `-RequireRuntime` failures.
+- No approved runtime archive was provided in this checkout, so no runtime binaries were bundled.
+
 ## Installer Build Required
 
 Current installer readiness items:
@@ -170,11 +179,12 @@ Use Developer PowerShell for Visual Studio, or install Visual Studio Build Tools
 ## Recommended Next Order
 
 1. Run `.\scripts\report_release_readiness.ps1` and capture the current state.
-2. Package shared runtime.
-3. Build installer/release artifacts.
-4. Decide and implement the strict `runtime/app_envs/<app_id>` policy for frozen-folder apps.
-5. Run normal verification.
-6. Move to strict/formal verification after generated artifacts and strict policy are handled.
+2. Provide approved Python and Web runtime archives, then run `.\scripts\prepare_runtime.ps1` with SHA256 values.
+3. Run `.\scripts\verify_runtime.ps1 -RequireRuntime`.
+4. Build installer/release artifacts.
+5. Decide and implement the strict `runtime/app_envs/<app_id>` policy for frozen-folder apps.
+6. Run normal verification.
+7. Move to strict/formal verification after generated artifacts and strict policy are handled.
 
 ## Remaining Work This Phase Does Not Do
 
@@ -186,4 +196,5 @@ Use Developer PowerShell for Visual Studio, or install Visual Studio Build Tools
 - It does not remove runtime app_env folders.
 - It does not remove backups.
 - It does not bundle runtime.
+- It does not download runtime from the internet.
 - It does not build installers.

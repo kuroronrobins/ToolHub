@@ -218,6 +218,7 @@ try {
     Require-Path "scripts/package_installer.ps1"
     Require-Path "scripts/package_app_pack.ps1"
     Require-Path "scripts/prepare_runtime.ps1"
+    Require-Path "scripts/verify_runtime.ps1"
     Require-Path "scripts/verify_release.ps1"
     Require-Path "scripts/diagnose_app_manifest.ps1"
     Require-Path "scripts/report_release_readiness.ps1"
@@ -274,6 +275,14 @@ try {
 
     Run-Step "Release readiness report script syntax" {
         & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\report_release_readiness.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "Runtime preparation script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\prepare_runtime.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "Runtime verification script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\verify_runtime.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
     }
 
     Run-Step "App manifest rebuild script syntax" {
@@ -351,6 +360,10 @@ try {
 
     Run-Step "Release readiness cleanup report" {
         & ".\scripts\report_release_readiness.ps1"
+    }
+
+    Run-Step "Runtime readiness verification" {
+        & ".\scripts\verify_runtime.ps1"
     }
 
     Run-Step "App manifest consistency diagnosis" {
