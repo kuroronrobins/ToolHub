@@ -37,6 +37,9 @@ from app_studio.util import write_json, write_text
 from main import parse_args as parse_app_studio_args, run_icon_regenerate, run_import
 
 
+DUMMY_OPENAI_API_KEY = "sk-" + "test1234abcd"
+
+
 @contextmanager
 def workspace_tempdir():
     base = ROOT / "data" / "tmp_tests"
@@ -797,7 +800,7 @@ class OpenAIFallbackTests(unittest.TestCase):
     def test_text_model_missing_uses_metadata_fallback(self) -> None:
         with workspace_tempdir() as root:
             context = make_context(root)
-            with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "OPENAI_API_KEY": "<DUMMY_OPENAI_API_KEY>"}, clear=True):
+            with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "OPENAI_API_KEY": DUMMY_OPENAI_API_KEY}, clear=True):
                 metadata = suggest_metadata(context)
 
             self.assertIn("model is not configured", metadata["_ai_generation_report"])
@@ -851,7 +854,7 @@ class OpenAIFallbackTests(unittest.TestCase):
 
             responses = Responses()
             client = types.SimpleNamespace(responses=responses)
-            with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_TEXT_MODEL": "text-model", "OPENAI_API_KEY": "<DUMMY_OPENAI_API_KEY>"}, clear=True):
+            with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_TEXT_MODEL": "text-model", "OPENAI_API_KEY": DUMMY_OPENAI_API_KEY}, clear=True):
                 with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
                     metadata = suggest_metadata(context)
 
@@ -865,7 +868,7 @@ class OpenAIFallbackTests(unittest.TestCase):
         with workspace_tempdir() as root:
             context = make_context(root)
             client = types.SimpleNamespace(responses=types.SimpleNamespace(create=lambda **_: types.SimpleNamespace(output_text="not json")))
-            with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_TEXT_MODEL": "text-model", "OPENAI_API_KEY": "<DUMMY_OPENAI_API_KEY>"}, clear=True):
+            with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_TEXT_MODEL": "text-model", "OPENAI_API_KEY": DUMMY_OPENAI_API_KEY}, clear=True):
                 with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
                     metadata = suggest_metadata(context)
 
@@ -881,7 +884,7 @@ class OpenAIFallbackTests(unittest.TestCase):
                 return types.SimpleNamespace(data=[types.SimpleNamespace(b64_json="iVBORw0KGgo=")])
 
         client = types.SimpleNamespace(images=Images())
-        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": "<DUMMY_OPENAI_API_KEY>"}, clear=True):
+        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": DUMMY_OPENAI_API_KEY}, clear=True):
             with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
                 result = generate_image("prompt")
 
@@ -891,7 +894,7 @@ class OpenAIFallbackTests(unittest.TestCase):
 
     def test_images_generate_accepts_url_candidate(self) -> None:
         client = types.SimpleNamespace(images=types.SimpleNamespace(generate=lambda **_: types.SimpleNamespace(data=[types.SimpleNamespace(url="https://example.com/icon.png")])))
-        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": "<DUMMY_OPENAI_API_KEY>"}, clear=True):
+        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": DUMMY_OPENAI_API_KEY}, clear=True):
             with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
                 result = generate_image("prompt")
 
@@ -910,7 +913,7 @@ class OpenAIFallbackTests(unittest.TestCase):
                 return types.SimpleNamespace(data=[types.SimpleNamespace(b64_json="iVBORw0KGgo=")])
 
         client = types.SimpleNamespace(images=Images())
-        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": "<DUMMY_OPENAI_API_KEY>"}, clear=True):
+        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": DUMMY_OPENAI_API_KEY}, clear=True):
             with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
                 result = generate_image("prompt")
 
@@ -923,7 +926,7 @@ class OpenAIFallbackTests(unittest.TestCase):
 
     def test_images_generate_failure_reports_fallback_reason(self) -> None:
         client = types.SimpleNamespace(images=types.SimpleNamespace(generate=lambda **_: (_ for _ in ()).throw(RuntimeError("BadRequestError: broken"))))
-        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": "<DUMMY_OPENAI_API_KEY>"}, clear=True):
+        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": DUMMY_OPENAI_API_KEY}, clear=True):
             with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
                 result = generate_image("prompt")
 
@@ -937,7 +940,7 @@ class OpenAIFallbackTests(unittest.TestCase):
             "Please go to https://platform.openai.com/settings/organization/general and click on Verify Organization."
         )
         client = types.SimpleNamespace(images=types.SimpleNamespace(generate=lambda **_: (_ for _ in ()).throw(RuntimeError(reason))))
-        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": "<DUMMY_OPENAI_API_KEY>"}, clear=True):
+        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": DUMMY_OPENAI_API_KEY}, clear=True):
             with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
                 result = generate_image("prompt")
 
@@ -955,7 +958,7 @@ class OpenAIFallbackTests(unittest.TestCase):
                 return types.SimpleNamespace(data=[types.SimpleNamespace(b64_json="iVBORw0KGgo=")])
 
         client = types.SimpleNamespace(images=Images())
-        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": "<DUMMY_OPENAI_API_KEY>"}, clear=True):
+        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": DUMMY_OPENAI_API_KEY}, clear=True):
             with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
                 result = test_image_generation_connection("gpt-image-1-mini")
 
@@ -975,7 +978,7 @@ class OpenAIFallbackTests(unittest.TestCase):
             image_path = root / "previous.png"
             image_path.write_bytes(b"\x89PNG\r\n\x1a\n")
             client = types.SimpleNamespace(images=Images())
-            with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": "<DUMMY_OPENAI_API_KEY>"}, clear=True):
+            with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "gpt-image-2", "OPENAI_API_KEY": DUMMY_OPENAI_API_KEY}, clear=True):
                 with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
                     result = edit_image("make it more vivid", str(image_path))
 
@@ -986,7 +989,7 @@ class OpenAIFallbackTests(unittest.TestCase):
         self.assertNotIn("response_format", calls[0])
 
     def test_empty_image_model_uses_image_fallback(self) -> None:
-        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "", "OPENAI_API_KEY": "<DUMMY_OPENAI_API_KEY>"}, clear=True):
+        with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_IMAGE_MODEL": "", "OPENAI_API_KEY": DUMMY_OPENAI_API_KEY}, clear=True):
             result = generate_image("prompt")
 
         self.assertFalse(result.ok)

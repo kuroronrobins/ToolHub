@@ -25,3 +25,4 @@ runtime/web_automation_runtime/*
 !runtime/web_automation_runtime/.gitkeep
 vendor/runtime/
 tools/runtime_sources/
+apps/*/bin/

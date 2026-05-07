@@ -3041,6 +3041,11 @@ fn quote_log_arg(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn dummy_openai_api_key() -> String {
+        ["sk-", "test1234abcd"].concat()
+    }
+
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_entry() -> PathBuf {
@@ -3133,7 +3138,8 @@ mod tests {
 
     #[test]
     fn secret_masking_hides_openai_key() {
-        let masked = mask_sensitive("key=<DUMMY_OPENAI_API_KEY> done");
+        let key = ["sk-", "test123456abcd"].concat();
+        let masked = mask_sensitive(&format!("key={} done", key));
         assert!(masked.contains("sk-...abcd"));
         assert!(!masked.contains("test123456"));
     }
@@ -3153,12 +3159,13 @@ mod tests {
                 credential_supported: true,
                 message: "ready".to_string(),
             },
-            api_key: Some("<DUMMY_OPENAI_API_KEY>".to_string()),
+            api_key: Some(dummy_openai_api_key()),
         };
         let mut command = Command::new("python");
 
         apply_ai_environment(&mut command, &plan);
 
+        let expected_key = dummy_openai_api_key();
         let envs = command_envs(&command);
         assert_eq!(
             envs.get("TOOLHUB_APP_STUDIO_AI_ENABLED")
@@ -3172,7 +3179,7 @@ mod tests {
         );
         assert_eq!(
             envs.get("OPENAI_API_KEY").map(String::as_str),
-            Some("<DUMMY_OPENAI_API_KEY>")
+            Some(expected_key.as_str())
         );
     }
 
@@ -3191,7 +3198,7 @@ mod tests {
                 credential_supported: true,
                 message: "disabled".to_string(),
             },
-            api_key: Some("<DUMMY_OPENAI_API_KEY>".to_string()),
+            api_key: Some(dummy_openai_api_key()),
         };
         let mut command = Command::new("python");
 

@@ -28,6 +28,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+from urllib.parse import urlparse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -36,6 +37,8 @@ from typing import Any, Dict, Optional, Tuple
 # ここは _gitup.py がビルド時に「設定JSON文字列」を埋め込みます。
 # （実行時に外部ファイルへ依存しないため）
 __EMBEDDED_CONFIG_JSON__ = r"__EMBEDDED_CONFIG_JSON__"
+
+ALLOWED_DOWNLOAD_HOSTS = {"raw.githubusercontent.com"}
 
 
 def debug_enabled() -> bool:
@@ -138,9 +141,15 @@ def raw_url(info: RepoInfo, path: str) -> str:
     return f"https://raw.githubusercontent.com/{info.owner}/{info.repo}/{info.stable_branch}/{p}"
 
 
+def validate_download_url(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname not in ALLOWED_DOWNLOAD_HOSTS:
+        raise ValueError("Refusing to download from an untrusted URL")
+
 def fetch_bytes(url: str, timeout: int = 20) -> bytes:
+    validate_download_url(url)
     req = urllib.request.Request(url, headers={"User-Agent": "GitHubSync-Updater"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with urllib.request.urlopen(req, timeout=timeout) as r:  # nosec B310
         return r.read()
 
 
