@@ -4,6 +4,7 @@ This document defines the target model for ToolHub app management. The goal is t
 actions: hide and full delete.
 
 For the governed implementation roadmap and phase status, see `docs/18_app_delete_execution_plan.md`.
+For the Phase 3 executor contract, see `docs/19_full_delete_executor_design.md`.
 
 ## Source Of Truth
 
@@ -143,3 +144,5 @@ Full delete is not implemented in this phase. Before it is implemented, the dele
 - rehearsal cleanup followed by rebuild/diagnose/verify/check validation
 
 No current command deletes existing app source, App Pack zip files, user data, or external source folders.
+`scripts/execute_app_delete.ps1 -AppId <id> -DryRun` exists only as a non-destructive executor skeleton. Its `-Apply`
+mode is intentionally rejected until temporary-app E2E safety is proven.

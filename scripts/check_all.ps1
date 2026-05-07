@@ -225,12 +225,16 @@ try {
     Require-Path "scripts/test_app_delete_plan.ps1"
     Require-Path "scripts/test_app_delete_plan_parity.ps1"
     Require-Path "scripts/rehearse_app_delete.ps1"
+    Require-Path "scripts/execute_app_delete.ps1"
+    Require-Path "scripts/test_app_delete_executor_design.ps1"
     Require-Path "scripts/diagnose_app_studio_import.ps1"
     Require-Path "docs/07_installer_distribution.md"
     Require-Path "docs/08_update_design.md"
     Require-Path "docs/09_app_pack_spec.md"
     Require-Path "docs/10_runtime_packaging.md"
     Require-Path "docs/17_app_management_model.md"
+    Require-Path "docs/18_app_delete_execution_plan.md"
+    Require-Path "docs/19_full_delete_executor_design.md"
     Require-Path "runtime/README.md" -Optional
     Require-Path "config.default/launcher.yaml"
     Test-TauriBundleConfig
@@ -286,6 +290,14 @@ try {
         & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\rehearse_app_delete.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
     }
 
+    Run-Step "App delete executor script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\execute_app_delete.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "App delete executor test script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\test_app_delete_executor_design.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
     Run-Step "App delete plan dry-run tests" {
         & ".\scripts\test_app_delete_plan.ps1"
     }
@@ -296,6 +308,10 @@ try {
 
     Run-Step "App delete rehearsal dry-run" {
         & ".\scripts\rehearse_app_delete.ps1"
+    }
+
+    Run-Step "App delete executor dry-run design tests" {
+        & ".\scripts\test_app_delete_executor_design.ps1"
     }
 
     Run-Step "Python runner tests" {

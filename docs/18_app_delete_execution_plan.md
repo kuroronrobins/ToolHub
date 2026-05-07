@@ -170,13 +170,29 @@ Completion conditions:
 - The executor can be tested using temporary apps only.
 - No real app deletion is required for design validation.
 
-Design topics to resolve:
+Current state:
 
-- Whether the production executor accepts an existing plan snapshot or rebuilds the plan at execution time.
-- How it refuses stale or unsafe plans.
-- Whether missing generated targets are treated as already clean or as warnings.
-- How manifest entry removal is written and validated.
-- How cleanup is verified after apply.
+- Done for the design stage.
+- `docs/19_full_delete_executor_design.md` defines modes, ordering, freshness, failure handling, idempotency, safety
+  checks, and temporary-app E2E requirements.
+- `scripts/execute_app_delete.ps1` provides a dry-run-only executor entry point.
+- `scripts/test_app_delete_executor_design.ps1` verifies dry-run output and confirms `-Apply` is rejected.
+- Full delete Apply remains unimplemented.
+
+Resolved design decisions:
+
+- Apply must rebuild the plan at execution time and compare it with any operator-visible snapshot.
+- Stale or unsafe plans are refused before deletion.
+- Missing generated targets are treated as already clean.
+- Manifest work is entry removal inside `release/app_manifest.json`, never deletion of the manifest file.
+- Cleanup is verified with diagnosis, manifest rebuild dry-run, release verification, and check_all.
+
+Phase 4 start conditions:
+
+- Keep `-Apply` disabled for production use.
+- Add Apply only behind a temporary-app E2E guard.
+- Use the ordering and safety checks from `docs/19_full_delete_executor_design.md`.
+- Prove that a temporary app can be fully removed while excluded targets remain.
 
 ### Phase 4: Temporary App Full Delete E2E
 
@@ -250,8 +266,8 @@ Completion conditions:
 | Phase 0: Planning Governance | Done | This document exists and is linked from related docs. | Keep this document current. | Use this plan in future prompts. |
 | Phase 1: Delete Plan Accuracy | Mostly done | `plan_app_delete.ps1`, `app_studio_delete_plan`, `test_app_delete_plan.ps1`. | Continue adding edge-case fixtures as new artifact patterns appear. | Preserve strict matching rules. |
 | Phase 2: Parity and Rehearsal | Mostly done | `test_app_delete_plan_parity.ps1`, `rehearse_app_delete.ps1`, `check_all.ps1`. | Add more fixtures if production artifacts become more varied. | Treat this as the safety baseline. |
-| Phase 3: Full Delete Executor Design | Not started | No executor design document or implementation yet. | Define dry-run/apply split, ordering, failure handling, and exclusions. | Start Phase 3 next. |
-| Phase 4: Temporary App Full Delete E2E | Not started | No destructive temporary-app E2E yet. | Implement temporary-app-only apply tests after Phase 3. | Wait for Phase 3. |
+| Phase 3: Full Delete Executor Design | Done | `docs/19_full_delete_executor_design.md`, `scripts/execute_app_delete.ps1`, `scripts/test_app_delete_executor_design.ps1`. | Keep Apply rejected until Phase 4. | Start temporary-app-only Apply design and tests. |
+| Phase 4: Temporary App Full Delete E2E | Not started | No destructive temporary-app E2E yet. | Implement temporary-app-only Apply, prove targets are removed, and prove exclusions remain. | Use Phase 3 executor design as the contract. |
 | Phase 5: Production Full Delete Command | Not started | Full delete command is not implemented. | Implement production command and UI enablement after Phase 4. | Wait for Phase 4. |
 | Phase 6: Cleanup and Release Readiness | Not started | Strict cleanup policy is not complete. | Review stale entries and formal release checks. | Wait for Phase 5. |
 
@@ -273,7 +289,7 @@ Completion conditions:
 
 | Risk | Mitigation | Owner/Area | Current Status |
 | --- | --- | --- | --- |
-| Accidental deletion | Keep full delete unimplemented until Phase 3 and Phase 4 pass. Use plan-first execution. | Tauri command, scripts | Controlled, executor not implemented. |
+| Accidental deletion | Keep production full delete unimplemented until Phase 4 passes. Use plan-first execution. | Tauri command, scripts | Controlled, Apply is rejected in Phase 3. |
 | app_id substring match pulls in another app | Strict App Pack and staging matching. Ambiguous staging matches are excluded candidates. | Delete plan | Mostly mitigated. |
 | Manifest entry remains after source deletion | Future executor must remove the entry and verify rebuild/diagnose output. | Full delete executor | Not implemented. |
 | App Pack remains after source deletion | Future executor must remove manifest package path and `<app_id>-*.zip`. | Full delete executor | Not implemented. |
@@ -287,16 +303,15 @@ Completion conditions:
 
 Next phase:
 
-- Phase 3: Full Delete Executor Design.
+- Phase 4: Temporary App Full Delete E2E.
 
 Next implementation planning tasks:
 
-- Define dry-run and apply separation for the executor.
-- Define delete ordering.
-- Define how an executor validates that a plan is still current.
-- Define failure behavior.
-- Define temporary-app-only E2E helpers.
-- Keep real app deletion out of scope until Phase 4 passes.
+- Keep production full delete disabled.
+- Add Apply behavior only for a temporary app fixture.
+- Verify removal of temporary source, manifest entry, App Pack, staging, runtime app_env, and history.
+- Verify external references, user data references, shared runtime, and staging candidates remain untouched.
+- Run post-delete diagnosis, rebuild dry-run, release verification, and check_all.
 
 ## 11. Prompt Contract
 
@@ -315,3 +330,4 @@ Future Codex prompts for this area must follow this contract:
 | Date | Change | Reason | Impact |
 | --- | --- | --- | --- |
 | 2026-05-08 | Initial plan created. | Move from ad hoc preparation to governed execution. | Future prompts will reference this document and report phase progress. |
+| 2026-05-08 | Phase 3 executor design and dry-run skeleton added. | Define full-delete execution boundaries before any destructive implementation. | Phase 4 can now build temporary-app-only Apply against a documented ordering and safety contract. |

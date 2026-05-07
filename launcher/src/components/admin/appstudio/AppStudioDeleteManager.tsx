@@ -94,7 +94,7 @@ export function AppStudioDeleteManager() {
           <h4>App management</h4>
           <p>
             The app source of truth is <code>apps/&lt;app_id&gt;/</code>. This tab can hide or show indexed apps and
-            display a dry-run deletion plan. Full deletion is disabled until parity and rehearsal checks are complete.
+            display a dry-run deletion plan. Full deletion is disabled until executor design and temporary-app E2E pass.
           </p>
         </div>
         <button className="secondary-button" type="button" onClick={() => void reload()} disabled={loading || !!busy}>
@@ -186,7 +186,7 @@ export function AppStudioDeleteManager() {
                       className="secondary-button danger-button"
                       type="button"
                       disabled
-                      title="Full deletion will be implemented only after deletion plans are validated."
+                      title="Full deletion is disabled until the executor design and temporary-app E2E are complete."
                     >
                       <Trash2 size={15} aria-hidden="true" />
                       Delete

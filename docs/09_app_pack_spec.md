@@ -126,6 +126,7 @@ Preview future full deletion targets:
 
 ```powershell
 .\scripts\plan_app_delete.ps1 -AppId addnum_pdf -DryRun
+.\scripts\execute_app_delete.ps1 -AppId addnum_pdf -DryRun
 ```
 
 The plan lists:
@@ -137,7 +138,8 @@ The plan lists:
 - `user_data`: excluded `%LOCALAPPDATA%/ToolHub/...` paths
 - `shared_runtime`: excluded shared runtime folders
 
-The script never deletes files.
+These scripts never delete files in the current phase. `execute_app_delete.ps1` shows the future executor ordering and
+rejects `-Apply` until the temporary-app E2E phase proves safety.
 
 App Pack matching uses the manifest package path plus `release/app_packs/<app_id>-*.zip`. Release staging matching does
 not use plain substring matching: a staging path is a delete target only when a path segment equals `<app_id>`, equals
@@ -148,6 +150,8 @@ as excluded candidates and must not be deleted by an automated full-delete imple
 temporary fixture. `scripts/rehearse_app_delete.ps1` creates a temporary repo-local app and generated/history artifacts,
 checks that App Pack and staging targets are included only by the strict rules above, and then restores the manifest and
 removes the temporary files. Both scripts are dry-run validation; they do not delete real App Pack or staging artifacts.
+`scripts/test_app_delete_executor_design.ps1` verifies the dry-run executor skeleton and confirms `-Apply` is still
+rejected.
 
 ## Verification
 

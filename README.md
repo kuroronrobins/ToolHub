@@ -145,7 +145,7 @@ ToolHubを再起動すると、`app.yaml` から自動検出されます。
 - 再表示: `apps/<app_id>/app.yaml` が存在する場合だけ `enabled=true` に戻します。
 - 削除計画: `apps/<app_id>/`、App Pack、staging、runtime app_env、App Studio backup などの将来削除対象と、外部参照・ユーザーデータ・共有runtimeの除外対象を表示します。
 
-完全削除の実行、App Pack zip削除、backup削除、release履歴削除、ユーザーデータ削除は未実装です。管理モデルは [docs/17_app_management_model.md](docs/17_app_management_model.md)、実装計画は [docs/18_app_delete_execution_plan.md](docs/18_app_delete_execution_plan.md) を参照してください。
+完全削除の実行、App Pack zip削除、backup削除、release履歴削除、ユーザーデータ削除は未実装です。管理モデルは [docs/17_app_management_model.md](docs/17_app_management_model.md)、実装計画は [docs/18_app_delete_execution_plan.md](docs/18_app_delete_execution_plan.md)、executor設計は [docs/19_full_delete_executor_design.md](docs/19_full_delete_executor_design.md) を参照してください。
 
 ## 検収方法
 
@@ -169,17 +169,19 @@ app manifest の状態だけを確認する場合:
 ```powershell
 .\scripts\rebuild_app_manifest.ps1 -DryRun
 .\scripts\plan_app_delete.ps1 -AppId addnum_pdf -DryRun
+.\scripts\execute_app_delete.ps1 -AppId addnum_pdf -DryRun
 ```
 
 削除計画は dry-run のみです。App Pack は manifest の package path と
 `release/app_packs/<app_id>-*.zip`、staging は `<app_id>` または
 `<app_id>-<version>` と明確に判定できる path segment だけを削除候補にします。
-部分一致だけの staging 候補は除外対象として表示され、完全削除実行はまだ未実装です。
+部分一致だけの staging 候補は除外対象として表示されます。`execute_app_delete.ps1` も現時点では dry-run の実行順序表示のみで、`-Apply` は未実装として拒否します。
 
 ```powershell
 .\scripts\test_app_delete_plan.ps1
 .\scripts\test_app_delete_plan_parity.ps1
 .\scripts\rehearse_app_delete.ps1
+.\scripts\test_app_delete_executor_design.ps1
 ```
 
 `test_app_delete_plan_parity.ps1` は PowerShell版とTauri/Rust helper版の削除計画を同じ一時fixtureで比較します。
