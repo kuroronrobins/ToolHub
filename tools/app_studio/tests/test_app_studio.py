@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import json
 import shutil
 import unittest
 import uuid
@@ -563,16 +564,27 @@ class AppStudioTests(unittest.TestCase):
             (final_app / "README.md").write_text("# Auth Ignore\n", encoding="utf-8")
             (final_app / "requirements.txt").write_text("", encoding="utf-8")
             (final_app / "icon.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+            breakdown: list[dict[str, object]] = []
+            output_dir = root / "output"
             package_path = apply_registration(
                 context,
                 BuildPlan(mode="frozen-folder", runner="exe", entry="bin/auth_ignore/auth_ignore.exe", required_runtime=None, reasons=[]),
                 final_app,
-                root / "output",
+                output_dir,
+                breakdown=breakdown,
             )
 
             with zipfile.ZipFile(package_path) as archive:
                 names = archive.namelist()
             self.assertFalse(any(".auth/" in name or "mega_state.json" in name or "storage_state.json" in name for name in names))
+            self.assertTrue((output_dir / "registration_copy_report.md").is_file())
+            report = json.loads((output_dir / "registration_copy_breakdown.json").read_text(encoding="utf-8"))
+            step_names = {record["name"] for record in report["records"]}
+            self.assertIn("copy_final_app_to_apps", step_names)
+            self.assertIn("compress_app_pack", step_names)
+            self.assertIn("sha256_app_pack", step_names)
+            self.assertIn("copy_pack_to_output_mirror", step_names)
+            self.assertEqual(report["safety"]["required_entry_inspection_skipped"], False)
 
     def test_excluded_files_do_not_enter_build_profile(self) -> None:
         with workspace_tempdir() as temp:

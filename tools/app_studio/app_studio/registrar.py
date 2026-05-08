@@ -2,38 +2,184 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 import zipfile
+from contextlib import contextmanager
 from pathlib import Path
 from pathlib import PurePosixPath, PureWindowsPath
-from typing import Any
+from typing import Any, Iterator
 
 from .exporter import copy_pack_to_output
 from .models import BuildPlan, StudioContext
 from .util import assert_within, file_sha256, reset_directory, timestamp, write_json, write_text
 
 
-def apply_registration(context: StudioContext, plan: BuildPlan, final_app_dir: Path, output_dir: Path) -> Path:
-    backup_existing(context.repo_root, context.app_id)
-    apps_dir = context.repo_root / "apps"
-    target = apps_dir / context.app_id
-    assert_within(target, apps_dir, "app registration target")
-    if target.exists():
-        shutil.rmtree(target)
-    shutil.copytree(final_app_dir, target)
-
-    manifest_path = context.repo_root / "release" / "app_manifest.json"
-    manifest = load_app_manifest_json(manifest_path)
-    manifest.setdefault("schema_version", 1)
-    manifest.setdefault("channel", "stable")
-    manifest.setdefault("apps", {})
-    manifest["apps"][context.app_id] = manifest_entry_from_app_source(target, context, plan)
-    write_json(manifest_path, manifest)
-    package_path = package_app_pack(context.repo_root, context.app_id)
-    copy_pack_to_output(package_path, output_dir)
-    return package_path
+APP_PACK_COMPRESSLEVEL = 1
+BACKUP_COMPRESSLEVEL = 1
+REGISTRATION_TOP_LEVEL_STEPS = {
+    "backup_existing_total",
+    "remove_existing_app",
+    "copy_final_app_to_apps",
+    "manifest_update_before_pack",
+    "package_app_pack_total",
+    "copy_pack_to_output_mirror",
+}
 
 
-def backup_existing(repo_root: Path, app_id: str) -> Path | None:
+@contextmanager
+def _registration_step(
+    records: list[dict[str, Any]] | None,
+    name: str,
+    detail: str = "",
+) -> Iterator[dict[str, Any]]:
+    started = time.perf_counter()
+    record: dict[str, Any] = {"name": name, "status": "pass", "detail": detail}
+    try:
+        yield record
+    except Exception as exc:
+        record["status"] = "fail"
+        record["error"] = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        record["duration_seconds"] = round(time.perf_counter() - started, 3)
+        if records is not None:
+            records.append(record)
+
+
+def _directory_stats(path: Path) -> dict[str, int]:
+    files = 0
+    total_bytes = 0
+    if not path.exists():
+        return {"files": 0, "bytes": 0}
+    for file in path.rglob("*"):
+        if file.is_file():
+            files += 1
+            total_bytes += file.stat().st_size
+    return {"files": files, "bytes": total_bytes}
+
+
+def _format_bytes(value: int) -> str:
+    amount = float(value)
+    for unit in ("B", "KB", "MB", "GB"):
+        if amount < 1024 or unit == "GB":
+            if unit == "B":
+                return f"{int(amount)} {unit}"
+            return f"{amount:.1f} {unit}"
+        amount /= 1024
+    return f"{value} B"
+
+
+def write_registration_copy_report(
+    output_dir: Path,
+    context: StudioContext,
+    records: list[dict[str, Any]],
+) -> None:
+    total_seconds = round(
+        sum(
+            float(record.get("duration_seconds") or 0.0)
+            for record in records
+            if record.get("name") in REGISTRATION_TOP_LEVEL_STEPS
+        ),
+        3,
+    )
+    leaf_seconds = round(
+        sum(
+            float(record.get("duration_seconds") or 0.0)
+            for record in records
+            if not str(record.get("name") or "").endswith("_total")
+        ),
+        3,
+    )
+    write_json(
+        output_dir / "registration_copy_breakdown.json",
+        {
+            "app_id": context.app_id,
+            "top_level_recorded_seconds": total_seconds,
+            "leaf_recorded_seconds": leaf_seconds,
+            "records": records,
+            "safety": {
+                "app_pack_structure_changed": False,
+                "required_entry_inspection_skipped": False,
+                "sha256_calculation_skipped": False,
+                "manifest_update_skipped": False,
+                "zip_compression": "ZIP_DEFLATED",
+                "zip_compresslevel": APP_PACK_COMPRESSLEVEL,
+                "backup_zip_compression": "ZIP_DEFLATED",
+                "backup_zip_compresslevel": BACKUP_COMPRESSLEVEL,
+            },
+        },
+    )
+    lines = [
+        "# Registration Copy Report",
+        "",
+        f"- app_id: `{context.app_id}`",
+        f"- top_level_recorded_seconds: `{total_seconds:.3f}`",
+        f"- leaf_recorded_seconds: `{leaf_seconds:.3f}`",
+        "- safety: App Pack structure, required-entry inspection, SHA256 calculation, and manifest update are preserved.",
+        f"- app_pack_zip_compresslevel: `{APP_PACK_COMPRESSLEVEL}`",
+        f"- backup_zip_compresslevel: `{BACKUP_COMPRESSLEVEL}`",
+        "",
+        "| Step | Status | Seconds | Detail |",
+        "| --- | --- | ---: | --- |",
+    ]
+    for record in records:
+        detail = str(record.get("detail") or record.get("error") or "").replace("|", "\\|")
+        lines.append(
+            f"| `{record.get('name', '')}` | `{record.get('status', '')}` | "
+            f"{float(record.get('duration_seconds') or 0.0):.3f} | {detail} |"
+        )
+    lines.append("")
+    write_text(output_dir / "registration_copy_report.md", "\n".join(lines))
+
+
+def apply_registration(
+    context: StudioContext,
+    plan: BuildPlan,
+    final_app_dir: Path,
+    output_dir: Path,
+    breakdown: list[dict[str, Any]] | None = None,
+) -> Path:
+    records = breakdown if breakdown is not None else []
+    try:
+        with _registration_step(records, "backup_existing_total"):
+            backup_existing(context.repo_root, context.app_id, breakdown=records)
+
+        apps_dir = context.repo_root / "apps"
+        target = apps_dir / context.app_id
+        assert_within(target, apps_dir, "app registration target")
+        with _registration_step(records, "remove_existing_app", f"path={target}"):
+            if target.exists():
+                shutil.rmtree(target)
+        stats = _directory_stats(final_app_dir)
+        with _registration_step(
+            records,
+            "copy_final_app_to_apps",
+            f"files={stats['files']}; bytes={stats['bytes']} ({_format_bytes(stats['bytes'])})",
+        ):
+            shutil.copytree(final_app_dir, target)
+
+        manifest_path = context.repo_root / "release" / "app_manifest.json"
+        with _registration_step(records, "manifest_update_before_pack", f"path={manifest_path}"):
+            manifest = load_app_manifest_json(manifest_path)
+            manifest.setdefault("schema_version", 1)
+            manifest.setdefault("channel", "stable")
+            manifest.setdefault("apps", {})
+            manifest["apps"][context.app_id] = manifest_entry_from_app_source(target, context, plan)
+            write_json(manifest_path, manifest)
+        with _registration_step(records, "package_app_pack_total"):
+            package_path = package_app_pack(context.repo_root, context.app_id, breakdown=records)
+        with _registration_step(records, "copy_pack_to_output_mirror", f"path={output_dir / 'app_pack'}"):
+            copy_pack_to_output(package_path, output_dir)
+        return package_path
+    finally:
+        write_registration_copy_report(output_dir, context, records)
+
+
+def backup_existing(
+    repo_root: Path,
+    app_id: str,
+    breakdown: list[dict[str, Any]] | None = None,
+) -> Path | None:
     app_dir = repo_root / "apps" / app_id
     manifest_path = repo_root / "release" / "app_manifest.json"
     manifest = load_app_manifest_json(manifest_path) if manifest_path.is_file() else {"apps": {}}
@@ -46,15 +192,28 @@ def backup_existing(repo_root: Path, app_id: str) -> Path | None:
     assert_within(backup_root, repo_root / "backups", "backup target")
     backup_root.mkdir(parents=True, exist_ok=True)
     if app_exists:
-        backup_app_directory(app_dir, backup_root / "app.zip")
+        stats = _directory_stats(app_dir)
+        with _registration_step(
+            breakdown,
+            "backup_existing_app_zip",
+            f"compression=ZIP_DEFLATED; compresslevel={BACKUP_COMPRESSLEVEL}; "
+            f"files={stats['files']}; bytes={stats['bytes']} ({_format_bytes(stats['bytes'])})",
+        ):
+            backup_app_directory(app_dir, backup_root / "app.zip")
     if manifest_path.is_file():
-        shutil.copy2(manifest_path, backup_root / "app_manifest.json")
+        with _registration_step(breakdown, "backup_manifest", f"path={manifest_path}"):
+            shutil.copy2(manifest_path, backup_root / "app_manifest.json")
     return backup_root
 
 
 def backup_app_directory(app_dir: Path, archive_path: Path) -> None:
     assert_within(archive_path, archive_path.parent, "backup app archive")
-    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    with zipfile.ZipFile(
+        archive_path,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=BACKUP_COMPRESSLEVEL,
+    ) as archive:
         for file in sorted(app_dir.rglob("*")):
             if file.is_file():
                 archive.write(file, file.relative_to(app_dir).as_posix())
@@ -116,30 +275,44 @@ def normalize_yaml_scalar(value: str) -> str | None:
     return text
 
 
-def package_app_pack(repo_root: Path, app_id: str) -> Path:
+def package_app_pack(
+    repo_root: Path,
+    app_id: str,
+    breakdown: list[dict[str, Any]] | None = None,
+) -> Path:
     manifest_path = repo_root / "release" / "app_manifest.json"
-    manifest = load_app_manifest_json(manifest_path)
-    app_entry = manifest.get("apps", {}).get(app_id)
-    if not isinstance(app_entry, dict):
-        raise ValueError(f"App is not listed in release/app_manifest.json: {app_id}")
+    with _registration_step(breakdown, "load_manifest_for_pack", f"path={manifest_path}"):
+        manifest = load_app_manifest_json(manifest_path)
+        app_entry = manifest.get("apps", {}).get(app_id)
+        if not isinstance(app_entry, dict):
+            raise ValueError(f"App is not listed in release/app_manifest.json: {app_id}")
 
     version = str(app_entry.get("version") or "0.1.0")
     app_dir = repo_root / "apps" / app_id
-    if not app_dir.is_dir():
-        raise FileNotFoundError(f"App directory is missing: {app_dir}")
-    for required in ("app.yaml", "README.md", "requirements.txt"):
-        if not (app_dir / required).is_file():
-            raise FileNotFoundError(f"Required app file is missing: {app_dir / required}")
-    if not (app_dir / "icon.png").is_file() and not (app_dir / "icon.svg").is_file():
-        raise FileNotFoundError(f"Required app icon is missing: {app_dir / 'icon.png'} or {app_dir / 'icon.svg'}")
-    run_entry = require_app_yaml_file(app_dir, "run", "entry", "run.entry")
-    display_icon = require_app_yaml_file(app_dir, "display", "icon", "display.icon")
+    with _registration_step(breakdown, "validate_app_pack_inputs", f"path={app_dir}"):
+        if not app_dir.is_dir():
+            raise FileNotFoundError(f"App directory is missing: {app_dir}")
+        for required in ("app.yaml", "README.md", "requirements.txt"):
+            if not (app_dir / required).is_file():
+                raise FileNotFoundError(f"Required app file is missing: {app_dir / required}")
+        if not (app_dir / "icon.png").is_file() and not (app_dir / "icon.svg").is_file():
+            raise FileNotFoundError(f"Required app icon is missing: {app_dir / 'icon.png'} or {app_dir / 'icon.svg'}")
+        run_entry = require_app_yaml_file(app_dir, "run", "entry", "run.entry")
+        display_icon = require_app_yaml_file(app_dir, "display", "icon", "display.icon")
 
     staging_base = repo_root / "release" / "staging" / "app_studio_pack"
-    reset_directory(staging_base, repo_root / "release" / "staging")
+    with _registration_step(breakdown, "staging_reset", f"path={staging_base}"):
+        reset_directory(staging_base, repo_root / "release" / "staging")
     stage_app_dir = staging_base / app_id
-    shutil.copytree(app_dir, stage_app_dir)
-    remove_generated_cache(stage_app_dir)
+    stats = _directory_stats(app_dir)
+    with _registration_step(
+        breakdown,
+        "copy_app_to_pack_staging",
+        f"files={stats['files']}; bytes={stats['bytes']} ({_format_bytes(stats['bytes'])})",
+    ):
+        shutil.copytree(app_dir, stage_app_dir)
+    with _registration_step(breakdown, "cleanup_generated_cache", f"path={stage_app_dir}"):
+        remove_generated_cache(stage_app_dir)
 
     pack_manifest = {
         "schema_version": 1,
@@ -150,22 +323,32 @@ def package_app_pack(repo_root: Path, app_id: str) -> Path:
         "required_runtime": app_entry.get("required_runtime"),
         "package_sha256": "",
     }
-    write_json(stage_app_dir / "pack_manifest.json", pack_manifest)
+    with _registration_step(breakdown, "write_pack_manifest", f"path={stage_app_dir / 'pack_manifest.json'}"):
+        write_json(stage_app_dir / "pack_manifest.json", pack_manifest)
 
     app_packs_dir = repo_root / "release" / "app_packs"
     app_packs_dir.mkdir(parents=True, exist_ok=True)
     package_path = app_packs_dir / f"{app_id}-{version}.zip"
     assert_within(package_path, app_packs_dir, "app pack")
-    if package_path.exists():
-        package_path.unlink()
+    with _registration_step(breakdown, "remove_existing_app_pack", f"path={package_path}"):
+        if package_path.exists():
+            package_path.unlink()
 
-    with zipfile.ZipFile(package_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for file in sorted(stage_app_dir.rglob("*")):
-            if file.is_file():
-                archive.write(file, file.relative_to(staging_base).as_posix())
+    with _registration_step(
+        breakdown,
+        "compress_app_pack",
+        f"compresslevel={APP_PACK_COMPRESSLEVEL}; path={package_path}",
+    ):
+        with zipfile.ZipFile(
+            package_path,
+            "w",
+            compression=zipfile.ZIP_DEFLATED,
+            compresslevel=APP_PACK_COMPRESSLEVEL,
+        ) as archive:
+            for file in sorted(stage_app_dir.rglob("*")):
+                if file.is_file():
+                    archive.write(file, file.relative_to(staging_base).as_posix())
 
-    with zipfile.ZipFile(package_path) as archive:
-        names = {name.replace("\\", "/") for name in archive.namelist()}
     required_entries = {
         f"{app_id}/app.yaml",
         f"{app_id}/pack_manifest.json",
@@ -174,14 +357,19 @@ def package_app_pack(repo_root: Path, app_id: str) -> Path:
         f"{app_id}/{display_icon}",
         f"{app_id}/{run_entry}",
     }
-    missing_entries = sorted(required_entries - names)
-    if missing_entries:
-        raise FileNotFoundError(f"App Pack is missing required entries: {', '.join(missing_entries)}")
+    with _registration_step(breakdown, "inspect_app_pack_required_entries", f"path={package_path}"):
+        with zipfile.ZipFile(package_path) as archive:
+            names = {name.replace("\\", "/") for name in archive.namelist()}
+        missing_entries = sorted(required_entries - names)
+        if missing_entries:
+            raise FileNotFoundError(f"App Pack is missing required entries: {', '.join(missing_entries)}")
 
     app_entry["package"] = f"app_packs/{app_id}-{version}.zip"
-    app_entry["sha256"] = file_sha256(package_path)
+    with _registration_step(breakdown, "sha256_app_pack", f"path={package_path}"):
+        app_entry["sha256"] = file_sha256(package_path)
     manifest["apps"][app_id] = app_entry
-    write_json(manifest_path, manifest)
+    with _registration_step(breakdown, "manifest_update_after_pack", f"path={manifest_path}"):
+        write_json(manifest_path, manifest)
     return package_path
 
 

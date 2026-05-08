@@ -257,6 +257,8 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "build_frozen_folder": options.build_frozen_folder,
         "verify_runtime": options.verify_runtime,
         "build_env": str(context.output_dir / "build_env"),
+        "registration_copy_breakdown": str(context.output_dir / "registration_copy_breakdown.json"),
+        "registration_copy_report": str(context.output_dir / "registration_copy_report.md"),
         "build_env_cache_enabled": True,
         "rebuild_build_env": options.rebuild_build_env,
         "build_env_cache_build_profile_hash": build_profile_hash,
@@ -417,13 +419,16 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         write_timing_reports(context, output_dir, timings)
         return 1
 
+    registration_breakdown: list[dict[str, object]] = []
     try:
         with timings.phase("registration_copy"):
-            package_path = apply_registration(context, plan, final_app, output_dir)
+            package_path = apply_registration(context, plan, final_app, output_dir, breakdown=registration_breakdown)
     except Exception as exc:
+        mark_registration_breakdown(timings, registration_breakdown)
         record_blocked_execution(context, output_dir, "registration copy", f"Registration copy or app pack generation failed: {exc!r}", plan)
         write_timing_reports(context, output_dir, timings)
         raise
+    mark_registration_breakdown(timings, registration_breakdown)
     with timings.phase("execution_checks"):
         execution_result = run_execution_checks(context, plan, output_dir, secret_report, runtime_result)
     timings.mark("result_refresh", "not_applicable", "GUI result refresh is measured in the launcher after CLI completion.")
@@ -483,6 +488,24 @@ def stable_payload_hash(value: object) -> str:
 def build_relevant_profile_payload(profile: dict) -> dict:
     keys = ["paths", "hidden_imports", "add_data", "add_binaries", "collect_all", "required_files"]
     return {key: profile.get(key) for key in keys}
+
+
+def mark_registration_breakdown(timings: TimingRecorder, records: list[dict[str, object]]) -> None:
+    for record in records:
+        name = str(record.get("name") or "unknown")
+        duration = float(record.get("duration_seconds") or 0.0)
+        detail_parts = [f"measured_duration_seconds={duration:.3f}"]
+        if record.get("detail"):
+            detail_parts.append(str(record["detail"]))
+        if record.get("error"):
+            detail_parts.append(str(record["error"]))
+        timings.mark(
+            f"registration_copy.{name}",
+            str(record.get("status") or "pass"),
+            "; ".join(detail_parts),
+            duration_seconds=0.0,
+            label=f"registration_copy.{name}",
+        )
 
 
 def validate_flag_combination(args: argparse.Namespace) -> None:

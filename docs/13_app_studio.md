@@ -208,6 +208,7 @@ C:\work\MyApp\ToolHub_AppStudio_Output\<app_id>\
 - `secret_scan_report.md`
 - `suggested_toolhubignore.md`（sensitive runtime state の明示除外または推奨除外がある場合）
 - `timing_report.json` / `timing_report.md`
+- `registration_copy_breakdown.json` / `registration_copy_report.md`（Apply 後半の backup / copy / App Pack zip / SHA256 / output mirror の内訳）
 - `build_plan.md`
 - `proposed_app.yaml`
 - `proposed_README.md`
