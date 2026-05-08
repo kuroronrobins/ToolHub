@@ -117,6 +117,29 @@ def suggest_icon_prompt(
     if brief is None:
         brief = build_icon_design_brief(context, metadata, dependency_report, style_reference)
     base = icon_prompt_from_brief(brief, revision_prompt)
+    if revision_prompt and revision_prompt.strip():
+        user_prompt = sanitize_ai_text(revision_prompt, 2400)
+        prompt = "\n".join(
+            [
+                "USER ICON REQUEST - PRIMARY SOURCE OF TRUTH:",
+                user_prompt,
+                "",
+                "Priority rule: follow the user request above before any generated app metadata or ToolHub house style.",
+                "Use the app context below only to avoid producing an icon for the wrong app.",
+                "",
+                "APP CONTEXT - SECONDARY:",
+                f"app_name: {brief.name}",
+                f"app_purpose: {brief.purpose}",
+                f"primary_action: {brief.primary_action}",
+                f"input_objects: {', '.join(brief.input_objects)}",
+                f"output_objects: {', '.join(brief.output_objects)}",
+                f"action_flow: {brief.action_flow}",
+                "",
+                "READABILITY:",
+                "Keep the result readable as an app icon at 32px and polished at 256px or larger.",
+            ]
+        )
+        return prompt, "User icon prompt was used directly; AI prompt rewriting was skipped."
     if not allow_ai:
         return base, "OpenAI icon prompt generation skipped because AI use was not allowed."
 

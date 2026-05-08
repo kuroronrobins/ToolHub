@@ -31,6 +31,14 @@ ICON_IMAGE_QUALITY_MODES: dict[str, dict[str, str]] = {
 }
 
 ICON_STYLE_PRESETS: dict[str, dict[str, str]] = {
+    "user_prompt": {
+        "label": "user_prompt",
+        "material": "derive the visual material from the user's icon prompt; do not add an unrelated house style",
+        "color": "derive color, mood, and contrast from the user's icon prompt",
+        "edge": "keep the user's requested style while preserving small-icon readability",
+        "lighting": "derive lighting and depth from the user's icon prompt",
+        "forbidden": "do not add a separate preset style that conflicts with the user's prompt",
+    },
     "modern": {
         "label": "modern",
         "material": "clean contemporary digital icon with crisp high-DPI surfaces",
@@ -372,7 +380,7 @@ def regenerate_icon_only(
             user_revision_instruction,
         ]
     )
-    style_settings = icon_style_settings(icon_style_preset or str(import_plan.get("icon_style_preset", "")), icon_style_custom or str(import_plan.get("icon_style_custom", "")), style_prompt_seed)
+    style_settings = icon_style_settings(icon_style_preset, icon_style_custom, style_prompt_seed)
     prompt_for_asset = build_icon_revision_api_base_prompt(
         brief=brief,
         base_candidate=selected_entry,
@@ -381,7 +389,7 @@ def regenerate_icon_only(
         icon_style_preset=style_settings.get("preset", ""),
         icon_style_custom=style_settings.get("custom", "") or (icon_style_custom or ""),
     )
-    revision_concepts = icon_revision_concepts(brief, count, revision_mode, selected_entry)
+    revision_concepts = icon_revision_concepts(brief, count, revision_mode, selected_entry, user_revision_instruction)
     base_image = selected_candidate_image_path(icon_work, selected_entry)
     if revision_mode in {"redesign", "fresh"}:
         base_image = None
@@ -574,37 +582,42 @@ def build_icon_revision_api_base_prompt(
     icon_style_custom: str,
 ) -> str:
     mode = normalize_icon_revision_mode(revision_mode)
-    previous_prompt = ""
-    if mode != "fresh" and base_candidate:
-        previous_prompt = sanitize_ai_text(str(base_candidate.get("prompt") or ""), 2600)
     base_id = str(base_candidate.get("candidate_id") or base_candidate.get("id") or "unknown") if base_candidate else "unknown"
     base_status = str(base_candidate.get("status") or "unknown") if base_candidate else "unknown"
     base_source = str(base_candidate.get("source") or "unknown") if base_candidate else "unknown"
+    style_text = sanitize_ai_text(icon_style_custom, 900) if icon_style_custom else ""
     return "\n".join(
         [
-            "Icon revision request for ToolHub App Studio.",
+            "ToolHub App Studio icon image request.",
             f"revision_mode: {mode}",
             f"change_strength: {mode}",
+            "",
+            "USER ICON REQUEST - PRIMARY SOURCE OF TRUTH:",
+            sanitize_ai_text(user_revision_instruction, 2200),
+            "",
+            "Priority rule: follow the USER ICON REQUEST above before generated app metadata, previous prompts, style presets, or candidate concepts.",
+            "If another section conflicts with the USER ICON REQUEST, ignore that conflicting generated section.",
+            "The user may specify motif, composition, style, material, color, lighting, brand-like references, or motion; preserve those requirements explicitly.",
+            "",
+            "USER STYLE INSTRUCTION:",
+            style_text or "Use the style described in the USER ICON REQUEST. Do not apply an additional preset style.",
+            "",
+            "APP CONTEXT - SECONDARY, ONLY TO AVOID A WRONG APP MEANING:",
+            f"app_name: {brief.name}",
+            f"app_purpose: {brief.purpose}",
+            f"primary_action: {brief.primary_action}",
+            f"input_objects: {', '.join(brief.input_objects)}",
+            f"output_objects: {', '.join(brief.output_objects)}",
+            f"action_flow: {brief.action_flow}",
+            "",
+            "PREVIOUS CANDIDATE REFERENCE:",
             f"base_candidate_id: {base_id}",
             f"base_candidate_status: {base_status}",
             f"base_candidate_source: {base_source}",
-            f"selected_style_preset: {icon_style_preset or 'modern'}",
-            f"custom_style_text: {sanitize_ai_text(icon_style_custom, 900) if icon_style_custom else 'none'}",
+            f"selected_style_preset: {icon_style_preset or 'user_prompt'}",
+            "Do not copy the previous image prompt or composition unless the USER ICON REQUEST asks to preserve it.",
             "",
             revision_mode_policy(mode),
-            "",
-            "APP FUNCTION INTERPRETATION:",
-            json.dumps(brief.to_dict(), ensure_ascii=False),
-            "",
-            "PREVIOUS IMAGE API PROMPT:",
-            previous_prompt if previous_prompt else "Do not inherit the previous prompt strongly; use only the app function interpretation and the user instruction.",
-            "",
-            "USER REVISION INSTRUCTION - MUST FOLLOW VERBATIM:",
-            user_revision_instruction,
-            "",
-            "This instruction overrides previous concept/style text unless it conflicts with safety or icon readability.",
-            "",
-            "The final icon must visibly reflect the user revision instruction. If the instruction says a style such as colored pencil, realistic, vivid, or watercolor, follow that style over generic modern polish.",
         ]
     )
 
@@ -647,7 +660,16 @@ def revision_mode_policy(mode: str) -> str:
     )
 
 
-def icon_revision_concepts(brief: IconDesignBrief, count: int, mode: str, base_candidate: dict[str, Any] | None) -> list[IconConcept]:
+def icon_revision_concepts(
+    brief: IconDesignBrief,
+    count: int,
+    mode: str,
+    base_candidate: dict[str, Any] | None,
+    user_revision_instruction: str = "",
+) -> list[IconConcept]:
+    user_instruction = sanitize_ai_text(user_revision_instruction, 900)
+    if user_instruction:
+        return user_directed_icon_concepts(brief, count, mode, user_instruction)
     base = fallback_icon_concepts(brief, max(count, 3))
     if mode == "tweak":
         ordered = base
@@ -687,6 +709,44 @@ def icon_revision_concepts(brief: IconDesignBrief, count: int, mode: str, base_c
             )
         )
     return concepts
+
+
+def user_directed_icon_concepts(brief: IconDesignBrief, count: int, mode: str, user_instruction: str) -> list[IconConcept]:
+    mode = normalize_icon_revision_mode(mode)
+    directions = {
+        "tweak": "small targeted variation of the user request",
+        "refine": "polished version of the user request",
+        "redesign": "new composition that follows the user request",
+        "fresh": "fresh concept family that follows the user request",
+    }
+    concepts: list[IconConcept] = []
+    for index in range(max(count, 1)):
+        if index == 0:
+            composition = f"Make the user's requested icon the main composition: {user_instruction}"
+        elif index == 1:
+            composition = f"Keep the user's requested motif and style, but simplify the silhouette for small icon readability: {user_instruction}"
+        else:
+            composition = f"Keep the user's requested motif, style, and transformation idea while changing only spacing, depth, or emphasis: {user_instruction}"
+        concepts.append(
+            IconConcept(
+                concept_id=f"user_prompt_{index + 1}",
+                direction=mode,
+                concept=f"{directions.get(mode, 'user-directed icon')}: {user_instruction}",
+                primary_motif="the main motif explicitly requested by the user",
+                secondary_motif=f"secondary app context: {brief.action_flow}",
+                composition=composition,
+                style_family="user-specified style from the prompt",
+                why_specific="Follows the user's written icon request first and uses app metadata only as secondary context.",
+                avoid_elements=[
+                    "unrequested style preset",
+                    "generic abstract shapes only",
+                    "tiny unreadable text",
+                    "crowded UI screenshots",
+                    "watermark",
+                ],
+            )
+        )
+    return concepts[:count]
 
 
 def write_icon_regeneration_files(
@@ -1328,11 +1388,17 @@ def revision_follow_score(prompt: str, candidate: IconCandidateAsset, warnings: 
 
 
 def extract_revision_instruction(prompt: str) -> str:
-    marker = "USER REVISION INSTRUCTION - MUST FOLLOW VERBATIM:"
-    if marker not in prompt:
-        return ""
-    tail = prompt.split(marker, 1)[1]
-    return sanitize_ai_text(tail.split("\n\n", 1)[0], 800)
+    markers = [
+        "USER ICON REQUEST - HIGHEST PRIORITY:",
+        "USER ICON REQUEST - PRIMARY SOURCE OF TRUTH:",
+        "USER REVISION INSTRUCTION - MUST FOLLOW VERBATIM:",
+    ]
+    for marker in markers:
+        if marker not in prompt:
+            continue
+        tail = prompt.split(marker, 1)[1]
+        return sanitize_ai_text(tail.split("\n\n", 1)[0], 800)
+    return ""
 
 
 def meaningful_terms(text: str) -> list[str]:
@@ -1620,7 +1686,7 @@ def jaccard_similarity(left: str, right: str) -> float:
 
 def icon_style_settings(preset: str | None, custom: str | None, prompt: str) -> dict[str, str]:
     selected = normalize_icon_style_preset(preset, prompt)
-    settings = dict(ICON_STYLE_PRESETS.get(selected, ICON_STYLE_PRESETS["modern"]))
+    settings = dict(ICON_STYLE_PRESETS.get(selected, ICON_STYLE_PRESETS["user_prompt"]))
     settings["preset"] = selected
     custom_text = sanitize_ai_text(custom or "", 800)
     if selected == "custom" and custom_text:
@@ -1635,8 +1701,7 @@ def normalize_icon_style_preset(preset: str | None, prompt: str = "") -> str:
     value = (preset or "").strip().lower().replace("-", "_").replace(" ", "_")
     if value in ICON_STYLE_PRESETS:
         return value
-    inferred = infer_icon_style_preset(prompt)
-    return inferred or "modern"
+    return "user_prompt"
 
 
 def infer_icon_style_preset(text: str) -> str:
@@ -1657,6 +1722,36 @@ def infer_icon_style_preset(text: str) -> str:
     return ""
 
 
+def extract_user_icon_request(prompt: str) -> str:
+    markers = [
+        "USER ICON REQUEST - HIGHEST PRIORITY:",
+        "USER ICON REQUEST - PRIMARY SOURCE OF TRUTH:",
+        "USER REVISION INSTRUCTION - MUST FOLLOW VERBATIM:",
+        "USER ICON PROMPT - MUST FOLLOW:",
+    ]
+    for marker in markers:
+        index = prompt.find(marker)
+        if index < 0:
+            continue
+        rest = prompt[index + len(marker) :].strip()
+        stop_markers = [
+            "\n\nPriority rule:",
+            "\n\nUSER STYLE INSTRUCTION:",
+            "\n\nAPP CONTEXT",
+            "\n\nThis instruction",
+            "\n\nIcon concept JSON:",
+        ]
+        end = len(rest)
+        for stop in stop_markers:
+            stop_index = rest.find(stop)
+            if stop_index >= 0:
+                end = min(end, stop_index)
+        value = sanitize_ai_text(rest[:end], 2200).strip()
+        if value:
+            return value
+    return ""
+
+
 def image_api_prompt(
     prompt: str,
     brief: IconDesignBrief | None = None,
@@ -1667,13 +1762,23 @@ def image_api_prompt(
     prior = ", ".join(prior_candidate_ids or [])
     concept_data = concept.to_dict() if concept else {}
     style_settings = style_settings or icon_style_settings(None, None, prompt)
-    preset = style_settings.get("preset", "modern")
+    preset = style_settings.get("preset", "user_prompt")
     custom = style_settings.get("custom", "")
+    user_request = extract_user_icon_request(prompt) or sanitize_ai_text(prompt, 2200)
+    generated_context = "" if user_request == prompt.strip() else sanitize_ai_text(prompt, 1800)
     return "\n".join(
         [
-            prompt.strip(),
+            "USER ICON REQUEST - HIGHEST PRIORITY:",
+            user_request,
             "",
-            "Icon concept JSON:",
+            "Follow the user request above as the source of truth for motif, composition, style, color, material, and mood.",
+            "Do not replace the user's requested image with a generic workflow metaphor.",
+            "Use app context only as a secondary guardrail so the icon still belongs to this app.",
+            "",
+            "STYLE SOURCE:",
+            custom or "No separate style preset is selected. Derive the style from the user request.",
+            "",
+            "Generated concept JSON - optional support only, never an override:",
             json.dumps(concept_data, ensure_ascii=False),
             "",
             "English rendering guidance: Create a distinctive 1024x1024 PNG app icon for a desktop launcher.",
@@ -1685,20 +1790,22 @@ def image_api_prompt(
             f"- lighting: {style_settings.get('lighting', '')}",
             f"- style-specific forbidden elements: {style_settings.get('forbidden', '')}",
             f"- custom style override: {custom}" if custom else "- custom style override: none",
-            "Do not override the selected style preset with a generic polished/glass/3D look.",
+            "Do not introduce a style preset that conflicts with the user's prompt.",
             "Use generous safe margins and a strong app-specific silhouette.",
-            "At a glance, the viewer must understand what the app does. Show the action relationship, not just the object type.",
-            "Prefer concrete input-to-process-to-output metaphors: merged PDFs become one PDF, uploads move a local file to cloud/server, transcription turns waveform into text-line blocks, comparisons show two objects with a highlighted difference.",
+            "If the user specified a central object, keep it central. If the user specified transformation, motion, material, or style, make that visibly dominant.",
             f"Primary action: {brief.primary_action if brief else 'unknown'}",
             f"Input objects: {', '.join(brief.input_objects) if brief else 'unknown'}",
             f"Output objects: {', '.join(brief.output_objects) if brief else 'unknown'}",
-            f"Preferred composition template: {brief.composition_template if brief else '2 to 4 meaningful objects connected by one action path'}",
+            f"App composition hint: {brief.composition_template if brief else 'use only if it supports the user request'}",
             f"Candidate direction: {concept.direction if concept else 'app-specific'}",
-            concept.composition if concept else "Make this candidate visually distinct from generic business icons.",
+            concept.composition if concept else "Make this candidate visually distinct while following the user request.",
             f"Do not repeat the same composition as previous candidates: {prior or 'none yet'}.",
-            "Use 2 to 4 meaningful objects maximum. Prioritize silhouette and relationship over detail density.",
-            "Forbidden: generic abstract shapes only, tiny text, readable or unreadable logo-like letters, unrequested full-photo scenes, screenshots, crowded UI panels, document-only icons, gear-only icons, check-only icons, nodes-only icons, or initial-letter-only icons.",
+            "Use a small number of readable visual elements. Prioritize the user's requested subject over generated metadata.",
+            "Forbidden unless explicitly requested by the user: generic abstract shapes only, tiny unreadable text, full-photo scenes, screenshots, crowded UI panels, gear-only icons, check-only icons, nodes-only icons, or initial-letter-only icons.",
             "Readable at 32px, attractive at 256px and above, no watermark, no mockup frame, transparent or clean icon background acceptable.",
+            "",
+            "Generated prompt context for audit - lower priority than USER ICON REQUEST:",
+            generated_context or "none",
         ]
     )
 

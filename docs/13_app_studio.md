@@ -12,13 +12,13 @@ AI/APIキー管理には「画像生成テスト（実API呼び出し）」が�
 
 `gpt-image-2` で `Your organization must be verified` または `Verify Organization` を含む 403 系エラーが返る場合、そのOpenAI組織ではモデル利用に組織認証が必要です。App Studio では `error_category: organization_verification_required` として扱い、`gpt-image-2 は現在のOpenAI組織では利用できません。OpenAI Platformで組織認証を完了するか、別のImage modelを設定してください。認証後、反映まで最大15分程度かかる場合があります。` と案内します。組織認証は OpenAI Platform の Organization settings で行い、反映後に画像生成テストを再実行してください。
 
-画像生成テストの直近結果が `ok:false` の間、App Studio GUI はAI画像候補と再生成が使えない状態として警告します。メタデータ編集や手動入力は継続できますが、fallback画像はAI画像ではなくローカル生成の暫定プレースホルダーです。API失敗中は `modern`、`vivid`、`colored_pencil`、`realistic` などの style preset の効果を評価できません。
+画像生成テストの直近結果が `ok:false` の間、App Studio GUI はAI画像候補と再生成が使えない状態として警告します。メタデータ編集や手動入力は継続できますが、fallback画像はAI画像ではなくローカル生成の暫定プレースホルダーです。API失敗中は、アイコンPromptやスタイル補足の効果を画像候補として評価できません。
 
 AI/APIキー管理では候補モデル `gpt-image-2`、`gpt-image-1.5`、`gpt-image-1`、`gpt-image-1-mini` を順番に実APIテストできます。成功したモデルは「このモデルを使用」で Image model 入力欄へ反映し、保存すると以後の App Studio 実行で使われます。候補モデル確認は実API呼び出しのため、OpenAI API利用料金が発生する場合があります。
 
 Icon候補の `source` が `api_generate` または `api_edit` のものだけを通常のAI生成候補として扱います。`fallback` / `fallback_after_api_failure` は API未実行または API失敗時の暫定プレースホルダーであり、AI生成成功とは扱いません。GUIでは API候補数、fallback候補数、使用モデル、スタイル、直近の画像API失敗理由を候補一覧上部に表示します。fallback PNG を使う場合は、候補カード上で明示的に採用する必要があります。
 
-Icon生成には `iconStylePreset` を使います。選択肢は `modern`、`vivid`、`realistic`、`colored_pencil`、`watercolor`、`flat_vector`、`3d_soft`、`glassmorphism`、`clay`、`custom` です。`custom` では自由入力のスタイル指示を優先し、後段の固定 prompt が色鉛筆風・写実風・ビビッド等の指定を汎用の polished/glass/3D 表現で上書きしないようにします。
+新規登録GUIでは、スタイルプリセットを先に選ばせず、アイコンPromptまたは「スタイル補足」にユーザーが文章で指定します。CLI互換のため `iconStylePreset` は残っていますが、GUIはスタイル補足がある場合だけ `custom` として送り、未指定時は `user_prompt` 相当としてユーザーPromptからスタイルを解釈します。後段の固定 prompt や過去候補のPromptは、ユーザーのモチーフ、構図、スタイル、色、素材、動きの指定を上書きしない前提です。
 
 再生成時に修正元PNGが選ばれている場合、CLI はそのPNGを一時ファイルとして渡し、OpenAI SDK の画像編集API経路を試みます。画像編集APIが失敗した場合は `candidate_manifest.json` と GUI に失敗理由を残し、fallback候補は暫定プレースホルダーとして分離表示します。画像候補の自動採点は、MVPでは vision model 評価ではなく、prompt/concept 評価に PNG の小サイズ視認性・コントラスト・余白の簡易検査を加えた deterministic rule-based 評価です。Vision 評価を実行していない場合は `image_evaluation_status: fallback_rule_based` または `not_run` として明示します。
 
@@ -629,11 +629,12 @@ inventory, secret scan, dependency analysis, metadata generation, build plan, or
 
 Regeneration defaults to one candidate for speed. The GUI exposes speed modes
 for 1/2/3 candidates and image quality modes `draft`, `standard`, and `high`.
-The final image API prompt always contains the raw user instruction under
-`USER REVISION INSTRUCTION - MUST FOLLOW VERBATIM`, and that prompt is stored in
-`candidate_manifest.json` for review. The GUI separates the user instruction,
-AI/intermediate prompt, and final image API prompt so users can verify what was
-actually sent to the image API.
+The final image API prompt contains the raw user instruction under
+`USER ICON REQUEST - HIGHEST PRIORITY` / `USER ICON REQUEST - PRIMARY SOURCE OF TRUTH`,
+and that prompt is stored in `candidate_manifest.json` for review. Previous
+candidate prompts and generated concepts are recorded only as secondary context
+so they do not override the user's requested motif, composition, style, color,
+material, or motion.
 
 ## AIアイコン生成の失敗診断
 
@@ -641,7 +642,7 @@ App Studio は、AI画像生成が失敗してfallbackへ流れた理由を `ai_
 
 `gpt-image-2` の実APIレスポンスで `Your organization must be verified` が返った場合は `organization_not_verified` として表示します。この場合は OpenAI Platform で Organization verification を完了するか、AI/APIキー管理の候補モデルテストで利用可能な Image model を確認し、管理者が明示的に設定を変更してください。ToolHub が自動で別モデルへ切り替えることはありません。
 
-GUIでは API画像候補を「AI生成候補」、fallback を「ローカル暫定アイコン」として分離します。API候補が0件の場合、fallback は本番品質のAI候補ではなく、AI不可時の仮アイコンです。style preset の効果は API画像候補が1件以上保存された場合だけ評価できます。
+GUIでは API画像候補を「AI生成候補」、fallback を「ローカル暫定アイコン」として分離します。API候補が0件の場合、fallback は本番品質のAI候補ではなく、AI不可時の仮アイコンです。アイコンPromptやスタイル補足の効果は API画像候補が1件以上保存された場合だけ評価できます。
 
 secret scan は package 全体の結果と、実際に画像APIへ送る icon prompt payload の結果を分けて扱います。package 側に warning / manual_check があっても、payload 自体に秘密情報がなければ過剰に画像生成を止めない方針です。一方、payload に API key、token、password などが含まれる可能性がある場合は `secret_scan_blocked` としてAI送信を止めます。
 

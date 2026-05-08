@@ -1263,11 +1263,12 @@ class OpenAIFallbackTests(unittest.TestCase):
         prompt = image_api_prompt("日本語のアイコン指示")
 
         self.assertIn("日本語のアイコン指示", prompt)
+        self.assertIn("USER ICON REQUEST - HIGHEST PRIORITY:", prompt)
         self.assertIn("English rendering guidance", prompt)
-        self.assertIn("document-only", prompt)
         self.assertIn("generic abstract shapes only", prompt)
-        self.assertIn("2 to 4 meaningful objects", prompt)
+        self.assertIn("Prioritize the user's requested subject", prompt)
         self.assertIn("Do not repeat", prompt)
+        self.assertIn("preset: user_prompt", prompt)
 
     def test_image_api_prompt_uses_style_preset_without_generic_override(self) -> None:
         pencil = image_api_prompt(
@@ -1282,7 +1283,7 @@ class OpenAIFallbackTests(unittest.TestCase):
         self.assertIn("preset: colored_pencil", pencil)
         self.assertIn("colored-pencil grain", pencil)
         self.assertIn("no glossy 3D plastic", pencil)
-        self.assertIn("Do not override the selected style preset", pencil)
+        self.assertIn("Do not introduce a style preset that conflicts with the user's prompt.", pencil)
         self.assertIn("risograph print, red and cyan ink", custom)
         self.assertIn("do not override the user's custom style", custom)
 
@@ -1527,11 +1528,12 @@ class OpenAIFallbackTests(unittest.TestCase):
                 metadata={"keywords": ["csv"], "outputs": ["chart"]},
             )
 
+            self.assertIn("USER ICON REQUEST - PRIMARY SOURCE OF TRUTH:", revision)
             self.assertIn("previous_prompt: blue data grid with chart", revision)
             self.assertIn("user_revision_instruction: make the chart motif stronger", revision)
             self.assertIn("revision_mode: fresh", revision)
             self.assertIn("divergence_requirement", revision)
-            self.assertIn("維持したい要素", revision)
+            self.assertIn("Priority rule", revision)
 
 
     def test_icon_regenerate_args_default_to_one_candidate(self) -> None:
@@ -1561,8 +1563,9 @@ class OpenAIFallbackTests(unittest.TestCase):
             tweak_prompt = build_icon_revision_api_base_prompt(brief, base_candidate, user_instruction, "tweak", "colored_pencil", "")
             fresh_prompt = build_icon_revision_api_base_prompt(brief, base_candidate, user_instruction, "fresh", "colored_pencil", "")
 
-        self.assertIn("USER REVISION INSTRUCTION - MUST FOLLOW VERBATIM:", tweak_prompt)
+        self.assertIn("USER ICON REQUEST - PRIMARY SOURCE OF TRUTH:", tweak_prompt)
         self.assertIn(user_instruction, tweak_prompt)
+        self.assertIn("Priority rule", tweak_prompt)
         self.assertIn("Use images.edit", tweak_prompt)
         self.assertIn("Do not use the previous PNG", fresh_prompt)
         self.assertNotIn("previous prompt with blue documents", fresh_prompt)
@@ -1606,7 +1609,9 @@ class OpenAIFallbackTests(unittest.TestCase):
         self.assertEqual(manifest["image_api_summary"]["user_revision_instruction"], user_instruction)
         self.assertEqual(manifest["image_api_summary"]["image_quality_mode"], "draft")
         self.assertIn(user_instruction, manifest["candidates"][0]["prompt"])
-        self.assertIn("USER REVISION INSTRUCTION - MUST FOLLOW VERBATIM:", manifest["candidates"][0]["prompt"])
+        self.assertIn("USER ICON REQUEST - HIGHEST PRIORITY:", manifest["candidates"][0]["prompt"])
+        self.assertIn("USER ICON REQUEST - PRIMARY SOURCE OF TRUTH:", manifest["candidates"][0]["prompt"])
+        self.assertIn("user_prompt_1", manifest["candidates"][0]["prompt"])
         self.assertTrue(manifest["candidates"][0]["candidate_id"].startswith("icon_candidate_regen_"))
         self.assertTrue(legacy_candidate_exists)
         self.assertIn("file_write", manifest["last_regeneration"]["timings"])

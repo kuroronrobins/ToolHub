@@ -19,7 +19,6 @@ import type {
   AppStudioAiProposal,
   AppStudioAiIconCandidate,
   AppStudioApprovalMode,
-  AppStudioIconStylePreset,
   AppStudioIconOverride,
   AppStudioImportRequest,
   AppStudioPreflightResult,
@@ -45,7 +44,6 @@ const INITIAL_REQUEST: AppStudioImportRequest = {
   name: "",
   buildMode: "frozen-folder",
   iconPrompt: "",
-  iconStylePreset: "modern",
   iconStyleCustom: "",
   metadata: createEmptyAppStudioMetadata(),
   createAppEnv: false,
@@ -59,19 +57,6 @@ type StudioAction = "suggest" | "apply" | "approve";
 type IconRevisionMode = "tweak" | "refine" | "redesign" | "fresh";
 type IconRegenerationSpeedMode = "speed" | "standard" | "quality";
 type IconImageQualityMode = "draft" | "standard" | "high";
-
-const ICON_STYLE_PRESETS: Array<{ value: AppStudioIconStylePreset; label: string; description: string }> = [
-  { value: "modern", label: "modern", description: "Clean digital icon" },
-  { value: "vivid", label: "vivid", description: "High saturation" },
-  { value: "realistic", label: "realistic", description: "Realistic object style" },
-  { value: "colored_pencil", label: "colored pencil", description: "Hand-drawn pencil texture" },
-  { value: "watercolor", label: "watercolor", description: "Soft paint wash" },
-  { value: "flat_vector", label: "flat vector", description: "Flat shapes" },
-  { value: "3d_soft", label: "3D soft", description: "Soft dimensional style" },
-  { value: "glassmorphism", label: "glass", description: "Translucent glass layers" },
-  { value: "clay", label: "clay", description: "Matte clay shapes" },
-  { value: "custom", label: "custom", description: "Use custom style text first" },
-];
 
 const ICON_REVISION_MODES: Array<{ value: IconRevisionMode; label: string; description: string }> = [
   { value: "tweak", label: "tweak", description: "前案を強く残して微修正" },
@@ -448,6 +433,7 @@ export function AppStudioImportWizard() {
       return;
     }
     const speed = ICON_REGENERATION_SPEED_MODES.find((mode) => mode.value === iconRegenerationSpeedMode) ?? ICON_REGENERATION_SPEED_MODES[0];
+    const styleInstruction = request.iconStyleCustom?.trim();
     beginOperation("aiProposal", "アイコン画像だけを軽量再生成しています。");
     setError("");
     setMessage("");
@@ -458,15 +444,15 @@ export function AppStudioImportWizard() {
         baseCandidateId: baseCandidate?.candidateId ?? revisionBaseCandidateId,
         userRevisionInstruction: revision,
         revisionMode: iconRevisionMode,
-        iconStylePreset: request.iconStylePreset || "modern",
-        iconStyleCustom: request.iconStyleCustom?.trim() || undefined,
+        iconStylePreset: styleInstruction ? "custom" : undefined,
+        iconStyleCustom: styleInstruction || undefined,
         candidateCount: speed.count,
         imageQualityMode: iconImageQualityMode,
       });
       beginOperation("refresh", "再生成したアイコン候補を読み込んでいます。");
       const loaded = await appStudioReadAiProposal(appId, outputDir);
       handleProposalLoaded(loaded);
-      update({ iconPrompt: buildIconRevisionContext(baseCandidate, loaded, request.iconOverride, revision, iconRevisionMode) });
+      update({ iconPrompt: buildIconRevisionContext(baseCandidate, request.iconOverride, revision, iconRevisionMode) });
       const apiSeconds = imageApiSeconds(loaded);
       finishOperation(loaded.ok ? "success" : "warning", loaded.ok ? `アイコン候補を再生成して読み込みました。画像API: ${apiSeconds}` : "再生成後の提案ファイルを読み込めませんでした。");
     } catch (regenerateError) {
@@ -630,34 +616,21 @@ export function AppStudioImportWizard() {
       <section className="studio-icon-style-panel">
         <div>
           <p className="dialog-kicker">Icon style</p>
-          <h4>画像生成スタイル</h4>
+          <h4>スタイルは文章で指定</h4>
         </div>
-        <div className="studio-icon-style-grid" role="group" aria-label="icon style preset">
-          {ICON_STYLE_PRESETS.map((style) => (
-            <button
-              key={style.value}
-              className={`studio-segment-button${(request.iconStylePreset || "modern") === style.value ? " selected" : ""}`}
-              type="button"
-              onClick={() => update({ iconStylePreset: style.value })}
-              title={style.description}
-            >
-              <strong>{style.label}</strong>
-              <span>{style.description}</span>
-            </button>
-          ))}
-        </div>
-        {(request.iconStylePreset || "modern") === "custom" ? (
-          <label className="admin-field">
-            <span>Custom style</span>
-            <input
-              type="text"
-              value={request.iconStyleCustom ?? ""}
-              placeholder="例: 和紙に色鉛筆で描いたような柔らかい質感"
-              onChange={(event) => update({ iconStyleCustom: event.target.value })}
-            />
-          </label>
-        ) : null}
-        {imageApiBlocked ? <p className="admin-warning">画像APIが成功していないため、modern / vivid / colored_pencil / realistic などのスタイル指定はまだ検証できません。効果確認はAPI生成候補が1件以上ある場合に限ります。</p> : null}
+        <p className="admin-muted">
+          プリセットは使わず、アイコンPromptまたは下の補足にスタイルを文章で書いてください。ここに書いた内容はユーザー指示として扱い、別スタイルで上書きしません。
+        </p>
+        <label className="admin-field">
+          <span>スタイル補足</span>
+          <input
+            type="text"
+            value={request.iconStyleCustom ?? ""}
+            placeholder="例: iPhoneのLiquid Glass風。赤いPDFエンブレムを中心に、半透明で柔らかい反射、変形していく動き。"
+            onChange={(event) => update({ iconStyleCustom: event.target.value, iconStylePreset: event.target.value.trim() ? "custom" : undefined })}
+          />
+        </label>
+        {imageApiBlocked ? <p className="admin-warning">画像APIテストが成功していないため、スタイル補足の効果確認はAPI画像候補が生成された場合に限られます。</p> : null}
       </section>
     );
   }
@@ -938,12 +911,10 @@ function selectedRevisionBaseCandidate(proposal: AppStudioAiProposal | null, can
 
 function buildIconRevisionContext(
   baseCandidate: AppStudioAiIconCandidate | null,
-  proposal: AppStudioAiProposal | null,
   iconOverride: AppStudioIconOverride | undefined,
   userInstruction: string,
   mode: IconRevisionMode,
 ): string {
-  const previousPrompt = baseCandidate?.prompt || proposal?.icon.promptRevision || proposal?.icon.promptInitial || "";
   const adopted = iconOverride?.candidateId && baseCandidate?.candidateId === iconOverride.candidateId ? "adopted" : "not_adopted";
   const strength = revisionModeStrength(mode);
   const previousPromptPolicy =
@@ -955,25 +926,28 @@ function buildIconRevisionContext(
           ? "Strongly preserve the previous candidate while applying a small targeted change."
           : "Preserve the useful idea, but visibly improve the composition or motif.";
   return [
-    "Icon revision context",
+    "USER ICON REQUEST - PRIMARY SOURCE OF TRUTH:",
+    userInstruction,
+    "",
+    "Icon revision context - secondary",
     `revision_mode: ${mode}`,
-    `change_strength: ${mode}`,
+    `change_strength: ${strength.change}`,
     `previous_candidate_id: ${baseCandidate?.candidateId || "unknown"}`,
-    `previous_prompt: ${mode === "fresh" ? "omitted for fresh mode; do not inherit the old composition" : previousPrompt}`,
+    "previous_prompt: omitted from the saved UI request so it cannot override the user's instruction",
     `previous_status: ${baseCandidate?.status || "unknown"}`,
     `previous_source: ${baseCandidate?.fallback ? "fallback" : baseCandidate?.source || "unknown"}`,
     `previous_resolution: ${baseCandidate?.resolution || "unknown"}`,
     `previous_adoption_state: ${adopted}`,
-    `user_revision_instruction: ${userInstruction}`,
     `preserve_elements: ${strength.preserve}`,
     `change_elements: ${strength.change}`,
-    "avoid_elements: generic abstract shapes only, document-only, gear-only, check-only, nodes-only, initial-letter-only, tiny text, crowded UI screenshots",
+    "avoid_elements: only when not requested by the user: generic abstract shapes, document-only, gear-only, check-only, nodes-only, initial-letter-only, tiny text, crowded UI screenshots",
     `previous_prompt_policy: ${previousPromptPolicy}`,
     mode === "redesign"
       ? "divergence_requirement: must change the main motif or composition; color-only changes are insufficient."
       : mode === "fresh"
         ? "divergence_requirement: create a substantially different concept family, composition, primary motif, and color focus."
         : "divergence_requirement: the regenerated concept must visibly change at least one of composition, primary motif, or color focus from the previous candidate.",
+    "priority_rule: the user request above overrides generated app metadata, previous prompts, style presets, and candidate concepts.",
     "image_edit_api: pass the selected previous PNG as an input image when available",
   ].join("\n");
 }
@@ -1034,6 +1008,7 @@ function estimateOperationSeconds(kind: StudioOperationKind, result: AppStudioRu
 }
 
 function cleanRequest(request: AppStudioImportRequest): AppStudioImportRequest {
+  const styleInstruction = request.iconStyleCustom?.trim();
   return {
     ...request,
     entry: request.entry.trim(),
@@ -1047,8 +1022,8 @@ function cleanRequest(request: AppStudioImportRequest): AppStudioImportRequest {
     buildFrozenFolder: true,
     verifyRuntime: true,
     iconPrompt: request.iconPrompt?.trim() || undefined,
-    iconStylePreset: request.iconStylePreset || "modern",
-    iconStyleCustom: request.iconStyleCustom?.trim() || undefined,
+    iconStylePreset: styleInstruction ? "custom" : undefined,
+    iconStyleCustom: styleInstruction || undefined,
     iconRevisionImage: request.iconRevisionImage?.startsWith("data:image/png;base64,") ? request.iconRevisionImage : undefined,
     metadata: cleanEditableMetadata(request.metadata),
     iconOverride: cleanIconOverride(request.iconOverride),

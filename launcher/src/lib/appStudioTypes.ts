@@ -317,7 +317,7 @@ export interface AppStudioBuildProfile {
 }
 
 export type AppStudioSelectedIconSource = "candidate_png" | "final_png" | "fallback_png";
-export type AppStudioIconStylePreset = "modern" | "vivid" | "realistic" | "colored_pencil" | "watercolor" | "flat_vector" | "3d_soft" | "glassmorphism" | "clay" | "custom";
+export type AppStudioIconStylePreset = "user_prompt" | "modern" | "vivid" | "realistic" | "colored_pencil" | "watercolor" | "flat_vector" | "3d_soft" | "glassmorphism" | "clay" | "custom";
 
 export interface AppStudioIconOverride {
   selectedIconSource: AppStudioSelectedIconSource;
