@@ -11,11 +11,18 @@ from typing import Any, Iterator
 
 from .exporter import copy_pack_to_output
 from .models import BuildPlan, StudioContext
-from .util import assert_within, file_sha256, reset_directory, timestamp, write_json, write_text
+from .util import assert_within, file_sha256, timestamp, write_json, write_text
 
 
+BACKUP_STRATEGY = "move_existing_app_directory"
+BACKUP_SAFETY_NOTE = (
+    "Existing apps/<app_id> is moved under backups/app_studio before replacement; "
+    "release/app_manifest.json is copied beside it for manual rollback."
+)
+APP_PACK_STRATEGY = "direct_zip_from_apps_dir"
+APP_PACK_COMPRESSION = zipfile.ZIP_DEFLATED
 APP_PACK_COMPRESSLEVEL = 1
-BACKUP_COMPRESSLEVEL = 1
+APP_PACK_COMPRESSION_NAME = "ZIP_DEFLATED"
 REGISTRATION_TOP_LEVEL_STEPS = {
     "backup_existing_total",
     "remove_existing_app",
@@ -97,15 +104,34 @@ def write_registration_copy_report(
             "top_level_recorded_seconds": total_seconds,
             "leaf_recorded_seconds": leaf_seconds,
             "records": records,
+            "strategies": {
+                "backup": {
+                    "standard_strategy": BACKUP_STRATEGY,
+                    "safety_note": BACKUP_SAFETY_NOTE,
+                    "compression": "none",
+                    "rejected_options": [
+                        "zip backup: preserves shallow backup path but is dominated by compression time",
+                        "App Pack only backup: fast but does not preserve a possibly divergent apps/<app_id> tree",
+                    ],
+                },
+                "app_pack": {
+                    "standard_strategy": APP_PACK_STRATEGY,
+                    "compression": APP_PACK_COMPRESSION_NAME,
+                    "compresslevel": APP_PACK_COMPRESSLEVEL,
+                    "rejected_options": [
+                        "ZIP_STORED: much faster but significantly larger App Packs",
+                        "existing App Pack reuse or differential zip: forbidden because verification and SHA256 must run for the new output",
+                    ],
+                },
+            },
             "safety": {
                 "app_pack_structure_changed": False,
                 "required_entry_inspection_skipped": False,
                 "sha256_calculation_skipped": False,
                 "manifest_update_skipped": False,
-                "zip_compression": "ZIP_DEFLATED",
+                "zip_compression": APP_PACK_COMPRESSION_NAME,
                 "zip_compresslevel": APP_PACK_COMPRESSLEVEL,
-                "backup_zip_compression": "ZIP_DEFLATED",
-                "backup_zip_compresslevel": BACKUP_COMPRESSLEVEL,
+                "backup_strategy": BACKUP_STRATEGY,
             },
         },
     )
@@ -116,8 +142,13 @@ def write_registration_copy_report(
         f"- top_level_recorded_seconds: `{total_seconds:.3f}`",
         f"- leaf_recorded_seconds: `{leaf_seconds:.3f}`",
         "- safety: App Pack structure, required-entry inspection, SHA256 calculation, and manifest update are preserved.",
+        f"- backup_strategy: `{BACKUP_STRATEGY}`",
+        f"- backup_safety_note: {BACKUP_SAFETY_NOTE}",
+        f"- app_pack_strategy: `{APP_PACK_STRATEGY}`",
+        f"- app_pack_zip_compression: `{APP_PACK_COMPRESSION_NAME}`",
         f"- app_pack_zip_compresslevel: `{APP_PACK_COMPRESSLEVEL}`",
-        f"- backup_zip_compresslevel: `{BACKUP_COMPRESSLEVEL}`",
+        "- rejected_backup_options: zip backup is dominated by compression time; App Pack only backup does not preserve a divergent apps tree.",
+        "- rejected_app_pack_options: ZIP_STORED is much larger; App Pack reuse or differential zip would bypass new-output verification.",
         "",
         "| Step | Status | Seconds | Detail |",
         "| --- | --- | ---: | --- |",
@@ -188,35 +219,41 @@ def backup_existing(
     if not app_exists and not manifest_exists:
         return None
 
-    backup_root = repo_root / "backups" / "app_studio" / timestamp() / app_id
+    backup_root = unique_backup_root(repo_root, app_id)
     assert_within(backup_root, repo_root / "backups", "backup target")
     backup_root.mkdir(parents=True, exist_ok=True)
     if app_exists:
         stats = _directory_stats(app_dir)
         with _registration_step(
             breakdown,
-            "backup_existing_app_zip",
-            f"compression=ZIP_DEFLATED; compresslevel={BACKUP_COMPRESSLEVEL}; "
+            "backup_existing_app_move",
+            f"strategy={BACKUP_STRATEGY}; "
             f"files={stats['files']}; bytes={stats['bytes']} ({_format_bytes(stats['bytes'])})",
-        ):
-            backup_app_directory(app_dir, backup_root / "app.zip")
+        ) as record:
+            backup_app_dir = backup_root / "app"
+            shutil.move(str(app_dir), str(backup_app_dir))
+            record["backup_path"] = str(backup_app_dir)
+            record["file_count"] = stats["files"]
+            record["size_bytes"] = stats["bytes"]
+            record["detail"] = (
+                f"strategy={BACKUP_STRATEGY}; backup_path={backup_app_dir}; "
+                f"files={stats['files']}; bytes={stats['bytes']} ({_format_bytes(stats['bytes'])})"
+            )
     if manifest_path.is_file():
         with _registration_step(breakdown, "backup_manifest", f"path={manifest_path}"):
             shutil.copy2(manifest_path, backup_root / "app_manifest.json")
     return backup_root
 
 
-def backup_app_directory(app_dir: Path, archive_path: Path) -> None:
-    assert_within(archive_path, archive_path.parent, "backup app archive")
-    with zipfile.ZipFile(
-        archive_path,
-        "w",
-        compression=zipfile.ZIP_DEFLATED,
-        compresslevel=BACKUP_COMPRESSLEVEL,
-    ) as archive:
-        for file in sorted(app_dir.rglob("*")):
-            if file.is_file():
-                archive.write(file, file.relative_to(app_dir).as_posix())
+def unique_backup_root(repo_root: Path, app_id: str) -> Path:
+    base = repo_root / "backups" / "app_studio" / timestamp() / app_id
+    if not base.exists():
+        return base
+    for index in range(2, 100):
+        candidate = repo_root / "backups" / "app_studio" / f"{timestamp()}_{index}" / app_id
+        if not candidate.exists():
+            return candidate
+    raise FileExistsError(f"Could not allocate a unique App Studio backup directory for app_id={app_id}")
 
 
 def load_app_manifest_json(path: Path) -> dict[str, Any]:
@@ -300,20 +337,6 @@ def package_app_pack(
         run_entry = require_app_yaml_file(app_dir, "run", "entry", "run.entry")
         display_icon = require_app_yaml_file(app_dir, "display", "icon", "display.icon")
 
-    staging_base = repo_root / "release" / "staging" / "app_studio_pack"
-    with _registration_step(breakdown, "staging_reset", f"path={staging_base}"):
-        reset_directory(staging_base, repo_root / "release" / "staging")
-    stage_app_dir = staging_base / app_id
-    stats = _directory_stats(app_dir)
-    with _registration_step(
-        breakdown,
-        "copy_app_to_pack_staging",
-        f"files={stats['files']}; bytes={stats['bytes']} ({_format_bytes(stats['bytes'])})",
-    ):
-        shutil.copytree(app_dir, stage_app_dir)
-    with _registration_step(breakdown, "cleanup_generated_cache", f"path={stage_app_dir}"):
-        remove_generated_cache(stage_app_dir)
-
     pack_manifest = {
         "schema_version": 1,
         "app_id": app_id,
@@ -323,8 +346,7 @@ def package_app_pack(
         "required_runtime": app_entry.get("required_runtime"),
         "package_sha256": "",
     }
-    with _registration_step(breakdown, "write_pack_manifest", f"path={stage_app_dir / 'pack_manifest.json'}"):
-        write_json(stage_app_dir / "pack_manifest.json", pack_manifest)
+    pack_manifest_text = json.dumps(pack_manifest, ensure_ascii=False, indent=2) + "\n"
 
     app_packs_dir = repo_root / "release" / "app_packs"
     app_packs_dir.mkdir(parents=True, exist_ok=True)
@@ -337,17 +359,29 @@ def package_app_pack(
     with _registration_step(
         breakdown,
         "compress_app_pack",
+        f"strategy={APP_PACK_STRATEGY}; compression={APP_PACK_COMPRESSION_NAME}; "
         f"compresslevel={APP_PACK_COMPRESSLEVEL}; path={package_path}",
-    ):
+    ) as record:
+        entry_count = 0
         with zipfile.ZipFile(
             package_path,
             "w",
-            compression=zipfile.ZIP_DEFLATED,
+            compression=APP_PACK_COMPRESSION,
             compresslevel=APP_PACK_COMPRESSLEVEL,
         ) as archive:
-            for file in sorted(stage_app_dir.rglob("*")):
-                if file.is_file():
-                    archive.write(file, file.relative_to(staging_base).as_posix())
+            for file in iter_app_pack_files(app_dir):
+                archive.write(file, (Path(app_id) / file.relative_to(app_dir)).as_posix())
+                entry_count += 1
+            archive.writestr(f"{app_id}/pack_manifest.json", pack_manifest_text)
+            entry_count += 1
+        package_size = package_path.stat().st_size
+        record["entry_count"] = entry_count
+        record["size_bytes"] = package_size
+        record["detail"] = (
+            f"strategy={APP_PACK_STRATEGY}; compression={APP_PACK_COMPRESSION_NAME}; "
+            f"compresslevel={APP_PACK_COMPRESSLEVEL}; entries={entry_count}; "
+            f"size_bytes={package_size} ({_format_bytes(package_size)}); path={package_path}"
+        )
 
     required_entries = {
         f"{app_id}/app.yaml",
@@ -357,16 +391,20 @@ def package_app_pack(
         f"{app_id}/{display_icon}",
         f"{app_id}/{run_entry}",
     }
-    with _registration_step(breakdown, "inspect_app_pack_required_entries", f"path={package_path}"):
+    with _registration_step(breakdown, "inspect_app_pack_required_entries", f"path={package_path}") as record:
         with zipfile.ZipFile(package_path) as archive:
             names = {name.replace("\\", "/") for name in archive.namelist()}
+            entry_count = len(names)
         missing_entries = sorted(required_entries - names)
         if missing_entries:
             raise FileNotFoundError(f"App Pack is missing required entries: {', '.join(missing_entries)}")
+        record["entry_count"] = entry_count
 
     app_entry["package"] = f"app_packs/{app_id}-{version}.zip"
-    with _registration_step(breakdown, "sha256_app_pack", f"path={package_path}"):
+    with _registration_step(breakdown, "sha256_app_pack", f"path={package_path}") as record:
         app_entry["sha256"] = file_sha256(package_path)
+        record["sha256"] = app_entry["sha256"]
+        record["size_bytes"] = package_path.stat().st_size
     manifest["apps"][app_id] = app_entry
     with _registration_step(breakdown, "manifest_update_after_pack", f"path={manifest_path}"):
         write_json(manifest_path, manifest)
@@ -417,10 +455,15 @@ def app_relative_path(app_dir: Path, relative: str) -> Path:
     return path
 
 
-def remove_generated_cache(path: Path) -> None:
-    for cache_dir in path.rglob("__pycache__"):
-        if cache_dir.is_dir():
-            shutil.rmtree(cache_dir)
-    for file in path.rglob("*"):
-        if file.is_file() and file.suffix.lower() in {".pyc", ".pyo"}:
-            file.unlink()
+def iter_app_pack_files(app_dir: Path) -> Iterator[Path]:
+    for file in sorted(app_dir.rglob("*")):
+        if not file.is_file():
+            continue
+        relative = file.relative_to(app_dir)
+        if "__pycache__" in relative.parts:
+            continue
+        if file.suffix.lower() in {".pyc", ".pyo"}:
+            continue
+        if relative.as_posix() == "pack_manifest.json":
+            continue
+        yield file

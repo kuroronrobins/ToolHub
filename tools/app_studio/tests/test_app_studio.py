@@ -660,7 +660,7 @@ class AppStudioTests(unittest.TestCase):
         self.assertEqual(work.name, "b")
         self.assertEqual(spec.name, "s")
 
-    def test_existing_app_backup_uses_zip_archive(self) -> None:
+    def test_existing_app_backup_moves_app_directory(self) -> None:
         with workspace_tempdir() as temp:
             repo = Path(temp)
             app_id = "playwright_app"
@@ -691,14 +691,26 @@ class AppStudioTests(unittest.TestCase):
 
             self.assertIsNotNone(backup)
             assert backup is not None
-            self.assertTrue((backup / "app.zip").is_file())
-            self.assertFalse((backup / "app").exists())
+            self.assertTrue((backup / "app").is_dir())
+            self.assertFalse((backup / "app.zip").exists())
+            self.assertFalse(app_dir.exists())
             self.assertTrue((backup / "app_manifest.json").is_file())
-            with zipfile.ZipFile(backup / "app.zip") as archive:
-                names = archive.namelist()
-            self.assertIn(
-                "bin/playwright_app/playwright/driver/package/lib/tools/cli-client/skill/references/element-attributes.md",
-                names,
+            self.assertTrue(
+                (
+                    backup
+                    / "app"
+                    / "bin"
+                    / app_id
+                    / "playwright"
+                    / "driver"
+                    / "package"
+                    / "lib"
+                    / "tools"
+                    / "cli-client"
+                    / "skill"
+                    / "references"
+                    / "element-attributes.md"
+                ).is_file()
             )
 
     def test_metadata_override_invalid_json_fails_clearly(self) -> None:

@@ -223,7 +223,7 @@ C:\work\MyApp\ToolHub_AppStudio_Output\<app_id>\
 
 `ToolHub_AppStudio_Output/<app_id>/` が既に存在する場合は削除して作り直します。削除前に、削除対象が Entry の親フォルダ配下であることを検証します。
 
-Apply 時に同じ `app_id` が既に存在する場合は、`backups/app_studio/YYYYMMDD_HHMMSS/<app_id>/` へ既存 `apps/<app_id>/` と `release/app_manifest.json` をバックアップしてから上書きします。既存 app 本体は、Playwright などの深い package data path で Windows の path 長制限に当たりにくいよう、`app.zip` として退避します。
+Apply 時に同じ `app_id` が既に存在する場合は、`backups/app_studio/YYYYMMDD_HHMMSS/<app_id>/` へ既存 `apps/<app_id>/` と `release/app_manifest.json` をバックアップしてから上書きします。既存 app 本体は rollback 用に `app/` ディレクトリとして移動退避し、App Pack は staging copy を挟まず `apps/<app_id>/` から直接 zip 化します。詳細時間は `registration_copy_report.md` に出力します。
 
 ## 秘密情報検査
 

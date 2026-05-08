@@ -330,6 +330,38 @@ Apply 再試行時の `build_env_creation` / pip install / build tools install �
 - Phase 2-B で内訳は見えるようになった。現時点の最大要因は backup zip と App Pack zip の圧縮であり、単純な directory copy や SHA256 ではない。
 - Phase 2-C では、App Pack 仕様を壊さない範囲で backup の世代管理・圧縮方針、staging を介さない pack 作成経路、zip compression level / size tradeoff を検討する。ただし App Pack 生成 skip、既存 App Pack 再利用、差分 App Pack、SHA256 省略、必須 entry 検証省略は引き続き禁止。
 
+### 2026-05-08 Phase 2-C
+
+`registration_copy` の支配要因だった backup zip と App Pack zip 作成を比較し、全アプリ共通の標準経路として安全に短縮できる部分だけを変更した。App Pack 仕様、zip 構造、必須 entry 検証、SHA256 計算、manifest 更新は維持した。
+
+比較結果:
+
+- backup は、ZIP_DEFLATED level 1 が 22.932 秒 / 52.3 MB、ZIP_STORED が 0.596 秒 / 127.8 MB、move/rename が実 move 0.002 秒だった。rollback 用の既存 app dir 完全保持と Windows long path 耐性を両立できるため、標準 backup strategy は `move_existing_app_directory` とした。
+- App Pack は、direct zip の ZIP_DEFLATED level 1 が 2.263 秒 / 52.3 MB、ZIP_STORED が 0.356 秒 / 127.8 MBだった。ZIP_STORED は配布サイズが約 2.4 倍になるため採用せず、標準 App Pack strategy は `direct_zip_from_apps_dir`、compression は `ZIP_DEFLATED` level 1 のままとした。
+- 採用しなかった案: App Pack zip の再利用、差分 zip、SHA256 省略、必須 entry 検証省略、backup 省略、app 種類ごとの zip 方式切り替えは安全性または標準経路の一貫性を壊すため採用しない。
+
+実装内容:
+
+- 既存 app の backup は `backups/app_studio/<timestamp>/<app_id>/app/` へ move して保持する。manifest backup は従来どおり保持する。
+- App Pack は `release/staging/app_studio_pack` への app copy を行わず、`apps/<app_id>` から直接 zip を作成する。`pack_manifest.json` は zip entry として書き込む。
+- `registration_copy_breakdown.json` / `registration_copy_report.md` に、backup strategy、backup safety note、App Pack strategy、compression method / level、entry count、size、elapsed、採用しなかった案を出す。
+- app_id、Playwright 有無、GUI/CLI、大きい/小さいによる恒常的分岐は追加していない。
+
+実アプリ検収:
+
+- 本番 app_id `run_xcgate_upload` は使わず、短い検収用 app_id `xcg_p2c` と一時 ToolHub repo で実行した。
+- source は `C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload\run_xcgate_upload.py`、source_root は `C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload`。外部 source root の `.toolhubignore` は変更していない。
+- 2 回目 Apply は exit 0、actual_total_seconds 30.842、`build_env_cache=hit`、`build_tools_cache=hit`、`pyinstaller_build` 11.337 秒、`registration_copy` 15.581 秒。
+- breakdown は `backup_existing_total` 0.031 秒、内訳の `backup_existing_app_move` 0.002 秒、`copy_final_app_to_apps` 0.500 秒、`package_app_pack_total` 14.999 秒、内訳の `compress_app_pack` 14.941 秒、`sha256_app_pack` 0.038 秒。
+- App Pack size は 52,291,499 bytes、entry count は 580。manifest の sha256 は実 zip と一致した。
+- App Pack zip には run.entry `xcg_p2c/bin/xcg_p2c/xcg_p2c.exe` が含まれ、`.auth/`、`mega_state.json`、`storage_state.json`、auth/cookie/session/token/credential state JSON は含まれていなかった。
+- production の `apps/run_xcgate_upload/`、`release/app_manifest.json`、`release/manifest.json` は変更していない。
+
+判断:
+
+- `registration_copy` は Phase 2-B の 34.430 秒から 15.581 秒まで短縮した。主な改善は backup zip を move backup に置き換えたことによる。
+- 残る支配要因は App Pack の ZIP_DEFLATED 圧縮であり、配布サイズを維持する限り大きな短縮余地は限定的。Phase 2-D に進む場合は、App Pack サイズとの tradeoff を明示した compression policy、または zip 実装自体の検証が対象になる。
+
 ## 調査で確認した根拠
 
 ### 1. release 検証が壊れた登録を見逃す
@@ -473,7 +505,7 @@ CLI は progress line を出しているが、Rust backend 側は subprocess の
 | AR-023 | P1 | source scope UX | source scope preview がまだ report 中心で、登録前に十分操作できない | GUI では source root 入力だけで、include/exclude一覧の事前表示がない | preflight で inventory preview を軽量実行し、主要除外ディレクトリと included count を表示する | 管理者が Apply 前に混入を発見できる |
 | AR-024 | P2 | CLI wrapper | `scripts/import_app.ps1` から `--source-root` を指定できない | Phase 1-A では CLI 本体と GUI の経路を優先した | `-SourceRoot` を wrapper に追加し、docs の PowerShell 例も更新する | PowerShell wrapper でも明示 source root を使える |
 | AR-025 | P1 | timing / failure UX | PyInstaller が `ok=False` で返っても timing phase が `pass` 表示になる | timing context は例外の有無だけで phase status を決めている | result object を返す phase では `ok=False` を timing に反映する | `timing_report` と GUI progress が最終 failure と矛盾しない |
-| AR-026 | P1 | performance / registration | Playwright など大きい frozen-folder の `registration_copy` / App Pack 作成が長い | 既存 app backup、`apps/<app_id>` copy、staging copy、zip 作成で深い tree を複数回走査している | Phase 2 以降で登録コピーと zip 作成の timing を分解し、不要な再コピー削減や pack 作成経路の見直しを検討する | 2026-05-08 Phase 2-B で `registration_copy_breakdown.json` / `.md` と timing substep mark を追加。実アプリでは backup zip と App Pack zip 圧縮が支配要因と判明。copy 系は小さく、次は backup / zip 方針の追加検討が必要 |
+| AR-026 | P1 | performance / registration | Playwright など大きい frozen-folder の `registration_copy` / App Pack 作成が長い | 既存 app backup、`apps/<app_id>` copy、staging copy、zip 作成で深い tree を複数回走査している | Phase 2 以降で登録コピーと zip 作成の timing を分解し、不要な再コピー削減や pack 作成経路の見直しを検討する | 2026-05-08 Phase 2-B で breakdown を追加。Phase 2-C で backup を `move_existing_app_directory`、App Pack 作成を `direct_zip_from_apps_dir` に標準化し、実アプリ `xcg_p2c` の `registration_copy` は 34.430 秒から 15.581 秒へ短縮。残る主要因は ZIP_DEFLATED の `compress_app_pack` |
 | AR-027 | P2 | packaging script | `scripts/package_app_pack.ps1` が `release/app_manifest.json` を UTF-8 BOM 付きで書くと一部 PowerShell test が BOM を JSON 本文として扱い失敗する | Windows PowerShell の `Set-Content -Encoding UTF8` が BOM 付きで保存する | manifest / JSON 書き込みを UTF-8 no BOM helper に統一する | 2026-05-08 Phase 1-E で実装済み。`check_all.ps1` に release JSON の BOM 検査と helper test を追加 |
 | AR-028 | P3 | app pack metadata | 既存 App Pack zip 内の `pack_manifest.json` に Phase 1-E 前の UTF-8 BOM が残る | 過去の `Set-Content -Encoding UTF8` 生成物で、今回は App Pack 再生成をしない方針 | 次回 App Pack 再生成時に UTF-8 no BOM へ自然更新する。全 App Pack の metadata-only repack が必要なら別作業で対象と検証範囲を決める | 既存 zip を不用意に変更せず、今後の生成物は no BOM になる |
 
