@@ -62,8 +62,8 @@ runtime:
 build:
   managed_by: toolhub_app_studio
   build_mode: frozen-folder
-  source_entry: C:\Users\kuroron\Downloads\XCgate_AutoUpload-main\XCgate_AutoUpload-main\run_xcgate_upload.py
-  output_mirror: C:\Users\kuroron\Downloads\XCgate_AutoUpload-main\XCgate_AutoUpload-main\ToolHub_AppStudio_Output\run_xcgate_upload
+  source_entry: C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload\run_xcgate_upload.py
+  output_mirror: C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload\ToolHub_AppStudio_Output\run_xcgate_upload
 
 quality:
   approval_required: true

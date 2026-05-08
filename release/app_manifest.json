@@ -33,7 +33,7 @@
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": null,
-      "sha256": "44a5e93551f85787f500457b32fcc010d4b4c548f921481b57c12565cccbb13f",
+      "sha256": "b001040d14e42fef2e057f2ac13aec0943f818facea13182bb1059ec15cb4467",
       "version": "0.1.0"
     },
     "sample_cli_app": {

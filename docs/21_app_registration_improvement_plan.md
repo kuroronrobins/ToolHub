@@ -192,6 +192,52 @@ Playwright package data copy failure の原因を、source scope / secret scan /
 - `run_xcgate_upload` 相当アプリの dry-run / suggest / apply は一時 repo で成功し、App Pack 生成まで到達。
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check_all.ps1` は exit code 0。内部の release manifest verification では既知の未復元 App Pack として `addnum_pdf`, `app_20260201_agendasnap`, `officetopdf_toc`, `run_xcgate_upload` の local `run.entry` 欠落と App Pack 内 `run.entry` 欠落が報告された。
 
+### 2026-05-08 Phase 1-D
+
+Phase 1-C で検収用 app_id ではなく、本番 app_id `run_xcgate_upload` を再登録し、Phase 0 以降に見えていた local `run.entry` 欠落 / App Pack 内 `run.entry` 欠落を解消した。
+
+実施内容:
+
+- 対象 entry: `C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload\run_xcgate_upload.py`
+- 指定 source_root: `C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload`
+- app_id: `run_xcgate_upload`
+- 外部 source root の `.toolhubignore` は既に `.auth/` を明示除外していたため、外部 source root 側の追加変更は行っていない。
+- App Studio apply により `apps/run_xcgate_upload/`、`release/app_packs/run_xcgate_upload-0.1.0.zip`、`release/app_manifest.json` の `run_xcgate_upload` entry を更新した。
+- 既存 app は `backups/app_studio/20260508_122605/run_xcgate_upload/app.zip` に自動退避された。
+- App Studio fallback で既存の具体的な XC-Gate 向け metadata が汎用文言へ戻っていたため、表示 metadata は既存の具体的な説明へ戻し、対象 App Pack だけ再パッケージした。
+- `scripts/package_app_pack.ps1` による再パッケージ後、`release/app_manifest.json` に UTF-8 BOM が付いて `scripts/test_app_delete_plan.ps1` が失敗したため、manifest は UTF-8 no BOM に戻した。script 側の恒久対応は AR-027 として追跡する。
+- `enabled` は通常 apply 方針どおり `false` のまま維持した。approval / enabled 化は行っていない。
+
+検収結果:
+
+- Apply は `file_inventory`、`secret_scan`、`build_env_creation`、`requirements_lock_generation`、`build_tools_install`、`pyinstaller_build`、`distribution_check`、`registration_copy`、`execution_checks` まで到達し、exit code 0。
+- `apps/run_xcgate_upload/app.yaml` は存在し、`run.entry` は `bin/run_xcgate_upload/run_xcgate_upload.exe`。
+- `apps/run_xcgate_upload/bin/run_xcgate_upload/run_xcgate_upload.exe` が存在する。exe size は 3,448,740 bytes。
+- `release/app_packs/run_xcgate_upload-0.1.0.zip` が存在し、zip 内 entry は 584 件。
+- App Pack 内に `run_xcgate_upload/app.yaml`、`run_xcgate_upload/pack_manifest.json`、`run_xcgate_upload/bin/run_xcgate_upload/run_xcgate_upload.exe` が存在する。
+- App Pack 内に `.auth/`, `mega_state.json`, `storage_state.json`, cookie/session/token/credential の runtime state 実体がないことを確認した。
+- `release/app_manifest.json` の `run_xcgate_upload` package は `app_packs/run_xcgate_upload-0.1.0.zip`、sha256 は `b001040d14e42fef2e057f2ac13aec0943f818facea13182bb1059ec15cb4467`。zip の SHA256 と一致する。
+- `execution_test_result.json` は `overall_status=warn`, `approval_allowed=true`。warning は frozen-folder mode の smoke skip、Playwright manual check、runner dry execution skip で、approval blocking reason はない。
+- `frozen_folder_build_report.md` は status `PASS`。PyInstaller 6.20.0 で `--collect-all playwright` を維持し、COLLECT は `completed successfully`。
+- `verify_release.ps1` では `run_xcgate_upload` の local `run.entry` と App Pack 内 `run.entry` がどちらも `OK` になった。
+
+残る既知 NG:
+
+- `addnum_pdf`: local `run.entry` 欠落、App Pack 内 `run.entry` 欠落。
+- `app_20260201_agendasnap`: local `run.entry` 欠落、App Pack 内 `run.entry` 欠落。
+- `officetopdf_toc`: local `run.entry` 欠落、App Pack 内 `run.entry` 欠落。
+- installer file / installer staging manifest は引き続き warning。
+
+検証:
+
+- `python tools/app_studio/main.py import --entry "C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload\run_xcgate_upload.py" --source-root "C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload" --app-id run_xcgate_upload --apply` は成功。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package_app_pack.ps1 -AppId run_xcgate_upload` は metadata 復元後の App Pack 再生成に成功。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_release.ps1` は exit code 1。理由は上記 3 app の既知 NG であり、`run_xcgate_upload` の NG は解消済み。
+- `python -m py_compile tools/app_studio/app_studio/frozen_folder_builder.py tools/app_studio/app_studio/registrar.py` は成功。
+- `python -m unittest discover -s tools/app_studio/tests` は 108 tests 成功。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check_all.ps1` は exit code 0。内部の release manifest verification は上記 3 app の既知 NG により warning 扱いだが、`run_xcgate_upload` は local / App Pack 内 `run.entry` とも OK。
+- Phase 2 の build_env cache / pip cache / PyInstaller clean 見直しへ進める。ただし、`run_xcgate_upload` の実ログイン、社内サイト操作、ファイル選択は manual check のまま。
+
 ## 調査で確認した根拠
 
 ### 1. release 検証が壊れた登録を見逃す
@@ -336,6 +382,7 @@ CLI は progress line を出しているが、Rust backend 側は subprocess の
 | AR-024 | P2 | CLI wrapper | `scripts/import_app.ps1` から `--source-root` を指定できない | Phase 1-A では CLI 本体と GUI の経路を優先した | `-SourceRoot` を wrapper に追加し、docs の PowerShell 例も更新する | PowerShell wrapper でも明示 source root を使える |
 | AR-025 | P1 | timing / failure UX | PyInstaller が `ok=False` で返っても timing phase が `pass` 表示になる | timing context は例外の有無だけで phase status を決めている | result object を返す phase では `ok=False` を timing に反映する | `timing_report` と GUI progress が最終 failure と矛盾しない |
 | AR-026 | P1 | performance / registration | Playwright など大きい frozen-folder の `registration_copy` / App Pack 作成が長い | 既存 app backup、`apps/<app_id>` copy、staging copy、zip 作成で深い tree を複数回走査している | Phase 2 以降で登録コピーと zip 作成の timing を分解し、不要な再コピー削減や pack 作成経路の見直しを検討する | `registration_copy` phase の内訳が見え、同一 app の再 apply が不要に遅くならない |
+| AR-027 | P2 | packaging script | `scripts/package_app_pack.ps1` が `release/app_manifest.json` を UTF-8 BOM 付きで書くと一部 PowerShell test が BOM を JSON 本文として扱い失敗する | Windows PowerShell の `Set-Content -Encoding UTF8` が BOM 付きで保存する | manifest / JSON 書き込みを UTF-8 no BOM helper に統一する | package script 実行後も `scripts/test_app_delete_plan.ps1` と `check_all.ps1` が追加処置なしで通る |
 
 ## 推奨実装順
 
