@@ -195,7 +195,12 @@ class SecretScanReport:
 
     @property
     def blocks_ai_submission(self) -> bool:
-        return any(finding.affects_ai_submission and finding.severity in {"high", "medium"} for finding in self.findings)
+        return any(
+            finding.affects_ai_submission
+            and finding.severity in {"high", "medium"}
+            and not finding.false_positive_candidate
+            for finding in self.findings
+        )
 
     @property
     def blocking_findings(self) -> list[SecretFinding]:
@@ -225,7 +230,13 @@ class SecretScanReport:
                 "false_positive_candidates": len(self.false_positive_candidates),
                 "included_package_findings": sum(1 for finding in self.findings if finding.included_in_package),
                 "excluded_findings": sum(1 for finding in self.findings if finding.inventory_status == "exclude"),
-                "ai_blocking_findings": sum(1 for finding in self.findings if finding.affects_ai_submission and finding.severity in {"high", "medium"}),
+                "ai_blocking_findings": sum(
+                    1
+                    for finding in self.findings
+                    if finding.affects_ai_submission
+                    and finding.severity in {"high", "medium"}
+                    and not finding.false_positive_candidate
+                ),
             },
         }
 
@@ -362,6 +373,12 @@ class IconCandidateAsset:
     content_type: str = ""
     fallback_reason: str = ""
     error_category: str = ""
+    failure_class: str = ""
+    failure_message: str = ""
+    admin_next_action: str = ""
+    ai_payload_secret_scan_status: str = ""
+    ai_submission_blocked: bool = False
+    ai_submission_block_reason: str = ""
     concept_id: str = ""
     concept: dict[str, Any] = field(default_factory=dict)
     scores: dict[str, float] = field(default_factory=dict)
@@ -414,6 +431,12 @@ class IconCandidateAsset:
             "content_type": self.content_type,
             "fallback_reason": self.fallback_reason,
             "error_category": self.error_category,
+            "failure_class": self.failure_class,
+            "failure_message": self.failure_message,
+            "admin_next_action": self.admin_next_action,
+            "ai_payload_secret_scan_status": self.ai_payload_secret_scan_status,
+            "ai_submission_blocked": self.ai_submission_blocked,
+            "ai_submission_block_reason": self.ai_submission_block_reason,
             "concept_id": self.concept_id,
             "concept": self.concept,
             "scores": self.scores,

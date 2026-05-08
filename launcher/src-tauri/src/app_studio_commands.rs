@@ -696,6 +696,9 @@ pub(crate) fn run_image_model_probe() -> Result<crate::ai_settings::AiImageModel
                 fallback_reason: result.fallback_reason,
                 error: result.error,
                 error_category: result.error_category,
+                failure_class: result.failure_class,
+                failure_message: result.failure_message,
+                admin_next_action: result.admin_next_action,
             }),
             Err(error) => items.push(crate::ai_settings::AiImageModelProbeItem {
                 model: model.to_string(),
@@ -705,6 +708,9 @@ pub(crate) fn run_image_model_probe() -> Result<crate::ai_settings::AiImageModel
                 fallback_reason: Some(error),
                 error: None,
                 error_category: Some("probe_error".to_string()),
+                failure_class: Some("unknown".to_string()),
+                failure_message: None,
+                admin_next_action: None,
             }),
         }
     }
@@ -799,6 +805,22 @@ fn run_image_generation_test_for_model(
             .filter(|value| !value.is_empty()),
         error_category: parsed
             .get("error_category")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .filter(|value| !value.is_empty()),
+        failure_class: parsed
+            .get("failure_class")
+            .and_then(Value::as_str)
+            .or_else(|| parsed.get("error_category").and_then(Value::as_str))
+            .map(str::to_string)
+            .filter(|value| !value.is_empty()),
+        failure_message: parsed
+            .get("failure_message")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .filter(|value| !value.is_empty()),
+        admin_next_action: parsed
+            .get("admin_next_action")
             .and_then(Value::as_str)
             .map(str::to_string)
             .filter(|value| !value.is_empty()),

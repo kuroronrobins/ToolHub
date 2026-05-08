@@ -26,7 +26,7 @@ from app_studio.execution_tester import record_blocked_execution, run_execution_
 from app_studio.exporter import export_suggestion
 from app_studio.file_classifier import classify_files
 from app_studio.frozen_folder_builder import build_frozen_folder
-from app_studio.icon_generator import DEFAULT_ICON_REGENERATION_CANDIDATE_COUNT, ICON_IMAGE_QUALITY_MODES, ICON_REGENERATION_MODES, generate_icon_assets_with_candidates, regenerate_icon_only
+from app_studio.icon_generator import DEFAULT_ICON_REGENERATION_CANDIDATE_COUNT, ICON_IMAGE_QUALITY_MODES, ICON_REGENERATION_MODES, generate_icon_assets_with_candidates, image_api_summary, regenerate_icon_only
 from app_studio.icon_override import apply_icon_override, load_icon_override
 from app_studio.lock_generator import generate_lock
 from app_studio.manifest_generator import generate_app_yaml
@@ -37,7 +37,7 @@ from app_studio.readme_generator import generate_readme
 from app_studio.registrar import apply_registration
 from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
-from app_studio.secret_scanner import scan_secrets
+from app_studio.secret_scanner import ai_submission_block_reason, scan_secrets, secret_scan_status
 from app_studio.timing import TimingRecorder, write_timing_reports
 from app_studio.trace import app_studio_trace, merge_trace_into_import_plan
 from app_studio.util import find_repo_root
@@ -187,15 +187,21 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         metadata, metadata_override_applied, metadata_override_warnings = apply_metadata_override(metadata, override)
     app_yaml = generate_app_yaml(context, plan, metadata)
     readme = generate_readme(context, plan)
-    ai_skip_reason = "secret scan blocked AI submission, AI skipped" if secret_report.blocks_ai_submission else ""
+    package_blocks_icon_ai = secret_report.blocks_apply
+    ai_skip_reason = (
+        f"package secret scan blocked AI submission: {ai_submission_block_reason(secret_report) or 'Apply-blocking secret finding'}"
+        if package_blocks_icon_ai
+        else ""
+    )
     with timings.phase("icon_generation_fallback"):
         icon_prompt_initial, icon_prompt_revision, icon_svg, fallback_png, style_reference, icon_ai_report, icon_candidate_png, icon_candidate_url, icon_candidates = generate_icon_assets_with_candidates(
             context,
             args.icon_prompt,
-            allow_ai=not secret_report.blocks_ai_submission,
+            allow_ai=not package_blocks_icon_ai,
             ai_skip_reason=ai_skip_reason,
             metadata=metadata,
             dependency_report=dependency_report,
+            package_secret_report=secret_report,
             icon_style_preset=options.icon_style_preset,
             icon_style_custom=options.icon_style_custom,
             revision_image_path=str(options.icon_revision_image_path) if options.icon_revision_image_path else None,
@@ -207,6 +213,23 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     if args.icon_override:
         icon_override = load_icon_override(Path(args.icon_override))
         icon_final_png, selected_icon_source, icon_override_warnings = apply_icon_override(fallback_png, icon_override)
+    icon_ai_diagnostics = image_api_summary(
+        icon_candidates,
+        {"preset": options.icon_style_preset or ""},
+        {
+            "package_secret_scan_status": secret_scan_status(secret_report),
+            "package_secret_scan_findings": len(secret_report.findings),
+            "package_ai_submission_blocked": secret_report.blocks_ai_submission,
+            "package_ai_submission_block_reason": ai_submission_block_reason(secret_report),
+        },
+    )
+    icon_provisional_fallback_used = (
+        not args.icon_override
+        and int(icon_ai_diagnostics.get("api_candidate_count") or 0) == 0
+        and int(icon_ai_diagnostics.get("fallback_candidate_count") or 0) > 0
+    )
+    if icon_provisional_fallback_used:
+        selected_icon_source = "provisional_fallback_png"
     build_plan_md = build_plan_markdown(plan, context)
     import_plan = {
         "app_id": context.app_id,
@@ -231,7 +254,12 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "run_entry": plan.entry,
         "required_runtime": plan.required_runtime,
         "secret_high_findings": secret_report.has_high,
-        "ai_blocked_by_secret_scan": secret_report.blocks_ai_submission,
+        "package_secret_scan_status": secret_scan_status(secret_report),
+        "ai_payload_secret_scan_status": icon_ai_diagnostics.get("ai_payload_secret_scan_status", "not_run"),
+        "ai_submission_blocked": icon_ai_diagnostics.get("ai_submission_blocked", False),
+        "ai_submission_block_reason": icon_ai_diagnostics.get("ai_submission_block_reason", ""),
+        "ai_blocked_by_secret_scan": icon_ai_diagnostics.get("ai_submission_blocked", False),
+        "package_ai_blocked_by_secret_scan": secret_report.blocks_ai_submission,
         "apply_blocked_by_secret_scan": secret_report.blocks_apply,
         "blocking_secret_findings_count": len(secret_report.blocking_findings),
         "warning_secret_findings_count": len(secret_report.warning_findings),
@@ -245,8 +273,10 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "icon_revision_image_used": bool(options.icon_revision_image_path),
         "icon_function_interpretation": icon_design_brief,
         "icon_candidate_count": len(icon_candidates),
+        "icon_ai_diagnostics": icon_ai_diagnostics,
         "selected_icon_source": selected_icon_source,
-        "icon_override_used": selected_icon_source != "fallback_png",
+        "icon_override_used": bool(args.icon_override),
+        "icon_provisional_fallback_used": icon_provisional_fallback_used,
         "icon_override_warnings": icon_override_warnings,
         "metadata_ai_report": metadata.get("_ai_generation_report", ""),
         "metadata_override_used": bool(metadata_override_applied),
@@ -452,6 +482,9 @@ def run_image_test(image_model: str | None = None) -> int:
         "fallback_reason": result.fallback_reason,
         "error": result.error,
         "error_category": result.error_category,
+        "failure_class": result.failure_class,
+        "failure_message": result.failure_message,
+        "admin_next_action": result.admin_next_action,
         "used_api": result.used_api,
         "message": "Image API test passed." if result.ok else (result.fallback_reason or result.error or "Image API test failed."),
     }

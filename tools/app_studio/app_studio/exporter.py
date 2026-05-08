@@ -53,6 +53,7 @@ def export_suggestion(
     if artifacts.icon_candidate_url:
         write_text(icon_work / "icon_candidate_1.url.txt", artifacts.icon_candidate_url + "\n")
     write_icon_candidates(icon_work, artifacts)
+    write_json(icon_work / "ai_generation_report.json", ai_generation_report_json(artifacts))
 
     final_app = output_dir / "final_app"
     write_text(final_app / "app.yaml", artifacts.app_yaml)
@@ -81,18 +82,53 @@ def write_icon_candidates(icon_work: Path, artifacts: GeneratedArtifacts) -> Non
             write_bytes(icon_work / candidate.file_name, candidate.png)
         if candidate.url and candidate.url_file_name:
             write_text(icon_work / candidate.url_file_name, candidate.url + "\n")
+    summary = artifacts.import_plan.get("icon_ai_diagnostics")
+    if not isinstance(summary, dict):
+        summary = image_api_summary(candidates, {"preset": artifacts.import_plan.get("icon_style_preset", "")})
     write_json(
         icon_work / "candidate_manifest.json",
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "standard_icon_size": "512x512",
             "api_icon_size": "1024x1024",
             "legacy_candidate_png": "icon_candidate_1.png",
             "function_interpretation": artifacts.icon_design_brief or artifacts.import_plan.get("icon_function_interpretation", {}),
-            "image_api_summary": image_api_summary(candidates, {"preset": artifacts.import_plan.get("icon_style_preset", "")}),
+            "image_api_summary": summary,
             "candidates": [candidate.manifest_entry() for candidate in candidates],
         },
     )
+
+
+def ai_generation_report_json(artifacts: GeneratedArtifacts) -> dict[str, object]:
+    candidates = artifacts.icon_candidates or legacy_icon_candidates(artifacts)
+    summary = artifacts.import_plan.get("icon_ai_diagnostics")
+    if not isinstance(summary, dict):
+        summary = image_api_summary(candidates, {"preset": artifacts.import_plan.get("icon_style_preset", "")})
+    return {
+        "schema_version": 1,
+        "text_prompt_generation_status": report_value(artifacts.icon_ai_report, "text_prompt_generation_status") or report_value(artifacts.icon_ai_report, "status"),
+        "image_generation_status": "success" if summary.get("image_api_success") else "failed",
+        "image_model": summary.get("model", ""),
+        "api_candidate_count": summary.get("api_candidate_count", 0),
+        "fallback_candidate_count": summary.get("fallback_candidate_count", 0),
+        "failure_class": summary.get("failure_class", ""),
+        "failure_message": summary.get("failure_message", ""),
+        "admin_next_action": summary.get("admin_next_action", ""),
+        "fallback_created_reason": summary.get("fallback_created_reason", ""),
+        "package_secret_scan_status": summary.get("package_secret_scan_status", "not_recorded"),
+        "ai_payload_secret_scan_status": summary.get("ai_payload_secret_scan_status", "not_run"),
+        "ai_submission_blocked": summary.get("ai_submission_blocked", False),
+        "ai_submission_block_reason": summary.get("ai_submission_block_reason", ""),
+    }
+
+
+def report_value(report: str, key: str) -> str:
+    prefix = f"{key}:"
+    for line in (report or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith(prefix):
+            return stripped[len(prefix):].strip()
+    return ""
 
 
 def legacy_icon_candidates(artifacts: GeneratedArtifacts) -> list[IconCandidateAsset]:

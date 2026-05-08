@@ -813,6 +813,15 @@ fallback そのものは残しつつ、AI を使う場合に何が必要かを�
 4. source scope preview と既定除外を強化する。（2026-05-08 Phase 1-A で CLI / GUI入力 / report / 既定除外 / `.toolhubignore` の初期実装済み。interactive preview は AR-023）
 5. AI icon fallback の理由を UI / report で分離表示する。
 
+## 2026-05-08 Phase 3 実施状況: AI icon fallback 診断
+
+- AI画像生成の失敗理由を `ai_disabled`、`missing_api_key`、`missing_image_model`、`organization_not_verified`、`unsupported_model`、`quota_or_rate_limit`、`authentication_failed`、`secret_scan_blocked`、`network_error`、`api_error`、`unknown` に分類する診断を追加した。
+- `gpt-image-2` が実APIレスポンスで `Your organization must be verified` を返す場合は `organization_not_verified` として扱う。OpenAI側の提供条件を断定せず、実APIエラーに基づく診断として記録する。
+- `icon_work/ai_generation_report.md` と `icon_work/ai_generation_report.json` に、text prompt generation status、image generation status、image model、API候補数、fallback候補数、failure class、管理者向けメッセージ、次アクション、fallback作成理由を出す。
+- `candidate_manifest.json` の `image_api_summary` にも同じ診断情報を追加し、GUIはAPI画像候補とローカル暫定アイコンを分離表示する。
+- package全体のsecret scan結果と、実際に画像APIへ送るicon prompt payloadのsecret scan結果を分けて記録する。payloadに秘密情報の可能性がある場合は `secret_scan_blocked` として画像生成を止める。
+- fallbackは残すが、AI生成候補・おすすめ・高品質候補とは扱わず、AI不可時の暫定アイコンとして表示する。
+
 ## 注意点
 
 - runtime archive の自動生成や同梱方針をこの改善で大きく変える必要はない。

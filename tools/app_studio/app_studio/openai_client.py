@@ -23,6 +23,85 @@ class OpenAIResult:
     fallback_reason: str = ""
     resolution: str = ""
     error_category: str = ""
+    failure_class: str = ""
+    failure_message: str = ""
+    admin_next_action: str = ""
+
+
+@dataclass(frozen=True)
+class FailureGuidance:
+    failure_class: str
+    message_ja: str
+    next_action_ja: str
+
+
+FAILURE_GUIDANCE: dict[str, FailureGuidance] = {
+    "ai_disabled": FailureGuidance(
+        "ai_disabled",
+        "AI機能が無効のため、画像生成APIを呼び出していません。",
+        "管理者画面のAI/APIキー管理でAI機能を有効にしてください。",
+    ),
+    "missing_api_key": FailureGuidance(
+        "missing_api_key",
+        "OpenAI APIキーが未登録のため、画像生成APIを実行できません。",
+        "Credential Manager または環境変数 OPENAI_API_KEY にAPIキーを登録してから画像APIをテストしてください。",
+    ),
+    "missing_image_model": FailureGuidance(
+        "missing_image_model",
+        "Image model が未設定のため、画像生成APIを実行できません。",
+        "AI/APIキー管理で利用可能なImage modelを設定してください。",
+    ),
+    "organization_not_verified": FailureGuidance(
+        "organization_not_verified",
+        "このImage modelの利用にはOpenAI organization verificationが必要です。",
+        "OpenAI PlatformのOrganization verificationを完了するか、候補モデルの実APIテストで利用可能なImage modelへ切り替えてください。",
+    ),
+    "unsupported_model": FailureGuidance(
+        "unsupported_model",
+        "設定されたImage modelは現在のAPIキーまたはSDK設定では利用できません。",
+        "AI/APIキー管理の候補モデルテストで利用可能なモデルを確認し、管理者が明示的にImage modelを変更してください。",
+    ),
+    "quota_or_rate_limit": FailureGuidance(
+        "quota_or_rate_limit",
+        "OpenAI APIのquotaまたはrate limitにより画像生成に失敗しました。",
+        "OpenAI Platformで利用状況を確認し、時間を置いて再実行してください。",
+    ),
+    "authentication_failed": FailureGuidance(
+        "authentication_failed",
+        "OpenAI APIの認証に失敗しました。",
+        "APIキーが有効で、対象プロジェクトまたは組織で利用可能か確認してください。",
+    ),
+    "secret_scan_blocked": FailureGuidance(
+        "secret_scan_blocked",
+        "AIへ送信するicon prompt payloadに秘密情報の可能性があるため、画像生成を停止しました。",
+        "Prompt、README、メタデータからAPIキー、token、passwordなどを除去してから再生成してください。",
+    ),
+    "network_error": FailureGuidance(
+        "network_error",
+        "ネットワークまたは接続の問題により画像生成APIへ到達できませんでした。",
+        "ネットワーク、プロキシ、DNS、TLS設定を確認してから再実行してください。",
+    ),
+    "api_error": FailureGuidance(
+        "api_error",
+        "画像生成APIがエラーを返しました。",
+        "ai_generation_report.md の詳細を確認し、必要に応じてモデル設定やPromptを見直してください。",
+    ),
+    "package_missing": FailureGuidance(
+        "package_missing",
+        "OpenAI Python package が利用できないため、画像生成APIを呼び出せません。",
+        "App Studioを実行しているPython環境にopenai packageがあるか確認してください。",
+    ),
+    "empty_response": FailureGuidance(
+        "empty_response",
+        "画像生成APIは応答しましたが、保存できる画像データまたはURLが返りませんでした。",
+        "モデル設定とSDK応答形式を確認し、画像APIテストを再実行してください。",
+    ),
+    "unknown": FailureGuidance(
+        "unknown",
+        "画像生成に失敗しましたが、原因を特定できませんでした。",
+        "ai_generation_report.md とApp Studioログの詳細を確認してください。",
+    ),
+}
 
 
 def ai_enabled() -> bool:
@@ -216,6 +295,10 @@ def result_with_report(
     error_category: str = "",
 ) -> OpenAIResult:
     image_api = api.startswith("images.")
+    failure_class = error_category or error_category_from_reason(fallback_reason)
+    if ok:
+        failure_class = ""
+    guidance = failure_guidance(failure_class, fallback_reason)
     report = "\n".join(
         [
             f"api: {api}",
@@ -228,11 +311,30 @@ def result_with_report(
             f"output_format: {output_format if image_api else 'not_applicable'}",
             f"quality: {quality if image_api else 'not_applicable'}",
             f"resolution: {resolution if image_api else 'not_applicable'}",
-            f"error_category: {error_category or 'none'}",
+            f"error_category: {failure_class or 'none'}",
+            f"failure_class: {failure_class or 'none'}",
+            f"failure_message: {guidance.message_ja if failure_class else 'none'}",
+            f"admin_next_action: {guidance.next_action_ja if failure_class else 'none'}",
             f"fallback_reason: {mask_sensitive(fallback_reason) if fallback_reason else 'none'}",
         ]
     )
-    return OpenAIResult(ok, used_api, content, report, mask_sensitive(error), status, model, api, content_type, fallback_reason, resolution, error_category)
+    return OpenAIResult(
+        ok,
+        used_api,
+        content,
+        report,
+        mask_sensitive(error),
+        status,
+        model,
+        api,
+        content_type,
+        fallback_reason,
+        resolution,
+        failure_class,
+        failure_class,
+        guidance.message_ja if failure_class else "",
+        guidance.next_action_ja if failure_class else "",
+    )
 
 
 def extract_response_text(response: Any) -> str:
@@ -301,26 +403,59 @@ def error_category_from_reason(reason: str) -> str:
         or "verified organization" in text
         or "organization verification" in text
     ):
-        return "organization_verification_required"
+        return "organization_not_verified"
     if "not set" in text:
         return "missing_api_key"
     if "not configured" in text:
-        return "model_not_configured"
+        return "missing_image_model"
     if "disabled" in text:
         return "ai_disabled"
+    if "secret scan" in text or "secret" in text and "blocked" in text:
+        return "secret_scan_blocked"
     if "package is not available" in text:
         return "package_missing"
-    if "api_key" in text or "authentication" in text or "unauthorized" in text or "invalid api key" in text:
-        return "authentication"
-    if "quota" in text or "insufficient_quota" in text:
-        return "quota"
-    if "rate limit" in text or "429" in text:
-        return "rate_limit"
+    if (
+        "api_key" in text
+        or "authentication" in text
+        or "unauthorized" in text
+        or "invalid api key" in text
+        or "401" in text
+    ):
+        return "authentication_failed"
+    if "quota" in text or "insufficient_quota" in text or "rate limit" in text or "429" in text:
+        return "quota_or_rate_limit"
+    if any(fragment in text for fragment in ["timeout", "timed out", "connection", "network", "dns", "proxy", "ssl"]):
+        return "network_error"
     if "model" in text and ("not" in text or "unsupported" in text or "does not exist" in text):
         return "unsupported_model"
     if "unsupported parameter" in text or "unknown parameter" in text or "unexpected parameter" in text:
-        return "unsupported_parameter"
-    return "api_error" if text else ""
+        return "api_error"
+    if "neither b64_json nor url" in text or "returned no" in text:
+        return "empty_response"
+    return "api_error" if text else "unknown"
+
+
+def normalize_failure_class(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    aliases = {
+        "none": "",
+        "model_not_configured": "missing_image_model",
+        "organization_verification_required": "organization_not_verified",
+        "authentication": "authentication_failed",
+        "quota": "quota_or_rate_limit",
+        "rate_limit": "quota_or_rate_limit",
+        "unsupported_parameter": "api_error",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized in FAILURE_GUIDANCE:
+        return normalized
+    return "unknown" if normalized else ""
+
+
+def failure_guidance(failure_class: str | None, fallback_reason: str = "") -> FailureGuidance:
+    normalized = normalize_failure_class(failure_class) or error_category_from_reason(fallback_reason)
+    normalized = normalize_failure_class(normalized) or "unknown"
+    return FAILURE_GUIDANCE.get(normalized, FAILURE_GUIDANCE["unknown"])
 
 
 def short_error(error: Exception) -> str:

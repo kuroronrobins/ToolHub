@@ -1339,6 +1339,30 @@ button {
   gap: 10px;
 }
 
+.studio-icon-candidate-section {
+  display: grid;
+  gap: 10px;
+}
+
+.studio-icon-candidate-section.provisional {
+  padding: 10px;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  background: #fff7ed;
+}
+
+.studio-icon-ai-failure {
+  padding: 10px;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  background: #fff1f2;
+}
+
+.studio-icon-ai-failure p {
+  margin: 4px 0 0;
+  line-height: 1.55;
+}
+
 .studio-icon-style-panel,
 .studio-icon-fallback-warning,
 .studio-icon-fallback-candidates {

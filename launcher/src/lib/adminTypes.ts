@@ -39,6 +39,9 @@ export interface AiImageGenerationTestResult {
   fallbackReason?: string | null;
   error?: string | null;
   errorCategory?: string | null;
+  failureClass?: string | null;
+  failureMessage?: string | null;
+  adminNextAction?: string | null;
 }
 
 export interface AiImageModelProbeItem {
@@ -49,6 +52,9 @@ export interface AiImageModelProbeItem {
   fallbackReason?: string | null;
   error?: string | null;
   errorCategory?: string | null;
+  failureClass?: string | null;
+  failureMessage?: string | null;
+  adminNextAction?: string | null;
 }
 
 export interface AiImageModelProbeResult {

@@ -59,6 +59,9 @@ pub struct AiImageGenerationTestResult {
     pub fallback_reason: Option<String>,
     pub error: Option<String>,
     pub error_category: Option<String>,
+    pub failure_class: Option<String>,
+    pub failure_message: Option<String>,
+    pub admin_next_action: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -71,6 +74,9 @@ pub struct AiImageModelProbeItem {
     pub fallback_reason: Option<String>,
     pub error: Option<String>,
     pub error_category: Option<String>,
+    pub failure_class: Option<String>,
+    pub failure_message: Option<String>,
+    pub admin_next_action: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]

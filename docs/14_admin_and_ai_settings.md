@@ -84,6 +84,10 @@ AI/APIキー管理には、`gpt-image-2`、`gpt-image-1.5`、`gpt-image-1`、`gp
 
 画像生成テストの直近結果が `ok:false` の間、App Studio はAI画像候補と再生成が利用できない状態として警告します。メタデータ生成・手動入力は継続できますが、fallback画像はAI画像ではなくローカルfallbackです。API失敗時は `modern`、`vivid`、`colored_pencil`、`realistic` などの style preset の効果を評価できません。
 
+AIアイコン生成の失敗理由は、App Studio 登録フローでも `failure_class` として表示します。分類は `ai_disabled`、`missing_api_key`、`missing_image_model`、`organization_not_verified`、`unsupported_model`、`quota_or_rate_limit`、`authentication_failed`、`secret_scan_blocked`、`network_error`、`api_error`、`unknown` です。`gpt-image-2` が実APIレスポンスで `Your organization must be verified` を返した場合は `organization_not_verified` と表示し、OpenAI Platform の Organization verification または利用可能な Image model への明示的な切り替えを案内します。
+
+App Studio の候補表示では、API画像候補を「AI生成候補」、fallback を「ローカル暫定アイコン」として分離します。fallback はAI生成成功ではなく、API未実行・API失敗・secret scan block時の仮アイコンです。
+
 アイコン再生成は、初回 Suggest 全体ではなく `icon-regenerate` サブコマンドを呼びます。既存の `icon_work/candidate_manifest.json` と候補PNGを読み、画像生成/編集APIだけを実行するため、file inventory、secret scan、dependency analysis、metadata生成は再実行しません。GUIでは候補数を 1/2/3 から選べ、既定は速度優先の1候補です。`draft` / `standard` / `high` の画像品質モードも選択できます。実際に画像APIへ渡した最終Promptと、画像API呼び出し秒数は候補一覧・Prompt表示・manifestで確認できます。
 
 ## APIキー保存場所

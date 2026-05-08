@@ -162,6 +162,7 @@ export function AppStudioAiProposalPanel({
         説明文、カテゴリ、PNGアイコン候補を作成します。AI提案は自動確定されず、採用ボタンを押した項目だけ編集欄に反映されます。
       </p>
       {diagnostics ? <DiagnosticsPanel diagnostics={diagnostics} /> : null}
+      <ImageApiTestDiagnostics result={imageApiHealth} />
       {imageApiBlocked ? <ImageApiBlockedNotice result={imageApiHealth} /> : null}
 
       <div className="studio-ai-actions">
@@ -222,6 +223,15 @@ export function AppStudioAiProposalPanel({
           </div>
           <IconFunctionInterpretationPanel interpretation={icon.functionInterpretation} />
           <ImageApiSummaryPanel icon={icon} candidates={iconCandidates} />
+          <div className="studio-icon-candidate-section">
+            <div className="admin-section-head compact">
+              <div>
+                <p className="dialog-kicker">AI生成候補</p>
+                <h4>画像APIで生成された候補</h4>
+              </div>
+              <span className="admin-status-pill">{apiCandidates.length}件</span>
+            </div>
+            {!apiCandidates.length ? <p className="admin-muted">API画像候補は保存されていません。上の診断に表示された理由を解消してから再生成してください。</p> : null}
           <div className="studio-icon-candidate-grid">
             {apiCandidates.map((candidate) => (
               <IconCandidateCard
@@ -233,13 +243,43 @@ export function AppStudioAiProposalPanel({
               />
             ))}
           </div>
+          </div>
           {!apiCandidates.length && fallbackCandidates.length ? (
+            <div className="studio-icon-fallback-warning">
+              <strong>AI画像生成に失敗したため、ローカル暫定アイコンだけを表示しています</strong>
+              <p>下の候補はAI生成画像ではありません。原因を解消して再生成するか、暫定アイコンとして明示的に使用してください。</p>
+            </div>
+          ) : null}
+          {false && !apiCandidates.length && fallbackCandidates.length ? (
             <div className="studio-icon-fallback-warning">
               <strong>AI生成失敗のためfallback表示中</strong>
               <p>OpenAI画像APIのPNG候補は保存されていません。下のfallbackはAI画像ではない暫定プレースホルダーです。スタイル指定は反映されていません。</p>
             </div>
           ) : null}
           {fallbackCandidates.length ? (
+            <div className="studio-icon-candidate-section provisional">
+              <div className="admin-section-head compact">
+                <div>
+                  <p className="dialog-kicker">ローカル暫定アイコン</p>
+                  <h4>AI不可時の仮アイコン</h4>
+                </div>
+                <span className="admin-status-pill warn">{fallbackCandidates.length}件</span>
+              </div>
+              <div className="studio-icon-fallback-candidates">
+                {fallbackCandidates.map((candidate) => (
+                  <IconCandidateCard
+                    key={candidate.candidateId}
+                    candidate={candidate}
+                    recommended={false}
+                    adopted={selectedIconSource === "fallback_png"}
+                    onAdopt={adoptFallbackPng}
+                    fallbackAction
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {false && fallbackCandidates.length ? (
             <div className="studio-icon-fallback-candidates">
               {fallbackCandidates.map((candidate) => (
                 <IconCandidateCard
@@ -264,6 +304,10 @@ export function AppStudioAiProposalPanel({
               このPNGを採用
             </button>
             <button className="secondary-button" type="button" onClick={() => adoptPng("final_png", icon.finalPngDataUrl)} disabled={!icon.finalPngDataUrl}>
+              <CheckCircle2 size={17} aria-hidden="true" />
+              暫定アイコンを使う
+            </button>
+            <button hidden className="secondary-button" type="button" onClick={() => adoptPng("final_png", icon.finalPngDataUrl)} disabled={!icon.finalPngDataUrl}>
               <CheckCircle2 size={17} aria-hidden="true" />
               フォールバックPNGを使用
             </button>
@@ -361,6 +405,14 @@ function ImageApiSummaryPanel({ icon, candidates }: { icon: AppStudioAiProposal[
   const latestFailure = stringValue(summary?.latestImageApiFailure ?? summary?.latest_image_api_failure) || failureReasons[failureReasons.length - 1] || "";
   const failureCategories = candidates.map((candidate) => candidate.errorCategory || "").filter(Boolean);
   const failureCategory = failureCategories[failureCategories.length - 1] || "";
+  const failureClass = stringValue(summary?.failureClass ?? summary?.failure_class) || failureCategory;
+  const failureMessage = stringValue(summary?.failureMessage ?? summary?.failure_message) || latestFailure;
+  const adminNextAction = stringValue(summary?.adminNextAction ?? summary?.admin_next_action);
+  const fallbackCreatedReason = stringValue(summary?.fallbackCreatedReason ?? summary?.fallback_created_reason);
+  const packageSecretScanStatus = stringValue(summary?.packageSecretScanStatus ?? summary?.package_secret_scan_status);
+  const payloadSecretScanStatus = stringValue(summary?.aiPayloadSecretScanStatus ?? summary?.ai_payload_secret_scan_status);
+  const aiSubmissionBlocked = Boolean(summary?.aiSubmissionBlocked ?? summary?.ai_submission_blocked);
+  const aiSubmissionBlockReason = stringValue(summary?.aiSubmissionBlockReason ?? summary?.ai_submission_block_reason);
   const model = stringValue(summary?.model) || candidates.find((candidate) => candidate.model && candidate.model !== "local-deterministic-fallback")?.model || "unknown";
   const stylePreset = stringValue(summary?.stylePreset ?? summary?.style_preset);
   const revisionMode = stringValue(summary?.revisionMode ?? summary?.revision_mode);
@@ -372,7 +424,7 @@ function ImageApiSummaryPanel({ icon, candidates }: { icon: AppStudioAiProposal[
   const recommendedCandidateId = stringValue(summary?.recommendedCandidateId ?? summary?.recommended_candidate_id);
   const recommendedQualityTotal = numberValue(summary?.recommendedQualityTotal ?? summary?.recommended_quality_total);
   const recommendedQualityLabel = stringValue(summary?.recommendedQualityLabel ?? summary?.recommended_quality_label);
-  const organizationBlocked = isOrganizationVerificationRequired({ model, errorCategory: failureCategory, fallbackReason: latestFailure, message: latestFailure });
+  const organizationBlocked = isOrganizationVerificationRequired({ model, errorCategory: failureClass || failureCategory, fallbackReason: latestFailure, message: latestFailure });
   return (
     <div className={`studio-image-api-summary${apiCount > 0 ? " ok" : " warn"}`}>
       <div><span>API候補</span><strong>{apiCount}</strong></div>
@@ -387,6 +439,18 @@ function ImageApiSummaryPanel({ icon, candidates }: { icon: AppStudioAiProposal[
       {imageApiSeconds !== null ? <div><span>API秒数</span><strong>{imageApiSeconds.toFixed(1)}秒</strong></div> : null}
       {proposalReloadSeconds !== null ? <div><span>再読込</span><strong>{proposalReloadSeconds.toFixed(2)}秒</strong></div> : null}
       {failureCategory ? <div><span>error_category</span><strong>{failureCategory}</strong></div> : null}
+      {apiCount === 0 ? (
+        <div className="wide studio-icon-ai-failure">
+          <strong>AI画像生成に失敗しました</strong>
+          <p>理由: {failureMessage || "API画像候補が保存されませんでした。"}</p>
+          <p>次アクション: {adminNextAction || imageApiFailureGuidance({ model, errorCategory: failureClass, fallbackReason: latestFailure, message: failureMessage })}</p>
+        </div>
+      ) : null}
+      {failureClass ? <div><span>failure_class</span><strong>{failureClass}</strong></div> : null}
+      {packageSecretScanStatus ? <div><span>package secret</span><strong>{secretStatusLabel(packageSecretScanStatus)}</strong></div> : null}
+      {payloadSecretScanStatus ? <div><span>AI payload secret</span><strong>{secretStatusLabel(payloadSecretScanStatus)}</strong></div> : null}
+      {aiSubmissionBlocked ? <div className="wide"><span>AI送信停止理由</span><strong>{aiSubmissionBlockReason || "secret scan によりAI送信を停止しました。"}</strong></div> : null}
+      {fallbackCreatedReason ? <div className="wide"><span>暫定アイコン作成理由</span><strong>{fallbackCreatedReason}</strong></div> : null}
       {latestFailure ? <div className="wide"><span>直近の失敗理由</span><strong>{latestFailure}</strong></div> : null}
       {organizationBlocked ? <div className="wide"><span>案内</span><strong>{model} は現在のOpenAI組織では利用できません。組織認証を完了するか、別のImage modelを設定してください。</strong></div> : null}
       {apiCount === 0 ? <div className="wide"><span>style</span><strong>API生成候補がないため、style preset の効果は検証できません。</strong></div> : null}
@@ -406,7 +470,7 @@ function IconCandidateCard({ candidate, adopted, recommended, onAdopt, fallbackA
     <article className={`studio-icon-candidate-card${adopted ? " selected" : ""}`}>
       <div className="studio-icon-candidate-head">
         <strong>候補 {candidate.number || candidate.candidateId}</strong>
-        <span className={candidate.fallback ? "admin-status-pill warn" : "admin-status-pill"}>{candidate.fallback ? "fallback" : sourceLabel(candidate.source)}</span>
+        <span className={candidate.fallback ? "admin-status-pill warn" : "admin-status-pill"}>{candidate.fallback ? "ローカル暫定" : sourceLabel(candidate.source)}</span>
       </div>
       {recommended ? <span className="admin-status-pill ok">推奨</span> : null}
       {candidate.pngDataUrl ? (
@@ -451,6 +515,10 @@ function IconCandidateCard({ candidate, adopted, recommended, onAdopt, fallbackA
         </p>
       ) : null}
       <button className="secondary-button" type="button" onClick={onAdopt} disabled={!candidate.pngDataUrl}>
+        <CheckCircle2 size={17} aria-hidden="true" />
+        {fallbackAction ? "暫定アイコンを使う" : "このAI候補を採用"}
+      </button>
+      <button hidden className="secondary-button" type="button" onClick={onAdopt} disabled={!candidate.pngDataUrl}>
         <CheckCircle2 size={17} aria-hidden="true" />
         {fallbackAction ? "fallbackを採用" : "このPNGを採用"}
       </button>
@@ -597,6 +665,19 @@ function DiagnosticsPanel({ diagnostics }: { diagnostics: AppStudioAiDiagnostics
   );
 }
 
+function ImageApiTestDiagnostics({ result }: { result: StoredImageGenerationTestResult | null }) {
+  const status = result ? (result.ok ? "成功" : "失敗") : "未確認";
+  const failureClass = result?.errorCategory || "未確認";
+  const checkedAt = result?.checkedAt ? formatCheckedAt(result.checkedAt) : "未確認";
+  return (
+    <div className="studio-ai-status-grid">
+      <StatusItem label="画像APIテスト" value={status} />
+      <StatusItem label="直近failure class" value={failureClass} />
+      <StatusItem label="最終テスト日時" value={checkedAt} />
+    </div>
+  );
+}
+
 function StatusItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -675,6 +756,33 @@ function statusValue(value: string): string {
     return "失敗";
   }
   return value;
+}
+
+function secretStatusLabel(status: string): string {
+  if (status === "passed") {
+    return "問題なし";
+  }
+  if (status === "blocked") {
+    return "ブロック";
+  }
+  if (status === "warning") {
+    return "警告あり";
+  }
+  if (status === "not_run") {
+    return "未実行";
+  }
+  if (status === "not_recorded") {
+    return "記録なし";
+  }
+  return status;
+}
+
+function formatCheckedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString("ja-JP");
 }
 
 function apiKeyLabel(diagnostics: AppStudioAiDiagnostics): string {

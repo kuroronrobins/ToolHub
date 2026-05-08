@@ -34,6 +34,7 @@ from app_studio.openai_client import OpenAIResult, edit_image, error_category_fr
 from app_studio.registrar import package_app_pack
 from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
+from app_studio.secret_scanner import scan_ai_payload_text
 from app_studio.timing import TimingRecorder
 from app_studio.util import write_json, write_text
 from main import parse_args as parse_app_studio_args, run_icon_regenerate, run_import
@@ -1170,9 +1171,11 @@ class OpenAIFallbackTests(unittest.TestCase):
                 result = generate_image("prompt")
 
         self.assertFalse(result.ok)
-        self.assertEqual(result.error_category, "organization_verification_required")
-        self.assertIn("organization_verification_required", result.report)
-        self.assertEqual(error_category_from_reason(reason), "organization_verification_required")
+        self.assertEqual(result.error_category, "organization_not_verified")
+        self.assertEqual(result.failure_class, "organization_not_verified")
+        self.assertIn("organization_not_verified", result.report)
+        self.assertIn("admin_next_action:", result.report)
+        self.assertEqual(error_category_from_reason(reason), "organization_not_verified")
 
     def test_image_generation_connection_uses_model_override_for_probe(self) -> None:
         calls = []
@@ -1218,7 +1221,7 @@ class OpenAIFallbackTests(unittest.TestCase):
             result = generate_image("prompt")
 
         self.assertFalse(result.ok)
-        self.assertEqual(result.error_category, "model_not_configured")
+        self.assertEqual(result.error_category, "missing_image_model")
         self.assertIn("model is not configured", result.report)
 
     def test_missing_api_key_reports_specific_image_error_category(self) -> None:
@@ -1228,6 +1231,33 @@ class OpenAIFallbackTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.error_category, "missing_api_key")
         self.assertIn("OPENAI_API_KEY is not set", result.report)
+        self.assertIn("failure_class: missing_api_key", result.report)
+
+    def test_image_error_categories_use_admin_failure_classes(self) -> None:
+        cases = {
+            "AI is disabled.": "ai_disabled",
+            "OPENAI_API_KEY is not set.": "missing_api_key",
+            "model is not configured.": "missing_image_model",
+            "Your organization must be verified to use the model gpt-image-2.": "organization_not_verified",
+            "model does not exist": "unsupported_model",
+            "rate limit 429": "quota_or_rate_limit",
+            "invalid api key": "authentication_failed",
+            "secret scan blocked AI submission": "secret_scan_blocked",
+            "connection timeout": "network_error",
+            "other bad request": "api_error",
+        }
+        for reason, expected in cases.items():
+            with self.subTest(reason=reason):
+                self.assertEqual(error_category_from_reason(reason), expected)
+
+    def test_ai_payload_scan_blocks_real_secret_but_not_env_name_reference(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            safe_report = scan_ai_payload_text("Use OPENAI_API_KEY as an environment variable name only.", context.source_root)
+            blocked_report = scan_ai_payload_text("token = sk-realpayload123456789012345", context.source_root)
+
+        self.assertFalse(safe_report.blocks_ai_submission)
+        self.assertTrue(blocked_report.blocks_ai_submission)
 
     def test_image_api_prompt_keeps_japanese_and_adds_rendering_guidance(self) -> None:
         prompt = image_api_prompt("日本語のアイコン指示")

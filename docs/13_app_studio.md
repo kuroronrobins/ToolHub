@@ -635,6 +635,16 @@ The final image API prompt always contains the raw user instruction under
 AI/intermediate prompt, and final image API prompt so users can verify what was
 actually sent to the image API.
 
+## AIアイコン生成の失敗診断
+
+App Studio は、AI画像生成が失敗してfallbackへ流れた理由を `ai_generation_report.md`、`ai_generation_report.json`、`candidate_manifest.json` に記録します。主な分類は `ai_disabled`、`missing_api_key`、`missing_image_model`、`organization_not_verified`、`unsupported_model`、`quota_or_rate_limit`、`authentication_failed`、`secret_scan_blocked`、`network_error`、`api_error`、`unknown` です。
+
+`gpt-image-2` の実APIレスポンスで `Your organization must be verified` が返った場合は `organization_not_verified` として表示します。この場合は OpenAI Platform で Organization verification を完了するか、AI/APIキー管理の候補モデルテストで利用可能な Image model を確認し、管理者が明示的に設定を変更してください。ToolHub が自動で別モデルへ切り替えることはありません。
+
+GUIでは API画像候補を「AI生成候補」、fallback を「ローカル暫定アイコン」として分離します。API候補が0件の場合、fallback は本番品質のAI候補ではなく、AI不可時の仮アイコンです。style preset の効果は API画像候補が1件以上保存された場合だけ評価できます。
+
+secret scan は package 全体の結果と、実際に画像APIへ送る icon prompt payload の結果を分けて扱います。package 側に warning / manual_check があっても、payload 自体に秘密情報がなければ過剰に画像生成を止めない方針です。一方、payload に API key、token、password などが含まれる可能性がある場合は `secret_scan_blocked` としてAI送信を止めます。
+
 The available revision modes are `tweak`, `refine`, `redesign`, and `fresh`.
 `tweak` and `refine` prefer `images.edit` with the selected previous PNG when
 available. `redesign` treats the previous image as reference only and prefers a

@@ -197,6 +197,42 @@ def scan_secrets(source_root: Path, inventory: SourceInventory | None = None) ->
     return report
 
 
+def scan_ai_payload_text(payload: str, source_root: Path, payload_name: str = "icon_prompt_payload") -> SecretScanReport:
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", payload_name.strip() or "icon_prompt_payload")
+    pseudo_path = (source_root / ".toolhub_ai_payload" / f"{safe_name}.txt").resolve()
+    findings = content_findings(pseudo_path, source_root, {}, payload or "")
+    for finding in findings:
+        finding.affects_ai_submission = True
+        finding.inventory_status = "ai_payload"
+        finding.included_in_package = False
+        finding.blocks_apply = False
+        if finding.severity in {"high", "medium"} and not finding.false_positive_candidate:
+            finding.block_reason = "AI payload may contain a secret"
+    return SecretScanReport(deduplicate_findings(findings))
+
+
+def secret_scan_status(report: SecretScanReport | None) -> str:
+    if report is None:
+        return "not_run"
+    if report.blocks_ai_submission:
+        return "blocked"
+    if report.findings:
+        return "warning"
+    return "passed"
+
+
+def ai_submission_block_reason(report: SecretScanReport | None) -> str:
+    if report is None or not report.blocks_ai_submission:
+        return ""
+    parts: list[str] = []
+    for finding in report.findings:
+        if not finding.affects_ai_submission or finding.false_positive_candidate or finding.severity not in {"high", "medium"}:
+            continue
+        detail = finding.detail or finding.kind
+        parts.append(f"{finding.kind}: {detail}")
+    return "; ".join(parts[:3]) or "secret scan blocked AI submission"
+
+
 def iter_inventory_scan_files(inventory: SourceInventory | None) -> list[Path]:
     if not inventory:
         return []
