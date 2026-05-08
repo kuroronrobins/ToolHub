@@ -24,7 +24,9 @@ def export_suggestion(
         write_json(output_dir / "build_profile.json", artifacts.build_profile)
     if artifacts.exe_readiness:
         write_json(output_dir / "exe_readiness.json", artifacts.exe_readiness)
-    write_text(output_dir / "file_inventory.md", inventory_markdown(inventory))
+    inventory_report = inventory_markdown(inventory)
+    write_text(output_dir / "file_inventory.md", inventory_report)
+    write_text(output_dir / "file_inventory_report.md", inventory_report)
     write_json(output_dir / "file_inventory.json", inventory.to_dict())
     write_json(output_dir / "dependency_report.json", dependency_report.to_dict())
     write_text(output_dir / "secret_scan_report.md", secret_report_markdown(secret_report, context.source_root))

@@ -14,6 +14,7 @@ use tauri::State;
 #[serde(rename_all = "camelCase")]
 pub struct AppStudioImportRequest {
     pub entry: String,
+    pub source_root: Option<String>,
     pub app_id: Option<String>,
     pub name: Option<String>,
     pub version: Option<String>,
@@ -1086,6 +1087,10 @@ fn run_import_action(
         "--build-mode".to_string(),
         request.build_mode.clone(),
     ];
+    if let Some(source_root) = clean_optional(&request.source_root) {
+        cli_args.push("--source-root".to_string());
+        cli_args.push(source_root.to_string());
+    }
     if let Some(app_id) = clean_optional(&request.app_id) {
         cli_args.push("--app-id".to_string());
         cli_args.push(app_id.to_string());
@@ -1152,6 +1157,10 @@ fn run_import_action(
         &format!("{action} started"),
         &[
             ("app_id", request.app_id.clone().unwrap_or_default()),
+            (
+                "source_root",
+                request.source_root.clone().unwrap_or_default(),
+            ),
             ("build_mode", request.build_mode.clone()),
             ("cli_path", script.display().to_string()),
             ("argv", cli_argv.clone()),
@@ -1441,6 +1450,7 @@ fn validate_request(request: &AppStudioImportRequest) -> Result<(), String> {
         return Err("Entryファイルが見つかりません。".to_string());
     }
     validate_entry_path(&entry)?;
+    validate_source_root_path(&entry, request.source_root.as_deref())?;
     if !["auto", "app-env", "frozen-folder", "existing-exe"].contains(&request.build_mode.as_str())
     {
         return Err("BuildModeが不正です。".to_string());
@@ -1498,6 +1508,29 @@ fn validate_entry_path(entry: &Path) -> Result<(), String> {
         if lower.contains(marker) {
             return Err("Entryファイルのパスに秘密情報らしい名前が含まれています。".to_string());
         }
+    }
+    Ok(())
+}
+
+fn validate_source_root_path(entry: &Path, source_root: Option<&str>) -> Result<(), String> {
+    let Some(value) = source_root.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    let root = PathBuf::from(value);
+    if !root.is_dir() {
+        return Err("sourceRootフォルダが見つかりません。".to_string());
+    }
+    let entry_path = entry
+        .canonicalize()
+        .map_err(|_| "Entryファイルのパスを解決できません。".to_string())?;
+    let root_path = root
+        .canonicalize()
+        .map_err(|_| "sourceRootフォルダのパスを解決できません。".to_string())?;
+    if root_path.parent().is_none() || root_path.parent() == Some(root_path.as_path()) {
+        return Err("sourceRootが広すぎます。アプリのプロジェクトフォルダを指定してください。".to_string());
+    }
+    if !entry_path.starts_with(&root_path) {
+        return Err("EntryファイルはsourceRoot配下に配置してください。".to_string());
     }
     Ok(())
 }
@@ -1596,6 +1629,11 @@ fn preflight_for_request(
         errors.push("Entryファイルが見つかりません。".to_string());
     } else if let Err(error) = validate_entry_path(&entry) {
         errors.push(error);
+    }
+    if entry_exists {
+        if let Err(error) = validate_source_root_path(&entry, request.source_root.as_deref()) {
+            errors.push(error);
+        }
     }
     if entry
         .extension()
@@ -3808,6 +3846,7 @@ fn yaml_str(value: &serde_yaml::Value, path: &[&str]) -> Option<String> {
 fn import_request_from_update(request: &AppStudioUpdateRequest) -> AppStudioImportRequest {
     AppStudioImportRequest {
         entry: request.entry.clone(),
+        source_root: None,
         app_id: Some(request.app_id.clone()),
         name: request.name.clone(),
         version: Some(request.new_version.clone()),
@@ -4490,6 +4529,7 @@ mod tests {
         let entry = temp_entry();
         let request = AppStudioImportRequest {
             entry: entry.display().to_string(),
+            source_root: None,
             app_id: Some("my_tool".to_string()),
             name: Some("My Tool".to_string()),
             version: None,
@@ -4523,6 +4563,7 @@ mod tests {
         let entry = temp_entry();
         let request = AppStudioImportRequest {
             entry: entry.display().to_string(),
+            source_root: None,
             app_id: Some("my_tool".to_string()),
             name: Some("My Tool".to_string()),
             version: None,

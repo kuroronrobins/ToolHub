@@ -14,6 +14,7 @@ NORMAL_REGISTRATION_POLICY = "user-distribution"
 class ImportOptions:
     entry: Path
     action: str
+    source_root: Path | None = None
     app_id: str | None = None
     name: str | None = None
     build_mode: str = "auto"
@@ -40,6 +41,8 @@ class StudioContext:
     repo_root: Path
     entry: Path
     source_root: Path
+    source_root_origin: str
+    source_root_warnings: list[str]
     app_id: str
     name: str
     output_dir: Path
@@ -89,17 +92,53 @@ class SourceInventory:
     local_import_files: list[Path] = field(default_factory=list)
     import_roots: list[str] = field(default_factory=list)
     manual_checks: list[dict[str, Any]] = field(default_factory=list)
+    source_root: str = ""
+    source_root_origin: str = ""
+    entry_relative: str = ""
+    source_root_warnings: list[str] = field(default_factory=list)
+    excluded_directories: list[dict[str, Any]] = field(default_factory=list)
+    toolhubignore_patterns: list[str] = field(default_factory=list)
 
     @property
     def included_files(self) -> list[Path]:
         return [record.path for record in self.records if record.include]
 
+    @property
+    def excluded_count(self) -> int:
+        return sum(1 for record in self.records if (record.status or ("include" if record.include else "exclude")) == "exclude")
+
+    @property
+    def blocked_count(self) -> int:
+        return sum(1 for record in self.records if record.status == "blocked")
+
+    @property
+    def manual_check_count(self) -> int:
+        inventory_manual = sum(1 for record in self.records if record.status == "manual_check")
+        return inventory_manual + len(self.manual_checks)
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "source_root": self.source_root,
+            "source_root_origin": self.source_root_origin,
+            "entry_relative": self.entry_relative,
+            "included_count": len(self.included_files),
+            "excluded_count": self.excluded_count,
+            "blocked_count": self.blocked_count,
+            "manual_check_count": self.manual_check_count,
+            "excluded_directory_count": len(self.excluded_directories),
+            "source_root_warnings": self.source_root_warnings,
+            "toolhubignore_pattern_count": len(self.toolhubignore_patterns),
+        }
+
     def to_dict(self) -> dict[str, Any]:
         return {
+            "summary": self.summary(),
             "files": [record.to_dict() for record in self.records],
             "local_import_files": [str(path) for path in self.local_import_files],
             "import_roots": self.import_roots,
             "manual_checks": self.manual_checks,
+            "excluded_directories": self.excluded_directories,
+            "toolhubignore_patterns": self.toolhubignore_patterns,
         }
 
 

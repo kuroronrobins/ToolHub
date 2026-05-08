@@ -40,6 +40,7 @@ import { AppStudioStepNav, type AppStudioImportStep } from "./AppStudioStepNav";
 
 const INITIAL_REQUEST: AppStudioImportRequest = {
   entry: "",
+  sourceRoot: "",
   appId: "",
   name: "",
   buildMode: "frozen-folder",
@@ -533,6 +534,11 @@ export function AppStudioImportWizard() {
             参照
           </button>
         </div>
+
+        <label className="admin-field">
+          <span>ソース範囲</span>
+          <input type="text" value={request.sourceRoot ?? ""} placeholder="未入力ならメインファイルのフォルダ" onChange={(event) => update({ sourceRoot: event.target.value })} />
+        </label>
 
         <div className="admin-two-column">
           <label className="admin-field">
@@ -1031,6 +1037,7 @@ function cleanRequest(request: AppStudioImportRequest): AppStudioImportRequest {
   return {
     ...request,
     entry: request.entry.trim(),
+    sourceRoot: request.sourceRoot?.trim() || undefined,
     appId: request.appId?.trim() || undefined,
     name: request.name?.trim() || undefined,
     buildMode: "frozen-folder",

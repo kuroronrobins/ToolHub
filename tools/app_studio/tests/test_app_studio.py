@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "tools" / "app_studio"))
 sys.path.insert(0, str(ROOT / "runner"))
 
+from app_studio.build_profile import default_build_profile
 from app_studio.build_planner import make_build_plan
 from app_studio.dependency_analyzer import analyze_dependencies
 from app_studio.file_classifier import classify_files
@@ -152,8 +153,7 @@ class AppStudioTests(unittest.TestCase):
 
             self.assertFalse(findings_by_path["README.md"].blocks_apply)
             self.assertTrue(findings_by_path["README.md"].false_positive_candidate)
-            self.assertFalse(findings_by_path["config.example.yaml"].blocks_apply)
-            self.assertTrue(findings_by_path["config.example.yaml"].false_positive_candidate)
+            self.assertNotIn("config.example.yaml", findings_by_path)
             if "main.py" in findings_by_path:
                 self.assertFalse(findings_by_path["main.py"].blocks_apply)
             self.assertTrue(findings_by_path[".env"].blocks_apply)
@@ -341,6 +341,8 @@ class AppStudioTests(unittest.TestCase):
                 "import",
                 "--entry",
                 "main.py",
+                "--source-root",
+                "src",
                 "--metadata-override",
                 "override.json",
                 "--icon-override",
@@ -352,8 +354,130 @@ class AppStudioTests(unittest.TestCase):
         )
 
         self.assertEqual(args.metadata_override, "override.json")
+        self.assertEqual(args.source_root, "src")
         self.assertEqual(args.icon_override, "icon_override.json")
         self.assertEqual(args.build_profile, "build_profile.json")
+
+    def test_explicit_source_root_keeps_entry_relative(self) -> None:
+        with workspace_tempdir() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            (repo / "apps").mkdir(parents=True)
+            (repo / "release").mkdir()
+            (repo / "runner").mkdir()
+            source = root / "project"
+            entry = source / "src" / "main.py"
+            entry.parent.mkdir(parents=True)
+            entry.write_text("print('hello')\n", encoding="utf-8")
+
+            context = create_context(
+                ImportOptions(entry=entry, action="suggest", source_root=source, app_id="scoped_app", name="Scoped App"),
+                repo,
+            )
+
+            self.assertEqual(context.source_root, source.resolve())
+            self.assertEqual(context.source_root_origin, "explicit")
+            self.assertEqual(context.entry_relative.as_posix(), "src/main.py")
+
+    def test_explicit_source_root_rejects_entry_outside_scope(self) -> None:
+        with workspace_tempdir() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            (repo / "apps").mkdir(parents=True)
+            (repo / "release").mkdir()
+            (repo / "runner").mkdir()
+            source = root / "project"
+            source.mkdir()
+            entry = root / "other" / "main.py"
+            entry.parent.mkdir()
+            entry.write_text("print('hello')\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "source_root"):
+                create_context(
+                    ImportOptions(entry=entry, action="suggest", source_root=source, app_id="bad_scope", name="Bad Scope"),
+                    repo,
+                )
+
+    def test_inventory_excludes_generated_work_and_output_directories(self) -> None:
+        with workspace_tempdir() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            (repo / "apps").mkdir(parents=True)
+            (repo / "release").mkdir()
+            (repo / "runner").mkdir()
+            source = root / "source"
+            source.mkdir()
+            entry = source / "main.py"
+            entry.write_text("print('ok')\n", encoding="utf-8")
+            for dirname in [".git", ".venv", "work", "results", "ToolHub_AppStudio_Output"]:
+                folder = source / dirname
+                folder.mkdir(parents=True)
+                (folder / "ignored.py").write_text("OPENAI_API_KEY='sk-ignored123456789012345'\n", encoding="utf-8")
+
+            context = create_context(ImportOptions(entry=entry, action="suggest", app_id="scope_app", name="Scope App"), repo)
+            inventory = classify_files(context)
+            excluded_dirs = {item["relative_path"] for item in inventory.excluded_directories}
+            included = {record.relative_path for record in inventory.records if record.include}
+            report = scan_secrets(context.source_root, inventory)
+
+            self.assertTrue({".git", ".venv", "work", "results", "ToolHub_AppStudio_Output"}.issubset(excluded_dirs))
+            self.assertEqual(included, {"main.py"})
+            self.assertFalse(any("ignored.py" in str(finding.path) for finding in report.findings))
+
+    def test_toolhubignore_excludes_directories_and_files(self) -> None:
+        with workspace_tempdir() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            (repo / "apps").mkdir(parents=True)
+            (repo / "release").mkdir()
+            (repo / "runner").mkdir()
+            source = root / "source"
+            source.mkdir()
+            entry = source / "main.py"
+            entry.write_text("print('ok')\n", encoding="utf-8")
+            (source / ".toolhubignore").write_text("scratch/\n*.bak\n", encoding="utf-8")
+            (source / "scratch").mkdir()
+            (source / "scratch" / "ignored.json").write_text('{"secret": "value"}\n', encoding="utf-8")
+            (source / "notes.bak").write_text("do not package\n", encoding="utf-8")
+
+            context = create_context(ImportOptions(entry=entry, action="suggest", app_id="ignore_app", name="Ignore App"), repo)
+            inventory = classify_files(context)
+            records = {record.relative_path: record for record in inventory.records}
+            excluded_dirs = {item["relative_path"] for item in inventory.excluded_directories}
+
+            self.assertIn("scratch", excluded_dirs)
+            self.assertEqual(records["notes.bak"].status, "exclude")
+            self.assertIn(".toolhubignore", records["notes.bak"].reason)
+            self.assertEqual(inventory.toolhubignore_patterns, ["scratch", "*.bak"])
+
+    def test_excluded_files_do_not_enter_build_profile(self) -> None:
+        with workspace_tempdir() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            (repo / "apps").mkdir(parents=True)
+            (repo / "release").mkdir()
+            (repo / "runner").mkdir()
+            source = root / "source"
+            (source / "src").mkdir(parents=True)
+            (source / "assets").mkdir()
+            (source / "work" / "assets").mkdir(parents=True)
+            entry = source / "main.py"
+            entry.write_text("import src.worker\n", encoding="utf-8")
+            (source / "src" / "__init__.py").write_text("", encoding="utf-8")
+            (source / "src" / "worker.py").write_text("print('worker')\n", encoding="utf-8")
+            (source / "assets" / "keep.json").write_text("{}\n", encoding="utf-8")
+            (source / "work" / "module.py").write_text("print('ignore')\n", encoding="utf-8")
+            (source / "work" / "assets" / "ignore.json").write_text("{}\n", encoding="utf-8")
+
+            context = create_context(ImportOptions(entry=entry, action="suggest", app_id="profile_app", name="Profile App"), repo)
+            inventory = classify_files(context)
+            dependency_report, _ = analyze_dependencies(context, inventory)
+            profile = default_build_profile(context, inventory, dependency_report)
+            self.assertFalse(any(value == "work" or value.startswith("work/") for value in profile["paths"]))
+            self.assertFalse(any(value == "work.module" or value.startswith("work.") for value in profile["hidden_imports"]))
+            self.assertFalse(any(item["source"].startswith("work/") for item in profile["add_data"]))
+            self.assertIn("src", profile["paths"])
+            self.assertIn("assets/keep.json", [item["source"] for item in profile["add_data"]])
 
     def test_metadata_override_invalid_json_fails_clearly(self) -> None:
         with workspace_tempdir() as temp:

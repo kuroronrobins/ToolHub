@@ -28,7 +28,31 @@ BLOCKED_EXACT_NAMES = {
 WARNING_PATTERNS = ["*.log", "*.wav", "*.mp3", "*.m4a"]
 LARGE_FILE_BYTES = 25 * 1024 * 1024
 TEXT_SCAN_LIMIT = 1024 * 1024
-SKIP_DIRS = {".git", ".venv", "venv", "env", "__pycache__", "node_modules", "toolhub_appstudio_output", ".pytest_tmp"}
+SKIP_DIRS = {
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".svn",
+    ".venv",
+    "build",
+    "dist",
+    "env",
+    "node_modules",
+    "output",
+    "outputs",
+    "release",
+    "result",
+    "results",
+    "runtime",
+    "target",
+    "toolhub_appstudio_output",
+    "venv",
+    "work",
+    "works",
+    "__pycache__",
+    ".pytest_tmp",
+}
 EXCLUDED_SENSITIVE_DIRS = {".auth"}
 WARNING_DIRS = {"logs", "log", "screenshots", "sessions", "tmp", "temp"}
 PLACEHOLDER_VALUES = {
@@ -73,7 +97,8 @@ LONG_RANDOM_RE = re.compile(r"\b[A-Za-z0-9_/-]{32,}\b")
 def scan_secrets(source_root: Path, inventory: SourceInventory | None = None) -> SecretScanReport:
     findings: list[SecretFinding] = []
     inventory_by_path = inventory_map(inventory)
-    for path in iter_scan_files(source_root):
+    scan_files = iter_inventory_scan_files(inventory) if inventory else iter_scan_files(source_root)
+    for path in scan_files:
         if not path.is_file() or should_skip(path, source_root):
             continue
         lower_parts = {part.lower() for part in path.relative_to(source_root).parts}
@@ -164,6 +189,17 @@ def scan_secrets(source_root: Path, inventory: SourceInventory | None = None) ->
     report = SecretScanReport(deduplicate_findings(findings))
     apply_secret_summary_to_inventory(report, inventory_by_path)
     return report
+
+
+def iter_inventory_scan_files(inventory: SourceInventory | None) -> list[Path]:
+    if not inventory:
+        return []
+    files: list[Path] = []
+    for record in inventory.records:
+        status = record.status or ("include" if record.include else "exclude")
+        if record.include or status in {"blocked", "manual_check"} or record.secret_scan != "not_scanned":
+            files.append(record.path)
+    return sorted(files, key=lambda path: path.as_posix().lower())
 
 
 def iter_scan_files(source_root: Path) -> list[Path]:

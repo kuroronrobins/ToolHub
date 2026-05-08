@@ -2,6 +2,7 @@ export type AppStudioBuildMode = "auto" | "app-env" | "frozen-folder" | "existin
 
 export interface AppStudioImportRequest {
   entry: string;
+  sourceRoot?: string;
   appId?: string;
   name?: string;
   version?: string;

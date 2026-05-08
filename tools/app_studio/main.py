@@ -74,6 +74,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         argv = argv[1:]
     parser = argparse.ArgumentParser(description="ToolHub App Studio")
     parser.add_argument("--entry", required=True)
+    parser.add_argument("--source-root")
     parser.add_argument("--app-id")
     parser.add_argument("--name")
     parser.add_argument("--build-mode", default="auto", choices=sorted(BUILD_MODES))
@@ -130,6 +131,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     options = ImportOptions(
         entry=Path(args.entry),
         action=action,
+        source_root=Path(args.source_root) if args.source_root else None,
         app_id=args.app_id,
         name=args.name,
         build_mode=args.build_mode,
@@ -204,6 +206,12 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "version": context.version,
         "entry": str(context.entry),
         "source_root": str(context.source_root),
+        "source_root_origin": context.source_root_origin,
+        "source_root_warnings": context.source_root_warnings,
+        "entry_relative": context.entry_relative.as_posix(),
+        "source_scope": inventory.summary(),
+        "excluded_directories": inventory.excluded_directories[:100],
+        "toolhubignore_patterns": inventory.toolhubignore_patterns,
         "output_dir": str(context.output_dir),
         "requested_build_mode": context.requested_build_mode,
         "selected_build_mode": plan.mode,

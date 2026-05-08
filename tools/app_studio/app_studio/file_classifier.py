@@ -15,6 +15,7 @@ GENERATED_DIRS = {
     ".hg",
     ".svn",
     ".venv",
+    ".mypy_cache",
     "venv",
     "env",
     "__pycache__",
@@ -22,8 +23,17 @@ GENERATED_DIRS = {
     "node_modules",
     "dist",
     "build",
+    "output",
+    "outputs",
+    "release",
+    "result",
+    "results",
+    "runtime",
+    "target",
     ".pytest_tmp",
     "toolhub_appstudio_output",
+    "work",
+    "works",
 }
 EXCLUDED_DIRS = {"logs", "log", "screenshots", "sessions", "tmp", "temp"}
 BLOCKED_DIRS = {".auth"}
@@ -91,19 +101,40 @@ class CodeReference:
     base: str = "ambiguous"
 
 
+@dataclass(frozen=True)
+class ToolHubIgnoreRule:
+    pattern: str
+    directory_only: bool = False
+    negated: bool = False
+
+
+@dataclass
+class SourceWalkResult:
+    files: list[Path]
+    excluded_directories: list[dict[str, str]]
+
+
 def classify_files(context: StudioContext) -> SourceInventory:
-    local_imports, import_roots = resolve_local_imports(context.entry, context.source_root)
+    ignore_rules = load_toolhubignore(context.source_root)
+    walk_result = collect_source_files(context.source_root, ignore_rules)
+    allowed_file_set = {path.resolve() for path in walk_result.files}
+    allowed_file_set.add(context.entry.resolve())
+    local_imports, import_roots = resolve_local_imports(context.entry, context.source_root, allowed_file_set)
     local_import_set = {path.resolve() for path in local_imports}
     references, manual_checks = collect_code_path_references(context.entry, local_import_set, context.source_root)
-    referenced_files = referenced_files_by_path(references, context.source_root)
+    referenced_files = referenced_files_by_path(references, context.source_root, allowed_file_set)
     records: list[FileRecord] = []
 
-    for path in iter_source_files(context.source_root):
+    for path in walk_result.files:
         if not path.is_file():
             continue
         relative = path.relative_to(context.source_root).as_posix()
         size = path.stat().st_size
-        excluded, status, reason, secret_scan = exclusion_reason(path, context.source_root)
+        ignored, ignore_reason = ignore_match_reason(path, context.source_root, False, ignore_rules)
+        if ignored:
+            excluded, status, reason, secret_scan = True, "exclude", ignore_reason, "not_scanned"
+        else:
+            excluded, status, reason, secret_scan = exclusion_reason(path, context.source_root)
         include = False
         category = "other"
         include_reason = reason
@@ -142,20 +173,107 @@ def classify_files(context: StudioContext) -> SourceInventory:
         local_import_files=sorted(local_import_set),
         import_roots=sorted(import_roots),
         manual_checks=manual_checks,
+        source_root=str(context.source_root),
+        source_root_origin=context.source_root_origin,
+        entry_relative=context.entry_relative.as_posix(),
+        source_root_warnings=context.source_root_warnings,
+        excluded_directories=walk_result.excluded_directories,
+        toolhubignore_patterns=[rule.pattern for rule in ignore_rules],
+    )
+
+
+def collect_source_files(source_root: Path, ignore_rules: list[ToolHubIgnoreRule] | None = None) -> SourceWalkResult:
+    ignore_rules = ignore_rules or []
+    files: list[Path] = []
+    excluded_directories: list[dict[str, str]] = []
+    for root, dirnames, filenames in os.walk(source_root):
+        current = Path(root)
+        kept_dirnames: list[str] = []
+        for dirname in dirnames:
+            directory = current / dirname
+            relative = directory.relative_to(source_root).as_posix()
+            lower = dirname.lower()
+            excluded = False
+            reason = ""
+            pattern = ""
+            if lower in GENERATED_DIRS or lower.startswith("pytest-cache-files-"):
+                excluded = True
+                reason = "excluded generated or external-work directory"
+            else:
+                excluded, reason = ignore_match_reason(directory, source_root, True, ignore_rules)
+                if excluded:
+                    pattern = reason.removeprefix("excluded by .toolhubignore: ")
+            if excluded:
+                excluded_directories.append(
+                    {
+                        "path": str(directory.resolve()),
+                        "relative_path": relative,
+                        "reason": reason,
+                        "pattern": pattern,
+                    }
+                )
+            else:
+                kept_dirnames.append(dirname)
+        dirnames[:] = kept_dirnames
+        files.extend(current / filename for filename in filenames)
+    return SourceWalkResult(
+        files=sorted(files, key=lambda path: path.as_posix().lower()),
+        excluded_directories=sorted(excluded_directories, key=lambda item: item["relative_path"].lower()),
     )
 
 
 def iter_source_files(source_root: Path) -> list[Path]:
-    files: list[Path] = []
-    for root, dirnames, filenames in os.walk(source_root):
-        dirnames[:] = [
-            dirname
-            for dirname in dirnames
-            if dirname.lower() not in GENERATED_DIRS and not dirname.lower().startswith("pytest-cache-files-")
-        ]
-        current = Path(root)
-        files.extend(current / filename for filename in filenames)
-    return sorted(files, key=lambda path: path.as_posix().lower())
+    return collect_source_files(source_root).files
+
+
+def load_toolhubignore(source_root: Path) -> list[ToolHubIgnoreRule]:
+    path = source_root / ".toolhubignore"
+    if not path.is_file():
+        return []
+    rules: list[ToolHubIgnoreRule] = []
+    for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        negated = line.startswith("!")
+        if negated:
+            line = line[1:].strip()
+        if not line:
+            continue
+        directory_only = line.endswith("/")
+        pattern = line.rstrip("/").lstrip("/").replace("\\", "/")
+        if pattern:
+            rules.append(ToolHubIgnoreRule(pattern=pattern, directory_only=directory_only, negated=negated))
+    return rules
+
+
+def ignore_match_reason(path: Path, source_root: Path, is_dir: bool, rules: list[ToolHubIgnoreRule]) -> tuple[bool, str]:
+    if not rules:
+        return False, ""
+    relative = path.relative_to(source_root).as_posix()
+    ignored = False
+    matched_pattern = ""
+    for rule in rules:
+        if ignore_rule_matches(rule, relative, is_dir):
+            ignored = not rule.negated
+            matched_pattern = ("!" if rule.negated else "") + rule.pattern + ("/" if rule.directory_only else "")
+    if ignored:
+        return True, f"excluded by .toolhubignore: {matched_pattern}"
+    return False, ""
+
+
+def ignore_rule_matches(rule: ToolHubIgnoreRule, relative: str, is_dir: bool) -> bool:
+    if rule.directory_only and not is_dir:
+        return False
+    pattern = rule.pattern
+    parts = relative.split("/")
+    if "/" not in pattern:
+        return any(fnmatch.fnmatch(part, pattern) for part in parts)
+    if fnmatch.fnmatch(relative, pattern):
+        return True
+    if is_dir and fnmatch.fnmatch(relative + "/", pattern.rstrip("/") + "/"):
+        return True
+    return False
 
 
 def exclusion_reason(path: Path, source_root: Path) -> tuple[bool, str, str, str]:
@@ -343,16 +461,28 @@ def evaluate_path_expr(node: ast.AST, source_file: Path) -> tuple[str, str] | No
     return None
 
 
-def referenced_files_by_path(references: list[CodeReference], source_root: Path) -> dict[Path, CodeReference]:
+def referenced_files_by_path(references: list[CodeReference], source_root: Path, allowed_files: set[Path] | None = None) -> dict[Path, CodeReference]:
     result: dict[Path, CodeReference] = {}
     for reference in references:
         for candidate in resolve_reference_candidates(reference, source_root):
             if candidate.is_file():
-                result.setdefault(candidate.resolve(), reference)
+                resolved = candidate.resolve()
+                if allowed_files is None or resolved in allowed_files:
+                    result.setdefault(resolved, reference)
             elif candidate.is_dir():
-                for child in sorted(candidate.rglob("*")):
-                    if child.is_file():
-                        result.setdefault(child.resolve(), reference)
+                if allowed_files is None:
+                    for child in sorted(candidate.rglob("*")):
+                        if child.is_file():
+                            result.setdefault(child.resolve(), reference)
+                else:
+                    candidate_root = candidate.resolve()
+                    for child in sorted(allowed_files, key=lambda path: path.as_posix().lower()):
+                        try:
+                            child.relative_to(candidate_root)
+                        except ValueError:
+                            continue
+                        if child.is_file():
+                            result.setdefault(child.resolve(), reference)
     return result
 
 
@@ -424,7 +554,7 @@ def has_package_marker(directory: Path, source_root: Path) -> bool:
     return (directory / "__init__.py").is_file()
 
 
-def resolve_local_imports(entry: Path, source_root: Path) -> tuple[list[Path], set[str]]:
+def resolve_local_imports(entry: Path, source_root: Path, allowed_files: set[Path] | None = None) -> tuple[list[Path], set[str]]:
     discovered: set[Path] = set()
     import_roots: set[str] = set()
     queue = [entry.resolve()]
@@ -453,7 +583,12 @@ def resolve_local_imports(entry: Path, source_root: Path) -> tuple[list[Path], s
 
             for candidate in candidates:
                 resolved = candidate.resolve()
-                if resolved.is_file() and resolved.is_relative_to(source_root.resolve()) and resolved not in discovered:
+                if (
+                    resolved.is_file()
+                    and resolved.is_relative_to(source_root.resolve())
+                    and resolved not in discovered
+                    and (allowed_files is None or resolved in allowed_files)
+                ):
                     queue.append(resolved)
 
     return [path for path in discovered if path != entry.resolve()], import_roots
@@ -493,6 +628,47 @@ def resolve_from_import(node: ast.ImportFrom, current_file: Path, source_root: P
 
 
 def inventory_markdown(inventory: SourceInventory) -> str:
+    summary = inventory.summary()
+    text = "\n".join(
+        [
+            "# File Inventory",
+            "",
+            "## Source Scope",
+            "",
+            f"- source_root: `{summary.get('source_root')}`",
+            f"- source_root_origin: `{summary.get('source_root_origin')}`",
+            f"- entry_relative: `{summary.get('entry_relative')}`",
+            f"- included_count: {summary.get('included_count')}",
+            f"- excluded_count: {summary.get('excluded_count')}",
+            f"- blocked_count: {summary.get('blocked_count')}",
+            f"- manual_check_count: {summary.get('manual_check_count')}",
+            f"- excluded_directory_count: {summary.get('excluded_directory_count')}",
+            f"- toolhubignore_pattern_count: {summary.get('toolhubignore_pattern_count')}",
+            "",
+        ]
+    )
+    if inventory.source_root_warnings:
+        text += "## Source Scope Warnings\n\n"
+        for warning in inventory.source_root_warnings:
+            text += f"- {warning}\n"
+        text += "\n"
+    if inventory.excluded_directories:
+        text += "## Excluded Directories\n\n"
+        text += markdown_table(
+            ["Path", "Reason", "Pattern"],
+            [
+                [
+                    item.get("relative_path", "-"),
+                    item.get("reason", "-"),
+                    item.get("pattern", "-") or "-",
+                ]
+                for item in inventory.excluded_directories[:100]
+            ],
+        )
+        text += "\n"
+        if len(inventory.excluded_directories) > 100:
+            text += f"\n... {len(inventory.excluded_directories) - 100} more excluded directories\n"
+        text += "\n"
     rows = [
         [
             record.status or ("include" if record.include else "exclude"),
@@ -505,7 +681,7 @@ def inventory_markdown(inventory: SourceInventory) -> str:
         ]
         for record in inventory.records
     ]
-    text = "# File Inventory\n\n" + markdown_table(["Status", "Category", "Path", "Bytes", "Reason", "Detected From", "Secret Scan"], rows) + "\n"
+    text += "## Files\n\n" + markdown_table(["Status", "Category", "Path", "Bytes", "Reason", "Detected From", "Secret Scan"], rows) + "\n"
     if inventory.manual_checks:
         text += "\n## Manual Checks\n\n"
         for item in inventory.manual_checks:

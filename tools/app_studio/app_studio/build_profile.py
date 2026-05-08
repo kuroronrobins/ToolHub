@@ -28,6 +28,10 @@ def default_build_profile(context: StudioContext, inventory: SourceInventory, de
         "required_files": [],
         "manual_checks": [],
         "warnings": [],
+        "source_root": str(context.source_root),
+        "source_root_origin": context.source_root_origin,
+        "entry_relative": context.entry_relative.as_posix(),
+        "inventory_summary": inventory.summary(),
     }
 
     profile["paths"] = [path.relative_to(context.source_root).as_posix() for path in pyinstaller_search_paths(context, inventory)]
@@ -92,6 +96,10 @@ def normalize_build_profile(profile: dict[str, Any]) -> dict[str, Any]:
         "required_files": clean_string_list(profile.get("required_files")),
         "manual_checks": clean_string_list(profile.get("manual_checks")),
         "warnings": clean_string_list(profile.get("warnings")),
+        "source_root": clean_string(profile.get("source_root")),
+        "source_root_origin": clean_string(profile.get("source_root_origin")),
+        "entry_relative": clean_string(profile.get("entry_relative")),
+        "inventory_summary": profile.get("inventory_summary") if isinstance(profile.get("inventory_summary"), dict) else {},
     }
     if not normalized["required_files"]:
         normalized["required_files"] = [item["source"] for item in normalized["add_data"]]
@@ -234,9 +242,31 @@ def pyinstaller_data_files(context: StudioContext, inventory: SourceInventory) -
 
 def build_profile_markdown(profile: dict[str, Any], readiness: dict[str, Any]) -> str:
     lines = ["# Build Profile", "", f"- app_id: `{profile.get('app_id')}`", f"- source: `{profile.get('source')}`", f"- readiness: `{readiness.get('overall_status')}`", ""]
+    lines.extend(
+        [
+            "## Source Scope",
+            "",
+            f"- source_root: `{profile.get('source_root', '-')}`",
+            f"- source_root_origin: `{profile.get('source_root_origin', '-')}`",
+            f"- entry_relative: `{profile.get('entry_relative', '-')}`",
+        ]
+    )
+    summary = profile.get("inventory_summary") or {}
+    if isinstance(summary, dict):
+        lines.extend(
+            [
+                f"- included_count: {summary.get('included_count', 0)}",
+                f"- excluded_count: {summary.get('excluded_count', 0)}",
+                f"- blocked_count: {summary.get('blocked_count', 0)}",
+                f"- manual_check_count: {summary.get('manual_check_count', 0)}",
+                f"- excluded_directory_count: {summary.get('excluded_directory_count', 0)}",
+            ]
+        )
+    lines.append("")
     for key in sorted(PYINSTALLER_OPTION_KEYS):
         lines.append(f"## {key}")
         values = profile.get(key) or []
+        lines.append(f"- count: {len(values)}")
         if values:
             for value in values:
                 lines.append(f"- `{json.dumps(value, ensure_ascii=False)}`")

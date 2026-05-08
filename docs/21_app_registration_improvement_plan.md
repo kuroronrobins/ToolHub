@@ -59,6 +59,28 @@ ToolHub の App Studio / アプリ登録プロセスについて、現時点で�
 - `scripts/package_app_pack.ps1 -AppId addnum_pdf -NoManifestUpdate` は、`addnum_pdf run.entry file is missing` で想定どおり fail。
 - `scripts/verify_release.ps1` は、`addnum_pdf`、`app_20260201_agendasnap`、`officetopdf_toc`、`run_xcgate_upload` の local `run.entry` 欠落と App Pack 内 `run.entry` 欠落を想定どおり NG として検出。
 
+### 2026-05-08 Phase 1-A
+
+source scope を明示・制御する最初の改善を実装した。
+
+- App Studio CLI に `--source-root` を追加した。未指定時は従来どおり entry file の親フォルダを使う。
+- `ImportOptions` / `StudioContext` / `import_plan.json` に `source_root_origin`、`entry_relative`、`source_root_warnings`、`source_scope` summary を追加した。
+- GUI の新規登録画面に任意入力の「ソース範囲」を追加し、Rust command 層から CLI へ `--source-root` を渡すようにした。
+- entry が explicit source root 配下にない場合は fail する。drive root のような広すぎる explicit source root は fail する。
+- inventory の既定除外を強化し、`.git`, `.hg`, `.svn`, `.venv`, `venv`, `env`, `__pycache__`, `.pytest_cache`, `node_modules`, `dist`, `build`, `work`, `works`, `result`, `results`, `output`, `outputs`, `ToolHub_AppStudio_Output`, `release`, `runtime`, `target` などを source walk から除外する。
+- source root 直下の `.toolhubignore` を最小限の gitignore 風 glob として読み込む。空行、`#` コメント、`*` glob、末尾 `/` の directory-only pattern、`!` negation を扱う。
+- `file_inventory.md` と新規 `file_inventory_report.md` に source scope summary、source root warning、除外ディレクトリ一覧を出力する。
+- secret scan は inventory がある場合、included / blocked / manual_check / scan対象指定の record に限定して走るようにした。既定除外・`.toolhubignore` 除外ディレクトリ内の無関係ファイルは secret scan 対象外になる。
+- build profile report に source scope と PyInstaller option 件数を出すようにした。
+- excluded file が `paths` / `hidden_imports` / `add_data` に入らないことを unit test で確認した。
+
+未実装または次フェーズ送り:
+
+- source scope の interactive preview と除外ルール編集 UI は未実装。今回は文字入力と report 出力まで。
+- build profile の本格 editor / diff UI は未実装。
+- build_env cache、pip cache、PyInstaller `--clean` 見直し、AI icon 診断は今回の対象外。
+- PowerShell wrapper `scripts/import_app.ps1` への `-SourceRoot` 追加は未実装。CLI 本体と GUI の経路を優先した。
+
 ## 調査で確認した根拠
 
 ### 1. release 検証が壊れた登録を見逃す
@@ -199,6 +221,8 @@ CLI は progress line を出しているが、Rust backend 側は subprocess の
 | AR-020 | P2 | reports | 調査に必要な情報が複数 report に分散 | summary index がない | App Studio run summary に phase time、skip reason、failure reason、重要 report path を集約する | 1 つの summary から原因調査を開始できる |
 | AR-021 | P2 | App Pack spec | `requirements.lock` の扱いが仕様と実装で曖昧 | spec では source of truth に含まれるが sample app には存在せず、package / verify は必須にしていない | runner / build_mode 別に `requirements.lock` を必須・任意・警告のどれにするか決め、package / verify / docs を揃える | sample app と frozen-folder app の両方で意図した結果になる |
 | AR-022 | P2 | validator consistency | PowerShell と Python で app.yaml path 検証が重複している | packaging / release verify / App Studio registrar が別々に YAML scalar と相対パスを処理している | 共通 validator 化、または同じ fixture を使う golden test を追加して挙動差を防ぐ | `run.entry` / `display.icon` の edge case が各経路で同じ結果になる |
+| AR-023 | P1 | source scope UX | source scope preview がまだ report 中心で、登録前に十分操作できない | GUI では source root 入力だけで、include/exclude一覧の事前表示がない | preflight で inventory preview を軽量実行し、主要除外ディレクトリと included count を表示する | 管理者が Apply 前に混入を発見できる |
+| AR-024 | P2 | CLI wrapper | `scripts/import_app.ps1` から `--source-root` を指定できない | Phase 1-A では CLI 本体と GUI の経路を優先した | `-SourceRoot` を wrapper に追加し、docs の PowerShell 例も更新する | PowerShell wrapper でも明示 source root を使える |
 
 ## 推奨実装順
 
@@ -300,7 +324,7 @@ fallback そのものは残しつつ、AI を使う場合に何が必要かを�
 1. `run.entry` の local / zip 存在検証を追加する。（2026-05-08 Phase 0 で実装済み）
 2. `package_app_pack.ps1` で `run.entry` 欠落時に fail する。（2026-05-08 Phase 0 で実装済み）
 3. `verify_release.ps1` で App Pack 内 `run.entry` 欠落時に fail する。（2026-05-08 Phase 0 で実装済み）
-4. source scope preview と既定除外を強化する。
+4. source scope preview と既定除外を強化する。（2026-05-08 Phase 1-A で CLI / GUI入力 / report / 既定除外 / `.toolhubignore` の初期実装済み。interactive preview は AR-023）
 5. AI icon fallback の理由を UI / report で分離表示する。
 
 ## 注意点

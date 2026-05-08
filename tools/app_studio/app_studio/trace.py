@@ -22,6 +22,9 @@ TRACE_KEYS = {
     "argv",
     "normalized_options",
     "source_entry",
+    "source_root",
+    "source_root_origin",
+    "source_root_warnings",
     "output_dir",
     "build_env_path",
     "build_env_python",
@@ -71,6 +74,9 @@ def app_studio_trace(
         "argv": list(getattr(args, "_raw_argv", []) or []),
         "normalized_options": normalized_options(args),
         "source_entry": str(context.entry),
+        "source_root": str(context.source_root),
+        "source_root_origin": context.source_root_origin,
+        "source_root_warnings": context.source_root_warnings,
         "output_dir": str(context.output_dir),
         "build_env_path": str(planned_build_env_path(context)),
         "build_env_python": str(build_env_python or planned_build_env_python(context)),
@@ -84,6 +90,7 @@ def normalized_options(args: Any | None) -> dict[str, Any]:
         return {}
     names = [
         "build_mode",
+        "source_root",
         "create_app_env",
         "rebuild_app_env",
         "skip_app_env_build",

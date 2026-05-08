@@ -445,6 +445,8 @@ def context_from_saved_proposal(repo_root: Path, output_dir: Path, import_plan: 
         repo_root=repo_root,
         entry=entry,
         source_root=source_root,
+        source_root_origin=str(import_plan.get("source_root_origin") or "saved_import_plan"),
+        source_root_warnings=list(import_plan.get("source_root_warnings") or []),
         app_id=saved_app_id,
         name=name,
         output_dir=output_dir,
