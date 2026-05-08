@@ -9,15 +9,6 @@
       "sha256": "f06564957c516a3567518dfb10c217879c7f64dc5377c4e7137954bd70434157",
       "version": "0.1.0"
     },
-    "officetopdf_toc": {
-      "enabled": true,
-      "package": "app_packs/officetopdf_toc-0.1.0.zip",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": null,
-      "sha256": "04825531cfd0baafc9710f44fef83acbdaa8016e9e36b0a3e9bcbd7174c59d8c",
-      "version": "0.1.0"
-    },
     "run_xcgate_upload": {
       "enabled": false,
       "package": "app_packs/run_xcgate_upload-0.1.0.zip",

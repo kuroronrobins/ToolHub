@@ -1,9 +1,0 @@
-# Review these import-derived candidates before installing.
-# App Studio did not find requirements.txt or pyproject.toml.
-# PyPDF2
-# docx2pdf
-# pythoncom
-# pywintypes
-# reportlab
-# win32com
-# win32print

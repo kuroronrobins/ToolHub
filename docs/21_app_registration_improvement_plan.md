@@ -535,6 +535,34 @@ excluded targets:
 3. UI の full delete を実行する。
 4. 実行後に `scripts/verify_release.ps1` を再実行し、`officetopdf_toc` の NG が消え、残る既知 NG が `addnum_pdf` のみになったことを確認する。
 
+### 2026-05-08 `officetopdf_toc` full delete 事後検証
+
+Admin UI / Tauri command 経由で実行済みの `officetopdf_toc` full delete について、Codex 側では full delete を再実行せず、削除後状態だけを検証した。
+
+削除後状態:
+
+- `apps/officetopdf_toc/`: missing。
+- `release/app_packs/officetopdf_toc-*.zip`: 該当なし。
+- `release/app_manifest.json`: `officetopdf_toc` entry なし。
+- `runtime/app_envs/officetopdf_toc/`: missing。
+- `scripts/plan_app_delete.ps1 -AppId officetopdf_toc -Json`: 削除後 dry-run では manifest entry / app dir が既に missing の warning 2 件のみ。shared runtime と user data は excluded target のまま。
+
+除外対象の確認:
+
+- `%LOCALAPPDATA%\ToolHub\data`: exists。
+- `runtime/python`: exists。
+- `runtime/web_automation_runtime`: exists。
+- `apps/app_20260201_agendasnap/`: exists。
+- `apps/run_xcgate_upload/`: exists。
+- 外部 source path と external output mirror は引き続き missing。これらは事前 plan でも delete target ではなく、今回の full delete 対象外。
+
+検証結果:
+
+- `scripts/verify_release.ps1`: exit code 0。`officetopdf_toc` の local `run.entry` 欠落 / App Pack 内 `run.entry` 欠落 NG は解消。
+- 想定では残 NG は `addnum_pdf` のみだったが、現在の `release/app_manifest.json` と `apps/` 一覧には `addnum_pdf` も存在せず、今回の `verify_release.ps1` では NG 0。
+- `scripts/check_all.ps1`: exit code 0。release manifest verification、delete plan / executor safety tests、App Studio tests、frontend checks、Rust check は pass。installer 未生成と MSVC shell 未設定は既存 warning。
+- 本番差分は `apps/officetopdf_toc/` の削除と `release/app_manifest.json` からの `officetopdf_toc` entry removal に限定されている。`release/manifest.json`、`apps/app_20260201_agendasnap/`、`apps/run_xcgate_upload/`、runtime / data / logs には今回対象の差分なし。
+
 ## 調査で確認した根拠
 
 ### 1. release 検証が壊れた登録を見逃す
