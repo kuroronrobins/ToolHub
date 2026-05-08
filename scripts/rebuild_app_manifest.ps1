@@ -9,6 +9,8 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
+. (Join-Path $PSScriptRoot "utf8_no_bom.ps1")
+
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ReleaseDir = Join-Path $Root "release"
 $AppsDir = Join-Path $Root "apps"
@@ -233,6 +235,6 @@ if ($Json) {
 }
 
 if ($Apply -and -not $DryRun) {
-    $NewJson | Set-Content -Encoding UTF8 $AppManifestPath
+    Write-Utf8NoBomFile -Path $AppManifestPath -Content ($NewJson + "`n")
     Write-Host "Updated release/app_manifest.json"
 }

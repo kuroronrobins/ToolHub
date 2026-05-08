@@ -7,6 +7,8 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
+. (Join-Path $PSScriptRoot "utf8_no_bom.ps1")
+
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ReleaseDir = Join-Path $Root "release"
 $ManifestPath = Join-Path $ReleaseDir "manifest.json"
@@ -115,7 +117,7 @@ $StageManifest = [ordered]@{
     created_by = "scripts/package_installer.ps1"
     files = @($StagedFiles)
 }
-$StageManifest | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 (Join-Path $StagingDir "staging_manifest.json")
+Write-JsonUtf8NoBomFile -Path (Join-Path $StagingDir "staging_manifest.json") -InputObject $StageManifest -Depth 20
 
 $Candidates = @()
 if (Test-Path -LiteralPath $BundleDir -PathType Container) {
@@ -159,10 +161,10 @@ if (Test-Path -LiteralPath $InstallerPath -PathType Leaf) {
     $Manifest.toolhub.installer.size = $null
 }
 
-$Manifest | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 $ManifestPath
+Write-JsonUtf8NoBomFile -Path $ManifestPath -InputObject $Manifest -Depth 20
 $StagedManifestPath = Join-Path $StagingDir "release\manifest.json"
 if (Test-Path -LiteralPath $StagedManifestPath -PathType Leaf) {
-    $Manifest | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 $StagedManifestPath
+    Write-JsonUtf8NoBomFile -Path $StagedManifestPath -InputObject $Manifest -Depth 20
 }
 Write-Host "Updated release/manifest.json"
 Write-Host "Installer staging completed: $StagingDir"

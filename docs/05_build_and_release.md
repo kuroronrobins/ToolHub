@@ -187,6 +187,7 @@ Tauri bundleでNSISまたはMSIを生成します。`scripts/package_installer.p
 3. 両方ない場合、`-AllowMissingBundle` 指定時だけstaging作成とmanifest検証を続ける。
 
 `release/manifest.json` の `toolhub.installer.file`、`type`、`sha256`、`size` は `package_installer.ps1` が更新します。
+Release JSON と App Pack metadata JSON は PowerShell 5.1 / 7 の差異を避けるため、`scripts/utf8_no_bom.ps1` の helper で UTF-8 no BOM として書き出します。`scripts/check_all.ps1` は `release/manifest.json` と `release/app_manifest.json` の BOM 有無を直接検査し、helper test は App Pack 内 `pack_manifest.json` と同じ JSON 書き込み経路が BOM を付けないことを検査します。
 
 ## Staging and Tauri Resources
 

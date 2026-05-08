@@ -238,6 +238,24 @@ Phase 1-C で検収用 app_id ではなく、本番 app_id `run_xcgate_upload` �
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check_all.ps1` は exit code 0。内部の release manifest verification は上記 3 app の既知 NG により warning 扱いだが、`run_xcgate_upload` は local / App Pack 内 `run.entry` とも OK。
 - Phase 2 の build_env cache / pip cache / PyInstaller clean 見直しへ進める。ただし、`run_xcgate_upload` の実ログイン、社内サイト操作、ファイル選択は manual check のまま。
 
+### 2026-05-08 Phase 1-E
+
+Phase 2 で App Pack 再生成や manifest 更新を繰り返す前に、release JSON / App Pack metadata JSON の書き込み encoding を UTF-8 no BOM に固定した。
+
+実装内容:
+
+- `scripts/utf8_no_bom.ps1` を追加し、PowerShell 5.1 でも動く `New-Object System.Text.UTF8Encoding -ArgumentList $false` ベースの `Write-Utf8NoBomFile` / `Write-JsonUtf8NoBomFile` / `Test-Utf8Bom` を用意した。
+- `scripts/package_app_pack.ps1` の `pack_manifest.json` と `release/app_manifest.json` 書き込みを UTF-8 no BOM helper に変更した。
+- `scripts/package_installer.ps1` の `staging_manifest.json`、`release/manifest.json`、staging 側 `release/manifest.json` 書き込みを UTF-8 no BOM helper に変更した。
+- `scripts/rebuild_app_manifest.ps1` と `scripts/test_app_delete_plan.ps1` の `release/app_manifest.json` 書き込みを UTF-8 no BOM helper に変更した。
+- `scripts/test_utf8_no_bom.ps1` を追加し、一時 JSON への書き出しで先頭 bytes が UTF-8 BOM ではないこと、非 ASCII 文字を含む JSON が parse できることを検証するようにした。
+- `scripts/check_all.ps1` に `release/manifest.json` / `release/app_manifest.json` の BOM 検査、helper test、関連 packaging script の PowerShell parser 構文確認を追加した。
+
+検証:
+
+- 既存 `release/app_manifest.json` と `release/manifest.json` の内容差分は発生させていない。BOM 検査のみ実施する。
+- App Pack は再生成していない。読み取り確認では、Phase 1-E 前に生成済みの既存 App Pack 内 `pack_manifest.json` には UTF-8 BOM が残っている。今回の範囲では zip を変更せず、次回 `scripts/package_app_pack.ps1` で再生成される対象から UTF-8 no BOM になる。
+
 ## 調査で確認した根拠
 
 ### 1. release 検証が壊れた登録を見逃す
@@ -382,7 +400,8 @@ CLI は progress line を出しているが、Rust backend 側は subprocess の
 | AR-024 | P2 | CLI wrapper | `scripts/import_app.ps1` から `--source-root` を指定できない | Phase 1-A では CLI 本体と GUI の経路を優先した | `-SourceRoot` を wrapper に追加し、docs の PowerShell 例も更新する | PowerShell wrapper でも明示 source root を使える |
 | AR-025 | P1 | timing / failure UX | PyInstaller が `ok=False` で返っても timing phase が `pass` 表示になる | timing context は例外の有無だけで phase status を決めている | result object を返す phase では `ok=False` を timing に反映する | `timing_report` と GUI progress が最終 failure と矛盾しない |
 | AR-026 | P1 | performance / registration | Playwright など大きい frozen-folder の `registration_copy` / App Pack 作成が長い | 既存 app backup、`apps/<app_id>` copy、staging copy、zip 作成で深い tree を複数回走査している | Phase 2 以降で登録コピーと zip 作成の timing を分解し、不要な再コピー削減や pack 作成経路の見直しを検討する | `registration_copy` phase の内訳が見え、同一 app の再 apply が不要に遅くならない |
-| AR-027 | P2 | packaging script | `scripts/package_app_pack.ps1` が `release/app_manifest.json` を UTF-8 BOM 付きで書くと一部 PowerShell test が BOM を JSON 本文として扱い失敗する | Windows PowerShell の `Set-Content -Encoding UTF8` が BOM 付きで保存する | manifest / JSON 書き込みを UTF-8 no BOM helper に統一する | package script 実行後も `scripts/test_app_delete_plan.ps1` と `check_all.ps1` が追加処置なしで通る |
+| AR-027 | P2 | packaging script | `scripts/package_app_pack.ps1` が `release/app_manifest.json` を UTF-8 BOM 付きで書くと一部 PowerShell test が BOM を JSON 本文として扱い失敗する | Windows PowerShell の `Set-Content -Encoding UTF8` が BOM 付きで保存する | manifest / JSON 書き込みを UTF-8 no BOM helper に統一する | 2026-05-08 Phase 1-E で実装済み。`check_all.ps1` に release JSON の BOM 検査と helper test を追加 |
+| AR-028 | P3 | app pack metadata | 既存 App Pack zip 内の `pack_manifest.json` に Phase 1-E 前の UTF-8 BOM が残る | 過去の `Set-Content -Encoding UTF8` 生成物で、今回は App Pack 再生成をしない方針 | 次回 App Pack 再生成時に UTF-8 no BOM へ自然更新する。全 App Pack の metadata-only repack が必要なら別作業で対象と検証範囲を決める | 既存 zip を不用意に変更せず、今後の生成物は no BOM になる |
 
 ## 推奨実装順
 

@@ -4,6 +4,8 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
+. (Join-Path $PSScriptRoot "utf8_no_bom.ps1")
+
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $AppId = "deleteplan_probe"
 $Version = "0.1.0"
@@ -93,7 +95,7 @@ build:
         required_runtime = "python-embedded-toolhub-001"
         enabled = $false
     })
-    $Manifest | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 $ManifestPath
+    Write-JsonUtf8NoBomFile -Path $ManifestPath -InputObject $Manifest -Depth 20
 
     $PlanJson = (& (Join-Path $PSScriptRoot "plan_app_delete.ps1") -AppId $AppId -DryRun -Json) | Out-String
     $Plan = $PlanJson | ConvertFrom-Json

@@ -7,6 +7,8 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
+. (Join-Path $PSScriptRoot "utf8_no_bom.ps1")
+
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ReleaseDir = Join-Path $Root "release"
 $AppsDir = Join-Path $Root "apps"
@@ -307,7 +309,7 @@ foreach ($Id in $TargetAppIds) {
         package_sha256 = ""
     }
     $PackMetadataPath = Join-Path $StageAppDir "pack_manifest.json"
-    $PackMetadata | ConvertTo-Json -Depth 10 | Set-Content -Encoding UTF8 $PackMetadataPath
+    Write-JsonUtf8NoBomFile -Path $PackMetadataPath -InputObject $PackMetadata -Depth 10
 
     if (Test-Path -LiteralPath $PackagePath) {
         Remove-Item -LiteralPath (Assert-InRoot $PackagePath) -Force
@@ -332,7 +334,7 @@ foreach ($Id in $TargetAppIds) {
 }
 
 if (-not $NoManifestUpdate) {
-    $AppManifest | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 $AppManifestPath
+    Write-JsonUtf8NoBomFile -Path $AppManifestPath -InputObject $AppManifest -Depth 20
     Write-Host "Updated release/app_manifest.json"
 }
 

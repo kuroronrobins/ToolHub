@@ -8,6 +8,8 @@ $ErrorActionPreference = "Continue"
 $OutputEncoding = [System.Text.Encoding]::UTF8
 $env:PYTHONIOENCODING = "utf-8"
 
+. (Join-Path $PSScriptRoot "utf8_no_bom.ps1")
+
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $Failed = $false
 
@@ -53,6 +55,20 @@ function Test-JsonFile {
         Pass "JSON valid: $Path"
     } catch {
         Fail "JSON invalid: $Path"
+    }
+}
+
+function Test-NoUtf8BomFile {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        Fail "Missing for UTF-8 BOM check: $Path"
+        return
+    }
+
+    if (Test-Utf8Bom -Path $Path) {
+        Fail "UTF-8 BOM must not be present: $Path"
+    } else {
+        Pass "UTF-8 no BOM: $Path"
     }
 }
 
@@ -217,6 +233,8 @@ try {
     Test-TauriIconAssets
     Require-Path "scripts/package_installer.ps1"
     Require-Path "scripts/package_app_pack.ps1"
+    Require-Path "scripts/utf8_no_bom.ps1"
+    Require-Path "scripts/test_utf8_no_bom.ps1"
     Require-Path "scripts/prepare_runtime.ps1"
     Require-Path "scripts/verify_runtime.ps1"
     Require-Path "scripts/verify_release.ps1"
@@ -255,7 +273,13 @@ try {
     Write-Host ""
     Write-Host "== Release JSON =="
     Test-JsonFile "release/manifest.json"
+    Test-NoUtf8BomFile "release/manifest.json"
     Test-JsonFile "release/app_manifest.json"
+    Test-NoUtf8BomFile "release/app_manifest.json"
+
+    Run-Step "UTF-8 no BOM helper tests" {
+        & ".\scripts\test_utf8_no_bom.ps1"
+    }
 
     Run-Step "Bootstrap environment check" {
         & $Python "main.py" "--check"
@@ -267,6 +291,22 @@ try {
 
     Run-Step "App Studio diagnostic script syntax" {
         & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\diagnose_app_studio_import.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "UTF-8 no BOM helper script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\utf8_no_bom.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "UTF-8 no BOM helper test script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\test_utf8_no_bom.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "App Pack package script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\package_app_pack.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "Installer package script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\package_installer.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
     }
 
     Run-Step "App manifest diagnostic script syntax" {
