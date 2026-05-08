@@ -492,6 +492,49 @@ source_entry / output_mirror 調査:
 - `app_20260201_agendasnap` の local `run.entry` 欠落と App Pack 内 `run.entry` 欠落は解消。
 - 残る既知 NG は `addnum_pdf` と `officetopdf_toc`。どちらも source_entry が存在しないため、次は元 source の再入手または source_entry 修正が必要。
 
+### 2026-05-08 `officetopdf_toc` full delete 計画
+
+`officetopdf_toc` は source_entry `C:\Users\kuroron\Downloads\drive-download-20260427T120504Z-3-001\OfficeToPDF_TOC.py` と親 directory が存在せず、ユーザー判断により復元対象から外す。今回は production full delete は実行せず、既存 planner の dry-run と executor dry-run で repo 管理物だけを削除対象にできることを確認した。
+
+現在の状態:
+
+- manifest: `enabled=true`、package `app_packs/officetopdf_toc-0.1.0.zip`、sha256 は既存 zip と一致。
+- `verify_release.ps1`: local `run.entry` `apps/officetopdf_toc/bin/officetopdf_toc/officetopdf_toc.exe` が missing。App Pack 内 `officetopdf_toc/bin/officetopdf_toc/officetopdf_toc.exe` も missing。
+
+`scripts/plan_app_delete.ps1 -AppId officetopdf_toc -Json` の delete targets:
+
+| category | action | path | exists |
+| --- | --- | --- | --- |
+| `managed_generated` | delete App Pack zip | `release/app_packs/officetopdf_toc-0.1.0.zip` | true |
+| `managed_generated` | delete runtime app_env | `runtime/app_envs/officetopdf_toc` | false |
+| `managed_required` | delete apps/<app_id>/ | `apps/officetopdf_toc` | true |
+| `managed_required` | remove app_manifest entry | `release/app_manifest.json` の `officetopdf_toc` entry | true |
+
+excluded targets:
+
+- external reference: `C:\Users\kuroron\Downloads\drive-download-20260427T120504Z-3-001\OfficeToPDF_TOC.py`
+- external reference: `C:\Users\kuroron\Downloads\drive-download-20260427T120504Z-3-001\ToolHub_AppStudio_Output\officetopdf_toc`
+- user data: `%LOCALAPPDATA%\ToolHub\data`、`logs`、`browser_profiles`、`app_state`、`app_state\officetopdf_toc`
+- shared runtime: `runtime/python`、`runtime/web_automation_runtime`
+
+安全確認:
+
+- warnings: 0
+- blocking reasons: 0
+- executor dry-run safety_errors: 0
+- staging targets: 0
+- staging candidates: 0
+- backup/history targets: 0
+- delete targets に external source path、external output mirror、user data、shared runtime、他 app は含まれていない。
+- PowerShell production `-Apply` は設計上使わない。production full delete は authenticated admin UI の Delete tab から plan 表示後に Tauri command `app_studio_full_delete_apply` で実行する。PowerShell `execute_app_delete.ps1 -Apply` は temporary fixture 専用で、production root には使わない。
+
+次アクション:
+
+1. Admin UI の App Studio Delete tab で `officetopdf_toc` の plan を表示する。
+2. 表示された delete targets / excluded targets が上記と一致し、blocking reasons がないことを確認する。
+3. UI の full delete を実行する。
+4. 実行後に `scripts/verify_release.ps1` を再実行し、`officetopdf_toc` の NG が消え、残る既知 NG が `addnum_pdf` のみになったことを確認する。
+
 ## 調査で確認した根拠
 
 ### 1. release 検証が壊れた登録を見逃す

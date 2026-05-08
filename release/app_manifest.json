@@ -1,22 +1,13 @@
 {
   "apps": {
-    "addnum_pdf": {
-      "enabled": false,
-      "package": "app_packs/addnum_pdf-0.1.0.zip",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": null,
-      "sha256": "de74ba6fc688f50c682493e0e3a5831473a51642b24611ee474e3464f0d17ceb",
-      "version": "0.1.0"
-    },
     "app_20260201_agendasnap": {
-      "version": "0.1.0",
+      "enabled": false,
       "package": "app_packs/app_20260201_agendasnap-0.1.0.zip",
-      "sha256": "f06564957c516a3567518dfb10c217879c7f64dc5377c4e7137954bd70434157",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": null,
-      "enabled": false
+      "sha256": "f06564957c516a3567518dfb10c217879c7f64dc5377c4e7137954bd70434157",
+      "version": "0.1.0"
     },
     "officetopdf_toc": {
       "enabled": true,
