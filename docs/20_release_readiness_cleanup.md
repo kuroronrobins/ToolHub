@@ -5,7 +5,8 @@ This document tracks Phase 6 cleanup and formal release readiness work for ToolH
 Phase 6 started as an inventory and ordering phase. After owner confirmation, the four disabled stale entries listed in
 this document were cleaned from `release/app_manifest.json`. App Packs for all seven source apps were regenerated and
 `release/app_manifest.json` now points at the generated zip files with matching SHA256 values. Runtime packaging
-operations are now scripted for approved local archives, but runtime binaries are still not bundled in this checkout.
+operations are scripted for local archives, and this checkout now has Python/Web runtime files expanded from local
+runtime sources. The archives and expanded runtime files remain Git-ignored release artifacts.
 Phase 6 still does not delete source-present apps or build installers.
 
 ## Current Report Command
@@ -119,12 +120,12 @@ Regenerate all source app packs again after source changes:
 .\scripts\package_app_pack.ps1
 ```
 
-## Runtime Packaging Required
+## Runtime Packaging Status
 
 Current runtime readiness items:
 
-- `runtime/python/python.exe` is missing.
-- `runtime/web_automation_runtime/` has no bundled runtime files beyond placeholder/readme files.
+- `runtime/python/python.exe` exists and passes `verify_runtime.ps1 -RequireRuntime`.
+- `runtime/web_automation_runtime/` contains Web automation runtime files and passes `verify_runtime.ps1 -RequireRuntime`.
 
 These are shared runtime packaging tasks. They must not be resolved by deleting apps.
 
@@ -134,7 +135,10 @@ Current runtime packaging status:
 - `-PythonSha256` and `-WebRuntimeSha256` verify approved archives before extraction.
 - Extraction is restricted to `runtime/python/` and `runtime/web_automation_runtime/`.
 - `scripts/verify_runtime.ps1` reports normal warnings and strict `-RequireRuntime` failures.
-- No approved runtime archive was provided in this checkout, so no runtime binaries were bundled.
+- Local runtime archives were created under ignored `vendor/runtime/` from existing local Python 3.13.2 and Playwright
+  runtime sources, then expanded with SHA256 verification.
+- Runtime files under `runtime/python/`, `runtime/web_automation_runtime/`, and archives under `vendor/runtime/` remain
+  Git-ignored and must be present on the release build machine.
 
 ## Installer Build Required
 
@@ -179,8 +183,9 @@ Use Developer PowerShell for Visual Studio, or install Visual Studio Build Tools
 ## Recommended Next Order
 
 1. Run `.\scripts\report_release_readiness.ps1` and capture the current state.
-2. Provide approved Python and Web runtime archives, then run `.\scripts\prepare_runtime.ps1` with SHA256 values.
-3. Run `.\scripts\verify_runtime.ps1 -RequireRuntime`.
+2. Preserve the generated local runtime archives or replace them with formally approved archives, then rerun
+   `.\scripts\prepare_runtime.ps1` with SHA256 values if the runtime source changes.
+3. Run `.\scripts\verify_runtime.ps1 -RequireRuntime` on the release build machine.
 4. Build installer/release artifacts.
 5. Decide and implement the strict `runtime/app_envs/<app_id>` policy for frozen-folder apps.
 6. Run normal verification.
@@ -195,6 +200,6 @@ Use Developer PowerShell for Visual Studio, or install Visual Studio Build Tools
 - It does not remove staging artifacts.
 - It does not remove runtime app_env folders.
 - It does not remove backups.
-- It does not bundle runtime.
 - It does not download runtime from the internet.
+- It does not commit runtime archives or expanded runtime binaries to Git.
 - It does not build installers.

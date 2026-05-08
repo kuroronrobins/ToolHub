@@ -42,7 +42,7 @@ py main.py
 
 - 新しいPCで `python main.py --dev` によるランチャー起動、アプリカード表示、GUI/CLI/Web操作サンプルの起動は確認済みです。
 - `scripts/build_release.ps1 -SkipInstall` によりTauri標準NSIS/MSI bundle生成、`release/dist_installer/ToolHub_Setup_0.1.0.exe` への収集、`release/manifest.json` のinstaller `sha256` / `size` 更新は確認済みです。
-- 実インストール検証、コード署名、runtime実体同梱は未完了です。
+- 実インストール検証、コード署名、installerへのruntime同梱検証は未完了です。runtime実体はローカルrelease artifactとして扱い、Gitには含めません。
 
 ## 開発モードで起動
 
@@ -223,7 +223,8 @@ SHA256 values:
 ```
 
 Without approved archives, `.\scripts\prepare_runtime.ps1 -AllowMissingRuntime` keeps placeholder folders and reports
-warnings only. `.\scripts\verify_runtime.ps1 -RequireRuntime` is expected to fail until runtime binaries are bundled.
+warnings only. After local runtime archives are expanded, `.\scripts\verify_runtime.ps1 -RequireRuntime` must pass on the
+release build machine.
 
 Tauri bundleが未生成の環境でも、App Pack、runtime雛形、staging、manifest検証まで進める場合は以下を使います。
 
@@ -274,5 +275,5 @@ Tauriランチャー経由では、起動時に `%LOCALAPPDATA%\ToolHub\` 配下
 - 自動更新は非破壊MVPまでです。起動後にローカルmanifestを読み、通常ユーザーには更新候補がある場合だけ通知します。更新元未設定、更新候補なし、参照した設定ファイルやmanifest pathは管理者画面で確認できますが、manifestダウンロード、更新ファイルの取得、展開、置換、バックアップ、ロールバック、署名検証は未実装です。
 - Rust backendのrunner起動は `runtime/python/python.exe` があれば優先し、無い場合はPATH上の `python` / `py` を探します。正式配布前に同梱runtimeの実体作成と検証が必要です。
 - `ToolHub_Setup.exe` の署名、完全なruntime同梱、実機インストール検証は今後の作業です。
-- 現段階の `scripts/prepare_runtime.ps1 -AllowMissingRuntime` はruntimeフォルダとapp_env雛形を作りますが、Python runtime本体とWeb自動化用ランタイム本体は同梱しません。
+- `scripts/prepare_runtime.ps1 -AllowMissingRuntime` はruntimeフォルダだけを維持するwarning用です。正式配布前は承認済みarchiveをSHA256付きで展開し、`scripts/verify_runtime.ps1 -RequireRuntime` を通してください。
 - Tauri iconは `launcher/src-tauri/icons/icon.ico` / `icon.png` をGit管理します。必要な場合は `python make_icon.py` で再生成できます。
