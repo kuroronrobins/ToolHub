@@ -119,7 +119,7 @@ def scan_secrets(source_root: Path, inventory: SourceInventory | None = None) ->
                     kind="excluded-sensitive-directory",
                     severity="medium",
                     detail="Sensitive auth/session directory is excluded from packaging and must not be bundled.",
-                    recommended_action="manual_check: keep this directory outside source packages and do not add it to build_profile.add_data.",
+                    recommended_action="If this is intentional, add the directory such as `.auth/` to source_root/.toolhubignore or move it outside source_root. Keep login or re-authentication in the app workflow and do not add it to build_profile.add_data.",
                 )
             )
             continue
@@ -159,7 +159,7 @@ def scan_secrets(source_root: Path, inventory: SourceInventory | None = None) ->
                     kind="credential-state-file",
                     severity="high",
                     detail=f"Credential, cookie, session, token, or storage-state filename matched: {name}",
-                    recommended_action="Move real credential/session state outside the app source. Do not package authenticated state.",
+                    recommended_action="Move real credential/session state outside the app source, or explicitly exclude it with source_root/.toolhubignore. Do not package authenticated state.",
                 )
             )
 
@@ -520,6 +520,7 @@ def secret_report_markdown(report: SecretScanReport, source_root: Path) -> str:
             "- Remove real secrets from source files and load them from environment variables or a credential store at runtime.",
             "- Keep placeholders explicit, for example `<your key>` or `dummy`, when documenting configuration.",
             "- Keep logs, sessions, screenshots, `.auth`, storage state, cookies, and temp files outside packaged inputs.",
+            "- If `.auth`, storage state, cookie, session, token, or credential files must exist during development, explicitly exclude them in `.toolhubignore`; App Studio will still record the exclusion in file_inventory_report.md.",
             "- If a warning is intentionally excluded, confirm it is not referenced by build_profile.add_data.",
             "",
         ]

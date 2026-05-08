@@ -97,6 +97,8 @@ class SourceInventory:
     entry_relative: str = ""
     source_root_warnings: list[str] = field(default_factory=list)
     excluded_directories: list[dict[str, Any]] = field(default_factory=list)
+    sensitive_excluded_directories: list[dict[str, Any]] = field(default_factory=list)
+    sensitive_excluded_files: list[dict[str, Any]] = field(default_factory=list)
     toolhubignore_patterns: list[str] = field(default_factory=list)
 
     @property
@@ -126,6 +128,8 @@ class SourceInventory:
             "blocked_count": self.blocked_count,
             "manual_check_count": self.manual_check_count,
             "excluded_directory_count": len(self.excluded_directories),
+            "sensitive_excluded_directory_count": len(self.sensitive_excluded_directories),
+            "sensitive_excluded_file_count": len(self.sensitive_excluded_files),
             "source_root_warnings": self.source_root_warnings,
             "toolhubignore_pattern_count": len(self.toolhubignore_patterns),
         }
@@ -138,6 +142,8 @@ class SourceInventory:
             "import_roots": self.import_roots,
             "manual_checks": self.manual_checks,
             "excluded_directories": self.excluded_directories,
+            "sensitive_excluded_directories": self.sensitive_excluded_directories,
+            "sensitive_excluded_files": self.sensitive_excluded_files,
             "toolhubignore_patterns": self.toolhubignore_patterns,
         }
 

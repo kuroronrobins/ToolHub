@@ -260,6 +260,8 @@ def build_profile_markdown(profile: dict[str, Any], readiness: dict[str, Any]) -
                 f"- blocked_count: {summary.get('blocked_count', 0)}",
                 f"- manual_check_count: {summary.get('manual_check_count', 0)}",
                 f"- excluded_directory_count: {summary.get('excluded_directory_count', 0)}",
+                f"- sensitive_excluded_directory_count: {summary.get('sensitive_excluded_directory_count', 0)}",
+                f"- sensitive_excluded_file_count: {summary.get('sensitive_excluded_file_count', 0)}",
             ]
         )
     lines.append("")

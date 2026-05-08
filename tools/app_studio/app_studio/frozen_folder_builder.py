@@ -245,9 +245,66 @@ def build_report(
     if issues:
         lines.extend(["", "## Environment Issue Hints", ""])
         lines.extend(f"- {issue}" for issue in issues)
+    failure_hints = classify_pyinstaller_failure(stdout, stderr, commands)
+    if error and failure_hints:
+        lines.extend(["", "## Failure Classification", ""])
+        lines.extend(f"- {hint}" for hint in failure_hints)
     if error:
         lines.extend(["", "## Error", "", error])
     return "\n".join(lines) + "\n"
+
+
+def classify_pyinstaller_failure(stdout: str, stderr: str, commands: list[list[str]] | None = None) -> list[str]:
+    text = f"{stdout}\n{stderr}"
+    lower = text.lower()
+    command_text = " ".join(" ".join(command) for command in (commands or [])).lower()
+    hints: list[str] = []
+
+    if "filenotfounderror" in lower and "collect" in lower and "playwright" in lower:
+        hints.extend(
+            [
+                "category: pyinstaller_collect_all_data_copy_failure",
+                "cause: PyInstaller reached COLLECT but failed while copying Playwright package data.",
+                "source_scope_related: false",
+                "next_action: review Playwright collect_all/add-data handling or PyInstaller hooks-contrib behavior; do not add `.auth` or storage state to the package as a workaround.",
+            ]
+        )
+    elif "hook" in lower and "failed" in lower:
+        hints.extend(
+            [
+                "category: pyinstaller_hook_failure",
+                "cause: PyInstaller or a hook raised an error during analysis/build.",
+                "next_action: identify the failing hook and dependency version before changing source scope.",
+            ]
+        )
+    elif "modulenotfounderror" in lower or "no module named" in lower:
+        hints.extend(
+            [
+                "category: missing_package_or_hidden_import",
+                "cause: PyInstaller or runtime import analysis could not find a module.",
+                "next_action: confirm requirements.txt and hidden_imports before retrying.",
+            ]
+        )
+    elif "dll load failed" in lower or "loadlibrary" in lower:
+        hints.extend(
+            [
+                "category: binary_dependency_failure",
+                "cause: a native dependency failed to load during PyInstaller analysis/build.",
+                "next_action: confirm binary wheels and runtime DLL dependencies.",
+            ]
+        )
+    elif "syntaxerror" in lower:
+        hints.extend(
+            [
+                "category: source_syntax_error",
+                "cause: Python source could not be parsed or compiled.",
+                "next_action: fix the source syntax or encoding before retrying.",
+            ]
+        )
+
+    if "--collect-all playwright" in command_text and not any("playwright" in hint for hint in hints):
+        hints.append("note: PyInstaller command includes `--collect-all playwright`; Playwright browser/runtime verification still requires manual launch checks.")
+    return hints
 
 
 def write_frozen_report(context: StudioContext, result: FrozenBuildResult) -> None:

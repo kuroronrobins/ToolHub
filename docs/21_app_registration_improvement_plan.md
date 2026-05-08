@@ -109,6 +109,49 @@ source scope を明示・制御する最初の改善を実装した。
 - PyInstaller hook failure の再検収は `.auth` block を解消した後に行う。現時点では PyInstaller まで到達していないため、hook failure が解消済みとは書かない。
 - Phase 2 の build_env cache / pip cache / PyInstaller clean 見直しには進める。ただし、`run_xcgate_upload` の apply 完走検収は `.auth` block 解消後に再実行する。
 
+### 2026-05-08 Phase 1-B
+
+Playwright などの認証済み runtime state を App Pack に同梱しないまま、管理者が `.toolhubignore` で明示除外した場合だけ Apply を進められるようにした。
+
+実装内容:
+
+- `.toolhubignore` で `.auth/` などの sensitive runtime state directory が明示除外された場合、source walk / secret scan / build profile から除外しつつ、`SourceInventory.sensitive_excluded_directories` に記録する。
+- `storage_state.json`、cookie、session、token、credential 類の sensitive file が `.toolhubignore` で明示除外された場合、file record は `exclude` / `sensitive_runtime_state` として残し、`SourceInventory.sensitive_excluded_files` に記録する。
+- `file_inventory_report.md` に `Sensitive Runtime State Excluded by .toolhubignore` セクションを追加した。
+- `suggested_toolhubignore.md` を追加し、未除外の blocked sensitive state がある場合は追加候補を、明示除外済みの場合は除外済み state を出力する。
+- `import_plan.json` と `build_profile_report.md` に sensitive excluded count / detail を出すようにした。
+- `.toolhubignore` を PowerShell などで UTF-8 BOM 付き作成しても、先頭コメントが pattern として誤読されないように `utf-8-sig` で読むようにした。
+- PyInstaller が Playwright の package data copy で落ちるケースを `pyinstaller_collect_all_data_copy_failure` として `frozen_folder_build_report.md` に分類表示するようにした。
+
+実アプリ検収:
+
+- 対象 entry: `C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload\run_xcgate_upload.py`
+- 指定 source_root: `C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload`
+- app_id は検収用に `run_xcgate_upload_phase1b_check` を使用した。
+- 外部 source root に最小限の `.toolhubignore` を追加した。内容は `.auth/` のみ。
+- dry-run / suggest では `secret_findings=0`、`apply_blocked_by_secret_scan=false`、`ai_blocked_by_secret_scan=false`。
+- `import_plan.json` の source scope は included 26、excluded 24、blocked 0、manual_check 1、excluded_directory 4、sensitive_excluded_directory 1、sensitive_excluded_file 0。
+- `file_inventory_report.md` では `xcgate_flows/.auth` が `sensitive directory excluded by explicit .toolhubignore` として記録された。
+- `secret_scan_report.md` は total findings 0、blocking findings 0、Apply blocked false。
+- build profile は `paths = ["xcgate_flows"]`、`add_data` は `xcgate_flows/config.yaml` と `xcgate_flows/flows/*.flow` の 3 件、`collect_all = ["playwright"]`。`.auth/`、`mega_state.json`、storage state、ToolHub repo、別 project、`work/`, `results/`, `ToolHub_AppStudio_Output`, `runtime`, `release`, `target` は add_data に入っていない。
+- hidden imports には `src.auth.save_state` / `xcgate_flows.src.auth.save_state` という Python module は入るが、これは `.auth/` directory や認証済み state file の同梱ではない。
+- apply は secret scan を越え、`build_env_creation`、`requirements_lock_generation`、`build_tools_install`、`pyinstaller_build` まで到達した。
+- PyInstaller は COLLECT 中に `FileNotFoundError` で失敗した。対象は `playwright\driver\package\lib\tools\cli-client\skill\references\element-attributes.md` の copy であり、分類は `pyinstaller_collect_all_data_copy_failure`、`source_scope_related=false`。
+- PyInstaller 失敗のため `apps/run_xcgate_upload_phase1b_check` と `release/app_packs/run_xcgate_upload_phase1b_check-0.1.0.zip` は作成されていない。
+- `final_app` 配下に `.auth/`, `mega_state.json`, `storage_state.json`, cookie/session 類がないことを確認した。
+
+残課題:
+
+- `run_xcgate_upload` の登録完走には Playwright の `--collect-all playwright` / PyInstaller hooks-contrib / package data copy failure の対処が必要。これは source scope や `.auth` block ではなく、PyInstaller / Playwright packaging の問題。
+- `timing_report.json` は `build_frozen_folder()` が `ok=False` を返した場合でも、例外が出ていないため `pyinstaller_build` phase を `pass` と記録している。最終 result は fail だが、phase 表示が紛らわしいため AR-025 として追跡する。
+- Phase 2 の build_env cache / pip cache / PyInstaller clean 見直しには進める。ただし、`run_xcgate_upload` の App Pack 完走には Phase 1-C または Phase 4 として Playwright packaging failure の修正が必要。
+
+検証:
+
+- `python -m py_compile` は Phase 1-B 対象 Python ファイルで成功。
+- `python -m unittest discover -s tools/app_studio/tests` は成功。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check_all.ps1` は exit code 0。内部の release manifest verification では既知の未復元 App Pack として `addnum_pdf`, `app_20260201_agendasnap`, `officetopdf_toc`, `run_xcgate_upload` の local `run.entry` 欠落と App Pack 内 `run.entry` 欠落が報告された。
+
 ## 調査で確認した根拠
 
 ### 1. release 検証が壊れた登録を見逃す
@@ -251,6 +294,7 @@ CLI は progress line を出しているが、Rust backend 側は subprocess の
 | AR-022 | P2 | validator consistency | PowerShell と Python で app.yaml path 検証が重複している | packaging / release verify / App Studio registrar が別々に YAML scalar と相対パスを処理している | 共通 validator 化、または同じ fixture を使う golden test を追加して挙動差を防ぐ | `run.entry` / `display.icon` の edge case が各経路で同じ結果になる |
 | AR-023 | P1 | source scope UX | source scope preview がまだ report 中心で、登録前に十分操作できない | GUI では source root 入力だけで、include/exclude一覧の事前表示がない | preflight で inventory preview を軽量実行し、主要除外ディレクトリと included count を表示する | 管理者が Apply 前に混入を発見できる |
 | AR-024 | P2 | CLI wrapper | `scripts/import_app.ps1` から `--source-root` を指定できない | Phase 1-A では CLI 本体と GUI の経路を優先した | `-SourceRoot` を wrapper に追加し、docs の PowerShell 例も更新する | PowerShell wrapper でも明示 source root を使える |
+| AR-025 | P1 | timing / failure UX | PyInstaller が `ok=False` で返っても timing phase が `pass` 表示になる | timing context は例外の有無だけで phase status を決めている | result object を返す phase では `ok=False` を timing に反映する | `timing_report` と GUI progress が最終 failure と矛盾しない |
 
 ## 推奨実装順
 

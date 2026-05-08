@@ -112,6 +112,7 @@ class ToolHubIgnoreRule:
 class SourceWalkResult:
     files: list[Path]
     excluded_directories: list[dict[str, str]]
+    sensitive_excluded_directories: list[dict[str, str]]
 
 
 def classify_files(context: StudioContext) -> SourceInventory:
@@ -124,6 +125,7 @@ def classify_files(context: StudioContext) -> SourceInventory:
     references, manual_checks = collect_code_path_references(context.entry, local_import_set, context.source_root)
     referenced_files = referenced_files_by_path(references, context.source_root, allowed_file_set)
     records: list[FileRecord] = []
+    sensitive_excluded_files: list[dict[str, str]] = []
 
     for path in walk_result.files:
         if not path.is_file():
@@ -131,12 +133,24 @@ def classify_files(context: StudioContext) -> SourceInventory:
         relative = path.relative_to(context.source_root).as_posix()
         size = path.stat().st_size
         ignored, ignore_reason = ignore_match_reason(path, context.source_root, False, ignore_rules)
+        ignored_sensitive = ignored and is_sensitive_runtime_state_file(path, context.source_root)
         if ignored:
             excluded, status, reason, secret_scan = True, "exclude", ignore_reason, "not_scanned"
+            if ignored_sensitive:
+                reason = f"sensitive runtime state file excluded by explicit .toolhubignore: {toolhubignore_pattern_from_reason(ignore_reason)}"
+                sensitive_excluded_files.append(
+                    {
+                        "path": str(path.resolve()),
+                        "relative_path": relative,
+                        "reason": reason,
+                        "pattern": toolhubignore_pattern_from_reason(ignore_reason),
+                        "action": "excluded from package, secret scan, and PyInstaller profile",
+                    }
+                )
         else:
             excluded, status, reason, secret_scan = exclusion_reason(path, context.source_root)
         include = False
-        category = "other"
+        category = "sensitive_runtime_state" if ignored_sensitive else "other"
         include_reason = reason
         detected_from = ""
         code_reference_file = ""
@@ -178,6 +192,8 @@ def classify_files(context: StudioContext) -> SourceInventory:
         entry_relative=context.entry_relative.as_posix(),
         source_root_warnings=context.source_root_warnings,
         excluded_directories=walk_result.excluded_directories,
+        sensitive_excluded_directories=walk_result.sensitive_excluded_directories,
+        sensitive_excluded_files=sorted(sensitive_excluded_files, key=lambda item: item["relative_path"].lower()),
         toolhubignore_patterns=[rule.pattern for rule in ignore_rules],
     )
 
@@ -186,6 +202,7 @@ def collect_source_files(source_root: Path, ignore_rules: list[ToolHubIgnoreRule
     ignore_rules = ignore_rules or []
     files: list[Path] = []
     excluded_directories: list[dict[str, str]] = []
+    sensitive_excluded_directories: list[dict[str, str]] = []
     for root, dirnames, filenames in os.walk(source_root):
         current = Path(root)
         kept_dirnames: list[str] = []
@@ -206,15 +223,23 @@ def collect_source_files(source_root: Path, ignore_rules: list[ToolHubIgnoreRule
                 excluded, reason = ignore_match_reason(directory, source_root, True, ignore_rules)
                 if excluded:
                     pattern = reason.removeprefix("excluded by .toolhubignore: ")
+                    if is_sensitive_runtime_state_directory(directory, source_root):
+                        reason = "sensitive directory excluded by explicit .toolhubignore"
             if excluded:
-                excluded_directories.append(
-                    {
-                        "path": str(directory.resolve()),
-                        "relative_path": relative,
-                        "reason": reason,
-                        "pattern": pattern,
-                    }
-                )
+                item = {
+                    "path": str(directory.resolve()),
+                    "relative_path": relative,
+                    "reason": reason,
+                    "pattern": pattern,
+                }
+                excluded_directories.append(item)
+                if is_sensitive_runtime_state_directory(directory, source_root) and pattern:
+                    sensitive_excluded_directories.append(
+                        {
+                            **item,
+                            "action": "excluded from package, secret scan, and PyInstaller profile",
+                        }
+                    )
             else:
                 kept_dirnames.append(dirname)
         dirnames[:] = kept_dirnames
@@ -222,6 +247,7 @@ def collect_source_files(source_root: Path, ignore_rules: list[ToolHubIgnoreRule
     return SourceWalkResult(
         files=sorted(files, key=lambda path: path.as_posix().lower()),
         excluded_directories=sorted(excluded_directories, key=lambda item: item["relative_path"].lower()),
+        sensitive_excluded_directories=sorted(sensitive_excluded_directories, key=lambda item: item["relative_path"].lower()),
     )
 
 
@@ -234,7 +260,7 @@ def load_toolhubignore(source_root: Path) -> list[ToolHubIgnoreRule]:
     if not path.is_file():
         return []
     rules: list[ToolHubIgnoreRule] = []
-    for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    for raw_line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -277,6 +303,34 @@ def ignore_rule_matches(rule: ToolHubIgnoreRule, relative: str, is_dir: bool) ->
     if is_dir and fnmatch.fnmatch(relative + "/", pattern.rstrip("/") + "/"):
         return True
     return False
+
+
+def toolhubignore_pattern_from_reason(reason: str) -> str:
+    return reason.removeprefix("excluded by .toolhubignore: ").strip() or "-"
+
+
+def is_sensitive_runtime_state_directory(path: Path, source_root: Path) -> bool:
+    try:
+        relative = path.relative_to(source_root)
+    except ValueError:
+        return False
+    return bool(relative.parts) and relative.parts[-1].lower() in BLOCKED_DIRS
+
+
+def is_sensitive_runtime_state_file(path: Path, source_root: Path) -> bool:
+    try:
+        relative = path.relative_to(source_root)
+    except ValueError:
+        return False
+    relative_parts = [part.lower() for part in relative.parts]
+    name = path.name.lower()
+    if any(part in BLOCKED_DIRS for part in relative_parts[:-1]):
+        return True
+    if any(fnmatch.fnmatch(name, pattern.lower()) for pattern in BLOCKED_PATTERNS):
+        return True
+    if name in BLOCKED_EXACT_NAMES:
+        return True
+    return path.suffix.lower() in SENSITIVE_NAME_SUFFIXES and any(marker in name for marker in SENSITIVE_NAME_MARKERS)
 
 
 def exclusion_reason(path: Path, source_root: Path) -> tuple[bool, str, str, str]:
@@ -646,6 +700,8 @@ def inventory_markdown(inventory: SourceInventory) -> str:
             f"- blocked_count: {summary.get('blocked_count')}",
             f"- manual_check_count: {summary.get('manual_check_count')}",
             f"- excluded_directory_count: {summary.get('excluded_directory_count')}",
+            f"- sensitive_excluded_directory_count: {summary.get('sensitive_excluded_directory_count')}",
+            f"- sensitive_excluded_file_count: {summary.get('sensitive_excluded_file_count')}",
             f"- toolhubignore_pattern_count: {summary.get('toolhubignore_pattern_count')}",
             "",
         ]
@@ -672,6 +728,33 @@ def inventory_markdown(inventory: SourceInventory) -> str:
         if len(inventory.excluded_directories) > 100:
             text += f"\n... {len(inventory.excluded_directories) - 100} more excluded directories\n"
         text += "\n"
+    if inventory.sensitive_excluded_directories or inventory.sensitive_excluded_files:
+        text += "## Sensitive Runtime State Excluded by .toolhubignore\n\n"
+        text += (
+            "These paths were explicitly excluded by the project-local `.toolhubignore`. "
+            "They are not passed to secret scan, PyInstaller add_data, or App Pack packaging.\n\n"
+        )
+        rows = [
+            [
+                "directory",
+                item.get("relative_path", "-"),
+                item.get("reason", "-"),
+                item.get("pattern", "-") or "-",
+                item.get("action", "-"),
+            ]
+            for item in inventory.sensitive_excluded_directories
+        ]
+        rows.extend(
+            [
+                "file",
+                item.get("relative_path", "-"),
+                item.get("reason", "-"),
+                item.get("pattern", "-") or "-",
+                item.get("action", "-"),
+            ]
+            for item in inventory.sensitive_excluded_files
+        )
+        text += markdown_table(["Type", "Path", "Reason", "Pattern", "Action"], rows) + "\n\n"
     rows = [
         [
             record.status or ("include" if record.include else "exclude"),
@@ -690,6 +773,85 @@ def inventory_markdown(inventory: SourceInventory) -> str:
         for item in inventory.manual_checks:
             text += f"- {item.get('source_file', '-')}: {item.get('pattern', '-')} - {item.get('reason', '-')}\n"
     return text
+
+
+def toolhubignore_suggestion_markdown(inventory: SourceInventory) -> str:
+    suggestions = suggested_toolhubignore_patterns(inventory)
+    has_sensitive_exclusions = bool(inventory.sensitive_excluded_directories or inventory.sensitive_excluded_files)
+    if not suggestions and not has_sensitive_exclusions:
+        return ""
+
+    lines = [
+        "# Suggested .toolhubignore",
+        "",
+        "Use `.toolhubignore` to explicitly exclude authenticated runtime state from App Studio packaging.",
+        "These files must stay out of App Pack contents and PyInstaller add_data. The app should create or refresh them at runtime through login or re-authentication.",
+        "",
+    ]
+    if suggestions:
+        lines.extend(
+            [
+                "## Add These Patterns",
+                "",
+                "```gitignore",
+                *suggestions,
+                "```",
+                "",
+            ]
+        )
+    if has_sensitive_exclusions:
+        lines.extend(["## Already Explicitly Excluded", ""])
+        for item in inventory.sensitive_excluded_directories:
+            lines.append(f"- directory `{item.get('relative_path', '-')}` by pattern `{item.get('pattern', '-')}`")
+        for item in inventory.sensitive_excluded_files:
+            lines.append(f"- file `{item.get('relative_path', '-')}` by pattern `{item.get('pattern', '-')}`")
+        lines.append("")
+    lines.extend(
+        [
+            "## Runtime Follow-up",
+            "",
+            "- Do not copy `.auth`, storage state, cookies, sessions, tokens, or credentials into the source tree for packaging.",
+            "- Keep first-login, manual-login, or re-authentication behavior in the application workflow.",
+            "- If the app has a required local state directory, create it under a user-controlled runtime location, not inside the packaged App Pack.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def suggested_toolhubignore_patterns(inventory: SourceInventory) -> list[str]:
+    existing = {pattern.rstrip("/").lower() for pattern in inventory.toolhubignore_patterns}
+    suggestions: list[str] = []
+    seen: set[str] = set()
+    for record in inventory.records:
+        status = record.status or ("include" if record.include else "exclude")
+        if status not in {"blocked", "manual_check"}:
+            continue
+        pattern = suggested_ignore_pattern_for_sensitive_record(record)
+        if not pattern:
+            continue
+        key = pattern.rstrip("/").lower()
+        if key in existing or key in seen:
+            continue
+        seen.add(key)
+        suggestions.append(pattern)
+    return suggestions
+
+
+def suggested_ignore_pattern_for_sensitive_record(record: FileRecord) -> str:
+    relative = Path(record.relative_path)
+    parts = [part.lower() for part in relative.parts]
+    for part in parts[:-1]:
+        if part in BLOCKED_DIRS:
+            return f"{part}/"
+    name = relative.name.lower()
+    if any(fnmatch.fnmatch(name, pattern.lower()) for pattern in BLOCKED_PATTERNS):
+        return relative.name
+    if name in BLOCKED_EXACT_NAMES:
+        return relative.name
+    if record.status == "manual_check" and record.reason.startswith("sensitive-looking"):
+        return relative.name
+    return ""
 
 
 def safe_relative(path: Path, source_root: Path) -> str:

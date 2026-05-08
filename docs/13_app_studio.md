@@ -54,6 +54,8 @@ App Studio CLI は `--source-root <dir>` を指定できます。未指定時は
 
 source root 直下に `.toolhubignore` がある場合、App Studio は最小限の gitignore 風 glob として読み込みます。空行、`#` コメント、`*` glob、末尾 `/` のディレクトリ指定、`!` による再許可を扱います。`work/`, `results/`, `.git`, `.venv`, `node_modules`, `ToolHub_AppStudio_Output`, `release`, `runtime`, `target`, `logs`, `screenshots`, `sessions`, `tmp`, `temp` などの生成物・別プロジェクト・出力系ディレクトリは既定で source walk から除外されます。`assets`, `templates`, `static`, `config`, `icons`, `images`, `flows` などのアプリ資産候補は、source scope 内かつ除外対象でない場合に従来どおり検出されます。
 
+`.auth/`、Playwright storage state、cookie、session、token、credential 類は安全ファイルとしては扱いません。source root 内に存在し、`.toolhubignore` で明示除外されていない場合は Apply block の対象です。`.toolhubignore` で `.auth/` や `storage_state.json` を明示除外した場合は、source walk / secret scan / build profile / App Pack packaging から外し、`file_inventory_report.md` と `suggested_toolhubignore.md` に「sensitive runtime state を明示除外した」記録を残します。App 側は初回ログイン、手動ログイン、再認証、またはユーザー管理領域での runtime state 作成を用意してください。
+
 `.auth/`、logs、screenshots、tmp/temp、仮想環境、build/dist、node_modules、`.git`、`.env`、pem/key、token/secret/password/api_key/credentials、storage_state/cookie/session らしいファイルは同梱しません。機微情報の可能性がある場合は blocked または manual check とし、`file_inventory.json` / `file_inventory.md` / `build_profile_report.md` / `runtime_check_report.md` で理由を確認できるようにします。動的パス参照は無理に全フォルダを同梱せず manual check とします。
 
 配布物検証では、exe の存在、`run.entry` が exe を指すこと、build_profile の add-data が frozen-folder 内に存在すること、禁止ファイルが混入していないこと、`build_env` が混入していないこと、frozen-folder と add-data のサイズを確認します。Playwright を含むアプリでは `--collect-all playwright` を自動反映しますが、ブラウザバイナリ、ログイン、社内サイト操作、認証済み storage state は自動検証済みとは扱わず manual check とします。
@@ -200,6 +202,7 @@ C:\work\MyApp\ToolHub_AppStudio_Output\<app_id>\
 - `file_inventory.json`
 - `dependency_report.json`
 - `secret_scan_report.md`
+- `suggested_toolhubignore.md`（sensitive runtime state の明示除外または推奨除外がある場合）
 - `timing_report.json` / `timing_report.md`
 - `build_plan.md`
 - `proposed_app.yaml`
@@ -228,6 +231,8 @@ secret scan は無効化しません。ただし、`high` という単純な sev
 - `storage_state`、cookie、session、credentials、client_secret などの認証状態ファイル
 - `file_inventory.json` で `blocked` のもの
 - 人間確認なしでは配布物混入リスクを否定できない high finding
+
+`.auth/` や storage state を開発中に source root 内へ置く必要がある場合は、source root 直下の `.toolhubignore` に `.auth/` や対象ファイル名を明示してください。明示除外された sensitive runtime state は secret scan と PyInstaller profile から外れますが、除外記録は inventory / suggestion report に残ります。明示除外なしで Apply を通すことはありません。
 
 原則として Apply の即時停止ではなく warning / manual check にするもの:
 

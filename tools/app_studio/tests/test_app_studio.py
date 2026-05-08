@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import shutil
 import unittest
 import uuid
+import zipfile
 from pathlib import Path
 import sys
 
@@ -14,13 +15,15 @@ sys.path.insert(0, str(ROOT / "runner"))
 from app_studio.build_profile import default_build_profile
 from app_studio.build_planner import make_build_plan
 from app_studio.dependency_analyzer import analyze_dependencies
-from app_studio.file_classifier import classify_files
+from app_studio.file_classifier import classify_files, inventory_markdown, toolhubignore_suggestion_markdown
+from app_studio.frozen_folder_builder import classify_pyinstaller_failure
 from app_studio.manifest_generator import generate_app_yaml
 from app_studio.metadata_override import apply_metadata_override, load_metadata_override
-from app_studio.models import ImportOptions
+from app_studio.models import BuildPlan, ImportOptions
 from app_studio.icon_override import apply_icon_override, load_icon_override
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import scan_secrets
+from app_studio.registrar import apply_registration
 from app_studio.util import default_app_id_for_entry, reset_output_dir
 from toolhub_runner.manifest import manifest_from_dict, load_yaml_mapping
 from main import normalize_normal_registration_args
@@ -447,7 +450,7 @@ class AppStudioTests(unittest.TestCase):
             source.mkdir()
             entry = source / "main.py"
             entry.write_text("print('ok')\n", encoding="utf-8")
-            (source / ".toolhubignore").write_text("scratch/\n*.bak\n", encoding="utf-8")
+            (source / ".toolhubignore").write_text("# local ignore\nscratch/\n*.bak\n", encoding="utf-8-sig")
             (source / "scratch").mkdir()
             (source / "scratch" / "ignored.json").write_text('{"secret": "value"}\n', encoding="utf-8")
             (source / "notes.bak").write_text("do not package\n", encoding="utf-8")
@@ -461,6 +464,115 @@ class AppStudioTests(unittest.TestCase):
             self.assertEqual(records["notes.bak"].status, "exclude")
             self.assertIn(".toolhubignore", records["notes.bak"].reason)
             self.assertEqual(inventory.toolhubignore_patterns, ["scratch", "*.bak"])
+
+    def test_auth_directory_without_toolhubignore_blocks_apply_by_inventory(self) -> None:
+        with workspace_tempdir() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            (repo / "apps").mkdir(parents=True)
+            (repo / "release").mkdir()
+            (repo / "runner").mkdir()
+            source = root / "source"
+            flows = source / "xcgate_flows"
+            (flows / ".auth").mkdir(parents=True)
+            entry = source / "run_xcgate_upload.py"
+            entry.write_text("print('ok')\n", encoding="utf-8")
+            (flows / ".auth" / "mega_state.json").write_text('{"cookies": [{"value": "real-session"}]}\n', encoding="utf-8")
+
+            context = create_context(ImportOptions(entry=entry, action="suggest", app_id="auth_block", name="Auth Block"), repo)
+            inventory = classify_files(context)
+            report = scan_secrets(context.source_root, inventory)
+            records = {record.relative_path: record for record in inventory.records}
+            finding = next(finding for finding in report.findings if finding.path.name == "mega_state.json")
+
+            self.assertEqual(records["xcgate_flows/.auth/mega_state.json"].status, "blocked")
+            self.assertTrue(report.blocks_apply)
+            self.assertTrue(finding.blocks_apply)
+            self.assertIn(".toolhubignore", finding.recommended_action)
+            self.assertIn(".auth/", toolhubignore_suggestion_markdown(inventory))
+
+    def test_toolhubignore_excluded_auth_state_skips_secret_scan_build_profile_and_app_pack(self) -> None:
+        with workspace_tempdir() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            (repo / "apps").mkdir(parents=True)
+            (repo / "release").mkdir()
+            (repo / "runner").mkdir()
+            source = root / "source"
+            flows = source / "xcgate_flows"
+            (flows / ".auth").mkdir(parents=True)
+            (flows / "flows").mkdir(parents=True)
+            (flows / "src").mkdir()
+            entry = source / "run_xcgate_upload.py"
+            entry.write_text("import xcgate_flows.src.worker\n", encoding="utf-8")
+            (source / ".toolhubignore").write_text(".auth/\nstorage_state.json\n", encoding="utf-8")
+            (source / "storage_state.json").write_text('{"cookies": [{"value": "real-session"}]}\n', encoding="utf-8")
+            (flows / ".auth" / "mega_state.json").write_text('{"cookies": [{"value": "real-session"}]}\n', encoding="utf-8")
+            (flows / "flows" / "upload.flow").write_text("goto https://example.com\n", encoding="utf-8")
+            (flows / "src" / "__init__.py").write_text("", encoding="utf-8")
+            (flows / "src" / "worker.py").write_text("print('worker')\n", encoding="utf-8")
+
+            context = create_context(ImportOptions(entry=entry, action="suggest", app_id="auth_ignore", name="Auth Ignore"), repo)
+            inventory = classify_files(context)
+            records = {record.relative_path: record for record in inventory.records}
+            report = scan_secrets(context.source_root, inventory)
+            dependency_report, _ = analyze_dependencies(context, inventory)
+            profile = default_build_profile(context, inventory, dependency_report)
+
+            self.assertFalse(any(record.relative_path.endswith(".auth/mega_state.json") for record in inventory.records))
+            self.assertEqual(records["storage_state.json"].status, "exclude")
+            self.assertEqual(records["storage_state.json"].category, "sensitive_runtime_state")
+            self.assertFalse(report.blocks_apply)
+            self.assertFalse(any("mega_state.json" in str(finding.path) or "storage_state.json" in str(finding.path) for finding in report.findings))
+            self.assertEqual([item["relative_path"] for item in inventory.sensitive_excluded_directories], ["xcgate_flows/.auth"])
+            self.assertEqual([item["relative_path"] for item in inventory.sensitive_excluded_files], ["storage_state.json"])
+            self.assertIn("Sensitive Runtime State Excluded", inventory_markdown(inventory))
+            self.assertIn("Already Explicitly Excluded", toolhubignore_suggestion_markdown(inventory))
+            profile_payload = "\n".join(
+                [
+                    *profile["paths"],
+                    *profile["hidden_imports"],
+                    *(item["source"] for item in profile["add_data"]),
+                ]
+            )
+            self.assertNotIn(".auth", profile_payload)
+            self.assertNotIn("storage_state.json", profile_payload)
+
+            final_app = root / "final_app"
+            (final_app / "bin" / "auth_ignore").mkdir(parents=True)
+            (final_app / "bin" / "auth_ignore" / "auth_ignore.exe").write_bytes(b"fake exe")
+            (final_app / "app.yaml").write_text(
+                "\n".join(
+                    [
+                        "id: auth_ignore",
+                        "display:",
+                        "  name: Auth Ignore",
+                        "  icon: icon.png",
+                        "run:",
+                        "  runner: exe",
+                        "  entry: bin/auth_ignore/auth_ignore.exe",
+                        "runtime:",
+                        "  required_runtime: null",
+                        "admin:",
+                        "  version: 0.1.0",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (final_app / "README.md").write_text("# Auth Ignore\n", encoding="utf-8")
+            (final_app / "requirements.txt").write_text("", encoding="utf-8")
+            (final_app / "icon.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+            package_path = apply_registration(
+                context,
+                BuildPlan(mode="frozen-folder", runner="exe", entry="bin/auth_ignore/auth_ignore.exe", required_runtime=None, reasons=[]),
+                final_app,
+                root / "output",
+            )
+
+            with zipfile.ZipFile(package_path) as archive:
+                names = archive.namelist()
+            self.assertFalse(any(".auth/" in name or "mega_state.json" in name or "storage_state.json" in name for name in names))
 
     def test_excluded_files_do_not_enter_build_profile(self) -> None:
         with workspace_tempdir() as temp:
@@ -490,6 +602,23 @@ class AppStudioTests(unittest.TestCase):
             self.assertFalse(any(item["source"].startswith("work/") for item in profile["add_data"]))
             self.assertIn("src", profile["paths"])
             self.assertIn("assets/keep.json", [item["source"] for item in profile["add_data"]])
+
+    def test_pyinstaller_playwright_collect_failure_is_classified(self) -> None:
+        output = "\n".join(
+            [
+                "INFO: Building COLLECT COLLECT-00.toc",
+                "FileNotFoundError: [Errno 2] No such file or directory: '...playwright\\\\driver\\\\package\\\\lib\\\\tools\\\\cli-client\\\\skill\\\\references\\\\element-attributes.md'",
+            ]
+        )
+
+        hints = classify_pyinstaller_failure(
+            output,
+            "",
+            [["python", "-m", "PyInstaller", "--collect-all", "playwright", "main.py"]],
+        )
+
+        self.assertIn("category: pyinstaller_collect_all_data_copy_failure", hints)
+        self.assertIn("source_scope_related: false", hints)
 
     def test_metadata_override_invalid_json_fails_clearly(self) -> None:
         with workspace_tempdir() as temp:
