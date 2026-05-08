@@ -284,6 +284,25 @@ Apply 再試行時の `build_env_creation` / pip install / build tools install �
 - unit test で requirements hash 一致時の reuse、requirements hash 変更時の rebuild、Python version metadata mismatch 時の rebuild、build tools version satisfied 時の install skip、明示 pip cache env を確認した。
 - 軽量 fixture の Apply 2 回 unit test では、1 回目は cache miss / build_env 作成 / build tools install、2 回目は cache hit / build_env reuse / build tools install skip になることを確認した。実 CLI での wall-clock 比較と `run_xcgate_upload` 相当アプリの 2 回 Apply 比較は Phase 2-A follow-up として残す。
 
+### 2026-05-08 Phase 2-A 実アプリ検収
+
+`run_xcgate_upload` 相当アプリを本番 app_id ではなく検収用 app_id `xcg_p2a` で一時 ToolHub repo に登録し、同じ output workspace で Apply を 2 回実行した。source は `C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload\run_xcgate_upload.py`、source_root は `C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload`。外部 source root の `.toolhubignore` には既に `.auth/` があり、変更していない。
+
+検収結果:
+
+- 1 回目 Apply: exit 0、actual_total_seconds 113.401、`build_env_cache=miss`、cache_miss_reason `build_env does not exist`。
+- 2 回目 Apply: exit 0、actual_total_seconds 67.377、`build_env_cache=hit`、cache_miss_reason `none`。
+- `build_env_creation` は 24.071 秒から 1.159 秒に短縮した。
+- `build_tools_install` は 24.826 秒から 0.826 秒に短縮し、`build_tools_cache=hit` になった。metadata 上の installed version は PyInstaller 6.20.0、pyinstaller-hooks-contrib 2026.5。
+- `requirements_lock_generation` は 1.576 秒から 0.947 秒、`pyinstaller_build` は 35.175 秒から 15.235 秒になった。ただし今回は PyInstaller `--clean` 見直しや build artifact reuse は実施していない。
+- `registration_copy` は 25.569 秒から 46.251 秒になり、2 回目 Apply の最大待ち時間として残った。registration_copy / App Pack zip 高速化は Phase 2-A 対象外。
+- 2 回目 App Pack には run.entry `xcg_p2a/bin/xcg_p2a/xcg_p2a.exe` が含まれ、`.auth/`、`mega_state.json`、`storage_state.json`、auth/cookie/session/token/credential state JSON は含まれていなかった。
+- runtime check は Playwright / GUI / login の manual check warning のみで overall `warn`、execution checks は overall `warn`、approval_allowed `true`。
+
+補足:
+
+- 最初に長い検収用 app_id と `%TEMP%` の深い一時 repo path を組み合わせた実行では、App Pack staging copy が Windows path length に当たり失敗した。cache 由来ではなく検収ハーネス由来のため、短い検収用 app_id `xcg_p2a` と runner/runtime junction 付き一時 repo で再検収した。
+
 ## 調査で確認した根拠
 
 ### 1. release 検証が壊れた登録を見逃す
