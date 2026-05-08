@@ -585,6 +585,14 @@ class AppStudioTests(unittest.TestCase):
             self.assertIn("sha256_app_pack", step_names)
             self.assertIn("copy_pack_to_output_mirror", step_names)
             self.assertEqual(report["safety"]["required_entry_inspection_skipped"], False)
+            self.assertEqual(report["strategies"]["app_pack"]["selected_policy"], "balanced_size_speed")
+            self.assertEqual(report["strategies"]["app_pack"]["compression"], "ZIP_DEFLATED")
+            self.assertEqual(report["strategies"]["app_pack"]["compresslevel"], 1)
+            compress_record = next(record for record in report["records"] if record["name"] == "compress_app_pack")
+            self.assertEqual(compress_record["compression_policy"], "balanced_size_speed")
+            self.assertEqual(compress_record["compression"], "ZIP_DEFLATED")
+            self.assertEqual(compress_record["compresslevel"], 1)
+            self.assertEqual(compress_record["entry_count"], len(names))
 
     def test_excluded_files_do_not_enter_build_profile(self) -> None:
         with workspace_tempdir() as temp:

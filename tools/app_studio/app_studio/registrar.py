@@ -23,6 +23,21 @@ APP_PACK_STRATEGY = "direct_zip_from_apps_dir"
 APP_PACK_COMPRESSION = zipfile.ZIP_DEFLATED
 APP_PACK_COMPRESSLEVEL = 1
 APP_PACK_COMPRESSION_NAME = "ZIP_DEFLATED"
+APP_PACK_COMPRESSION_POLICY = "balanced_size_speed"
+APP_PACK_COMPRESSION_POLICY_NOTE = (
+    "Use ZIP_DEFLATED compresslevel=1 for every normal App Studio registration. "
+    "This keeps release/update payloads materially smaller than uncompressed zip while avoiding the slower high-compression levels."
+)
+APP_PACK_DISTRIBUTION_NOTE = (
+    "App Pack generation never skips required-entry inspection, SHA256 calculation, or manifest updates; "
+    "larger uncompressed App Packs would increase release storage and update transfer size."
+)
+APP_PACK_REJECTED_COMPRESSION_OPTIONS = [
+    "ZIP_STORED: fastest, but produces much larger App Packs and update payloads.",
+    "ZIP_DEFLATED level 0: valid in Python zipfile, but effectively uncompressed and larger without distribution benefit.",
+    "ZIP_DEFLATED level 6 or 9: smaller than level 1, but slower and not enough smaller to justify as the default registration path.",
+    "app-specific compression switching: rejected to keep one standard App Pack generation path.",
+]
 REGISTRATION_TOP_LEVEL_STEPS = {
     "backup_existing_total",
     "remove_existing_app",
@@ -116,12 +131,12 @@ def write_registration_copy_report(
                 },
                 "app_pack": {
                     "standard_strategy": APP_PACK_STRATEGY,
+                    "selected_policy": APP_PACK_COMPRESSION_POLICY,
+                    "policy_note": APP_PACK_COMPRESSION_POLICY_NOTE,
+                    "distribution_note": APP_PACK_DISTRIBUTION_NOTE,
                     "compression": APP_PACK_COMPRESSION_NAME,
                     "compresslevel": APP_PACK_COMPRESSLEVEL,
-                    "rejected_options": [
-                        "ZIP_STORED: much faster but significantly larger App Packs",
-                        "existing App Pack reuse or differential zip: forbidden because verification and SHA256 must run for the new output",
-                    ],
+                    "rejected_options": APP_PACK_REJECTED_COMPRESSION_OPTIONS,
                 },
             },
             "safety": {
@@ -131,6 +146,7 @@ def write_registration_copy_report(
                 "manifest_update_skipped": False,
                 "zip_compression": APP_PACK_COMPRESSION_NAME,
                 "zip_compresslevel": APP_PACK_COMPRESSLEVEL,
+                "zip_compression_policy": APP_PACK_COMPRESSION_POLICY,
                 "backup_strategy": BACKUP_STRATEGY,
             },
         },
@@ -145,10 +161,13 @@ def write_registration_copy_report(
         f"- backup_strategy: `{BACKUP_STRATEGY}`",
         f"- backup_safety_note: {BACKUP_SAFETY_NOTE}",
         f"- app_pack_strategy: `{APP_PACK_STRATEGY}`",
+        f"- app_pack_compression_policy: `{APP_PACK_COMPRESSION_POLICY}`",
+        f"- app_pack_compression_policy_note: {APP_PACK_COMPRESSION_POLICY_NOTE}",
+        f"- app_pack_distribution_note: {APP_PACK_DISTRIBUTION_NOTE}",
         f"- app_pack_zip_compression: `{APP_PACK_COMPRESSION_NAME}`",
         f"- app_pack_zip_compresslevel: `{APP_PACK_COMPRESSLEVEL}`",
         "- rejected_backup_options: zip backup is dominated by compression time; App Pack only backup does not preserve a divergent apps tree.",
-        "- rejected_app_pack_options: ZIP_STORED is much larger; App Pack reuse or differential zip would bypass new-output verification.",
+        f"- rejected_app_pack_options: {'; '.join(APP_PACK_REJECTED_COMPRESSION_OPTIONS)}",
         "",
         "| Step | Status | Seconds | Detail |",
         "| --- | --- | ---: | --- |",
@@ -360,7 +379,7 @@ def package_app_pack(
         breakdown,
         "compress_app_pack",
         f"strategy={APP_PACK_STRATEGY}; compression={APP_PACK_COMPRESSION_NAME}; "
-        f"compresslevel={APP_PACK_COMPRESSLEVEL}; path={package_path}",
+        f"compresslevel={APP_PACK_COMPRESSLEVEL}; policy={APP_PACK_COMPRESSION_POLICY}; path={package_path}",
     ) as record:
         entry_count = 0
         with zipfile.ZipFile(
@@ -377,9 +396,12 @@ def package_app_pack(
         package_size = package_path.stat().st_size
         record["entry_count"] = entry_count
         record["size_bytes"] = package_size
+        record["compression_policy"] = APP_PACK_COMPRESSION_POLICY
+        record["compression"] = APP_PACK_COMPRESSION_NAME
+        record["compresslevel"] = APP_PACK_COMPRESSLEVEL
         record["detail"] = (
             f"strategy={APP_PACK_STRATEGY}; compression={APP_PACK_COMPRESSION_NAME}; "
-            f"compresslevel={APP_PACK_COMPRESSLEVEL}; entries={entry_count}; "
+            f"compresslevel={APP_PACK_COMPRESSLEVEL}; policy={APP_PACK_COMPRESSION_POLICY}; entries={entry_count}; "
             f"size_bytes={package_size} ({_format_bytes(package_size)}); path={package_path}"
         )
 

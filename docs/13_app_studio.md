@@ -225,6 +225,8 @@ C:\work\MyApp\ToolHub_AppStudio_Output\<app_id>\
 
 Apply 時に同じ `app_id` が既に存在する場合は、`backups/app_studio/YYYYMMDD_HHMMSS/<app_id>/` へ既存 `apps/<app_id>/` と `release/app_manifest.json` をバックアップしてから上書きします。既存 app 本体は rollback 用に `app/` ディレクトリとして移動退避し、App Pack は staging copy を挟まず `apps/<app_id>/` から直接 zip 化します。詳細時間は `registration_copy_report.md` に出力します。
 
+App Pack の標準 compression policy は全アプリ共通で `ZIP_DEFLATED` / `compresslevel=1` です。登録速度だけでなく、`release/app_packs` の保存容量と将来の update 配布サイズを抑えるため、`ZIP_STORED` や app 種類別の自動切り替えは標準経路にしていません。選定理由と不採用案は `registration_copy_report.md` に記録します。
+
 ## 秘密情報検査
 
 secret scan は無効化しません。ただし、`high` という単純な severity だけで Apply を止めず、配布物に入るか、AI送信対象になるか、file inventory で安全に除外されているかを分けて判定します。
