@@ -16,14 +16,14 @@ from app_studio.build_profile import default_build_profile
 from app_studio.build_planner import make_build_plan
 from app_studio.dependency_analyzer import analyze_dependencies
 from app_studio.file_classifier import classify_files, inventory_markdown, toolhubignore_suggestion_markdown
-from app_studio.frozen_folder_builder import classify_pyinstaller_failure
+from app_studio.frozen_folder_builder import classify_pyinstaller_failure, pyinstaller_artifact_paths
 from app_studio.manifest_generator import generate_app_yaml
 from app_studio.metadata_override import apply_metadata_override, load_metadata_override
 from app_studio.models import BuildPlan, ImportOptions
 from app_studio.icon_override import apply_icon_override, load_icon_override
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import scan_secrets
-from app_studio.registrar import apply_registration
+from app_studio.registrar import apply_registration, backup_existing
 from app_studio.util import default_app_id_for_entry, reset_output_dir
 from toolhub_runner.manifest import manifest_from_dict, load_yaml_mapping
 from main import normalize_normal_registration_args
@@ -619,6 +619,75 @@ class AppStudioTests(unittest.TestCase):
 
         self.assertIn("category: pyinstaller_collect_all_data_copy_failure", hints)
         self.assertIn("source_scope_related: false", hints)
+
+    def test_pyinstaller_long_path_playwright_collect_failure_is_classified(self) -> None:
+        missing = "C:\\" + ("very_long_segment\\" * 18) + "playwright\\driver\\package\\lib\\tools\\cli-client\\skill\\references\\element-attributes.md"
+        output = "\n".join(
+            [
+                "INFO: Building COLLECT COLLECT-00.toc",
+                f"FileNotFoundError: [Errno 2] No such file or directory: '{missing}'",
+            ]
+        )
+
+        hints = classify_pyinstaller_failure(
+            output,
+            "",
+            [["python", "-m", "PyInstaller", "--collect-all", "playwright", "main.py"]],
+        )
+
+        self.assertIn("category: pyinstaller_windows_long_path_collect_failure", hints)
+        self.assertIn("source_scope_related: false", hints)
+
+    def test_pyinstaller_artifact_paths_use_short_directory_names(self) -> None:
+        output_dir = Path("C:/tmp/source/ToolHub_AppStudio_Output/run_xcgate_upload_phase1b_check")
+
+        artifacts, dist, work, spec = pyinstaller_artifact_paths(output_dir)
+
+        self.assertEqual(artifacts.as_posix(), "C:/tmp/source/ToolHub_AppStudio_Output/run_xcgate_upload_phase1b_check/build_tmp/pyi")
+        self.assertEqual(dist.name, "d")
+        self.assertEqual(work.name, "b")
+        self.assertEqual(spec.name, "s")
+
+    def test_existing_app_backup_uses_zip_archive(self) -> None:
+        with workspace_tempdir() as temp:
+            repo = Path(temp)
+            app_id = "playwright_app"
+            app_dir = repo / "apps" / app_id
+            deep_file = (
+                app_dir
+                / "bin"
+                / app_id
+                / "playwright"
+                / "driver"
+                / "package"
+                / "lib"
+                / "tools"
+                / "cli-client"
+                / "skill"
+                / "references"
+                / "element-attributes.md"
+            )
+            deep_file.parent.mkdir(parents=True)
+            deep_file.write_text("# attributes\n", encoding="utf-8")
+            (repo / "release").mkdir()
+            (repo / "release" / "app_manifest.json").write_text(
+                '{"schema_version": 1, "apps": {"playwright_app": {"version": "0.1.0"}}}\n',
+                encoding="utf-8",
+            )
+
+            backup = backup_existing(repo, app_id)
+
+            self.assertIsNotNone(backup)
+            assert backup is not None
+            self.assertTrue((backup / "app.zip").is_file())
+            self.assertFalse((backup / "app").exists())
+            self.assertTrue((backup / "app_manifest.json").is_file())
+            with zipfile.ZipFile(backup / "app.zip") as archive:
+                names = archive.namelist()
+            self.assertIn(
+                "bin/playwright_app/playwright/driver/package/lib/tools/cli-client/skill/references/element-attributes.md",
+                names,
+            )
 
     def test_metadata_override_invalid_json_fails_clearly(self) -> None:
         with workspace_tempdir() as temp:

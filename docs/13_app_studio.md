@@ -60,6 +60,8 @@ source root 直下に `.toolhubignore` がある場合、App Studio は最小限
 
 配布物検証では、exe の存在、`run.entry` が exe を指すこと、build_profile の add-data が frozen-folder 内に存在すること、禁止ファイルが混入していないこと、`build_env` が混入していないこと、frozen-folder と add-data のサイズを確認します。Playwright を含むアプリでは `--collect-all playwright` を自動反映しますが、ブラウザバイナリ、ログイン、社内サイト操作、認証済み storage state は自動検証済みとは扱わず manual check とします。
 
+Windows では Playwright package data のパスが深くなりやすいため、PyInstaller の作業先は `ToolHub_AppStudio_Output/<app_id>/build_tmp/pyi/{d,b,s}` の短いパスに固定しています。`frozen_folder_build_report.md` の `pyinstaller_artifacts` で実際の `distpath` / `workpath` / `specpath` を確認できます。Playwright の package data copy failure を避けるために `.auth/` や storage state を同梱する対応は禁止です。
+
 ## 目的
 
 ToolHub App Studio は、開発者が既存アプリのメインファイルを指定するだけで、ToolHub が検出できる `apps/<app_id>/app.yaml` 形式へ変換するための開発者向け CLI です。
@@ -218,7 +220,7 @@ C:\work\MyApp\ToolHub_AppStudio_Output\<app_id>\
 
 `ToolHub_AppStudio_Output/<app_id>/` が既に存在する場合は削除して作り直します。削除前に、削除対象が Entry の親フォルダ配下であることを検証します。
 
-Apply 時に同じ `app_id` が既に存在する場合は、`backups/app_studio/YYYYMMDD_HHMMSS/<app_id>/` へ既存 `apps/<app_id>/` と `release/app_manifest.json` をバックアップしてから上書きします。
+Apply 時に同じ `app_id` が既に存在する場合は、`backups/app_studio/YYYYMMDD_HHMMSS/<app_id>/` へ既存 `apps/<app_id>/` と `release/app_manifest.json` をバックアップしてから上書きします。既存 app 本体は、Playwright などの深い package data path で Windows の path 長制限に当たりにくいよう、`app.zip` として退避します。
 
 ## 秘密情報検査
 

@@ -11,6 +11,13 @@ from .trace import app_studio_trace, is_runtime_app_env_path, planned_build_env_
 from .util import assert_within, reset_directory, write_text
 
 
+PYINSTALLER_ARTIFACT_ROOT = Path("build_tmp") / "pyi"
+PYINSTALLER_DIST_DIR = "d"
+PYINSTALLER_WORK_DIR = "b"
+PYINSTALLER_SPEC_DIR = "s"
+WINDOWS_MAX_PATH = 260
+
+
 def build_frozen_folder(
     context: StudioContext,
     plan: BuildPlan,
@@ -54,10 +61,7 @@ def build_frozen_folder(
         write_frozen_report(context, result)
         return result
 
-    artifacts = output_dir / "build_artifacts" / "pyinstaller"
-    dist = artifacts / "dist"
-    work = artifacts / "build"
-    spec = artifacts / "spec"
+    artifacts, dist, work, spec = pyinstaller_artifact_paths(output_dir)
     reset_directory(artifacts, output_dir)
     dist.mkdir(parents=True, exist_ok=True)
     work.mkdir(parents=True, exist_ok=True)
@@ -100,6 +104,16 @@ def build_frozen_folder(
 
 def select_python(context: StudioContext) -> Path | None:
     return managed_build_python(context)
+
+
+def pyinstaller_artifact_paths(output_dir: Path) -> tuple[Path, Path, Path, Path]:
+    artifacts = output_dir / PYINSTALLER_ARTIFACT_ROOT
+    return (
+        artifacts,
+        artifacts / PYINSTALLER_DIST_DIR,
+        artifacts / PYINSTALLER_WORK_DIR,
+        artifacts / PYINSTALLER_SPEC_DIR,
+    )
 
 
 def probe_pyinstaller(python: Path, cwd: Path) -> tuple[subprocess.CompletedProcess[str], bool, str, str]:
@@ -213,6 +227,7 @@ def build_report(
         f"- pyinstaller_build_python: `{selected_python}`",
         f"- pyinstaller_version: `{probe_stdout.strip() or 'unknown'}`",
         f"- working_directory: `{context.source_root}`",
+        f"- pyinstaller_artifacts: `{pyinstaller_artifact_summary(commands)}`",
         f"- pyinstaller_layout: `--onedir --contents-directory .`",
         f"- contents_directory_dot: `{any('--contents-directory' == arg and index + 1 < len(command) and command[index + 1] == '.' for command in commands for index, arg in enumerate(command))}`",
         f"- no_user_site: `{str(no_user_site).lower()}`",
@@ -258,9 +273,20 @@ def classify_pyinstaller_failure(stdout: str, stderr: str, commands: list[list[s
     text = f"{stdout}\n{stderr}"
     lower = text.lower()
     command_text = " ".join(" ".join(command) for command in (commands or [])).lower()
+    missing_path = extract_filenotfound_path(text)
     hints: list[str] = []
 
     if "filenotfounderror" in lower and "collect" in lower and "playwright" in lower:
+        if missing_path and os.name == "nt" and len(missing_path) >= WINDOWS_MAX_PATH:
+            hints.extend(
+                [
+                    "category: pyinstaller_windows_long_path_collect_failure",
+                    f"cause: PyInstaller reached COLLECT but the destination path length was {len(missing_path)} characters.",
+                    "source_scope_related: false",
+                    "next_action: shorten PyInstaller dist/work/spec paths or app_id/output paths; do not add `.auth` or storage state to the package as a workaround.",
+                ]
+            )
+            return hints
         hints.extend(
             [
                 "category: pyinstaller_collect_all_data_copy_failure",
@@ -305,6 +331,33 @@ def classify_pyinstaller_failure(stdout: str, stderr: str, commands: list[list[s
     if "--collect-all playwright" in command_text and not any("playwright" in hint for hint in hints):
         hints.append("note: PyInstaller command includes `--collect-all playwright`; Playwright browser/runtime verification still requires manual launch checks.")
     return hints
+
+
+def extract_filenotfound_path(text: str) -> str:
+    marker = "No such file or directory: "
+    if marker not in text:
+        return ""
+    tail = text.rsplit(marker, 1)[1].strip()
+    quote = tail[:1]
+    if quote in {"'", '"'}:
+        tail = tail[1:]
+        return tail.split(quote, 1)[0]
+    return tail.splitlines()[0].strip()
+
+
+def pyinstaller_artifact_summary(commands: list[list[str]]) -> str:
+    if not commands:
+        return "not created"
+    command = commands[-1]
+    values: dict[str, str] = {}
+    for option in ["--distpath", "--workpath", "--specpath"]:
+        if option in command:
+            index = command.index(option)
+            if index + 1 < len(command):
+                values[option.removeprefix("--")] = command[index + 1]
+    if not values:
+        return "not specified"
+    return ", ".join(f"{key}={value}" for key, value in values.items())
 
 
 def write_frozen_report(context: StudioContext, result: FrozenBuildResult) -> None:

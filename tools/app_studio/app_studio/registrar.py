@@ -46,10 +46,18 @@ def backup_existing(repo_root: Path, app_id: str) -> Path | None:
     assert_within(backup_root, repo_root / "backups", "backup target")
     backup_root.mkdir(parents=True, exist_ok=True)
     if app_exists:
-        shutil.copytree(app_dir, backup_root / "app")
+        backup_app_directory(app_dir, backup_root / "app.zip")
     if manifest_path.is_file():
         shutil.copy2(manifest_path, backup_root / "app_manifest.json")
     return backup_root
+
+
+def backup_app_directory(app_dir: Path, archive_path: Path) -> None:
+    assert_within(archive_path, archive_path.parent, "backup app archive")
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for file in sorted(app_dir.rglob("*")):
+            if file.is_file():
+                archive.write(file, file.relative_to(app_dir).as_posix())
 
 
 def load_app_manifest_json(path: Path) -> dict[str, Any]:

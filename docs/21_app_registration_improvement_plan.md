@@ -152,6 +152,46 @@ Playwright などの認証済み runtime state を App Pack に同梱しない�
 - `python -m unittest discover -s tools/app_studio/tests` は成功。
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check_all.ps1` は exit code 0。内部の release manifest verification では既知の未復元 App Pack として `addnum_pdf`, `app_20260201_agendasnap`, `officetopdf_toc`, `run_xcgate_upload` の local `run.entry` 欠落と App Pack 内 `run.entry` 欠落が報告された。
 
+### 2026-05-08 Phase 1-C
+
+Playwright package data copy failure の原因を、source scope / secret scan / `.auth` 由来ではなく Windows の深い PyInstaller COLLECT 出力パスとして切り分けた。
+
+実装内容:
+
+- PyInstaller の `--distpath` / `--workpath` / `--specpath` を `ToolHub_AppStudio_Output/<app_id>/build_tmp/pyi/{d,b,s}` に短縮した。
+- `frozen_folder_build_report.md` に `pyinstaller_artifacts` を出し、実際に使われた dist/work/spec path を確認できるようにした。
+- Playwright COLLECT の `FileNotFoundError` が 260 文字付近の Windows path に到達している場合、`pyinstaller_windows_long_path_collect_failure` / `source_scope_related=false` として分類するようにした。
+- `--collect-all playwright` は維持した。Playwright package data は build に必要であり、今回の失敗原因は過剰な source scope や `.auth` 混入ではなく、出力先パス長だったため。
+- 既存 app_id を再 apply する場合の退避処理で、深い Playwright 配下を `backups/app_studio/.../<app_id>/app/` に copytree すると再び long path failure になるため、既存 app は `app.zip` として浅い場所へ退避するようにした。
+
+実アプリ検収:
+
+- 対象 entry: `C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload\run_xcgate_upload.py`
+- 指定 source_root: `C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload`
+- app_id は検収用に `run_xcgate_upload_phase1c_check` を使用した。
+- production の `apps/` / `release/` を更新しないため、一時 repo `C:\Users\kuroron\AppData\Local\Temp\toolhub_phase1c_repo_20260508_1129` で apply を実行した。
+- `import_plan.json` の source scope は included 26、excluded 24、blocked 0、manual_check 1、sensitive_excluded_directory 1。
+- `file_inventory_report.md` では `.git`, `ToolHub_AppStudio_Output`, `xcgate_flows/logs`, `__pycache__`, `xcgate_flows/.auth` が除外され、`.auth` は `sensitive directory excluded by explicit .toolhubignore` として記録された。
+- `secret_scan_report.json` は total findings 0、Apply block なし。
+- `build_profile_report.md` は `collect_all = ["playwright"]` を維持し、add_data は `xcgate_flows/config.yaml` と `xcgate_flows/flows/*.flow` の 3 件。`.auth/`, `mega_state.json`, storage state / cookie / session 類は add_data に入っていない。
+- `frozen_folder_build_report.md` は status `PASS`。PyInstaller 6.20.0 で COLLECT が `completed successfully` まで進み、以前の `element-attributes.md` copy failure は再現しなかった。
+- App Pack `run_xcgate_upload_phase1c_check-0.1.0.zip` が生成された。zip 内 entry は 580 件で、`app.yaml` と `bin/run_xcgate_upload_phase1c_check/run_xcgate_upload_phase1c_check.exe` が存在する。
+- zip 内に `.auth/`, `mega_state.json`, `storage_state.json`, cookie/session/token/credential の runtime state 実体がないことを確認した。Playwright package 内の説明用 `storage-state.md` は認証済み state 実体ではない。
+- `execution_test_result.json` は `overall_status=warn`, `approval_allowed=true`。warning は GUI/browser/login/file-picker と Playwright manual check であり、承認ブロックではない。
+
+残課題:
+
+- `run_xcgate_upload` は frozen-folder と App Pack 生成まで到達したが、Playwright のブラウザバイナリ、ログイン、社内サイト操作、ファイル選択は manual check のまま。
+- 検収 run の timing では `build_env_creation` 約 21 秒、`build_tools_install` 約 23 秒、`pyinstaller_build` 約 31 秒、`registration_copy` 約 45 秒。Phase 2 では build_env / pip cache だけでなく、大きい frozen-folder の登録コピー・zip 作成時間も追跡対象にする。
+- production の既存 `run_xcgate_upload` App Pack 復元や既存 app_id への本番 apply は今回の対象外。
+
+検証:
+
+- `python -m py_compile` は Phase 1-C 対象 Python ファイルで成功。
+- `python -m unittest discover -s tools/app_studio/tests` は 108 tests 成功。
+- `run_xcgate_upload` 相当アプリの dry-run / suggest / apply は一時 repo で成功し、App Pack 生成まで到達。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check_all.ps1` は exit code 0。内部の release manifest verification では既知の未復元 App Pack として `addnum_pdf`, `app_20260201_agendasnap`, `officetopdf_toc`, `run_xcgate_upload` の local `run.entry` 欠落と App Pack 内 `run.entry` 欠落が報告された。
+
 ## 調査で確認した根拠
 
 ### 1. release 検証が壊れた登録を見逃す
@@ -295,6 +335,7 @@ CLI は progress line を出しているが、Rust backend 側は subprocess の
 | AR-023 | P1 | source scope UX | source scope preview がまだ report 中心で、登録前に十分操作できない | GUI では source root 入力だけで、include/exclude一覧の事前表示がない | preflight で inventory preview を軽量実行し、主要除外ディレクトリと included count を表示する | 管理者が Apply 前に混入を発見できる |
 | AR-024 | P2 | CLI wrapper | `scripts/import_app.ps1` から `--source-root` を指定できない | Phase 1-A では CLI 本体と GUI の経路を優先した | `-SourceRoot` を wrapper に追加し、docs の PowerShell 例も更新する | PowerShell wrapper でも明示 source root を使える |
 | AR-025 | P1 | timing / failure UX | PyInstaller が `ok=False` で返っても timing phase が `pass` 表示になる | timing context は例外の有無だけで phase status を決めている | result object を返す phase では `ok=False` を timing に反映する | `timing_report` と GUI progress が最終 failure と矛盾しない |
+| AR-026 | P1 | performance / registration | Playwright など大きい frozen-folder の `registration_copy` / App Pack 作成が長い | 既存 app backup、`apps/<app_id>` copy、staging copy、zip 作成で深い tree を複数回走査している | Phase 2 以降で登録コピーと zip 作成の timing を分解し、不要な再コピー削減や pack 作成経路の見直しを検討する | `registration_copy` phase の内訳が見え、同一 app の再 apply が不要に遅くならない |
 
 ## 推奨実装順
 
