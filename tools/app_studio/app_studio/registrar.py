@@ -4,6 +4,7 @@ import json
 import shutil
 import zipfile
 from pathlib import Path
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
 from .exporter import copy_pack_to_output
@@ -123,6 +124,8 @@ def package_app_pack(repo_root: Path, app_id: str) -> Path:
             raise FileNotFoundError(f"Required app file is missing: {app_dir / required}")
     if not (app_dir / "icon.png").is_file() and not (app_dir / "icon.svg").is_file():
         raise FileNotFoundError(f"Required app icon is missing: {app_dir / 'icon.png'} or {app_dir / 'icon.svg'}")
+    run_entry = require_app_yaml_file(app_dir, "run", "entry", "run.entry")
+    display_icon = require_app_yaml_file(app_dir, "display", "icon", "display.icon")
 
     staging_base = repo_root / "release" / "staging" / "app_studio_pack"
     reset_directory(staging_base, repo_root / "release" / "staging")
@@ -153,11 +156,69 @@ def package_app_pack(repo_root: Path, app_id: str) -> Path:
             if file.is_file():
                 archive.write(file, file.relative_to(staging_base).as_posix())
 
+    with zipfile.ZipFile(package_path) as archive:
+        names = {name.replace("\\", "/") for name in archive.namelist()}
+    required_entries = {
+        f"{app_id}/app.yaml",
+        f"{app_id}/pack_manifest.json",
+        f"{app_id}/README.md",
+        f"{app_id}/requirements.txt",
+        f"{app_id}/{display_icon}",
+        f"{app_id}/{run_entry}",
+    }
+    missing_entries = sorted(required_entries - names)
+    if missing_entries:
+        raise FileNotFoundError(f"App Pack is missing required entries: {', '.join(missing_entries)}")
+
     app_entry["package"] = f"app_packs/{app_id}-{version}.zip"
     app_entry["sha256"] = file_sha256(package_path)
     manifest["apps"][app_id] = app_entry
     write_json(manifest_path, manifest)
     return package_path
+
+
+def require_app_yaml_file(app_dir: Path, section: str, key: str, label: str) -> str:
+    app_yaml = app_dir / "app.yaml"
+    text = app_yaml.read_text(encoding="utf-8")
+    value = yaml_section_scalar(text, section, key)
+    relative = normalize_app_relative_entry(value, app_dir, label)
+    path = app_relative_path(app_dir, relative)
+    if not path.is_file():
+        raise FileNotFoundError(f"Required app {label} file is missing: {path}")
+    return relative
+
+
+def normalize_app_relative_entry(value: str | None, app_dir: Path | None = None, label: str = "app path") -> str:
+    if value is None or not str(value).strip():
+        raise ValueError(f"{label} is missing.")
+    raw = str(value).strip().replace("\\", "/")
+    if PurePosixPath(raw).is_absolute() or PureWindowsPath(raw).is_absolute():
+        raise ValueError(f"{label} must be a relative path inside the app directory: {value}")
+
+    parts: list[str] = []
+    for part in raw.split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            raise ValueError(f"{label} must stay inside the app directory: {value}")
+        parts.append(part)
+    if not parts:
+        raise ValueError(f"{label} is missing.")
+
+    relative = "/".join(parts)
+    if app_dir is not None:
+        app_relative_path(app_dir, relative)
+    return relative
+
+
+def app_relative_path(app_dir: Path, relative: str) -> Path:
+    root = app_dir.resolve()
+    path = (app_dir / Path(*relative.split("/"))).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"app path must stay inside the app directory: {relative}") from exc
+    return path
 
 
 def remove_generated_cache(path: Path) -> None:

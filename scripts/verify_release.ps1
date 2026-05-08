@@ -51,6 +51,143 @@ function Require-File($Path) {
     if (Test-Path -LiteralPath $Path -PathType Leaf) { Pass "$Path exists" } else { Fail "$Path is missing" }
 }
 
+function Normalize-YamlScalar {
+    param([string]$Value)
+    if ($null -eq $Value) { return $null }
+    $Text = $Value.Trim()
+    $CommentIndex = $Text.IndexOf(" #")
+    if ($CommentIndex -ge 0) {
+        $Text = $Text.Substring(0, $CommentIndex).Trim()
+    }
+    if (($Text.StartsWith('"') -and $Text.EndsWith('"')) -or ($Text.StartsWith("'") -and $Text.EndsWith("'"))) {
+        $Text = $Text.Substring(1, $Text.Length - 2)
+    }
+    if ($Text -eq "" -or $Text -eq "null" -or $Text -eq "~") {
+        return $null
+    }
+    return $Text
+}
+
+function Read-YamlSectionScalar {
+    param(
+        [string]$Text,
+        [string]$Section,
+        [string]$Key
+    )
+    $Lines = $Text -split "`r?`n"
+    $InSection = $false
+    $SectionIndent = -1
+    foreach ($Line in $Lines) {
+        if (-not $InSection) {
+            $SectionPattern = "^(\s*)$([regex]::Escape($Section))\s*:\s*(?:#.*)?$"
+            if ($Line -match $SectionPattern) {
+                $InSection = $true
+                $SectionIndent = $Matches[1].Length
+            }
+            continue
+        }
+
+        if ($Line.Trim() -eq "") { continue }
+        if ($Line -match "^(\s*)\S") {
+            $Indent = $Matches[1].Length
+            if ($Indent -le $SectionIndent) { break }
+        }
+        $KeyPattern = "^\s*$([regex]::Escape($Key))\s*:\s*(.+?)\s*$"
+        if ($Line -match $KeyPattern) {
+            return Normalize-YamlScalar $Matches[1]
+        }
+    }
+    return $null
+}
+
+function Normalize-AppRelativePath {
+    param(
+        [string]$Path,
+        [string]$Label
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw "$Label is missing."
+    }
+    $Normalized = $Path.Trim().Replace("\", "/")
+    if ([string]::IsNullOrWhiteSpace($Normalized)) {
+        throw "$Label is missing."
+    }
+    if ([System.IO.Path]::IsPathRooted($Normalized) -or $Normalized -match "^[A-Za-z]:/") {
+        throw "$Label must be a relative path inside the app directory: $Path"
+    }
+    $Parts = @()
+    foreach ($Part in ($Normalized -split "/")) {
+        if ($Part -eq "" -or $Part -eq ".") {
+            continue
+        }
+        if ($Part -eq "..") {
+            throw "$Label must stay inside the app directory: $Path"
+        }
+        $Parts += $Part
+    }
+    if ($Parts.Count -eq 0) {
+        throw "$Label is missing."
+    }
+    return ($Parts -join "/")
+}
+
+function Resolve-AppRelativeFile {
+    param(
+        [string]$AppDir,
+        [string]$RelativePath,
+        [string]$Label
+    )
+    $NativeRelative = (($RelativePath -split "/") -join [System.IO.Path]::DirectorySeparatorChar)
+    $Full = [System.IO.Path]::GetFullPath((Join-Path $AppDir $NativeRelative))
+    $AppRoot = [System.IO.Path]::GetFullPath($AppDir).TrimEnd([char[]]@("\", "/")) + [System.IO.Path]::DirectorySeparatorChar
+    if (-not $Full.StartsWith($AppRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "$Label must stay inside the app directory: $RelativePath"
+    }
+    return $Full
+}
+
+function Read-AppRelativeYamlFile {
+    param(
+        [string]$YamlText,
+        [string]$Section,
+        [string]$Key,
+        [string]$Label
+    )
+    $Value = Read-YamlSectionScalar -Text $YamlText -Section $Section -Key $Key
+    return Normalize-AppRelativePath -Path $Value -Label $Label
+}
+
+function Test-AppYamlReferencedFile {
+    param(
+        [string]$AppDir,
+        [string]$RelativePath,
+        [string]$Label
+    )
+    try {
+        $FullPath = Resolve-AppRelativeFile -AppDir $AppDir -RelativePath $RelativePath -Label $Label
+        if (Test-Path -LiteralPath $FullPath -PathType Leaf) {
+            Pass "$Label exists"
+        } else {
+            Fail "$Label is missing: $FullPath"
+        }
+    } catch {
+        Fail $_.Exception.Message
+    }
+}
+
+function Test-ZipContainsEntry {
+    param(
+        [string[]]$EntryNames,
+        [string]$EntryName,
+        [string]$Label
+    )
+    if ($EntryNames -contains $EntryName) {
+        Pass "$Label"
+    } else {
+        Fail "$Label is missing: $EntryName"
+    }
+}
+
 Require-File $ManifestPath
 Require-File $AppManifestPath
 
@@ -145,9 +282,22 @@ if ($AppManifest) {
         $AppYaml = Join-Path $AppDir "app.yaml"
         $Enabled = Entry-Enabled $Entry
         $HasAppYaml = Test-Path -LiteralPath $AppYaml -PathType Leaf
+        $RunEntry = $null
+        $DisplayIcon = $null
 
         if ($HasAppYaml) {
             Pass "$Id app.yaml exists"
+            try {
+                $YamlText = Get-Content -Raw -Encoding UTF8 $AppYaml
+                $RunEntry = Read-AppRelativeYamlFile -YamlText $YamlText -Section "run" -Key "entry" -Label "$Id run.entry"
+                $DisplayIcon = Read-AppRelativeYamlFile -YamlText $YamlText -Section "display" -Key "icon" -Label "$Id display.icon"
+                Pass "$Id run.entry is set"
+                Pass "$Id display.icon is set"
+                Test-AppYamlReferencedFile -AppDir $AppDir -RelativePath $RunEntry -Label "$Id run.entry"
+                Test-AppYamlReferencedFile -AppDir $AppDir -RelativePath $DisplayIcon -Label "$Id display.icon"
+            } catch {
+                Fail $_.Exception.Message
+            }
         } elseif ($Enabled) {
             Fail "$Id enabled=true app.yaml is missing: $AppYaml. Restore the app source, set enabled=false if this is stale history, or remove it later through a deliberate full-delete flow."
             continue
@@ -193,8 +343,16 @@ if ($AppManifest) {
                 try {
                     $Zip = [System.IO.Compression.ZipFile]::OpenRead($PackPath)
                     $EntryNames = @($Zip.Entries | ForEach-Object { $_.FullName.Replace("\", "/") })
-                    if ($EntryNames -contains "$Id/app.yaml") { Pass "$Id app pack contains app.yaml" } else { Fail "$Id app pack does not contain $Id/app.yaml" }
-                    if ($EntryNames -contains "$Id/pack_manifest.json") { Pass "$Id app pack contains pack_manifest.json" } else { Fail "$Id app pack does not contain $Id/pack_manifest.json" }
+                    Test-ZipContainsEntry -EntryNames $EntryNames -EntryName "$Id/app.yaml" -Label "$Id app pack contains app.yaml"
+                    Test-ZipContainsEntry -EntryNames $EntryNames -EntryName "$Id/pack_manifest.json" -Label "$Id app pack contains pack_manifest.json"
+                    Test-ZipContainsEntry -EntryNames $EntryNames -EntryName "$Id/README.md" -Label "$Id app pack contains README.md"
+                    Test-ZipContainsEntry -EntryNames $EntryNames -EntryName "$Id/requirements.txt" -Label "$Id app pack contains requirements.txt"
+                    if ($DisplayIcon) {
+                        Test-ZipContainsEntry -EntryNames $EntryNames -EntryName "$Id/$DisplayIcon" -Label "$Id app pack contains display.icon"
+                    }
+                    if ($RunEntry) {
+                        Test-ZipContainsEntry -EntryNames $EntryNames -EntryName "$Id/$RunEntry" -Label "$Id app pack contains run.entry"
+                    }
                     $Zip.Dispose()
                 } catch {
                     Fail "$Id app pack could not be inspected"

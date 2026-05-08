@@ -9,7 +9,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from .registrar import load_app_manifest_json, package_app_pack
+from .registrar import app_relative_path, load_app_manifest_json, normalize_app_relative_entry, package_app_pack
 from .util import find_repo_root, now_iso, write_json, write_text
 
 
@@ -262,12 +262,12 @@ def targeted_approval_verification(repo_root: Path, app_id: str, manifest_entry:
     run_entry = ""
     if app_yaml.is_file():
         try:
-            run_entry = load_run_entry(repo_root, app_id)
+            run_entry = normalize_app_relative_entry(load_run_entry(repo_root, app_id), app_dir, "run.entry")
             checks.append(f"app.yaml parses; run.entry={run_entry}")
         except Exception as exc:
             failures.append(f"app.yaml parse failed: {exc}")
     if run_entry:
-        entry_path = app_dir / run_entry
+        entry_path = app_relative_path(app_dir, run_entry)
         if entry_path.is_file():
             checks.append("run.entry exists")
         else:
@@ -288,6 +288,12 @@ def targeted_approval_verification(repo_root: Path, app_id: str, manifest_entry:
                 checks.append("app pack contains app.yaml and pack_manifest.json")
             else:
                 failures.append("app pack does not contain expected app.yaml and pack_manifest.json")
+            if run_entry:
+                expected_run_entry = f"{app_id}/{run_entry}"
+                if expected_run_entry in names:
+                    checks.append("app pack contains run.entry")
+                else:
+                    failures.append(f"app pack does not contain run.entry: {expected_run_entry}")
         except Exception as exc:
             failures.append(f"app pack could not be inspected: {exc}")
     else:

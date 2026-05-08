@@ -6,7 +6,7 @@
 
 ToolHub の App Studio / アプリ登録プロセスについて、現時点で見えている失敗要因、待機時間の原因、検証漏れ、アイコン生成の fallback 化を整理し、次ステップで実装する改善リストとして使える形にする。
 
-この文書は調査結果と改善バックログであり、ここに書いた改善はまだ未実装である。
+この文書は調査結果と改善バックログであり、実装済みの項目は「実施状況」に記録する。
 
 ## 現在の登録フローの要約
 
@@ -34,6 +34,30 @@ ToolHub の App Studio / アプリ登録プロセスについて、現時点で�
 3. Apply 時に毎回 `build_env` 作成、pip install、PyInstaller clean build を行うため、再登録や再試行が遅い。
 4. アイコン生成は AI 設定不足と secret scan の AI submission block により、実質 fallback へ流れやすい。
 5. 失敗理由の分類と UI への表示が弱く、管理者が次に何を直せばよいか分かりにくい。
+
+## 実施状況
+
+### 2026-05-08 Phase 0
+
+壊れた登録を成功扱いしないための検証強化を開始し、以下を実装した。
+
+- `scripts/package_app_pack.ps1` で `app.yaml` の `run.entry` と `display.icon` を app directory 内の相対パスとして検証する。
+- `scripts/package_app_pack.ps1` で local file 欠落時に zip 作成前に fail する。
+- `scripts/package_app_pack.ps1` で zip 作成後、`app.yaml`、`pack_manifest.json`、`README.md`、`requirements.txt`、`display.icon`、`run.entry` が App Pack 内に含まれることを検証する。
+- `scripts/verify_release.ps1` で local `run.entry` / `display.icon` と App Pack 内 `run.entry` / `display.icon` を検証する。
+- App Studio 本体の `registrar.package_app_pack()` でも同じく `run.entry` / `display.icon` 欠落を App Pack 作成時に fail する。
+- App Studio approval の targeted verification で、App Pack 内に `run.entry` が含まれることを確認する。
+- App Studio unit test に、`run.entry` 欠落時の packaging failure と zip 内 `run.entry` 検証を追加した。
+
+この変更により、現在の checkout に残っている frozen-folder app の exe 欠落は `verify_release.ps1` で fail として検出される。これは想定どおりであり、次に対象アプリを再 build して `apps/<app_id>/bin/...exe` と App Pack を復元する必要がある。
+
+実行確認:
+
+- PowerShell parser で `scripts/package_app_pack.ps1` と `scripts/verify_release.ps1` の構文を確認済み。
+- `python -m py_compile tools/app_studio/app_studio/registrar.py tools/app_studio/app_studio/approval.py` は成功。
+- `python -m unittest discover -s tools/app_studio/tests` は成功。
+- `scripts/package_app_pack.ps1 -AppId addnum_pdf -NoManifestUpdate` は、`addnum_pdf run.entry file is missing` で想定どおり fail。
+- `scripts/verify_release.ps1` は、`addnum_pdf`、`app_20260201_agendasnap`、`officetopdf_toc`、`run_xcgate_upload` の local `run.entry` 欠落と App Pack 内 `run.entry` 欠落を想定どおり NG として検出。
 
 ## 調査で確認した根拠
 
@@ -173,6 +197,8 @@ CLI は progress line を出しているが、Rust backend 側は subprocess の
 | AR-018 | P2 | approval | approve が全体 release verify に依存し遅い | target app だけの軽量検証がない | approve 前は対象 app / target App Pack の検証を優先し、全体 verify は別コマンドに分ける | approve の待ち時間が短縮される |
 | AR-019 | P2 | smoke test | App Pack が起動可能か検証していない | entry file 存在以上の実行検証がない | optional smoke command / CLI check / launch dry-run を app.yaml に追加できるようにする | 登録後に最低限の起動確認ができる |
 | AR-020 | P2 | reports | 調査に必要な情報が複数 report に分散 | summary index がない | App Studio run summary に phase time、skip reason、failure reason、重要 report path を集約する | 1 つの summary から原因調査を開始できる |
+| AR-021 | P2 | App Pack spec | `requirements.lock` の扱いが仕様と実装で曖昧 | spec では source of truth に含まれるが sample app には存在せず、package / verify は必須にしていない | runner / build_mode 別に `requirements.lock` を必須・任意・警告のどれにするか決め、package / verify / docs を揃える | sample app と frozen-folder app の両方で意図した結果になる |
+| AR-022 | P2 | validator consistency | PowerShell と Python で app.yaml path 検証が重複している | packaging / release verify / App Studio registrar が別々に YAML scalar と相対パスを処理している | 共通 validator 化、または同じ fixture を使う golden test を追加して挙動差を防ぐ | `run.entry` / `display.icon` の edge case が各経路で同じ結果になる |
 
 ## 推奨実装順
 
@@ -271,9 +297,9 @@ fallback そのものは残しつつ、AI を使う場合に何が必要かを�
 
 次の改善は、実装リスクに対して効果が大きい。
 
-1. `run.entry` の local / zip 存在検証を追加する。
-2. `package_app_pack.ps1` で `run.entry` 欠落時に fail する。
-3. `verify_release.ps1` で App Pack 内 `run.entry` 欠落時に fail する。
+1. `run.entry` の local / zip 存在検証を追加する。（2026-05-08 Phase 0 で実装済み）
+2. `package_app_pack.ps1` で `run.entry` 欠落時に fail する。（2026-05-08 Phase 0 で実装済み）
+3. `verify_release.ps1` で App Pack 内 `run.entry` 欠落時に fail する。（2026-05-08 Phase 0 で実装済み）
 4. source scope preview と既定除外を強化する。
 5. AI icon fallback の理由を UI / report で分離表示する。
 
@@ -284,4 +310,3 @@ fallback そのものは残しつつ、AI を使う場合に何が必要かを�
 - `app.yaml` の既存仕様は破壊しない。
 - 既存 app が `run.entry` 欠落で fail するようになるため、検証強化の導入時には現在の欠落 app を修正するか、検証結果を known issue として扱う必要がある。
 - `release/` や `runtime/` の実体を直接変更する前に、まず scripts / App Studio 側の検証強化から進める。
-

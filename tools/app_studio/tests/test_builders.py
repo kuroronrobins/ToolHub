@@ -6,6 +6,7 @@ import os
 import shutil
 import unittest
 import uuid
+import zipfile
 from pathlib import Path
 import sys
 import types
@@ -19,7 +20,7 @@ from app_studio.ai_metadata_suggester import build_icon_design_brief, metadata_p
 from app_studio.build_profile import analyze_exe_readiness, default_build_profile
 from app_studio.icon_generator import build_icon_revision_api_base_prompt, fallback_icon_concepts, generate_icon_assets_with_candidates, generate_local_png, icon_image_generation_settings, icon_regeneration_candidate_count, icon_style_settings, image_api_prompt, image_api_summary, regenerate_icon_only
 from app_studio.app_env_builder import create_app_env, create_build_env
-from app_studio.approval import approve_app, validate_approval_inputs, verify_release_gate
+from app_studio.approval import approve_app, targeted_approval_verification, validate_approval_inputs, verify_release_gate
 from app_studio.build_planner import make_build_plan
 from app_studio.execution_tester import build_execution_result, record_blocked_execution, run_execution_checks
 from app_studio.exporter import export_suggestion
@@ -30,6 +31,7 @@ from app_studio.lock_generator import generate_lock
 from app_studio.models import BuildPlan, DependencyReport, FileRecord, GeneratedArtifacts, IconCandidateAsset, ImportOptions, RuntimeCheck, RuntimeCheckResult, SecretFinding, SecretScanReport, SourceInventory
 from app_studio.models import AppEnvBuildResult, LockGenerationResult
 from app_studio.openai_client import OpenAIResult, edit_image, error_category_from_reason, generate_image, test_image_generation_connection
+from app_studio.registrar import package_app_pack
 from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.timing import TimingRecorder
@@ -536,6 +538,47 @@ class ExecutionAndApprovalTests(unittest.TestCase):
 
             self.assertEqual(result.overall_status, "fail")
             self.assertFalse(result.approval_allowed)
+
+    def test_package_app_pack_rejects_missing_run_entry(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            (repo / "apps" / app_id / "main.py").unlink()
+
+            with self.assertRaisesRegex(FileNotFoundError, "run.entry"):
+                package_app_pack(repo, app_id)
+
+    def test_package_app_pack_includes_run_entry(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+
+            package_path = package_app_pack(repo, app_id)
+
+            with zipfile.ZipFile(package_path) as archive:
+                names = {name.replace("\\", "/") for name in archive.namelist()}
+            self.assertIn(f"{app_id}/main.py", names)
+
+    def test_targeted_approval_rejects_app_pack_missing_run_entry(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            package_path = repo / "release" / "app_packs" / f"{app_id}-0.1.0.zip"
+            package_path.parent.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(package_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.write(repo / "apps" / app_id / "app.yaml", f"{app_id}/app.yaml")
+                archive.writestr(f"{app_id}/pack_manifest.json", "{}")
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+            entry = dict(manifest["apps"][app_id])
+            entry["enabled"] = True
+
+            result = targeted_approval_verification(repo, app_id, entry, package_path)
+
+            self.assertEqual(result["status"], "failed")
+            self.assertTrue(any("run.entry" in failure for failure in result["failures"]))
 
     def test_warn_result_can_be_approved_when_warnings_allowed(self) -> None:
         with workspace_tempdir() as root:
