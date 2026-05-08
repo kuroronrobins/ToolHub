@@ -10,13 +10,13 @@
       "version": "0.1.0"
     },
     "app_20260201_agendasnap": {
-      "enabled": true,
+      "version": "0.1.0",
       "package": "app_packs/app_20260201_agendasnap-0.1.0.zip",
+      "sha256": "f06564957c516a3567518dfb10c217879c7f64dc5377c4e7137954bd70434157",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": null,
-      "sha256": "e6554b4e105e8dc23b4b37e39f85b7f0bfcb5f16d5f74b8b6858fcb9ad2982e2",
-      "version": "0.1.0"
+      "enabled": false
     },
     "officetopdf_toc": {
       "enabled": true,

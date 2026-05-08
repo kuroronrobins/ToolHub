@@ -35,10 +35,12 @@
     "agendasnap.config.loader",
     "agendasnap.config.validate",
     "agendasnap.llm.__init__",
+    "agendasnap.llm.cost",
     "agendasnap.llm.openai_responses",
     "agendasnap.minutes.__init__",
     "agendasnap.minutes.generator",
     "agendasnap.minutes.llm_summarizer",
+    "agendasnap.minutes.profiles",
     "agendasnap.minutes.render_md",
     "agendasnap.minutes.schema",
     "agendasnap.minutes.ssot",
@@ -89,10 +91,12 @@
     "config.loader",
     "config.validate",
     "llm.__init__",
+    "llm.cost",
     "llm.openai_responses",
     "minutes.__init__",
     "minutes.generator",
     "minutes.llm_summarizer",
+    "minutes.profiles",
     "minutes.render_md",
     "minutes.schema",
     "minutes.ssot",
@@ -135,5 +139,22 @@
   ],
   "warnings": [
     "ビルド前注意: frozen-folder作成後、必要な設定ファイル・データファイルは配布物検証で自動確認されます。"
-  ]
+  ],
+  "source_root": "C:\\Users\\kuroron\\Documents\\RD\\20260201_AgendaSnap",
+  "source_root_origin": "explicit",
+  "entry_relative": "main.py",
+  "inventory_summary": {
+    "source_root": "C:\\Users\\kuroron\\Documents\\RD\\20260201_AgendaSnap",
+    "source_root_origin": "explicit",
+    "entry_relative": "main.py",
+    "included_count": 61,
+    "excluded_count": 40,
+    "blocked_count": 0,
+    "manual_check_count": 0,
+    "excluded_directory_count": 22,
+    "sensitive_excluded_directory_count": 0,
+    "sensitive_excluded_file_count": 0,
+    "source_root_warnings": [],
+    "toolhubignore_pattern_count": 0
+  }
 }

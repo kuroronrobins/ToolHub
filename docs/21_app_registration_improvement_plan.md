@@ -459,6 +459,39 @@ source_entry / output_mirror 調査:
 2. その検収が通ったら、本番 app_id `app_20260201_agendasnap` で再登録し、`verify_release.ps1` の AgendaSnap NG を解消する。
 3. `OfficeToPDF_TOC.py` と `AddNum_PDF.py` の元 source を再入手またはパス修正してから、それぞれ同じ検収 -> 本番再登録の順で進める。
 
+### 2026-05-08 `app_20260201_agendasnap` 本番復元
+
+復元可能性 A と判定した `app_20260201_agendasnap` を、標準 App Studio flow で検収後に本番 app_id へ再登録した。App Pack 仕様、runner I/F、release manifest schema は変更していない。`addnum_pdf` と `officetopdf_toc` は未復元のまま触っていない。
+
+検収用 Apply:
+
+- app_id: `agendasnap_restore_check`
+- repo: 一時 repo `C:\Users\kuroron\AppData\Local\Temp\toolhub_agendasnap_restore_check_repo`
+- entry: `C:\Users\kuroron\Documents\RD\20260201_AgendaSnap\main.py`
+- source_root: `C:\Users\kuroron\Documents\RD\20260201_AgendaSnap`
+- result: Apply exit 0、PyInstaller 成功、App Pack 生成成功、`execution_test_result` は `overall_status=warn` / `approval_allowed=true`
+- source scope: included 61、excluded 40、blocked 0、manual_check 0、excluded directories 22
+- secret scan: findings 6、blocking 0、warning 0、manual_check 0、Apply block なし。AI submission は secret scan により block。
+- App Pack safety: `run.entry` は zip 内に存在。`.auth`、`mega_state.json`、`storage_state.json`、cookie / session / token / credential state JSON 実体は非混入。
+- timing: build_env_creation 102.405s、build_tools_install 29.828s、pyinstaller_build 55.675s、registration_copy 5.923s。
+
+本番 Apply:
+
+- app_id: `app_20260201_agendasnap`
+- result: Apply exit 0、PyInstaller 成功、App Pack 生成成功、`execution_test_result` は `overall_status=warn` / `approval_allowed=true`
+- local `run.entry`: `apps/app_20260201_agendasnap/bin/app_20260201_agendasnap/app_20260201_agendasnap.exe` が存在。
+- App Pack: `release/app_packs/app_20260201_agendasnap-0.1.0.zip` が生成され、zip 内 `app_20260201_agendasnap/bin/app_20260201_agendasnap/app_20260201_agendasnap.exe` が存在。
+- App Pack safety: `.auth`、`mega_state.json`、`storage_state.json`、cookie / session / token / credential state JSON 実体は非混入。
+- manifest: `release/app_manifest.json` の `app_20260201_agendasnap` sha256 は実 zip hash と一致。
+- enabled: 既存 manifest は `enabled=true` だったが、標準 App Studio Apply の通常方針により `enabled=false` になった。approval / enabled=true 化は今回実施していない。
+- metadata: `app.yaml` / README / requirements.txt の内容差分は発生しなかったため、metadata 復元作業は不要。App Studio の標準生成に伴い icon と build metadata は更新された。
+- timing: build_env_creation 94.721s、build_tools_install 27.747s、pyinstaller_build 46.205s、registration_copy 5.751s。
+
+復元後の `verify_release.ps1`:
+
+- `app_20260201_agendasnap` の local `run.entry` 欠落と App Pack 内 `run.entry` 欠落は解消。
+- 残る既知 NG は `addnum_pdf` と `officetopdf_toc`。どちらも source_entry が存在しないため、次は元 source の再入手または source_entry 修正が必要。
+
 ## 調査で確認した根拠
 
 ### 1. release 検証が壊れた登録を見逃す

@@ -9,8 +9,8 @@
     },
     {
       "name": "managed build python",
-      "status": "warn",
-      "detail": "build_env is not present yet. Apply creates a managed build environment under the App Studio output directory."
+      "status": "pass",
+      "detail": "C:\\Users\\kuroron\\Documents\\RD\\20260201_AgendaSnap\\ToolHub_AppStudio_Output\\app_20260201_agendasnap\\build_env\\Scripts\\python.exe"
     },
     {
       "name": "requirements.lock",
@@ -25,7 +25,7 @@
     {
       "name": "hidden imports",
       "status": "pass",
-      "detail": "110 hidden import candidate(s) were inferred."
+      "detail": "114 hidden import candidate(s) were inferred."
     },
     {
       "name": "secret scan",
