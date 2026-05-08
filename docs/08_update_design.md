@@ -2,6 +2,8 @@
 
 ToolHubは将来、ToolHub本体と内蔵アプリを安全に更新できる構造にします。
 
+早期ベータでは、まず最新版インストーラー再配布型アップデートを優先します。Beta MVP の範囲と段階計画は [22_beta_installer_updater_plan.md](22_beta_installer_updater_plan.md) を参照してください。
+
 ## Implementation Status
 
 現時点で実装済み:

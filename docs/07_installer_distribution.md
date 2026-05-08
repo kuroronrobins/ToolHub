@@ -2,6 +2,8 @@
 
 ToolHubはインストーラー型配布を正式方針にします。
 
+早期ベータでの installer 完成条件、実インストール検証、updater 連携は [22_beta_installer_updater_plan.md](22_beta_installer_updater_plan.md) を基準にします。
+
 ## Current Status
 
 - Tauri標準のNSIS/MSI bundle生成は確認済みです。

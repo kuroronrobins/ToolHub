@@ -265,6 +265,7 @@ Tauriランチャー経由では、起動時に `%LOCALAPPDATA%\ToolHub\` 配下
 - [docs/08_update_design.md](docs/08_update_design.md)
 - [docs/09_app_pack_spec.md](docs/09_app_pack_spec.md)
 - [docs/10_runtime_packaging.md](docs/10_runtime_packaging.md)
+- [docs/22_beta_installer_updater_plan.md](docs/22_beta_installer_updater_plan.md)
 - [docs/11_build_environment.md](docs/11_build_environment.md)
 - [docs/12_troubleshooting.md](docs/12_troubleshooting.md)
 

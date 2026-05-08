@@ -10,6 +10,8 @@ App Pack には `apps/<app_id>/bin/<app_id>/<app_id>.exe` と、その frozen-fo
 
 ToolHubの正式配布方式はインストーラー型配布です。
 
+早期ベータ展開に向けた installer / updater の完成条件と実装順は [22_beta_installer_updater_plan.md](22_beta_installer_updater_plan.md) にまとめます。
+
 開発者はリポジトリ直下で `python main.py` を使います。利用者には `ToolHub_Setup.exe` を配布し、インストール後はデスクトップショートカットまたはスタートメニューの `ToolHub` から起動してもらいます。
 
 ## Distribution Policy
