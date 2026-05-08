@@ -199,6 +199,9 @@ def collect_source_files(source_root: Path, ignore_rules: list[ToolHubIgnoreRule
             if lower in GENERATED_DIRS or lower.startswith("pytest-cache-files-"):
                 excluded = True
                 reason = "excluded generated or external-work directory"
+            elif lower in EXCLUDED_DIRS:
+                excluded = True
+                reason = "excluded runtime/user-output directory"
             else:
                 excluded, reason = ignore_match_reason(directory, source_root, True, ignore_rules)
                 if excluded:

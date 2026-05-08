@@ -52,6 +52,12 @@ SKIP_DIRS = {
     "works",
     "__pycache__",
     ".pytest_tmp",
+    "log",
+    "logs",
+    "screenshots",
+    "sessions",
+    "temp",
+    "tmp",
 }
 EXCLUDED_SENSITIVE_DIRS = {".auth"}
 WARNING_DIRS = {"logs", "log", "screenshots", "sessions", "tmp", "temp"}

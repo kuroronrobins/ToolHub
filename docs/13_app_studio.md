@@ -52,7 +52,7 @@ App Studio の通常新規登録フローは、通常ユーザー向け配布専
 
 App Studio CLI は `--source-root <dir>` を指定できます。未指定時は従来互換として entry file の親フォルダを source root にします。指定時は entry file が source root 配下にあることを必須検証し、drive root のように広すぎる範囲は拒否します。GUI では「ソース範囲」に任意入力できます。
 
-source root 直下に `.toolhubignore` がある場合、App Studio は最小限の gitignore 風 glob として読み込みます。空行、`#` コメント、`*` glob、末尾 `/` のディレクトリ指定、`!` による再許可を扱います。`work/`, `results/`, `.git`, `.venv`, `node_modules`, `ToolHub_AppStudio_Output`, `release`, `runtime`, `target` などの生成物・別プロジェクト・出力系ディレクトリは既定で除外されます。`assets`, `templates`, `static`, `config`, `icons`, `images`, `flows` などのアプリ資産候補は、source scope 内かつ除外対象でない場合に従来どおり検出されます。
+source root 直下に `.toolhubignore` がある場合、App Studio は最小限の gitignore 風 glob として読み込みます。空行、`#` コメント、`*` glob、末尾 `/` のディレクトリ指定、`!` による再許可を扱います。`work/`, `results/`, `.git`, `.venv`, `node_modules`, `ToolHub_AppStudio_Output`, `release`, `runtime`, `target`, `logs`, `screenshots`, `sessions`, `tmp`, `temp` などの生成物・別プロジェクト・出力系ディレクトリは既定で source walk から除外されます。`assets`, `templates`, `static`, `config`, `icons`, `images`, `flows` などのアプリ資産候補は、source scope 内かつ除外対象でない場合に従来どおり検出されます。
 
 `.auth/`、logs、screenshots、tmp/temp、仮想環境、build/dist、node_modules、`.git`、`.env`、pem/key、token/secret/password/api_key/credentials、storage_state/cookie/session らしいファイルは同梱しません。機微情報の可能性がある場合は blocked または manual check とし、`file_inventory.json` / `file_inventory.md` / `build_profile_report.md` / `runtime_check_report.md` で理由を確認できるようにします。動的パス参照は無理に全フォルダを同梱せず manual check とします。
 

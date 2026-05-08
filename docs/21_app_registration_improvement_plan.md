@@ -81,6 +81,34 @@ source scope を明示・制御する最初の改善を実装した。
 - build_env cache、pip cache、PyInstaller `--clean` 見直し、AI icon 診断は今回の対象外。
 - PowerShell wrapper `scripts/import_app.ps1` への `-SourceRoot` 追加は未実装。CLI 本体と GUI の経路を優先した。
 
+### 2026-05-08 Phase 1-A 実アプリ検収
+
+`run_xcgate_upload` 相当の実アプリソースを対象に、明示 `--source-root` の効果を検収した。
+
+- 対象 entry: `C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload\run_xcgate_upload.py`
+- 指定 source_root: `C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload`
+- app_id は既存登録を上書きしないよう、検収用に `run_xcgate_upload_scope_check` を使用した。
+- `app.yaml` に記録されていた旧 source_entry `C:\Users\kuroron\Downloads\XCgate_AutoUpload-main\XCgate_AutoUpload-main\run_xcgate_upload.py` は存在しなかったため、RD 配下に残っていた実ソースを使用した。
+
+検収結果:
+
+- Phase 1-A の初期実装では `xcgate_flows/logs` 配下の 19 file が excluded file として secret scan 対象に残っていた。これは runtime/user-output directory を file 単位で scan していたことが原因。
+- `logs`, `log`, `screenshots`, `sessions`, `tmp`, `temp` は source walk からディレクトリ単位で除外するように修正した。
+- 修正後の dry-run / suggest / apply では、`file_inventory_report.md` の excluded directories に `.git`, `ToolHub_AppStudio_Output`, `xcgate_flows/logs` が出力された。
+- 修正後の inventory summary は included 26、excluded 23、blocked 1、manual_check 1、excluded_directory 3。
+- secret scan は 20 findings から 1 finding に減少し、実測の secret_scan phase は約 1.47 秒から約 0.02 秒に短縮した。
+- 残った Apply block は `xcgate_flows/.auth/mega_state.json` のみ。分類は `secret scan block` で、source scope 混入や PyInstaller hook failure ではない。
+- AI submission block は false。secret scan による AI fallback 連鎖は、この検収では解消している。
+- build profile は `paths = ["xcgate_flows"]`、`add_data` は `xcgate_flows/config.yaml` と `xcgate_flows/flows/*.flow` の 3 件、`collect_all = ["playwright"]`。`work/`, `results/`, `ToolHub_AppStudio_Output`, ToolHub repo, 別 project, `runtime`, `release`, `target` は PyInstaller profile に混入していない。
+- Apply は secret scan block で停止したため、build_env 作成、requirements.lock 生成、PyInstaller 実行、frozen_folder_build_report 生成、apps/release 更新には到達していない。
+
+判断:
+
+- source scope 混入と secret scan 遅延は Phase 1-A の範囲で改善できている。
+- `run_xcgate_upload` の次の blocker は `.auth` の認証済み状態ファイルを source root から外す、または管理者が `.toolhubignore` で明示除外したうえで安全性を確認する運用判断。
+- PyInstaller hook failure の再検収は `.auth` block を解消した後に行う。現時点では PyInstaller まで到達していないため、hook failure が解消済みとは書かない。
+- Phase 2 の build_env cache / pip cache / PyInstaller clean 見直しには進める。ただし、`run_xcgate_upload` の apply 完走検収は `.auth` block 解消後に再実行する。
+
 ## 調査で確認した根拠
 
 ### 1. release 検証が壊れた登録を見逃す

@@ -159,8 +159,7 @@ class AppStudioTests(unittest.TestCase):
             self.assertTrue(findings_by_path[".env"].blocks_apply)
             self.assertTrue(findings_by_path["storage_state.json"].blocks_apply)
             self.assertTrue(findings_by_path["assets/runtime.json"].blocks_apply)
-            self.assertFalse(findings_by_path["logs/run.log"].blocks_apply)
-            self.assertEqual(findings_by_path["logs/run.log"].inventory_status, "exclude")
+            self.assertNotIn("logs/run.log", findings_by_path)
             self.assertTrue(report.blocks_apply)
             self.assertTrue(report.blocks_ai_submission)
 
@@ -409,7 +408,7 @@ class AppStudioTests(unittest.TestCase):
             source.mkdir()
             entry = source / "main.py"
             entry.write_text("print('ok')\n", encoding="utf-8")
-            for dirname in [".git", ".venv", "work", "results", "ToolHub_AppStudio_Output"]:
+            for dirname in [".git", ".venv", "work", "results", "ToolHub_AppStudio_Output", "logs", "tmp", "sessions", "screenshots"]:
                 folder = source / dirname
                 folder.mkdir(parents=True)
                 (folder / "ignored.py").write_text("OPENAI_API_KEY='sk-ignored123456789012345'\n", encoding="utf-8")
@@ -420,9 +419,22 @@ class AppStudioTests(unittest.TestCase):
             included = {record.relative_path for record in inventory.records if record.include}
             report = scan_secrets(context.source_root, inventory)
 
-            self.assertTrue({".git", ".venv", "work", "results", "ToolHub_AppStudio_Output"}.issubset(excluded_dirs))
+            self.assertTrue({".git", ".venv", "work", "results", "ToolHub_AppStudio_Output", "logs", "tmp", "sessions", "screenshots"}.issubset(excluded_dirs))
             self.assertEqual(included, {"main.py"})
             self.assertFalse(any("ignored.py" in str(finding.path) for finding in report.findings))
+
+    def test_secret_scan_skips_runtime_output_directories_without_inventory(self) -> None:
+        with workspace_tempdir() as temp:
+            root = Path(temp)
+            (root / "logs").mkdir()
+            (root / "tmp").mkdir()
+            (root / "main.py").write_text("print('ok')\n", encoding="utf-8")
+            (root / "logs" / "leaked.log").write_text("OPENAI_API_KEY='sk-ignored123456789012345'\n", encoding="utf-8")
+            (root / "tmp" / "token.txt").write_text("token='ignored-secret-value-1234567890'\n", encoding="utf-8")
+
+            report = scan_secrets(root)
+
+            self.assertFalse(any("logs" in str(finding.path) or "tmp" in str(finding.path) for finding in report.findings))
 
     def test_toolhubignore_excludes_directories_and_files(self) -> None:
         with workspace_tempdir() as temp:
