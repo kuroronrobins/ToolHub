@@ -1363,9 +1363,7 @@ button {
   line-height: 1.55;
 }
 
-.studio-icon-style-panel,
-.studio-icon-fallback-warning,
-.studio-icon-fallback-candidates {
+.studio-icon-style-panel {
   display: grid;
   gap: 10px;
   padding: 10px;
@@ -1374,17 +1372,10 @@ button {
   background: #ffffff;
 }
 
-.studio-icon-style-grid,
-.studio-icon-fallback-candidates {
+.studio-icon-style-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
-}
-
-.studio-icon-fallback-warning {
-  border-color: #fed7aa;
-  background: #fff7ed;
-  color: #9a3412;
 }
 
 .studio-icon-interpretation {
@@ -1499,12 +1490,6 @@ button {
 .studio-icon-preview svg {
   width: 64px;
   height: 64px;
-}
-
-.studio-icon-fallback {
-  display: grid;
-  gap: 8px;
-  justify-items: start;
 }
 
 .studio-ai-warning {

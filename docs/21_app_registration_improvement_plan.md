@@ -829,3 +829,10 @@ fallback そのものは残しつつ、AI を使う場合に何が必要かを�
 - `app.yaml` の既存仕様は破壊しない。
 - 既存 app が `run.entry` 欠落で fail するようになるため、検証強化の導入時には現在の欠落 app を修正するか、検証結果を known issue として扱う必要がある。
 - `release/` や `runtime/` の実体を直接変更する前に、まず scripts / App Studio 側の検証強化から進める。
+## 2026-05-08 Phase 4 implementation: default icon and fallback candidate removal
+
+- Local fallback PNG candidates are no longer generated for AI disabled, missing API key/model, secret scan block, image API failure, or organization verification failure.
+- API image candidates are the only icon candidates written to `candidate_manifest.json`. The ToolHub common default icon is not a candidate and is not scored or recommended.
+- When no uploaded icon or adopted AI image exists, `tools/app_studio/assets/default_app_icon.png` is copied to `icon_work/icon_final.png` and `final_app/icon.png`, preserving `display.icon: icon.png` compatibility.
+- Reports and `import_plan.json` record `selected_icon_source: default_icon`, `default_icon_used`, `default_icon_reason`, and `icon_status`.
+- The App Studio UI no longer shows fallback candidate grids, fallback adoption buttons, hidden fallback buttons, or dead fallback UI blocks. API candidate count 0 now shows failure reason, next action, and the current ToolHub default icon state.

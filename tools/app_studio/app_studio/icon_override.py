@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .default_icon import DEFAULT_ICON_SOURCE
+
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
@@ -23,27 +25,30 @@ def load_icon_override(path: Path) -> dict[str, Any]:
     return data
 
 
-def apply_icon_override(fallback_png: bytes, override: dict[str, Any] | None) -> tuple[bytes, str, list[str]]:
+def apply_icon_override(default_png: bytes, override: dict[str, Any] | None) -> tuple[bytes, str, list[str]]:
     if not override:
-        return fallback_png, "fallback_png", []
+        return default_png, DEFAULT_ICON_SOURCE, []
 
     warnings: list[str] = []
     source = str(override.get("selected_icon_source") or "").strip()
-    if source not in {"candidate_png", "final_png", "fallback_png"}:
-        warnings.append("Ignored icon override: unsupported selected_icon_source.")
-        return fallback_png, "fallback_png", warnings
+    if source in {"", "default_icon"}:
+        return default_png, DEFAULT_ICON_SOURCE, warnings
     if source == "fallback_png":
-        return fallback_png, "fallback_png", warnings
+        warnings.append("Legacy fallback_png icon override was treated as default_icon.")
+        return default_png, DEFAULT_ICON_SOURCE, warnings
+    if source not in {"candidate_png", "final_png", "ai_candidate_png", "uploaded_png"}:
+        warnings.append("Ignored icon override: unsupported selected_icon_source.")
+        return default_png, DEFAULT_ICON_SOURCE, warnings
 
     raw_png = str(override.get("png_base64") or "").strip()
     if not raw_png:
         warnings.append("Ignored icon override: png_base64 was empty.")
-        return fallback_png, "fallback_png", warnings
+        return default_png, DEFAULT_ICON_SOURCE, warnings
     try:
         png = decode_png_base64(raw_png)
     except ValueError as exc:
         warnings.append(f"Ignored icon override: {exc}")
-        return fallback_png, "fallback_png", warnings
+        return default_png, DEFAULT_ICON_SOURCE, warnings
     return png, source, warnings
 
 

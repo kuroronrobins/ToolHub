@@ -3,8 +3,9 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from .default_icon import DEFAULT_ICON_REASON, DEFAULT_ICON_SOURCE, default_icon_png
 from .file_classifier import inventory_markdown, toolhubignore_suggestion_markdown
-from .icon_generator import generate_local_png, image_api_summary
+from .icon_generator import image_api_summary
 from .models import BuildPlan, DependencyReport, GeneratedArtifacts, IconCandidateAsset, SecretScanReport, SourceInventory, StudioContext
 from .secret_scanner import secret_report_markdown
 from .util import copy_file_preserving_root, reset_output_dir, write_bytes, write_json, write_text
@@ -44,7 +45,7 @@ def export_suggestion(
     write_text(icon_work / "icon_prompt_revision.md", artifacts.icon_prompt_revision)
     write_text(icon_work / "icon_fallback.svg", artifacts.icon_svg)
     write_text(icon_work / "icon_final.svg", artifacts.icon_svg)
-    icon_final_png = artifacts.icon_final_png or generate_local_png(context, artifacts.icon_prompt_revision or artifacts.icon_prompt_initial, "")
+    icon_final_png = artifacts.icon_final_png or default_icon_png()
     write_bytes(icon_work / "icon_final.png", icon_final_png)
     if artifacts.icon_ai_report:
         write_text(icon_work / "ai_generation_report.md", artifacts.icon_ai_report)
@@ -76,7 +77,7 @@ def export_suggestion(
 
 
 def write_icon_candidates(icon_work: Path, artifacts: GeneratedArtifacts) -> None:
-    candidates = artifacts.icon_candidates or legacy_icon_candidates(artifacts)
+    candidates = [candidate for candidate in (artifacts.icon_candidates or legacy_icon_candidates(artifacts)) if not candidate.is_fallback]
     for candidate in candidates:
         if candidate.png and candidate.file_name:
             write_bytes(icon_work / candidate.file_name, candidate.png)
@@ -91,7 +92,7 @@ def write_icon_candidates(icon_work: Path, artifacts: GeneratedArtifacts) -> Non
             "schema_version": 3,
             "standard_icon_size": "512x512",
             "api_icon_size": "1024x1024",
-            "legacy_candidate_png": "icon_candidate_1.png",
+            "legacy_candidate_png": "icon_candidate_1.png" if candidates else "",
             "function_interpretation": artifacts.icon_design_brief or artifacts.import_plan.get("icon_function_interpretation", {}),
             "image_api_summary": summary,
             "candidates": [candidate.manifest_entry() for candidate in candidates],
@@ -100,21 +101,25 @@ def write_icon_candidates(icon_work: Path, artifacts: GeneratedArtifacts) -> Non
 
 
 def ai_generation_report_json(artifacts: GeneratedArtifacts) -> dict[str, object]:
-    candidates = artifacts.icon_candidates or legacy_icon_candidates(artifacts)
+    candidates = [candidate for candidate in (artifacts.icon_candidates or legacy_icon_candidates(artifacts)) if not candidate.is_fallback]
     summary = artifacts.import_plan.get("icon_ai_diagnostics")
     if not isinstance(summary, dict):
         summary = image_api_summary(candidates, {"preset": artifacts.import_plan.get("icon_style_preset", "")})
+    selected_icon_source = str(artifacts.import_plan.get("selected_icon_source") or summary.get("selected_icon_source") or DEFAULT_ICON_SOURCE)
+    default_icon_used = bool(artifacts.import_plan.get("default_icon_used", selected_icon_source == DEFAULT_ICON_SOURCE))
     return {
         "schema_version": 1,
         "text_prompt_generation_status": report_value(artifacts.icon_ai_report, "text_prompt_generation_status") or report_value(artifacts.icon_ai_report, "status"),
         "image_generation_status": "success" if summary.get("image_api_success") else "failed",
         "image_model": summary.get("model", ""),
         "api_candidate_count": summary.get("api_candidate_count", 0),
-        "fallback_candidate_count": summary.get("fallback_candidate_count", 0),
         "failure_class": summary.get("failure_class", ""),
         "failure_message": summary.get("failure_message", ""),
         "admin_next_action": summary.get("admin_next_action", ""),
-        "fallback_created_reason": summary.get("fallback_created_reason", ""),
+        "selected_icon_source": selected_icon_source,
+        "default_icon_used": default_icon_used,
+        "default_icon_reason": artifacts.import_plan.get("default_icon_reason") or summary.get("default_icon_reason", DEFAULT_ICON_REASON),
+        "icon_status": artifacts.import_plan.get("icon_status") or summary.get("icon_status", ""),
         "package_secret_scan_status": summary.get("package_secret_scan_status", "not_recorded"),
         "ai_payload_secret_scan_status": summary.get("ai_payload_secret_scan_status", "not_run"),
         "ai_submission_blocked": summary.get("ai_submission_blocked", False),

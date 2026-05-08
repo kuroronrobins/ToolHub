@@ -32,7 +32,7 @@ function previewIconDataUrl(iconOverride?: AppStudioIconOverride, proposal?: App
   if (iconOverride?.pngDataUrl) {
     return iconOverride.pngDataUrl;
   }
-  if (iconOverride?.selectedIconSource === "fallback_png") {
+  if (iconOverride?.selectedIconSource === "fallback_png" || iconOverride?.selectedIconSource === "default_icon") {
     return proposal?.icon.finalPngDataUrl ?? null;
   }
   return proposal?.icon.finalPngDataUrl ?? null;

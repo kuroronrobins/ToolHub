@@ -165,3 +165,6 @@ GUI実行ログ:
 既存アプリ更新、削除/アンインストール、公開準備はシェル表示に留めています。
 
 削除、publish、APIキー更新などの危険操作は、将来再認証を必須にする前提です。
+## 2026-05-08 update: image API failure and default icon
+
+App Studio now shows API image candidates only when the image API actually returns a saved PNG or URL candidate. If image generation fails or is skipped, the UI shows the failure class, reason, and next action, then uses the ToolHub common default icon as the current `icon.png` until an uploaded icon or AI candidate is adopted. The default icon is not an AI candidate and is not shown in the candidate grid.

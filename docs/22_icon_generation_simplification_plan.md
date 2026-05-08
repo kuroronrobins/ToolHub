@@ -1,6 +1,6 @@
 # App Studio icon generation simplification plan
 
-Status: investigation and simplification policy only. No code, type, or UI removal is implemented in this document.
+Status: investigation plus implementation record. The 2026-05-08 default icon phase has been implemented.
 
 Date: 2026-05-08
 
@@ -12,9 +12,21 @@ The target direction is:
 
 - Uploaded icon is a first-class icon input.
 - AI image API candidates are the only generated candidates.
-- If neither uploaded icon nor adopted AI candidate exists, the icon is undecided.
+- If neither uploaded icon nor adopted AI candidate exists, ToolHub writes the common default app icon to `icon.png`.
 - API failure should show diagnosis and next action, not create local pseudo-production candidates.
-- A ToolHub common default icon may be used only as an explicit compatibility or temporary choice. It must not be shown as an AI candidate or fallback candidate.
+- The ToolHub common default icon is a compatibility icon, not an AI candidate, fallback candidate, recommended candidate, or scored candidate.
+
+## 2026-05-08 implementation update
+
+Implemented in this phase:
+
+- Local fallback PNG candidates are no longer created when the image API is disabled, blocked, or failed.
+- `candidate_manifest.json` writes API image candidates only. The default icon is not stored as a candidate.
+- `icon_work/icon_final.png` and `final_app/icon.png` use `tools/app_studio/assets/default_app_icon.png` when no uploaded/adopted PNG exists.
+- `icon_work/icon_final.svg` and `final_app/icon.svg` use the fixed default SVG asset.
+- `selected_icon_source: default_icon`, `default_icon_used`, `default_icon_reason`, and `icon_status` are written to report/import metadata.
+- The App Studio UI no longer shows fallback candidate grids, fallback adoption buttons, hidden fallback buttons, or dead fallback UI blocks.
+- Existing saved proposals that still contain fallback candidates remain readable at the Rust proposal layer, but normal UI filters them out of the AI candidate list.
 
 ## Pre-implementation self review
 

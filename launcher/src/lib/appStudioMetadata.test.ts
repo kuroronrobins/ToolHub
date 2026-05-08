@@ -38,6 +38,11 @@ describe("appStudioMetadata", () => {
       pngDataUrl: "data:image/png;base64,AAAA",
     });
     expect(cleanIconOverride({ selectedIconSource: "fallback_png" })).toBeUndefined();
+    expect(cleanIconOverride({ selectedIconSource: "default_icon" })).toBeUndefined();
+    expect(cleanIconOverride({ selectedIconSource: "uploaded_png", pngDataUrl: "data:image/png;base64,BBBB" })).toEqual({
+      selectedIconSource: "uploaded_png",
+      pngDataUrl: "data:image/png;base64,BBBB",
+    });
     expect(cleanIconOverride({ selectedIconSource: "candidate_png" })).toBeUndefined();
   });
 });

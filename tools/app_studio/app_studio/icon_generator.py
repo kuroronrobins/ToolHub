@@ -12,6 +12,7 @@ from typing import Any
 import zlib
 
 from .ai_metadata_suggester import build_icon_design_brief, sanitize_ai_text, suggest_icon_prompt
+from .default_icon import DEFAULT_ICON_REASON, DEFAULT_ICON_SOURCE, default_icon_png, default_icon_svg
 from .models import DependencyReport, IconCandidateAsset, IconConcept, IconDesignBrief, SecretScanReport, StudioContext
 from .openai_client import ai_enabled, complete_json, decode_base64_image, failure_guidance, generate_image, has_api_key, edit_image, image_model, normalize_failure_class, text_model
 from .secret_scanner import ai_submission_block_reason, scan_ai_payload_text, secret_scan_status
@@ -225,8 +226,8 @@ def generate_icon_assets_with_candidates(
         revision_report = "No revision prompt was provided."
     prompt_for_asset = revision if revision_prompt else initial_prompt
     style_settings = icon_style_settings(icon_style_preset, icon_style_custom, prompt_for_asset)
-    svg = generate_local_svg(context, prompt_for_asset, style_reference)
-    fallback_png = generate_local_png(context, prompt_for_asset, style_reference, size=LOCAL_ICON_SIZE)
+    svg = default_icon_svg()
+    default_png = default_icon_png()
     candidates, image_reports = generate_icon_candidates(
         context,
         brief,
@@ -238,10 +239,11 @@ def generate_icon_assets_with_candidates(
         style_settings=style_settings,
         revision_image_path=revision_image_path,
     )
-    legacy_candidate = candidates[0] if candidates else None
+    legacy_candidate = candidates[0] if candidates and is_api_candidate(candidates[0]) else None
     legacy_png = legacy_candidate.png if legacy_candidate else None
     legacy_url = legacy_candidate.url if legacy_candidate else ""
     saved_candidates = ", ".join(candidate.file_name or candidate.url_file_name or candidate.candidate_id for candidate in candidates) or "none"
+    image_failure_diagnostics = image_failure_diagnostics_from_reports(image_reports)
     summary = image_api_summary(
         candidates,
         style_settings,
@@ -250,10 +252,10 @@ def generate_icon_assets_with_candidates(
             "package_secret_scan_findings": len(package_secret_report.findings) if package_secret_report else 0,
             "package_ai_submission_blocked": package_secret_report.blocks_ai_submission if package_secret_report else False,
             "package_ai_submission_block_reason": ai_submission_block_reason(package_secret_report),
+            **image_failure_diagnostics,
         },
     )
     text_prompt_status = report_value(initial_report, "status") or ("skipped" if not allow_ai else "unknown")
-    fallback_created_reason = fallback_created_reason_from_summary(summary)
     report = "\n".join(
         [
             "# AI Generation Report",
@@ -278,11 +280,9 @@ def generate_icon_assets_with_candidates(
             f"image_generation_status: {'success' if summary['image_api_success'] else 'failed'}",
             f"image_model: {summary['model']}",
             f"api_candidate_count: {summary['api_candidate_count']}",
-            f"fallback_candidate_count: {summary['fallback_candidate_count']}",
             f"failure_class: {summary.get('failure_class') or 'none'}",
             f"failure_message: {summary.get('failure_message') or 'none'}",
             f"admin_next_action: {summary.get('admin_next_action') or 'none'}",
-            f"fallback_created_reason: {fallback_created_reason or 'none'}",
             f"package_secret_scan_status: {summary.get('package_secret_scan_status') or 'not_recorded'}",
             f"ai_payload_secret_scan_status: {summary.get('ai_payload_secret_scan_status') or 'not_run'}",
             f"ai_submission_blocked: {str(bool(summary.get('ai_submission_blocked'))).lower()}",
@@ -293,18 +293,18 @@ def generate_icon_assets_with_candidates(
             json.dumps(summary, ensure_ascii=False, indent=2),
             f"candidate_count: {len(candidates)}",
             f"api_candidate_count: {sum(1 for candidate in candidates if is_api_candidate(candidate))}",
-            f"fallback_candidate_count: {sum(1 for candidate in candidates if candidate.is_fallback)}",
-            f"last_image_api_failure: {last_image_api_failure(candidates) or 'none'}",
+            f"last_image_api_failure: {summary.get('latest_image_api_failure') or 'none'}",
             f"saved_candidate: {saved_candidate_name(legacy_png, legacy_url)}",
             f"saved_candidates: {saved_candidates}",
             "",
             "PNG is the standard ToolHub App Studio icon output. API PNG candidates require human adoption before final icon.png is replaced.",
-            "Fallback PNGs are placeholders for AI-disabled or API-failed runs and must not be treated as successful AI-generated candidates.",
-            "candidate_manifest.json records each candidate source, model, prompt, status, resolution, failure reason, style preset, fallback/API classification, and quality evaluation fields.",
-            "Vision evaluation is not required for registration. When vision is unavailable, ToolHub stores deterministic prompt/concept and PNG small-size checks as fallback_rule_based evaluation.",
+            "When no uploaded icon or adopted AI PNG is selected, ToolHub writes the common default icon to icon.png for packaging compatibility.",
+            "AI image API failures do not create local fallback candidates. Fix the reported cause or adopt an uploaded/API-generated icon to replace the default icon.",
+            "candidate_manifest.json records API image candidates only. The common default icon is not a candidate and is not scored.",
+            "Vision evaluation is not required for registration. Deterministic score fields are internal hints for API candidates and must not be treated as visual quality guarantees.",
         ]
     )
-    return initial_prompt, revision, svg, fallback_png, style_reference, report, legacy_png, legacy_url, candidates
+    return initial_prompt, revision, svg, default_png, style_reference, report, legacy_png, legacy_url, candidates
 
 
 def icon_candidate_count() -> int:
@@ -777,14 +777,24 @@ def write_icon_regeneration_files(
     if first and first.url:
         write_text_file(icon_work / "icon_candidate_1.url.txt", first.url + "\n")
 
-    new_entries = [candidate.manifest_entry() for candidate in candidates]
+    new_entries = [candidate.manifest_entry() for candidate in candidates if not candidate.is_fallback]
     existing_candidate_ids = {str(entry.get("candidate_id") or entry.get("id") or "") for entry in new_entries}
-    retained_entries = [entry for entry in existing_entries if not isinstance(entry, dict) or str(entry.get("candidate_id") or entry.get("id") or "") not in existing_candidate_ids]
+    retained_entries = [
+        entry
+        for entry in existing_entries
+        if (
+            not isinstance(entry, dict)
+            or (
+                str(entry.get("candidate_id") or entry.get("id") or "") not in existing_candidate_ids
+                and not manifest_entry_is_fallback(entry)
+            )
+        )
+    ]
     combined_entries = new_entries + retained_entries
     for number, entry in enumerate(combined_entries, start=1):
         if isinstance(entry, dict):
             entry["number"] = number
-    summary = image_api_summary(candidates, style_settings)
+    summary = image_api_summary(candidates, style_settings, image_failure_diagnostics_from_reports(image_reports))
     summary.update(
         {
             "revision_mode": revision_mode,
@@ -822,11 +832,12 @@ def write_icon_regeneration_files(
             "image_generation_status": "success" if summary.get("image_api_success") else "failed",
             "image_model": summary.get("model", ""),
             "api_candidate_count": summary.get("api_candidate_count", 0),
-            "fallback_candidate_count": summary.get("fallback_candidate_count", 0),
             "failure_class": summary.get("failure_class", ""),
             "failure_message": summary.get("failure_message", ""),
             "admin_next_action": summary.get("admin_next_action", ""),
-            "fallback_created_reason": summary.get("fallback_created_reason", ""),
+            "selected_icon_source": summary.get("selected_icon_source", DEFAULT_ICON_SOURCE),
+            "default_icon_used": summary.get("default_icon_used", False),
+            "default_icon_reason": summary.get("default_icon_reason", ""),
             "package_secret_scan_status": summary.get("package_secret_scan_status", "not_recorded"),
             "ai_payload_secret_scan_status": summary.get("ai_payload_secret_scan_status", "not_run"),
             "ai_submission_blocked": summary.get("ai_submission_blocked", False),
@@ -845,7 +856,6 @@ def write_icon_regeneration_files(
                 f"image_quality_mode: {image_quality_mode}",
                 f"candidate_count: {len(candidates)}",
                 f"api_candidate_count: {sum(1 for candidate in candidates if is_api_candidate(candidate))}",
-                f"fallback_candidate_count: {sum(1 for candidate in candidates if candidate.is_fallback)}",
                 f"image_api_seconds: {timings.get('image_api_call', 0.0):.3f}",
                 "",
                 "## Admin Diagnosis",
@@ -854,11 +864,12 @@ def write_icon_regeneration_files(
                 f"image_generation_status: {'success' if summary.get('image_api_success') else 'failed'}",
                 f"image_model: {summary.get('model') or 'unknown'}",
                 f"api_candidate_count: {summary.get('api_candidate_count', 0)}",
-                f"fallback_candidate_count: {summary.get('fallback_candidate_count', 0)}",
                 f"failure_class: {summary.get('failure_class') or 'none'}",
                 f"failure_message: {summary.get('failure_message') or 'none'}",
                 f"admin_next_action: {summary.get('admin_next_action') or 'none'}",
-                f"fallback_created_reason: {summary.get('fallback_created_reason') or 'none'}",
+                f"selected_icon_source: {summary.get('selected_icon_source') or DEFAULT_ICON_SOURCE}",
+                f"default_icon_used: {str(bool(summary.get('default_icon_used'))).lower()}",
+                f"default_icon_reason: {summary.get('default_icon_reason') or DEFAULT_ICON_REASON}",
                 f"package_secret_scan_status: {summary.get('package_secret_scan_status') or 'not_recorded'}",
                 f"ai_payload_secret_scan_status: {summary.get('ai_payload_secret_scan_status') or 'not_run'}",
                 f"ai_submission_blocked: {str(bool(summary.get('ai_submission_blocked'))).lower()}",
@@ -893,6 +904,11 @@ def update_icon_regeneration_timing(icon_work: Path, timings: dict[str, float]) 
     if isinstance(last_regeneration, dict):
         last_regeneration["timings"] = timings
     write_json_file(manifest_path, manifest)
+
+
+def manifest_entry_is_fallback(entry: dict[str, Any]) -> bool:
+    source = str(entry.get("source") or "")
+    return bool(entry.get("fallback")) or "fallback" in source
 
 
 def generate_icon_candidates(
@@ -993,57 +1009,7 @@ def generate_icon_candidates(
             candidates.append(candidate)
             continue
 
-        fallback_prompt = image_api_prompt(
-            prompt,
-            brief=brief,
-            concept=concept,
-            prior_candidate_ids=[candidate.candidate_id for candidate in candidates],
-            style_settings=style_settings,
-        )
-        scores = score_icon_candidate(brief, concept, candidates)
-        fallback_reason = ""
-        error_category = ""
-        api_name = "images.edit" if use_edit_api else "images.generate"
-        if image_result:
-            fallback_reason = image_result.fallback_reason or image_result.error or image_note
-            error_category = image_result.error_category
-            api_name = image_result.api or api_name
-        elif payload_blocked:
-            fallback_reason = payload_block_reason or "AI payload secret scan blocked image generation."
-            error_category = "secret_scan_blocked"
-        elif ai_skip_reason:
-            fallback_reason = ai_skip_reason
-        failure_class = normalize_failure_class(error_category or fallback_reason)
-        guidance = failure_guidance(failure_class, fallback_reason)
-        candidate = IconCandidateAsset(
-            candidate_id=f"{candidate_id_prefix}_{index}",
-            number=index,
-            source="fallback" if not allow_ai else "fallback_after_api_failure",
-            prompt=fallback_prompt,
-            model="local-deterministic-fallback",
-            status="skipped" if not allow_ai else "fallback",
-            resolution=f"{LOCAL_ICON_SIZE}x{LOCAL_ICON_SIZE}",
-            is_fallback=True,
-            png=generate_local_png(context, fallback_prompt, style_reference, size=LOCAL_ICON_SIZE),
-            file_name=f"{file_name_prefix}_{index}.png",
-            notes=f"{concept.direction}: placeholder fallback. {image_note or ai_skip_reason or 'local fallback'}",
-            api=api_name,
-            content_type=getattr(image_result, "content_type", "none") if image_result else "none",
-            fallback_reason=fallback_reason or "AI image generation did not produce a usable PNG or URL.",
-            error_category=error_category,
-            failure_class=failure_class,
-            failure_message=guidance.message_ja if failure_class else "",
-            admin_next_action=guidance.next_action_ja if failure_class else "",
-            ai_payload_secret_scan_status=secret_scan_status(payload_report),
-            ai_submission_blocked=payload_blocked or failure_class == "secret_scan_blocked",
-            ai_submission_block_reason=payload_block_reason,
-            concept_id=concept.concept_id,
-            concept=concept.to_dict(),
-            scores=scores,
-            score_total=sum(scores.values()),
-        )
-        apply_icon_candidate_quality(candidate, brief, concept, candidates)
-        candidates.append(candidate)
+        continue
     return candidates, reports
 
 
@@ -1820,7 +1786,7 @@ def image_candidate_from_result(image_result, candidate_number: int = 1) -> tupl
     try:
         return decode_base64_image(content), "", f"API returned b64 image data. It will be saved as icon_candidate_{candidate_number}.png."
     except Exception:
-        return None, "", f"API image data could not be decoded for icon_candidate_{candidate_number}; fallback PNG remains available."
+        return None, "", f"API image data could not be decoded for icon_candidate_{candidate_number}; ToolHub default icon remains available."
 
 
 def skipped_image_report(reason: str, error_category: str = "") -> str:
@@ -1896,6 +1862,36 @@ def fallback_created_reason_from_summary(summary: dict[str, Any]) -> str:
     return "No API image candidate was saved, so local provisional fallback icons were generated."
 
 
+def image_failure_diagnostics_from_reports(reports: list[str]) -> dict[str, Any]:
+    diagnostics: dict[str, Any] = {}
+    for report in reports:
+        status = report_value(report, "status")
+        if status == "success":
+            continue
+        reason = (
+            report_value(report, "fallback_reason")
+            or report_value(report, "error")
+            or report_value(report, "message")
+        )
+        error_category = report_value(report, "error_category")
+        failure_class = report_value(report, "failure_class") or normalize_failure_class(error_category or reason)
+        if not reason and not failure_class:
+            continue
+        guidance = failure_guidance(failure_class, reason) if failure_class else None
+        diagnostics.update(
+            {
+                "latest_image_api_failure": reason,
+                "failure_class": failure_class,
+                "failure_message": report_value(report, "failure_message") or (guidance.message_ja if guidance else ""),
+                "admin_next_action": report_value(report, "admin_next_action") or (guidance.next_action_ja if guidance else ""),
+                "ai_payload_secret_scan_status": "blocked" if failure_class == "secret_scan_blocked" else "",
+                "ai_submission_blocked": failure_class == "secret_scan_blocked",
+                "ai_submission_block_reason": reason if failure_class == "secret_scan_blocked" else "",
+            }
+        )
+    return diagnostics
+
+
 def report_value(report: str, key: str) -> str:
     prefix = f"{key}:"
     for line in report.splitlines():
@@ -1914,13 +1910,20 @@ def image_api_summary(
     fallback_candidates = [candidate for candidate in candidates if candidate.is_fallback]
     model = next((candidate.model for candidate in candidates if candidate.model and candidate.model != "local-deterministic-fallback"), image_model())
     recommended = recommended_icon_candidate(candidates)
-    latest_failure = last_image_api_failure(candidates)
-    failure_class = "" if api_candidates else last_failure_class(candidates)
-    guidance = failure_guidance(failure_class, latest_failure) if failure_class else None
-    payload_status = payload_secret_scan_status(candidates)
-    ai_blocked = any(candidate.ai_submission_blocked for candidate in candidates) or failure_class == "secret_scan_blocked"
-    ai_block_reason = next((candidate.ai_submission_block_reason for candidate in candidates if candidate.ai_submission_block_reason), "")
     diagnostics = diagnostics or {}
+    latest_failure = last_image_api_failure(candidates)
+    if not api_candidates:
+        latest_failure = str(diagnostics.get("latest_image_api_failure") or latest_failure)
+    failure_class = "" if api_candidates else str(diagnostics.get("failure_class") or last_failure_class(candidates))
+    guidance = failure_guidance(failure_class, latest_failure) if failure_class else None
+    payload_status = str(diagnostics.get("ai_payload_secret_scan_status") or payload_secret_scan_status(candidates))
+    ai_blocked = (
+        any(candidate.ai_submission_blocked for candidate in candidates)
+        or bool(diagnostics.get("ai_submission_blocked") or False)
+        or failure_class == "secret_scan_blocked"
+    )
+    ai_block_reason = next((candidate.ai_submission_block_reason for candidate in candidates if candidate.ai_submission_block_reason), "")
+    ai_block_reason = str(diagnostics.get("ai_submission_block_reason") or ai_block_reason)
     package_status = str(diagnostics.get("package_secret_scan_status") or "not_recorded")
     label_counts: dict[str, int] = {}
     for candidate in candidates:
@@ -1936,12 +1939,19 @@ def image_api_summary(
     return {
         "api_candidate_count": len(api_candidates),
         "fallback_candidate_count": len(fallback_candidates),
+        "fallback_candidate_count_deprecated": True,
         "image_api_success": bool(api_candidates),
+        "image_generation_status": "success" if api_candidates else "failed",
         "latest_image_api_failure": latest_failure,
         "failure_class": failure_class,
-        "failure_message": guidance.message_ja if guidance else "",
-        "admin_next_action": guidance.next_action_ja if guidance else "",
+        "failure_message": str(diagnostics.get("failure_message") or (guidance.message_ja if guidance else "")),
+        "admin_next_action": str(diagnostics.get("admin_next_action") or (guidance.next_action_ja if guidance else "")),
         "fallback_created_reason": "",
+        "fallback_created_reason_deprecated": True,
+        "selected_icon_source": str(diagnostics.get("selected_icon_source") or DEFAULT_ICON_SOURCE),
+        "default_icon_used": bool(diagnostics.get("default_icon_used", not api_candidates)),
+        "default_icon_reason": str(diagnostics.get("default_icon_reason") or DEFAULT_ICON_REASON),
+        "icon_status": str(diagnostics.get("icon_status") or ("default_icon" if not api_candidates else "ai_candidates_available")),
         "package_secret_scan_status": package_status,
         "package_secret_scan_findings": int(diagnostics.get("package_secret_scan_findings") or 0),
         "package_ai_submission_blocked": bool(diagnostics.get("package_ai_submission_blocked") or False),
@@ -1959,10 +1969,6 @@ def image_api_summary(
         "recommended_quality_total": recommended.quality_total if recommended else 0.0,
         "quality_label_counts": label_counts,
     }
-    summary["fallback_created_reason"] = fallback_created_reason_from_summary(summary)
-    return summary
-
-
 def recommended_icon_candidate(candidates: list[IconCandidateAsset]) -> IconCandidateAsset | None:
     selectable = [candidate for candidate in candidates if not candidate.is_fallback]
     if not selectable:

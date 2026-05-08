@@ -316,7 +316,7 @@ export interface AppStudioBuildProfile {
   manual_checks?: string[];
 }
 
-export type AppStudioSelectedIconSource = "candidate_png" | "final_png" | "fallback_png";
+export type AppStudioSelectedIconSource = "candidate_png" | "final_png" | "fallback_png" | "default_icon" | "uploaded_png" | "ai_candidate_png";
 export type AppStudioIconStylePreset = "user_prompt" | "modern" | "vivid" | "realistic" | "colored_pencil" | "watercolor" | "flat_vector" | "3d_soft" | "glassmorphism" | "clay" | "custom";
 
 export interface AppStudioIconOverride {
@@ -415,6 +415,18 @@ export interface AppStudioImageApiSummary {
   admin_next_action?: string;
   fallbackCreatedReason?: string;
   fallback_created_reason?: string;
+  fallbackCandidateCountDeprecated?: boolean;
+  fallback_candidate_count_deprecated?: boolean;
+  fallbackCreatedReasonDeprecated?: boolean;
+  fallback_created_reason_deprecated?: boolean;
+  selectedIconSource?: string;
+  selected_icon_source?: string;
+  defaultIconUsed?: boolean;
+  default_icon_used?: boolean;
+  defaultIconReason?: string;
+  default_icon_reason?: string;
+  iconStatus?: string;
+  icon_status?: string;
   packageSecretScanStatus?: string;
   package_secret_scan_status?: string;
   packageSecretScanFindings?: number;

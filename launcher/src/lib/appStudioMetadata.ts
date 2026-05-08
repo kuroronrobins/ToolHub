@@ -125,10 +125,15 @@ export function cleanString(value?: string | null): string {
 }
 
 export function cleanIconOverride(iconOverride?: AppStudioIconOverride): AppStudioIconOverride | undefined {
-  if (!iconOverride || iconOverride.selectedIconSource === "fallback_png") {
+  if (!iconOverride || iconOverride.selectedIconSource === "fallback_png" || iconOverride.selectedIconSource === "default_icon") {
     return undefined;
   }
-  if (iconOverride.selectedIconSource !== "candidate_png" && iconOverride.selectedIconSource !== "final_png") {
+  if (
+    iconOverride.selectedIconSource !== "candidate_png" &&
+    iconOverride.selectedIconSource !== "final_png" &&
+    iconOverride.selectedIconSource !== "ai_candidate_png" &&
+    iconOverride.selectedIconSource !== "uploaded_png"
+  ) {
     return undefined;
   }
   const pngDataUrl = cleanString(iconOverride.pngDataUrl);

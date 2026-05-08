@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / "runner"))
 
 from app_studio.ai_metadata_suggester import build_icon_design_brief, metadata_prompt, normalize_icon_actions, normalize_icon_objects, select_icon_composition_template, suggest_icon_prompt, suggest_metadata
 from app_studio.build_profile import analyze_exe_readiness, default_build_profile
+from app_studio.default_icon import default_icon_png
 from app_studio.icon_generator import build_icon_revision_api_base_prompt, fallback_icon_concepts, generate_icon_assets_with_candidates, generate_local_png, icon_image_generation_settings, icon_regeneration_candidate_count, icon_style_settings, image_api_prompt, image_api_summary, regenerate_icon_only
 from app_studio.app_env_builder import create_app_env, create_build_env, install_build_tools, run_command
 from app_studio.approval import approve_app, targeted_approval_verification, validate_approval_inputs, verify_release_gate
@@ -1397,7 +1398,7 @@ class OpenAIFallbackTests(unittest.TestCase):
             context = make_context(root)
             with patch("app_studio.icon_generator.generate_image") as mocked_generate:
                 with patch("app_studio.icon_generator.edit_image") as mocked_edit:
-                    _, _, _, fallback_png, _, report, _, _, candidates = generate_icon_assets_with_candidates(
+                    _, _, _, selected_png, _, report, _, _, candidates = generate_icon_assets_with_candidates(
                         context,
                         allow_ai=False,
                         ai_skip_reason="secret scan blocked AI submission, AI skipped",
@@ -1407,10 +1408,10 @@ class OpenAIFallbackTests(unittest.TestCase):
 
             mocked_generate.assert_not_called()
             mocked_edit.assert_not_called()
-            self.assertEqual(png_dimensions(fallback_png), (512, 512))
-            self.assertTrue(candidates)
-            self.assertTrue(all(candidate.is_fallback for candidate in candidates))
+            self.assertEqual(selected_png, default_icon_png())
+            self.assertEqual(candidates, [])
             self.assertIn("secret scan blocked AI submission", report)
+            self.assertIn("common default icon", report)
 
     def test_api_image_candidates_are_marked_separately_from_fallback(self) -> None:
         fake_result = OpenAIResult(
@@ -1467,16 +1468,22 @@ class OpenAIFallbackTests(unittest.TestCase):
                     metadata={"short_description": "Combine PDF documents into one PDF.", "inputs": ["PDF"], "outputs": ["PDF"]},
                 )
 
-        self.assertTrue(candidates)
-        self.assertTrue(all(candidate.is_fallback for candidate in candidates))
-        self.assertEqual(candidates[0].source, "fallback_after_api_failure")
-        self.assertEqual(candidates[0].fallback_reason, "unsupported model")
-        self.assertEqual(candidates[0].error_category, "unsupported_model")
-        summary = image_api_summary(candidates)
+        self.assertEqual(candidates, [])
+        summary = image_api_summary(
+            candidates,
+            diagnostics={
+                "latest_image_api_failure": "unsupported model",
+                "failure_class": "unsupported_model",
+            },
+        )
         self.assertEqual(summary["api_candidate_count"], 0)
+        self.assertEqual(summary["fallback_candidate_count"], 0)
         self.assertFalse(summary["image_api_success"])
         self.assertEqual(summary["latest_image_api_failure"], "unsupported model")
+        self.assertEqual(summary["failure_class"], "unsupported_model")
+        self.assertTrue(summary["default_icon_used"])
         self.assertIn("api_candidate_count: 0", report)
+        self.assertNotIn("fallback_after_api_failure", report)
 
     def test_revision_image_uses_edit_api_before_text_only_fallback(self) -> None:
         fake_result = OpenAIResult(
@@ -1761,10 +1768,9 @@ class IconCandidateExportTests(unittest.TestCase):
             manifest = json.loads((output / "icon_work" / "candidate_manifest.json").read_text(encoding="utf-8"))
 
             self.assertTrue((output / "icon_work" / "icon_candidate_1.png").is_file())
-            self.assertTrue((output / "icon_work" / "icon_candidate_2.png").is_file())
-            self.assertEqual(len(manifest["candidates"]), 2)
+            self.assertFalse((output / "icon_work" / "icon_candidate_2.png").is_file())
+            self.assertEqual(len(manifest["candidates"]), 1)
             self.assertFalse(manifest["candidates"][0]["fallback"])
-            self.assertTrue(manifest["candidates"][1]["fallback"])
             self.assertEqual(manifest["candidates"][0]["concept_id"], "literal_1")
             self.assertEqual(manifest["candidates"][0]["scores"]["semantic_clarity"], 9.0)
             self.assertEqual(manifest["candidates"][0]["score_total"], 25.0)
@@ -1773,10 +1779,42 @@ class IconCandidateExportTests(unittest.TestCase):
             self.assertIn("quality_label", manifest["candidates"][0])
             self.assertIn("quality_warnings", manifest["candidates"][0])
             self.assertIn(manifest["candidates"][0]["image_evaluation_status"], {"fallback_rule_based", "not_run"})
-            self.assertEqual(manifest["candidates"][1]["fallback_reason"], "test fallback")
             self.assertEqual(manifest["image_api_summary"]["api_candidate_count"], 1)
-            self.assertEqual(manifest["image_api_summary"]["fallback_candidate_count"], 1)
+            self.assertEqual(manifest["image_api_summary"]["fallback_candidate_count"], 0)
             self.assertIn("recommended_candidate_id", manifest["image_api_summary"])
+
+    def test_default_icon_is_used_without_candidates(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            artifacts = minimal_artifacts(context)
+            artifacts.icon_final_png = None
+            artifacts.import_plan.update(
+                {
+                    "selected_icon_source": "default_icon",
+                    "default_icon_used": True,
+                    "icon_status": "default_icon",
+                    "icon_ai_diagnostics": {
+                        "api_candidate_count": 0,
+                        "fallback_candidate_count": 0,
+                        "image_api_success": False,
+                        "selected_icon_source": "default_icon",
+                        "default_icon_used": True,
+                        "default_icon_reason": "No uploaded icon or adopted AI image candidate was selected.",
+                        "icon_status": "default_icon",
+                    },
+                }
+            )
+
+            output = export_suggestion(context, SourceInventory([]), DependencyReport("test", [], [], []), SecretScanReport([]), BuildPlan("app-env", "python_app_env", "src/main.py", None, []), artifacts)
+            manifest = json.loads((output / "icon_work" / "candidate_manifest.json").read_text(encoding="utf-8"))
+            report_json = json.loads((output / "icon_work" / "ai_generation_report.json").read_text(encoding="utf-8"))
+
+            self.assertEqual((output / "final_app" / "icon.png").read_bytes(), default_icon_png())
+            self.assertEqual((output / "icon_work" / "icon_final.png").read_bytes(), default_icon_png())
+            self.assertFalse((output / "icon_work" / "icon_candidate_1.png").exists())
+            self.assertEqual(manifest["candidates"], [])
+            self.assertTrue(report_json["default_icon_used"])
+            self.assertEqual(report_json["selected_icon_source"], "default_icon")
 
 
 class RuntimeCheckerTests(unittest.TestCase):

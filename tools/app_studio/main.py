@@ -26,6 +26,7 @@ from app_studio.execution_tester import record_blocked_execution, run_execution_
 from app_studio.exporter import export_suggestion
 from app_studio.file_classifier import classify_files
 from app_studio.frozen_folder_builder import build_frozen_folder
+from app_studio.default_icon import DEFAULT_ICON_REASON, DEFAULT_ICON_SOURCE
 from app_studio.icon_generator import DEFAULT_ICON_REGENERATION_CANDIDATE_COUNT, ICON_IMAGE_QUALITY_MODES, ICON_REGENERATION_MODES, generate_icon_assets_with_candidates, image_api_summary, regenerate_icon_only
 from app_studio.icon_override import apply_icon_override, load_icon_override
 from app_studio.lock_generator import generate_lock
@@ -178,7 +179,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         build_profile = merge_build_profiles(build_profile, load_build_profile(options.build_profile_path), "manual+auto")
     build_profile_hash = stable_payload_hash(build_relevant_profile_payload(build_profile))
     exe_readiness = analyze_exe_readiness(context, plan, inventory, dependency_report, secret_report, build_profile)
-    with timings.phase("metadata_ai_fallback"):
+    with timings.phase("metadata_ai"):
         metadata = suggest_metadata(context, secret_report)
     metadata_override_applied: list[str] = []
     metadata_override_warnings: list[str] = []
@@ -193,8 +194,8 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         if package_blocks_icon_ai
         else ""
     )
-    with timings.phase("icon_generation_fallback"):
-        icon_prompt_initial, icon_prompt_revision, icon_svg, fallback_png, style_reference, icon_ai_report, icon_candidate_png, icon_candidate_url, icon_candidates = generate_icon_assets_with_candidates(
+    with timings.phase("icon_generation"):
+        icon_prompt_initial, icon_prompt_revision, icon_svg, default_icon_png, style_reference, icon_ai_report, icon_candidate_png, icon_candidate_url, icon_candidates = generate_icon_assets_with_candidates(
             context,
             args.icon_prompt,
             allow_ai=not package_blocks_icon_ai,
@@ -208,11 +209,11 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         )
     icon_design_brief = build_icon_design_brief(context, metadata, dependency_report, style_reference).to_dict()
     icon_override_warnings: list[str] = []
-    selected_icon_source = "fallback_png"
-    icon_final_png = fallback_png
+    selected_icon_source = DEFAULT_ICON_SOURCE
+    icon_final_png = default_icon_png
     if args.icon_override:
         icon_override = load_icon_override(Path(args.icon_override))
-        icon_final_png, selected_icon_source, icon_override_warnings = apply_icon_override(fallback_png, icon_override)
+        icon_final_png, selected_icon_source, icon_override_warnings = apply_icon_override(default_icon_png, icon_override)
     icon_ai_diagnostics = image_api_summary(
         icon_candidates,
         {"preset": options.icon_style_preset or ""},
@@ -221,15 +222,43 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
             "package_secret_scan_findings": len(secret_report.findings),
             "package_ai_submission_blocked": secret_report.blocks_ai_submission,
             "package_ai_submission_block_reason": ai_submission_block_reason(secret_report),
+            "latest_image_api_failure": report_field(icon_ai_report, "last_image_api_failure") or report_field(icon_ai_report, "fallback_reason"),
+            "failure_class": report_field(icon_ai_report, "failure_class"),
+            "failure_message": report_field(icon_ai_report, "failure_message"),
+            "admin_next_action": report_field(icon_ai_report, "admin_next_action"),
+            "ai_payload_secret_scan_status": report_field(icon_ai_report, "ai_payload_secret_scan_status"),
+            "ai_submission_blocked": report_field(icon_ai_report, "ai_submission_blocked") == "true",
+            "ai_submission_block_reason": report_field(icon_ai_report, "ai_submission_block_reason"),
         },
     )
-    icon_provisional_fallback_used = (
-        not args.icon_override
-        and int(icon_ai_diagnostics.get("api_candidate_count") or 0) == 0
-        and int(icon_ai_diagnostics.get("fallback_candidate_count") or 0) > 0
+    default_icon_used = selected_icon_source == DEFAULT_ICON_SOURCE
+    default_icon_reason = (
+        "Icon override was missing or invalid, so ToolHub used the common default app icon."
+        if args.icon_override and default_icon_used and icon_override_warnings
+        else DEFAULT_ICON_REASON
     )
-    if icon_provisional_fallback_used:
-        selected_icon_source = "provisional_fallback_png"
+    icon_status = icon_status_for_source(
+        selected_icon_source,
+        default_icon_used=default_icon_used,
+        api_candidate_count=int(icon_ai_diagnostics.get("api_candidate_count") or 0),
+        failure_class=str(icon_ai_diagnostics.get("failure_class") or ""),
+    )
+    icon_ai_diagnostics.update(
+        {
+            "selected_icon_source": selected_icon_source,
+            "default_icon_used": default_icon_used,
+            "default_icon_reason": default_icon_reason if default_icon_used else "",
+            "icon_status": icon_status,
+        }
+    )
+    icon_ai_report = append_icon_selection_report(
+        icon_ai_report,
+        selected_icon_source=selected_icon_source,
+        icon_status=icon_status,
+        default_icon_used=default_icon_used,
+        default_icon_reason=default_icon_reason if default_icon_used else "",
+    )
+    icon_provisional_fallback_used = False
     build_plan_md = build_plan_markdown(plan, context)
     import_plan = {
         "app_id": context.app_id,
@@ -273,8 +302,14 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "icon_revision_image_used": bool(options.icon_revision_image_path),
         "icon_function_interpretation": icon_design_brief,
         "icon_candidate_count": len(icon_candidates),
+        "api_candidate_count": icon_ai_diagnostics.get("api_candidate_count", 0),
+        "failure_class": icon_ai_diagnostics.get("failure_class", ""),
+        "admin_next_action": icon_ai_diagnostics.get("admin_next_action", ""),
         "icon_ai_diagnostics": icon_ai_diagnostics,
         "selected_icon_source": selected_icon_source,
+        "default_icon_used": default_icon_used,
+        "default_icon_reason": default_icon_reason if default_icon_used else "",
+        "icon_status": icon_status,
         "icon_override_used": bool(args.icon_override),
         "icon_provisional_fallback_used": icon_provisional_fallback_used,
         "icon_override_warnings": icon_override_warnings,
@@ -511,6 +546,49 @@ def run_icon_regenerate(args: argparse.Namespace, repo_root: Path) -> int:
 
 def json_dumps(value: dict) -> str:
     return json.dumps(value, ensure_ascii=False)
+
+
+def icon_status_for_source(source: str, *, default_icon_used: bool, api_candidate_count: int, failure_class: str) -> str:
+    if source == "uploaded_png":
+        return "uploaded"
+    if source in {"candidate_png", "ai_candidate_png", "final_png"}:
+        return "ai_candidate_selected"
+    if default_icon_used and failure_class and api_candidate_count == 0:
+        return "api_failed_default_used"
+    if default_icon_used:
+        return "default_icon"
+    return "undecided"
+
+
+def append_icon_selection_report(
+    report: str,
+    *,
+    selected_icon_source: str,
+    icon_status: str,
+    default_icon_used: bool,
+    default_icon_reason: str,
+) -> str:
+    section = "\n".join(
+        [
+            "",
+            "## Icon Selection",
+            "",
+            f"selected_icon_source: {selected_icon_source}",
+            f"icon_status: {icon_status}",
+            f"default_icon_used: {str(default_icon_used).lower()}",
+            f"default_icon_reason: {default_icon_reason or 'none'}",
+        ]
+    )
+    return (report or "").rstrip() + "\n" + section + "\n"
+
+
+def report_field(report: str, key: str) -> str:
+    prefix = f"{key}:"
+    for line in (report or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith(prefix):
+            return stripped[len(prefix):].strip()
+    return ""
 
 
 def stable_payload_hash(value: object) -> str:

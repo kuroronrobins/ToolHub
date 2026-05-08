@@ -733,7 +733,7 @@ export function AppStudioImportWizard() {
           <select value={revisionBaseCandidateId} onChange={(event) => setRevisionBaseCandidateId(event.target.value)}>
             {revisionCandidates.map((candidate) => (
               <option key={candidate.candidateId} value={candidate.candidateId}>
-                候補 {candidate.number}: {candidate.fallback ? "fallback" : "API生成"} / {candidate.resolution || "unknown"}
+                候補 {candidate.number}: API生成 / {candidate.resolution || "unknown"}
               </option>
             ))}
           </select>
@@ -872,7 +872,7 @@ function ImageApiBlockedBanner({ result }: { result: StoredImageGenerationTestRe
     <div className="studio-image-api-blocker" role="alert">
       <strong>画像APIテストが失敗しています。AI画像候補と再生成はブロック中です。</strong>
       <p>{imageApiFailureGuidance(result)}</p>
-      <p>fallback画像はAI画像ではなく、スタイル指定は反映されません。メタデータ編集と手動入力は継続できます。</p>
+      <p>AI画像候補は作成されません。候補未採用時はToolHub共通default iconが使用されます。メタデータ編集と手動入力は継続できます。</p>
     </div>
   );
 }
@@ -883,7 +883,7 @@ function iconCandidatesForProposal(proposal: AppStudioAiProposal | null): AppStu
     return [];
   }
   if (Array.isArray(icon.candidates) && icon.candidates.length) {
-    return icon.candidates;
+    return icon.candidates.filter((candidate) => !candidate.fallback && isApiOrLegacyCandidate(candidate));
   }
   if (icon.candidatePngDataUrl || icon.candidateUrl) {
     return [
@@ -907,6 +907,10 @@ function iconCandidatesForProposal(proposal: AppStudioAiProposal | null): AppStu
 function selectedRevisionBaseCandidate(proposal: AppStudioAiProposal | null, candidateId: string): AppStudioAiIconCandidate | null {
   const candidates = iconCandidatesForProposal(proposal);
   return candidates.find((candidate) => candidate.candidateId === candidateId) ?? candidates[0] ?? null;
+}
+
+function isApiOrLegacyCandidate(candidate: AppStudioAiIconCandidate): boolean {
+  return Boolean(candidate.source?.startsWith("api") || candidate.source === "legacy");
 }
 
 function buildIconRevisionContext(
@@ -935,7 +939,7 @@ function buildIconRevisionContext(
     `previous_candidate_id: ${baseCandidate?.candidateId || "unknown"}`,
     "previous_prompt: omitted from the saved UI request so it cannot override the user's instruction",
     `previous_status: ${baseCandidate?.status || "unknown"}`,
-    `previous_source: ${baseCandidate?.fallback ? "fallback" : baseCandidate?.source || "unknown"}`,
+    `previous_source: ${baseCandidate?.source || "unknown"}`,
     `previous_resolution: ${baseCandidate?.resolution || "unknown"}`,
     `previous_adoption_state: ${adopted}`,
     `preserve_elements: ${strength.preserve}`,
@@ -1063,11 +1067,20 @@ function iconSourceLabel(source?: string): string {
   if (source === "candidate_png") {
     return "AI PNG候補";
   }
+  if (source === "ai_candidate_png") {
+    return "AI PNG候補";
+  }
+  if (source === "uploaded_png") {
+    return "アップロードPNG";
+  }
+  if (source === "default_icon") {
+    return "ToolHub共通default icon";
+  }
   if (source === "final_png") {
-    return "フォールバックPNG";
+    return "PNG選択済み";
   }
   if (source === "fallback_png") {
-    return "フォールバック";
+    return "旧fallback（default icon扱い）";
   }
   return "未採用";
 }

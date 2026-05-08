@@ -4146,11 +4146,15 @@ fn icon_override_payload(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("fallback_png");
-    if source == "fallback_png" {
+        .unwrap_or("default_icon");
+    if source == "default_icon" || source == "fallback_png" {
         return Ok(None);
     }
-    if source != "candidate_png" && source != "final_png" {
+    if source != "candidate_png"
+        && source != "final_png"
+        && source != "ai_candidate_png"
+        && source != "uploaded_png"
+    {
         return Err("Icon override source is invalid.".to_string());
     }
     let png_data_url = icon_override
@@ -4212,11 +4216,11 @@ fn build_ai_env_plan() -> AiEnvPlan {
     let cli_env_ready =
         settings.ai_enabled && api_key_present && (text_model_set || image_model_set);
     let message = if !settings.ai_enabled {
-        "AI is disabled; CLI will use fallback.".to_string()
+        "AI is disabled; CLI will use the ToolHub default icon when no icon is selected.".to_string()
     } else if !api_key_present {
-        "API key is missing; CLI will use fallback.".to_string()
+        "API key is missing; CLI will use the ToolHub default icon when no icon is selected.".to_string()
     } else if !text_model_set && !image_model_set {
-        "No AI models are configured; CLI will use fallback.".to_string()
+        "No AI models are configured; CLI will use the ToolHub default icon when no icon is selected.".to_string()
     } else {
         "CLI AI environment is ready.".to_string()
     };
@@ -4735,6 +4739,13 @@ mod tests {
         assert!(object.get("png_base64").is_some());
         assert!(icon_override_payload(&Some(AppStudioIconOverride {
             selected_icon_source: Some("fallback_png".to_string()),
+            png_data_url: None,
+            candidate_id: None,
+        }))
+        .unwrap()
+        .is_none());
+        assert!(icon_override_payload(&Some(AppStudioIconOverride {
+            selected_icon_source: Some("default_icon".to_string()),
             png_data_url: None,
             candidate_id: None,
         }))

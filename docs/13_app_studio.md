@@ -4,7 +4,7 @@
 
 旧来の `auto` / `app-env` / `existing-exe` / Python 直接実行は、既存 manifest 互換や古いログを読むための概念として残っていますが、通常新規登録 GUI の選択肢ではありません。Entry が `.exe` の場合は、既存 exe 登録ではなく Python ソースを選び直す必要があります。
 
-GUIでは、Suggest が生成した `proposed_app.yaml` と `icon_work/` をAI/fallback提案として読み込めます。表示対象は、表示名、short_description、detail.description、categories、search keywords、examples、use_cases、inputs、outputs、notes、icon prompt、更新時の release notes 草案、`icon_candidate_1.png`、`icon_final.png`、`icon_candidate_1.url.txt`、`icon_fallback.svg`、互換用の `icon_final.svg` です。AI提案は自動確定せず、採用ボタンで表示名やicon promptなど編集可能な入力欄へ反映します。APIキー未設定、AI無効、OpenAI packageなし、API失敗時も CLI 側の deterministic fallback で動きます。secret scan でAI送信対象にリスクがある場合はAI送信しません。
+GUIでは、Suggest が生成した `proposed_app.yaml` と `icon_work/` をAI提案として読み込めます。表示対象は、表示名、short_description、detail.description、categories、search keywords、examples、use_cases、inputs、outputs、notes、icon prompt、更新時の release notes 草案、API画像候補、`icon_final.png`、`icon_candidate_1.url.txt`、互換用の `icon_final.svg` です。AI提案は自動確定せず、採用ボタンで表示名やicon promptなど編集可能な入力欄へ反映します。APIキー未設定、AI無効、OpenAI packageなし、API失敗時は local fallback candidate を作らず、ToolHub共通default iconを `icon.png` に使います。secret scan でAI送信対象にリスクがある場合はAI送信しません。
 
 AI提案パネルはCLIへ渡すAI環境の診断も表示します。表示対象は AI enabled、API key source、Text model、Image model、CLI env ready です。APIキー本文は表示しません。`metadata_ai_report` と `icon_work/ai_generation_report.md` から、metadata/image それぞれの `status`、`model`、`parse_status`、`content_type`、`saved_candidate`、`fallback_reason` も確認できます。
 
@@ -16,11 +16,11 @@ AI/APIキー管理には「画像生成テスト（実API呼び出し）」が�
 
 AI/APIキー管理では候補モデル `gpt-image-2`、`gpt-image-1.5`、`gpt-image-1`、`gpt-image-1-mini` を順番に実APIテストできます。成功したモデルは「このモデルを使用」で Image model 入力欄へ反映し、保存すると以後の App Studio 実行で使われます。候補モデル確認は実API呼び出しのため、OpenAI API利用料金が発生する場合があります。
 
-Icon候補の `source` が `api_generate` または `api_edit` のものだけを通常のAI生成候補として扱います。`fallback` / `fallback_after_api_failure` は API未実行または API失敗時の暫定プレースホルダーであり、AI生成成功とは扱いません。GUIでは API候補数、fallback候補数、使用モデル、スタイル、直近の画像API失敗理由を候補一覧上部に表示します。fallback PNG を使う場合は、候補カード上で明示的に採用する必要があります。
+Icon候補の `source` が `api_generate` または `api_edit` のものだけを通常のAI生成候補として扱います。`fallback` / `fallback_after_api_failure` を含む古い保存済み提案は読み取り互換のために解釈しますが、新規の候補としては作成・表示・採用しません。GUIでは API候補数、使用モデル、スタイル、直近の画像API失敗理由、現在の ToolHub共通default icon 使用状態を候補一覧上部に表示します。
 
 新規登録GUIでは、スタイルプリセットを先に選ばせず、アイコンPromptまたは「スタイル補足」にユーザーが文章で指定します。CLI互換のため `iconStylePreset` は残っていますが、GUIはスタイル補足がある場合だけ `custom` として送り、未指定時は `user_prompt` 相当としてユーザーPromptからスタイルを解釈します。後段の固定 prompt や過去候補のPromptは、ユーザーのモチーフ、構図、スタイル、色、素材、動きの指定を上書きしない前提です。
 
-再生成時に修正元PNGが選ばれている場合、CLI はそのPNGを一時ファイルとして渡し、OpenAI SDK の画像編集API経路を試みます。画像編集APIが失敗した場合は `candidate_manifest.json` と GUI に失敗理由を残し、fallback候補は暫定プレースホルダーとして分離表示します。画像候補の自動採点は、MVPでは vision model 評価ではなく、prompt/concept 評価に PNG の小サイズ視認性・コントラスト・余白の簡易検査を加えた deterministic rule-based 評価です。Vision 評価を実行していない場合は `image_evaluation_status: fallback_rule_based` または `not_run` として明示します。
+再生成時に修正元PNGが選ばれている場合、CLI はそのPNGを一時ファイルとして渡し、OpenAI SDK の画像編集API経路を試みます。画像編集APIが失敗した場合は `candidate_manifest.json` と GUI に失敗理由を残し、local fallback candidate は作成しません。画像候補の自動採点は、MVPでは vision model 評価ではなく、prompt/concept 評価に PNG の小サイズ視認性・コントラスト・余白の簡易検査を加えた deterministic rule-based 評価です。Vision 評価を実行していない場合は `image_evaluation_status: fallback_rule_based` または `not_run` として明示します。
 
 GUIでは CLI process の `exit_code` / `process_ok` と、`execution_test_result.json` の `overall_status` / `approval_allowed` を分けて表示します。通常新規登録の frozen-folder では runner dry execution や Playwright ログイン未確認により `overall_status: warn` になることがあります。警告は `approval_blocking_warning`、`non_blocking_warning`、`info` に分類され、`approval_allowed: true` かつ `approval_blocking_warnings_count: 0` の場合は、デフォルトの慎重モードでも承認できます。App Packが見つからない場合は App Pack 欄だけ `not found` と表示します。Apply後はGUIが `app_studio_read_result` を再実行し、生成済みJSONの内容を表示へ反映します。
 
@@ -34,7 +34,7 @@ GUIで編集できる metadata は `short_description`、`description`、`catego
 
 metadata_override は CLI の metadata 生成後に merge され、`proposed_app.yaml`、`final_app/app.yaml`、Apply 後の `apps/<app_id>/app.yaml` に反映されます。反映先は `display.short_description`、`detail.description`、`display.categories`、`search.keywords`、`search.examples`、`detail.use_cases`、`detail.inputs`、`detail.outputs`、`detail.notes`、`release.release_notes`、`release.change_summary` です。結果パネルには metadata_override の使用有無と反映キーを表示します。
 
-Icon候補はPNGを主表示にします。GUIで `candidate_png` または `final_png` を採用すると、管理者認証済みの Tauri command が `%LOCALAPPDATA%\ToolHub\data\app_studio\icon_overrides\` に一時JSONを書き、CLIへ `--icon-override <path>` を渡します。採用前のPNG候補はレビュー用だけで、Apply時に自動確定しません。fallback SVGを選ぶ場合はPNG overrideを渡さず、CLIの deterministic fallback PNG と互換用SVGを使います。
+Icon候補はPNGを主表示にします。GUIで `candidate_png`、`ai_candidate_png`、`uploaded_png`、または互換用の `final_png` を採用すると、管理者認証済みの Tauri command が `%LOCALAPPDATA%\ToolHub\data\app_studio\icon_overrides\` に一時JSONを書き、CLIへ `--icon-override <path>` を渡します。採用前のPNG候補はレビュー用だけで、Apply時に自動確定しません。未採用時はPNG overrideを渡さず、CLIは ToolHub共通default icon を `icon.png` に使います。
 
 # ToolHub App Studio
 
@@ -72,7 +72,7 @@ ToolHub App Studio は、開発者が既存アプリのメインファイルを�
 
 GUI 版 App Studio は管理者画面から開く方針です。通常ランチャー画面に App Studio や APIキー管理を直接出さず、初回管理者パスワード設定または管理者ログイン後の管理者ダッシュボードからのみ遷移します。
 
-OpenAI APIキーは管理者画面の AI/APIキー管理で扱います。キー本体は設定JSON、`app.yaml`、App Pack、ログには保存せず、Windows では Credential Manager を使います。APIキー未設定時も App Studio は deterministic fallback で動作します。
+OpenAI APIキーは管理者画面の AI/APIキー管理で扱います。キー本体は設定JSON、`app.yaml`、App Pack、ログには保存せず、Windows では Credential Manager を使います。APIキー未設定時も App Studio は ToolHub共通default icon を `icon.png` に使って `display.icon: icon.png` の互換性を維持します。
 
 ## GUI新規登録フロー
 
@@ -175,7 +175,7 @@ AgendaSnap 級の複雑アプリ、音声/GUI/外部DLL/重い依存を含むア
 
 `-IconPrompt` を指定すると、`icon_work/icon_prompt_revision.md` に修正指示を保存します。App Studio の標準アイコン成果物はPNGです。AI画像生成APIが b64 PNG を返した場合は `icon_work/icon_candidate_1.png` に保存し、GUIで人間が採用したPNGだけを `icon_work/icon_final.png`、`final_app/icon.png`、Apply後の `apps/<app_id>/icon.png` に反映します。
 
-APIキー未設定、AI無効、OpenAI packageなし、API失敗、high/medium secret検出時はAI送信せず deterministic fallback PNG を生成します。fallback/互換用SVGは `icon_work/icon_fallback.svg` と `final_app/icon.svg` に残します。fallback PNG は 512x512 の暫定画像で、API生成成功とは扱いません。モデル名はコードに固定せず、GUIでは管理者画面の Image model 設定、CLIでは `TOOLHUB_APP_STUDIO_IMAGE_MODEL` から読みます。既定候補は OpenAI 公式ドキュメントで GPT Image 系として案内されている `gpt-image-2` です。実環境で利用できるかは「画像生成テスト（実API呼び出し）」で確認してください。
+APIキー未設定、AI無効、OpenAI packageなし、API失敗、high/medium secret検出時はAI送信せず、local fallback candidate は生成しません。アップロード画像または採用済みAI候補がない場合は ToolHub共通default icon を `icon_work/icon_final.png` と `final_app/icon.png` にコピーします。default icon はAI生成候補ではなく、`candidate_manifest.json` の候補にも入れません。モデル名はコードに固定せず、GUIでは管理者画面の Image model 設定、CLIでは `TOOLHUB_APP_STUDIO_IMAGE_MODEL` から読みます。既定候補は OpenAI 公式ドキュメントで GPT Image 系として案内されている `gpt-image-2` です。実環境で利用できるかは「画像生成テスト（実API呼び出し）」で確認してください。
 
 `icon_work/candidate_manifest.json` には候補ごとの `source`、`api`、`model`、`status`、`resolution`、`content_type`、`fallback_reason`、`error_category`、`score_basis`、`image_evaluation_status` に加え、`semantic_score`、`specificity_score`、`small_size_score`、`aesthetic_score`、`revision_follow_score`、`generic_risk_score`、`quality_total`、`quality_label`、`quality_reasons`、`quality_warnings` を保存します。互換のため `icon_candidate_1.png` は引き続き読み込めますが、manifest のない古い候補は `legacy` として扱います。
 
@@ -395,7 +395,7 @@ data/logs/app_studio/<app_id>_execution_test_result.json
 
 ## OpenAI API連携
 
-AI 連携は明示的に有効化した場合だけ試行します。未設定時や失敗時は deterministic fallback を使います。
+AI 連携は明示的に有効化した場合だけ試行します。未設定時や失敗時は local fallback candidate を作らず、ToolHub共通default icon を `icon.png` に使います。
 
 GUI では管理者画面の AI/APIキー管理から AI ON/OFF、Text model、Image model、OpenAI APIキーを管理します。CLI では従来通り環境変数を利用できます。
 
@@ -465,9 +465,9 @@ AI利用時:
 
 - `TOOLHUB_APP_STUDIO_AI_ENABLED=true` を明示する。
 - `OPENAI_API_KEY` が設定されていることを確認する。
-- AI送信対象の secret finding がある場合はAI送信されず fallback になることを確認する。
+- AI送信対象の secret finding がある場合はAI送信されず、ToolHub共通default icon が使われることを確認する。
 - 生成アイコン候補PNG/URLは人間レビュー用であり、採用したPNGだけが `icon.png` に反映されることを確認する。
-- `candidate_manifest.json` の `quality_label`、`quality_warnings`、`image_evaluation_status` を確認し、`fallback` / `fallback_after_api_failure` をAI生成成功候補と混同しない。
+- `candidate_manifest.json` の `quality_label`、`quality_warnings`、`image_evaluation_status` を確認し、API候補だけが通常のAI生成候補として保存されることを確認する。
 - 既存 `display.icon: icon.svg` のアプリが引き続き表示できることを確認する。
 
 ## App Studio Import Diagnostic Script
@@ -559,8 +559,9 @@ safe app-specific signals such as `app_id`, app name, entry file name, README
 excerpt, generated metadata, categories, keywords, use cases, inputs, outputs,
 and dependency names. It must not include API keys, secrets, or local absolute
 paths. If the secret scan finds high or medium findings that affect AI
-submission, text and image AI calls are skipped and local fallback candidates are
-used.
+submission, text and image AI calls are skipped. App Studio does not create
+local fallback candidates; if no uploaded or adopted AI icon is available, the
+ToolHub common default icon is used as `icon.png` for compatibility.
 
 The brief is function-first, not noun-only. It records `app_kind`,
 `primary_action`, `secondary_action`, `input_objects`, `output_objects`,
@@ -586,18 +587,14 @@ is built from one concept so candidates are different ideas rather than minor
 variations of the same generic symbol.
 
 Icon generation writes `icon_work/candidate_manifest.json` in addition to the
-legacy `icon_candidate_1.png` / `icon_candidate_1.url.txt` files. The manifest
-records each candidate id, source (`api`, `fallback`, or
-`fallback_after_api_failure`), prompt, model, status, resolution, and whether it
-is a fallback. The normal fallback PNG is generated at 512x512 instead of 64x64.
-When the image API returns 1024x1024 PNG data, that original candidate is kept in
-`icon_work` for review. Manifest schema v2 also stores the function
-interpretation, concept metadata, and rule-based scores for semantic clarity,
-specificity, small-size legibility, aesthetics, and diversity. The current MVP
-also writes quality fields for the generated image candidate itself:
-`semantic_score`, `specificity_score`, `small_size_score`, `aesthetic_score`,
-`revision_follow_score`, `generic_risk_score`, `quality_total`,
-`quality_label`, `quality_reasons`, and `quality_warnings`.
+legacy `icon_candidate_1.png` / `icon_candidate_1.url.txt` files when API image
+candidates exist. The manifest records API candidate id, prompt, model, status,
+and resolution. It does not store the ToolHub common default icon as a
+candidate. When the image API returns 1024x1024 PNG data, that original
+candidate is kept in `icon_work` for review. Manifest schema v2 can also store
+function interpretation, concept metadata, and rule-based score fields for API
+candidates, but those fields are not presented as a quality guarantee in the
+normal UI.
 
 Vision evaluation is not required for registration and is not claimed when it
 does not run. If PNG bytes are available, App Studio performs deterministic
@@ -608,17 +605,13 @@ silhouette preservation. In that case `image_evaluation_status` is
 decoded, `image_evaluation_status` stays `not_run` or the note explains that
 only prompt/concept checks were used.
 
-The GUI shows each PNG candidate separately with its source, model, resolution,
-status, score, quality label, warnings, concept summary, and adoption state. API
-candidates are sorted ahead of fallback candidates, and the highest-quality
-selectable candidate is marked as recommended. It also shows the
-AI-interpreted function summary above the candidate list: primary function,
-inputs, outputs, inferred action flow, recommended motif/composition, and
-generic patterns to avoid. Pressing "このPNGを採用" stores a PNG override that is
-applied on the next Suggest/Apply run, so the selected PNG becomes
-`final_app/icon.png`. Removing the adoption returns to the deterministic fallback
-for the current run. Older outputs that only have `icon_candidate_1.png` remain
-readable.
+The GUI shows API PNG candidates separately with source, model, resolution,
+status, prompt details, and adoption state. Local fallback candidates are not
+shown or adopted. Pressing "このPNGを採用" stores a PNG override that is applied on
+the next Suggest/Apply run, so the selected PNG becomes `final_app/icon.png`.
+Removing the adoption returns the current run to the ToolHub common default icon
+unless an uploaded icon is selected. Older outputs that only have
+`icon_candidate_1.png` remain readable.
 
 Icon regeneration now uses the lightweight CLI subcommand `icon-regenerate`
 instead of rerunning full Suggest. It reads the existing `outputDir`,
@@ -638,11 +631,11 @@ material, or motion.
 
 ## AIアイコン生成の失敗診断
 
-App Studio は、AI画像生成が失敗してfallbackへ流れた理由を `ai_generation_report.md`、`ai_generation_report.json`、`candidate_manifest.json` に記録します。主な分類は `ai_disabled`、`missing_api_key`、`missing_image_model`、`organization_not_verified`、`unsupported_model`、`quota_or_rate_limit`、`authentication_failed`、`secret_scan_blocked`、`network_error`、`api_error`、`unknown` です。
+App Studio は、AI画像生成が失敗した理由を `ai_generation_report.md`、`ai_generation_report.json`、`candidate_manifest.json` に記録します。失敗時に local fallback candidate は作らず、未採用時は ToolHub共通default icon を使います。主な分類は `ai_disabled`、`missing_api_key`、`missing_image_model`、`organization_not_verified`、`unsupported_model`、`quota_or_rate_limit`、`authentication_failed`、`secret_scan_blocked`、`network_error`、`api_error`、`unknown` です。
 
 `gpt-image-2` の実APIレスポンスで `Your organization must be verified` が返った場合は `organization_not_verified` として表示します。この場合は OpenAI Platform で Organization verification を完了するか、AI/APIキー管理の候補モデルテストで利用可能な Image model を確認し、管理者が明示的に設定を変更してください。ToolHub が自動で別モデルへ切り替えることはありません。
 
-GUIでは API画像候補を「AI生成候補」、fallback を「ローカル暫定アイコン」として分離します。API候補が0件の場合、fallback は本番品質のAI候補ではなく、AI不可時の仮アイコンです。アイコンPromptやスタイル補足の効果は API画像候補が1件以上保存された場合だけ評価できます。
+GUIでは API画像候補を「AI生成候補」として表示します。API候補が0件の場合は失敗理由と次アクションを表示し、現在のアイコンが ToolHub共通default icon であることを明示します。default icon は本番品質のAI候補ではなく、互換性維持用の共通アイコンです。アイコンPromptやスタイル補足の効果は API画像候補が1件以上保存された場合だけ評価できます。
 
 secret scan は package 全体の結果と、実際に画像APIへ送る icon prompt payload の結果を分けて扱います。package 側に warning / manual_check があっても、payload 自体に秘密情報がなければ過剰に画像生成を止めない方針です。一方、payload に API key、token、password などが含まれる可能性がある場合は `secret_scan_blocked` としてAI送信を止めます。
 
@@ -704,3 +697,8 @@ present. The App Pack is generated from `apps/<app_id>/` and is treated as a der
 `build.source_entry`, `build.output_mirror`, and any other external absolute paths recorded in `app.yaml` are provenance
 references. They help diagnose how an app was built, but they are not ToolHub-owned app source and must not become delete
 targets in App Management.
+## 2026-05-08 update: default icon when no icon is selected
+
+App Studio now treats only API-generated image files as AI icon candidates. When image generation fails, AI is disabled, an API key/model is missing, or AI submission is blocked, App Studio does not create local fallback image candidates. It records the failure class, reason, and administrator next action in `icon_work/ai_generation_report.md`, `icon_work/ai_generation_report.json`, and the import plan.
+
+If no uploaded icon or adopted AI candidate is selected, App Studio writes the ToolHub common default icon to `icon_work/icon_final.png` and `final_app/icon.png`. This preserves the existing `display.icon: icon.png` App Pack and release verification contract. The default icon is not an AI-generated candidate, fallback candidate, recommended candidate, or scored candidate, and it is not written to `candidate_manifest.json`.

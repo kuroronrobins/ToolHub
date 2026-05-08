@@ -732,13 +732,24 @@ class AppStudioTests(unittest.TestCase):
     def test_icon_override_adopts_png(self) -> None:
         png = "data:image/png;base64,iVBORw0KGgo="
         final_png, source, warnings = apply_icon_override(
-            b"\x89PNG\r\n\x1a\nfallback",
+            b"\x89PNG\r\n\x1a\ndefault",
             {"selected_icon_source": "candidate_png", "png_base64": png},
         )
 
         self.assertEqual(source, "candidate_png")
         self.assertEqual(warnings, [])
         self.assertTrue(final_png.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_icon_override_legacy_fallback_uses_default_icon(self) -> None:
+        default_png = b"\x89PNG\r\n\x1a\ndefault"
+        final_png, source, warnings = apply_icon_override(
+            default_png,
+            {"selected_icon_source": "fallback_png"},
+        )
+
+        self.assertEqual(final_png, default_png)
+        self.assertEqual(source, "default_icon")
+        self.assertTrue(warnings)
 
     def test_icon_override_invalid_json_fails_clearly(self) -> None:
         with workspace_tempdir() as temp:
