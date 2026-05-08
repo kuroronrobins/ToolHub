@@ -256,6 +256,14 @@ Phase 2 で App Pack 再生成や manifest 更新を繰り返す前に、release
 - 既存 `release/app_manifest.json` と `release/manifest.json` の内容差分は発生させていない。BOM 検査のみ実施する。
 - App Pack は再生成していない。読み取り確認では、Phase 1-E 前に生成済みの既存 App Pack 内 `pack_manifest.json` には UTF-8 BOM が残っている。今回の範囲では zip を変更せず、次回 `scripts/package_app_pack.ps1` で再生成される対象から UTF-8 no BOM になる。
 
+反映確認:
+
+- `git ls-remote origin refs/heads/develop` は `d24f1989c9c83c77045d0516b089bbff0be90c6e` を返し、local `HEAD` / `origin/develop` と一致した。
+- GitHub API で `develop` の `scripts/package_app_pack.ps1` を取得し、`scripts/utf8_no_bom.ps1` の dot-source、staging `pack_manifest.json` の `Write-JsonUtf8NoBomFile`、`release/app_manifest.json` の `Write-JsonUtf8NoBomFile` を確認した。
+- GitHub API で `develop` の `scripts/check_all.ps1` を取得し、`release/manifest.json` / `release/app_manifest.json` の BOM 検査と `scripts/test_utf8_no_bom.ps1` 実行を確認した。
+- GitHub API で `develop` の `scripts/utf8_no_bom.ps1` を取得し、`Write-Utf8NoBomFile`、`Write-JsonUtf8NoBomFile`、`Test-Utf8Bom` の定義を確認した。
+- 認証なしの raw URL では古い内容が返る場合があったため、反映確認は `git ls-remote` と GitHub API の `ref=develop` を正とする。
+
 ## 調査で確認した根拠
 
 ### 1. release 検証が壊れた登録を見逃す
