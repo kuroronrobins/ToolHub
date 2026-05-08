@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -39,6 +41,9 @@ from app_studio.secret_scanner import scan_secrets
 from app_studio.timing import TimingRecorder, write_timing_reports
 from app_studio.trace import app_studio_trace, merge_trace_into_import_plan
 from app_studio.util import find_repo_root
+
+
+BUILD_TOOL_PACKAGES = ["PyInstaller>=6,<7", "pyinstaller-hooks-contrib>=2024.0"]
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -88,6 +93,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--skip-app-env-build", action="store_true")
     parser.add_argument("--generate-lock", action="store_true")
     parser.add_argument("--skip-lock", action="store_true")
+    parser.add_argument("--rebuild-build-env", action="store_true")
     parser.add_argument("--build-frozen-folder", action="store_true")
     parser.add_argument("--rebuild-frozen-folder", action="store_true")
     parser.add_argument("--skip-frozen-build", action="store_true")
@@ -145,6 +151,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         skip_app_env_build=args.skip_app_env_build,
         generate_lock=args.generate_lock,
         skip_lock=args.skip_lock,
+        rebuild_build_env=args.rebuild_build_env,
         build_frozen_folder=args.build_frozen_folder,
         rebuild_frozen_folder=args.rebuild_frozen_folder,
         skip_frozen_build=args.skip_frozen_build,
@@ -169,6 +176,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         build_profile = merge_build_profiles(build_profile, load_build_profile(existing_profile_path), "saved+auto")
     if options.build_profile_path:
         build_profile = merge_build_profiles(build_profile, load_build_profile(options.build_profile_path), "manual+auto")
+    build_profile_hash = stable_payload_hash(build_relevant_profile_payload(build_profile))
     exe_readiness = analyze_exe_readiness(context, plan, inventory, dependency_report, secret_report, build_profile)
     with timings.phase("metadata_ai_fallback"):
         metadata = suggest_metadata(context, secret_report)
@@ -249,6 +257,10 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "build_frozen_folder": options.build_frozen_folder,
         "verify_runtime": options.verify_runtime,
         "build_env": str(context.output_dir / "build_env"),
+        "build_env_cache_enabled": True,
+        "rebuild_build_env": options.rebuild_build_env,
+        "build_env_cache_build_profile_hash": build_profile_hash,
+        "build_tools_packages": BUILD_TOOL_PACKAGES,
         "build_profile_source": build_profile.get("source"),
         "exe_readiness_status": exe_readiness.get("overall_status"),
         "manual_checks": exe_readiness.get("manual_checks", []),
@@ -320,8 +332,27 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         return 1
 
     with timings.phase("build_env_creation"):
-        build_env_result = create_build_env(context, requirements_path, rebuild=True)
-    timings.mark("dependency_install", "included", "Dependency install runs inside build_env creation and is reported in build_env_report.md.")
+        build_env_result = create_build_env(
+            context,
+            requirements_path,
+            rebuild=True,
+            allow_cache=not options.rebuild_build_env,
+            build_profile_hash=build_profile_hash,
+            build_tools_packages=BUILD_TOOL_PACKAGES,
+        )
+    cache_detail = (
+        f"cache_hit={build_env_result.cache_hit}; "
+        f"cache_miss_reason={build_env_result.cache_miss_reason or 'none'}; "
+        f"cache_key={build_env_result.cache_key}; "
+        f"pip_cache_dir={build_env_result.pip_cache_dir}"
+    )
+    timings.mark("build_env_cache", "hit" if build_env_result.cache_hit else "miss", cache_detail)
+    dependency_install_detail = (
+        "Dependency install skipped because cached build_env was reused."
+        if build_env_result.cache_hit
+        else "Dependency install runs inside build_env creation and is reported in build_env_report.md."
+    )
+    timings.mark("dependency_install", "skipped" if build_env_result.cache_hit else "included", dependency_install_detail)
     print(f"build_env status: ok={build_env_result.ok}, skipped={build_env_result.skipped}, path={build_env_result.app_env_path}")
     if not build_env_result.ok:
         record_blocked_execution(context, output_dir, "build_env", build_env_result.error or "build_env creation failed.", plan)
@@ -339,7 +370,14 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         return 1
 
     with timings.phase("build_tools_install"):
-        build_tool_result = install_build_tools(context, build_env_result.app_env_path, ["PyInstaller>=6,<7", "pyinstaller-hooks-contrib>=2024.0"])
+        build_tool_result = install_build_tools(context, build_env_result.app_env_path, BUILD_TOOL_PACKAGES)
+    timings.mark(
+        "build_tools_cache",
+        "hit" if build_tool_result.skipped else "miss",
+        "Build tool install skipped because installed versions satisfy requested specs."
+        if build_tool_result.skipped
+        else "Build tools were installed or refreshed. See build_tool_install_report.md.",
+    )
     print(f"build tool install status: ok={build_tool_result.ok}, skipped={build_tool_result.skipped}")
     if not build_tool_result.ok:
         record_blocked_execution(context, output_dir, "build tools", build_tool_result.error or "Build tool install failed.", plan)
@@ -434,9 +472,17 @@ def run_icon_regenerate(args: argparse.Namespace, repo_root: Path) -> int:
 
 
 def json_dumps(value: dict) -> str:
-    import json
-
     return json.dumps(value, ensure_ascii=False)
+
+
+def stable_payload_hash(value: object) -> str:
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def build_relevant_profile_payload(profile: dict) -> dict:
+    keys = ["paths", "hidden_imports", "add_data", "add_binaries", "collect_all", "required_files"]
+    return {key: profile.get(key) for key in keys}
 
 
 def validate_flag_combination(args: argparse.Namespace) -> None:

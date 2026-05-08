@@ -30,6 +30,7 @@ class ImportOptions:
     skip_lock: bool = False
     build_frozen_folder: bool = False
     rebuild_frozen_folder: bool = False
+    rebuild_build_env: bool = False
     skip_frozen_build: bool = False
     verify_runtime: bool = False
     metadata_override_path: Path | None = None
@@ -531,6 +532,11 @@ class AppEnvBuildResult:
     python_source: str
     report: str
     error: str = ""
+    cache_hit: bool = False
+    cache_miss_reason: str = ""
+    cache_key: str = ""
+    metadata_path: Path | None = None
+    pip_cache_dir: Path | None = None
 
 
 @dataclass

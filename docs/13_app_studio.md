@@ -48,6 +48,8 @@ App Studio の通常新規登録フローは、通常ユーザー向け配布専
 
 `build_env` は exe 作成のためだけに使う内部作業環境です。`runtime/app_envs/<app_id>` には作らず、App Studio 出力ディレクトリ配下に作成します。利用者 PC に要求せず、`final_app`、App Pack、release、runtime には含めません。
 
+再 Apply では、同一 app の `output_dir/build_env` を安全に再利用できます。App Studio は `output_dir/build_env/toolhub_build_env_cache.json` に requirements hash、base Python path/version、build tools package specs、build profile hash を保存し、一致する場合だけ build_env を残します。`output_dir/build_tmp/pip_cache` は App Studio 専用 pip cache として使い、PyInstaller / pyinstaller-hooks-contrib が要求 spec を満たしている場合は build tools install を skip します。強制的に作り直す場合は CLI の `--rebuild-build-env` を使います。
+
 非 Python 資産は拡張子だけで一律に除外しません。メイン Python ファイルとローカル import 先を再帰的に解析し、`open(...)`、`Path(...)`、`Path(__file__).parent / ...`、`os.path.join(...)`、`read_text()`、`read_bytes()`、`pandas.read_csv(...)`、`pandas.read_excel(...)`、設定ファイル読み込みなどの固定パス参照から JSON / CSV / XLSX / YAML / TOML / INI / flow / txt / md を add-data 候補にします。`config`、`config.default`、`assets`、`templates`、`static`、`icons`、`images`、`flows` などの定番リソースフォルダも候補になります。
 
 App Studio CLI は `--source-root <dir>` を指定できます。未指定時は従来互換として entry file の親フォルダを source root にします。指定時は entry file が source root 配下にあることを必須検証し、drive root のように広すぎる範囲は拒否します。GUI では「ソース範囲」に任意入力できます。

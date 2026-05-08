@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "runner"))
 from app_studio.ai_metadata_suggester import build_icon_design_brief, metadata_prompt, normalize_icon_actions, normalize_icon_objects, select_icon_composition_template, suggest_icon_prompt, suggest_metadata
 from app_studio.build_profile import analyze_exe_readiness, default_build_profile
 from app_studio.icon_generator import build_icon_revision_api_base_prompt, fallback_icon_concepts, generate_icon_assets_with_candidates, generate_local_png, icon_image_generation_settings, icon_regeneration_candidate_count, icon_style_settings, image_api_prompt, image_api_summary, regenerate_icon_only
-from app_studio.app_env_builder import create_app_env, create_build_env
+from app_studio.app_env_builder import create_app_env, create_build_env, install_build_tools, run_command
 from app_studio.approval import approve_app, targeted_approval_verification, validate_approval_inputs, verify_release_gate
 from app_studio.build_planner import make_build_plan
 from app_studio.execution_tester import build_execution_result, record_blocked_execution, run_execution_checks
@@ -217,6 +217,103 @@ class AppEnvBuilderTests(unittest.TestCase):
             self.assertFalse((context.repo_root / "runtime" / "app_envs" / context.app_id).exists())
             self.assertIn("internal build environment", result.report)
 
+    def test_build_env_cache_reuses_matching_requirements(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            requirements = context.source_root / "requirements.txt"
+            requirements.write_text("# no deps\n", encoding="utf-8")
+
+            first = create_build_env(context, requirements, allow_cache=True, build_profile_hash="profile-a", build_tools_packages=["PyInstaller>=6,<7"])
+            second = create_build_env(context, requirements, allow_cache=True, build_profile_hash="profile-a", build_tools_packages=["PyInstaller>=6,<7"])
+
+            self.assertTrue(first.ok)
+            self.assertTrue(second.ok)
+            self.assertTrue(second.skipped)
+            self.assertTrue(second.cache_hit)
+            self.assertIn("Existing build_env cache was reused", second.report)
+
+    def test_build_env_cache_rebuilds_when_requirements_hash_changes(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            requirements = context.source_root / "requirements.txt"
+            requirements.write_text("# no deps v1\n", encoding="utf-8")
+
+            first = create_build_env(context, requirements, allow_cache=True, build_profile_hash="profile-a", build_tools_packages=["PyInstaller>=6,<7"])
+            marker = first.app_env_path / "cache_marker.txt"
+            marker.write_text("old", encoding="utf-8")
+            requirements.write_text("# no deps v2\n", encoding="utf-8")
+
+            second = create_build_env(context, requirements, allow_cache=True, build_profile_hash="profile-a", build_tools_packages=["PyInstaller>=6,<7"])
+
+            self.assertTrue(second.ok)
+            self.assertFalse(second.cache_hit)
+            self.assertFalse(marker.exists())
+            self.assertIn("cache key", second.cache_miss_reason)
+
+    def test_build_env_cache_rebuilds_when_python_version_metadata_mismatches(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            requirements = context.source_root / "requirements.txt"
+            requirements.write_text("# no deps\n", encoding="utf-8")
+
+            first = create_build_env(context, requirements, allow_cache=True, build_profile_hash="profile-a", build_tools_packages=["PyInstaller>=6,<7"])
+            metadata_path = first.app_env_path / "toolhub_build_env_cache.json"
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata["key_parts"]["python_version"] = "Python 0.0.0"
+            write_json(metadata_path, metadata)
+            marker = first.app_env_path / "cache_marker.txt"
+            marker.write_text("old", encoding="utf-8")
+
+            second = create_build_env(context, requirements, allow_cache=True, build_profile_hash="profile-a", build_tools_packages=["PyInstaller>=6,<7"])
+
+            self.assertTrue(second.ok)
+            self.assertFalse(second.cache_hit)
+            self.assertFalse(marker.exists())
+            self.assertIn("cache key", second.cache_miss_reason)
+
+    def test_build_tools_install_skips_when_versions_satisfy_specs(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            build_env = context.output_dir / "build_env"
+            python = build_env / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
+            python.parent.mkdir(parents=True)
+            python.write_text("fake", encoding="utf-8")
+            calls: list[list[str]] = []
+
+            def fake_run_command(command, cwd, temp_dir=None, pip_cache_dir=None, disable_pip_cache=True):
+                calls.append(command)
+                self.assertIsNotNone(pip_cache_dir)
+                if command[-1] == "--version":
+                    return types.SimpleNamespace(returncode=0, stdout="pip 24.0\n", stderr="")
+                if "-c" in command:
+                    return types.SimpleNamespace(returncode=0, stdout='{"PyInstaller": "6.10.0", "pyinstaller-hooks-contrib": "2024.1"}\n', stderr="")
+                raise AssertionError(f"unexpected install command: {command}")
+
+            with patch("app_studio.app_env_builder.run_command", side_effect=fake_run_command):
+                result = install_build_tools(context, build_env, ["PyInstaller>=6,<7", "pyinstaller-hooks-contrib>=2024.0"])
+
+            self.assertTrue(result.ok)
+            self.assertTrue(result.skipped)
+            self.assertFalse(any("install" in call for call in calls))
+            self.assertIn("install skipped", result.report)
+
+    def test_run_command_uses_explicit_pip_cache_dir(self) -> None:
+        with workspace_tempdir() as root:
+            temp_dir = root / "tmp"
+            pip_cache = root / "pip_cache"
+            captured_env = {}
+
+            def fake_subprocess_run(command, **kwargs):
+                captured_env.update(kwargs["env"])
+                return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            with patch("app_studio.app_env_builder.subprocess.run", side_effect=fake_subprocess_run):
+                result = run_command(["python", "--version"], root, temp_dir, pip_cache_dir=pip_cache)
+
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(captured_env.get("PIP_CACHE_DIR"), str(pip_cache))
+            self.assertNotIn("PIP_NO_CACHE_DIR", captured_env)
+
 
 class LockGeneratorTests(unittest.TestCase):
     def test_existing_requirements_lock_is_copied_first(self) -> None:
@@ -392,6 +489,91 @@ class FrozenFolderTests(unittest.TestCase):
 
 
 class NormalRegistrationFlowTests(unittest.TestCase):
+    def test_lightweight_apply_reuses_build_env_and_build_tools_on_second_run(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "cache_apply_demo"
+            source = root / "source"
+            source.mkdir()
+            entry = source / "main.py"
+            write_text(entry, "print('hello')\n")
+            argv = [
+                "--entry",
+                str(entry),
+                "--app-id",
+                app_id,
+                "--name",
+                "Cache Apply Demo",
+                "--apply",
+            ]
+            create_venv_count = 0
+            build_tool_install_count = 0
+            tools_installed = False
+
+            def parse_args_for_run():
+                args = parse_app_studio_args(argv)
+                args._raw_argv = argv
+                return args
+
+            def fake_create_venv(base_python, env_path, cwd, temp_dir, notes):
+                nonlocal create_venv_count
+                create_venv_count += 1
+                python = env_path / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
+                write_text(python, "fake python\n")
+                notes.append("fake venv create")
+                return ""
+
+            def fake_run_command(command, cwd, temp_dir=None, pip_cache_dir=None, disable_pip_cache=True):
+                nonlocal build_tool_install_count, tools_installed
+                if command[-1] == "--version" and "-m" not in command:
+                    return types.SimpleNamespace(returncode=0, stdout="Python 3.13.2\n", stderr="")
+                if len(command) >= 4 and command[-3:] == ["-m", "pip", "--version"]:
+                    return types.SimpleNamespace(returncode=0, stdout="pip 24.0\n", stderr="")
+                if "-c" in command:
+                    versions = (
+                        '{"PyInstaller": "6.10.0", "pyinstaller-hooks-contrib": "2024.1"}\n'
+                        if tools_installed
+                        else '{"PyInstaller": null, "pyinstaller-hooks-contrib": null}\n'
+                    )
+                    return types.SimpleNamespace(returncode=0, stdout=versions, stderr="")
+                if "install" in command:
+                    build_tool_install_count += 1
+                    tools_installed = True
+                    return types.SimpleNamespace(returncode=0, stdout="install ok\n", stderr="")
+                return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            def fake_generate_lock(context, requirements_path, app_env_python=None, skip=False):
+                lock = requirements_path.parent / "requirements.lock"
+                write_text(lock, "")
+                return LockGenerationResult(True, False, lock, "test", "ok\n", "")
+
+            def fake_pyinstaller(command, cwd, no_user_site=False):
+                if "--version" in command:
+                    return types.SimpleNamespace(returncode=0, stdout="6.10.0\n", stderr="")
+                dist = Path(command[command.index("--distpath") + 1])
+                built_name = command[command.index("--name") + 1]
+                built_dir = dist / built_name
+                built_dir.mkdir(parents=True, exist_ok=True)
+                write_text(built_dir / (built_name + ".exe"), "fake exe\n")
+                return types.SimpleNamespace(returncode=0, stdout="build ok\n", stderr="")
+
+            with patch("app_studio.app_env_builder.create_venv_with_pip", side_effect=fake_create_venv), patch("app_studio.app_env_builder.run_command", side_effect=fake_run_command), patch("main.generate_lock", side_effect=fake_generate_lock), patch("app_studio.frozen_folder_builder.run_pyinstaller_command", side_effect=fake_pyinstaller):
+                first_exit = run_import(parse_args_for_run(), repo)
+                second_exit = run_import(parse_args_for_run(), repo)
+
+            output_dir = source / "ToolHub_AppStudio_Output" / app_id
+            timing = json.loads((output_dir / "timing_report.json").read_text(encoding="utf-8"))
+            phases = {item["phase"]: item for item in timing["phases"]}
+
+            self.assertEqual(first_exit, 0)
+            self.assertEqual(second_exit, 0)
+            self.assertEqual(create_venv_count, 1)
+            self.assertEqual(build_tool_install_count, 1)
+            self.assertEqual(phases["build_env_cache"]["status"], "hit")
+            self.assertEqual(phases["build_tools_cache"]["status"], "hit")
+            self.assertIn("Existing build_env cache was reused", (output_dir / "build_env_report.md").read_text(encoding="utf-8"))
+            self.assertIn("install skipped", (output_dir / "build_tool_install_report.md").read_text(encoding="utf-8"))
+
     def test_xcgate_like_apply_uses_build_env_for_pyinstaller_and_registers_exe(self) -> None:
         with workspace_tempdir() as root:
             repo = make_repo(root)
@@ -442,7 +624,7 @@ class NormalRegistrationFlowTests(unittest.TestCase):
             args._raw_argv = argv
             pyinstaller_commands: list[list[str]] = []
 
-            def fake_create_build_env(context, requirements_path, rebuild=True):
+            def fake_create_build_env(context, requirements_path, rebuild=True, **kwargs):
                 build_env = context.output_dir / "build_env"
                 python = build_env / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
                 write_text(python, "fake python\n")

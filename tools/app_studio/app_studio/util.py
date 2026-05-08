@@ -70,14 +70,35 @@ def output_dir_for_entry(entry: Path, app_id: str) -> Path:
     return entry.parent / "ToolHub_AppStudio_Output" / safe_app_id
 
 
-def reset_output_dir(entry: Path, app_id: str) -> Path:
+def reset_output_dir(entry: Path, app_id: str, preserve_relative_paths: list[str] | None = None) -> Path:
     base = (entry.parent / "ToolHub_AppStudio_Output").resolve()
     output_dir = output_dir_for_entry(entry, app_id).resolve()
     assert_within(output_dir, base, "output directory")
     assert_within(base, entry.parent, "output base")
+    preserve_relative_paths = preserve_relative_paths or []
+    preserve_base = base / f".preserve_{slugify_app_id(app_id)}_{timestamp()}"
+    preserved: list[tuple[Path, Path]] = []
     if output_dir.exists():
+        for relative_text in preserve_relative_paths:
+            relative = Path(relative_text)
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ValueError(f"Invalid preserve path: {relative_text}")
+            source = output_dir / relative
+            if not source.exists():
+                continue
+            assert_within(source, output_dir, "preserved output artifact")
+            destination = preserve_base / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source), str(destination))
+            preserved.append((relative, destination))
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    for relative, preserved_path in preserved:
+        destination = output_dir / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(preserved_path), str(destination))
+    if preserve_base.exists():
+        shutil.rmtree(preserve_base, ignore_errors=True)
     return output_dir
 
 

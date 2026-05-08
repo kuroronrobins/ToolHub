@@ -18,7 +18,7 @@ def export_suggestion(
     plan: BuildPlan,
     artifacts: GeneratedArtifacts,
 ) -> Path:
-    output_dir = reset_output_dir(context.entry, context.app_id)
+    output_dir = reset_output_dir(context.entry, context.app_id, preserve_relative_paths=["build_env", "build_tmp/pip_cache"])
     write_json(output_dir / "import_plan.json", artifacts.import_plan)
     if artifacts.build_profile:
         write_json(output_dir / "build_profile.json", artifacts.build_profile)

@@ -264,6 +264,26 @@ Phase 2 で App Pack 再生成や manifest 更新を繰り返す前に、release
 - GitHub API で `develop` の `scripts/utf8_no_bom.ps1` を取得し、`Write-Utf8NoBomFile`、`Write-JsonUtf8NoBomFile`、`Test-Utf8Bom` の定義を確認した。
 - 認証なしの raw URL では古い内容が返る場合があったため、反映確認は `git ls-remote` と GitHub API の `ref=develop` を正とする。
 
+### 2026-05-08 Phase 2-A
+
+Apply 再試行時の `build_env_creation` / pip install / build tools install を高速化するため、App Studio の内部 `build_env` を同一 app の output workspace 内で再利用できるようにした。今回は PyInstaller `--clean`、PyInstaller build artifact、`registration_copy`、App Pack zip 差分更新には進んでいない。
+
+実装内容:
+
+- `export_suggestion()` の output reset 時に、`build_env` と `build_tmp/pip_cache` だけを退避・復元し、再 Apply でも内部 build environment と App Studio 専用 pip cache が残るようにした。
+- `create_build_env()` に cache key / metadata 検証を追加した。cache metadata は `output_dir/build_env/toolhub_build_env_cache.json` に保存する。
+- cache key は `app_id`、requirements install source path、requirements hash、base Python executable path、base Python version、build tools package specs、build profile hash から作る。
+- cache hit 条件は、metadata schema / cache key / key parts 一致、`build_env` 内 Python の存在、pip probe 成功、cached Python version 一致。どれかが満たされなければ安全側で rebuild する。
+- `run_command()` は明示された `pip_cache_dir` がある場合、`PIP_NO_CACHE_DIR=1` を外し、`PIP_CACHE_DIR=output_dir/build_tmp/pip_cache` を設定する。
+- `install_build_tools()` は `PyInstaller>=6,<7` と `pyinstaller-hooks-contrib>=2024.0` の installed version を確認し、満たしていれば pip install を skip する。満たさない場合だけ install / refresh する。
+- CLI に `--rebuild-build-env` を追加し、必要な場合は cache を使わず build_env を強制再作成できるようにした。
+- `timing_report` には `build_env_cache` と `build_tools_cache` の hit / miss と理由を追加した。
+
+検証:
+
+- unit test で requirements hash 一致時の reuse、requirements hash 変更時の rebuild、Python version metadata mismatch 時の rebuild、build tools version satisfied 時の install skip、明示 pip cache env を確認した。
+- 軽量 fixture の Apply 2 回 unit test では、1 回目は cache miss / build_env 作成 / build tools install、2 回目は cache hit / build_env reuse / build tools install skip になることを確認した。実 CLI での wall-clock 比較と `run_xcgate_upload` 相当アプリの 2 回 Apply 比較は Phase 2-A follow-up として残す。
+
 ## 調査で確認した根拠
 
 ### 1. release 検証が壊れた登録を見逃す
@@ -388,8 +408,8 @@ CLI は progress line を出しているが、Rust backend 側は subprocess の
 | AR-004 | P0 | failure prevention | PyInstaller が関係ない hook failure で落ちる | hidden import / add-data 推定が広すぎる | import graph 起点を entry point に限定し、build profile の exclude / hidden-import override を UI で扱う | `webrtcvad` のような無関係 hook が入らない |
 | AR-005 | P0 | icon AI | AI icon が毎回 fallback になる | AI disabled / missing key / secret block が区別されない | 登録前に AI 診断を実行し、AI disabled、missing key、secret block、model error を別々に表示する | fallback 理由が UI と report で一致する |
 | AR-006 | P1 | secret scan | AI 送信だけ過剰に block される | package 全体の finding で AI submission を止めている | 実際に AI へ送る prompt payload だけを別途 scan し、package finding とは分ける | package 内 warning があっても AI payload が安全なら icon AI が動く |
-| AR-007 | P1 | performance | Apply が毎回 `build_env` を作り直す | env cache がない | requirements hash + Python version + build profile hash で `build_env` を再利用する | 2 回目 Apply の env 作成が skip される |
-| AR-008 | P1 | performance | pip install が毎回遅い | wheel / pip cache 活用が明示されていない | App Studio 専用 wheel cache を使い、offline / cached install を優先する | 同一 dependencies の install 時間が短縮される |
+| AR-007 | P1 | performance | Apply が毎回 `build_env` を作り直す | env cache がない | requirements hash + Python version + build profile hash で `build_env` を再利用する | 2026-05-08 Phase 2-A で実装済み。`output_dir/build_env/toolhub_build_env_cache.json` に cache key を保存し、2 回目 Apply で一致すれば build_env を再利用する |
+| AR-008 | P1 | performance | pip install が毎回遅い | wheel / pip cache 活用が明示されていない | App Studio 専用 wheel cache を使い、offline / cached install を優先する | 2026-05-08 Phase 2-A で一部実装済み。`output_dir/build_tmp/pip_cache` を `PIP_CACHE_DIR` として使う。offline 優先は未実装 |
 | AR-009 | P1 | performance | PyInstaller が毎回 clean build される | `--clean` 固定で cache を捨てる | 通常再試行では incremental build、問題時だけ clean build にする | clean なし再試行の build 時間が短縮される |
 | AR-010 | P1 | performance | Suggest 後の Apply が同じ解析をやり直す | Suggest artifact を Apply が再利用しない | metadata / README / icon / inventory / secret scan を source hash 付きで保存し、Apply で再利用する | Suggest 済みアプリの Apply 前半 phase が skip される |
 | AR-011 | P1 | progress UX | 長時間 phase が止まって見える | subprocess output の streaming が弱い | Rust backend で App Studio CLI stdout を streaming parse し、phase progress を UI に反映する | build_env / PyInstaller 中に UI が更新される |
