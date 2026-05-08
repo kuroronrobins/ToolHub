@@ -13,33 +13,31 @@ export function AppStudioShell() {
     <section className="admin-panel-section">
       <div className="admin-section-head">
         <div>
-          <p className="dialog-kicker">App Studio</p>
-          <h3>ToolHub App Studio</h3>
+          <p className="dialog-kicker">アプリスタジオ</p>
+          <h3>ToolHub アプリスタジオ</h3>
         </div>
-        <span className="admin-status-pill">Admin only</span>
+        <span className="admin-status-pill">管理者専用</span>
       </div>
       <p className="admin-muted">
-        App Studio runs the CLI workflow from the administrator screen. New registration is available, and existing app
-        update is now available as an MVP. Delete now focuses on hide/show and deletion plans; publish prep remains a
-        placeholder.
+        管理者画面からアプリ登録、既存アプリ更新、表示切り替え、削除確認を実行します。公開準備は今後の拡張用です。
       </p>
 
-      <div className="studio-tab-row" role="tablist" aria-label="App Studio sections">
+      <div className="studio-tab-row" role="tablist" aria-label="アプリスタジオの機能">
         <button type="button" className={activeTab === "new" ? "active" : ""} onClick={() => setActiveTab("new")}>
           <PackagePlus size={17} aria-hidden="true" />
-          New registration
+          新規登録
         </button>
         <button type="button" className={activeTab === "update" ? "active" : ""} onClick={() => setActiveTab("update")}>
           <Boxes size={17} aria-hidden="true" />
-          Existing app update
+          既存アプリ更新
         </button>
         <button type="button" className={activeTab === "delete" ? "active" : ""} onClick={() => setActiveTab("delete")}>
           <Trash2 size={17} aria-hidden="true" />
-          Delete
+          削除管理
         </button>
         <button type="button" className={activeTab === "publish" ? "active" : ""} onClick={() => setActiveTab("publish")}>
           <FileCheck2 size={17} aria-hidden="true" />
-          Publish prep
+          公開準備
         </button>
       </div>
 
@@ -50,18 +48,18 @@ export function AppStudioShell() {
         <div className="admin-card-grid">
           <button className="admin-work-card" type="button" disabled>
             <PackagePlus size={22} aria-hidden="true" />
-            <strong>New registration</strong>
-            <span>Use the New registration tab for Suggest / Apply / Approve.</span>
+            <strong>新規登録</strong>
+            <span>新しいアプリの提案、適用、承認を行います。</span>
           </button>
           <button className="admin-work-card" type="button" disabled>
             <Boxes size={22} aria-hidden="true" />
-            <strong>Existing app update</strong>
-            <span>Use the Existing app update tab for the update MVP.</span>
+            <strong>既存アプリ更新</strong>
+            <span>登録済みアプリの更新ワークフローを実行します。</span>
           </button>
           <button className="admin-work-card" type="button" disabled>
             <FileCheck2 size={22} aria-hidden="true" />
-            <strong>Publish prep</strong>
-            <span>Not implemented. Approval and App Pack checks are available before future publishing.</span>
+            <strong>公開準備</strong>
+            <span>未実装です。将来の公開前チェック用に配置しています。</span>
           </button>
         </div>
       ) : null}

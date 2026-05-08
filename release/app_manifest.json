@@ -10,22 +10,13 @@
       "version": "0.1.0"
     },
     "run_xcgate_upload": {
-      "enabled": false,
+      "enabled": true,
       "package": "app_packs/run_xcgate_upload-0.1.0.zip",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": null,
       "sha256": "b001040d14e42fef2e057f2ac13aec0943f818facea13182bb1059ec15cb4467",
       "version": "0.1.0"
-    },
-    "sample_cli_app": {
-      "enabled": true,
-      "package": "app_packs/sample_cli_app-1.0.0.zip",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": null,
-      "sha256": "19aa0f02522babec8da842789a60abc4d41191deae593794ff663bca8ce34ccc",
-      "version": "1.0.0"
     },
     "sample_gui_app": {
       "enabled": true,
@@ -44,6 +35,15 @@
       "required_runtime": "web-runtime-001",
       "sha256": "1fdca7279e3d325c7bc18af19d2bb7881c9789ebd03d675f43c6081541f03487",
       "version": "1.0.0"
+    },
+    "app_20260215_pdfapplication": {
+      "version": "0.1.0",
+      "package": "app_packs/app_20260215_pdfapplication-0.1.0.zip",
+      "sha256": "ca4335ac2a890a67781bb438dac8373ca0b06207c5e782112afa82642b29b140",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": null,
+      "enabled": true
     }
   },
   "channel": "stable",

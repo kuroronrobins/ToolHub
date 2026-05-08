@@ -2438,16 +2438,37 @@ button {
 
 .studio-delete-table {
   width: 100%;
-  min-width: 920px;
+  min-width: 760px;
+  table-layout: fixed;
   border-collapse: collapse;
+}
+
+.studio-delete-col-status {
+  width: 118px;
+}
+
+.studio-delete-col-version {
+  width: 74px;
+}
+
+.studio-delete-col-config {
+  width: 156px;
+}
+
+.studio-delete-col-plan {
+  width: 92px;
+}
+
+.studio-delete-col-actions {
+  width: 86px;
 }
 
 .studio-delete-table th,
 .studio-delete-table td {
-  padding: 10px 12px;
+  padding: 9px 10px;
   border-bottom: 1px solid #edf1f6;
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .studio-delete-table th {
@@ -2464,16 +2485,116 @@ button {
 
 .studio-delete-table td small {
   display: block;
-  margin-top: 4px;
+  margin-top: 2px;
   color: #667085;
   overflow-wrap: anywhere;
 }
 
-.studio-delete-row-actions {
+.studio-delete-app-cell {
+  min-width: 0;
+}
+
+.studio-delete-app-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.studio-delete-app-title {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  align-items: baseline;
+  gap: 3px 8px;
+  min-width: 0;
+}
+
+.studio-delete-app-title strong {
+  color: #1f2a3d;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.studio-delete-app-title code {
+  display: inline;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  color: #667085;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.studio-delete-config-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
   align-items: center;
+}
+
+.studio-delete-mini-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 6px;
+  border: 1px solid #dfe5ee;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #667085;
+  font-size: 0.7rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.studio-delete-mini-pill.ok {
+  border-color: #b6d4d0;
+  background: #f2fbfa;
+  color: #0f5f58;
+}
+
+.studio-delete-mini-pill.danger {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.studio-delete-plan-cell span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  color: #344054;
+}
+
+.studio-delete-plan-cell strong {
+  color: #111827;
+  font-size: 1rem;
+}
+
+.studio-delete-actions-cell {
+  white-space: nowrap;
+}
+
+.studio-delete-row-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.studio-delete-action-button {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  border-radius: 8px;
+}
+
+.studio-delete-action-button.primary {
+  border-color: #0f766e;
+  background: #0f766e;
+  color: #ffffff;
+}
+
+.studio-delete-action-button.primary:hover {
+  background: #0d665f;
 }
 
 .studio-delete-plan {
