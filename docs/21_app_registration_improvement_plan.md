@@ -405,6 +405,60 @@ App Pack zip 圧縮時間について、速度・サイズ・配布影響を比�
 - Phase 2-D では compression policy を変えず、現行の `ZIP_DEFLATED` level 1 を標準として明文化した。速度だけなら `ZIP_STORED` が速いが、App Pack / update payload の増加が大きい。
 - 残る `compress_app_pack` の短縮は、Python 標準 `zipfile` の compression policy 変更だけでは tradeoff が大きい。Phase 2-E に進む場合は、registration_copy 以外の UI 待機体験改善、または配布サイズ許容を明示した運用設定案を別途検討する。
 
+### 2026-05-08 残り 3 app の復元計画
+
+`verify_release.ps1` で既知 NG として残っている `addnum_pdf`、`app_20260201_agendasnap`、`officetopdf_toc` について、復元可能性を read-only で確認した。今回は本番 app_id での Apply、App Pack 再生成、`release/app_manifest.json` 更新、enabled 変更は行っていない。
+
+現在の NG:
+
+| app_id | enabled | local run.entry | App Pack run.entry | release pack sha256 |
+| --- | --- | --- | --- | --- |
+| `addnum_pdf` | false | missing | missing | OK |
+| `app_20260201_agendasnap` | true | missing | missing | OK |
+| `officetopdf_toc` | true | missing | missing | OK |
+
+source_entry / output_mirror 調査:
+
+| app_id | source_entry | source_entry | source_root 候補 | output_mirror / 復元材料 | 分類 |
+| --- | --- | --- | --- | --- | --- |
+| `addnum_pdf` | `C:\Users\kuroron\Downloads\drive-download-20260427T120504Z-3-001\AddNum_PDF.py` | missing | 親 directory も missing | output_mirror missing、既存 App Pack も run.entry missing | C |
+| `app_20260201_agendasnap` | `C:\Users\kuroron\Documents\RD\20260201_AgendaSnap\main.py` | exists | `C:\Users\kuroron\Documents\RD\20260201_AgendaSnap` | output_mirror exists、`final_app` run.entry exists、mirror App Pack run.entry exists | A |
+| `officetopdf_toc` | `C:\Users\kuroron\Downloads\drive-download-20260427T120504Z-3-001\OfficeToPDF_TOC.py` | missing | 親 directory も missing | output_mirror missing、既存 App Pack も run.entry missing | C |
+
+補足:
+
+- `AddNum_PDF.py` と `OfficeToPDF_TOC.py` は、`C:\Users\kuroron\Downloads` と `C:\Users\kuroron\Documents\RD` の限定検索では見つからなかった。
+- `app_20260201_agendasnap` は現行 App Studio の dry-run で exit 0、included_files 61、secret_findings 6。source root 直下に `.git`、`.pytest_tmp`、`sessions`、`ToolHub_AppStudio_Output` があるが、Phase 1-A 以降の既定除外で大きな混入は避けられる見込み。ただし `.toolhubignore` は存在しない。
+- `app_20260201_agendasnap` の古い App Studio output には `execution_test_result.json` があり、`overall_status=warn`、`approval_allowed=true`。ただし report 形式は Phase 1-A 前で、`source_scope` や `registration_copy_report.md` はない。
+
+復元優先順位:
+
+1. `app_20260201_agendasnap`: enabled=true かつ source / output_mirror が存在するため最優先。まず検収用 app_id または一時 repo で Apply し、source scope、secret scan、build profile、App Pack safety を確認する。その後、本番 app_id で再登録する。
+2. `officetopdf_toc`: enabled=true だが source_entry が存在しないため、元 source の再入手または source_entry 修正が先。復元できるまで enabled=true の壊れた配布物として扱うリスクが残る。
+3. `addnum_pdf`: enabled=false で配布影響は低い。source_entry が存在しないため、復元は `officetopdf_toc` と同じく元 source 再入手後。復元しない場合は disabled のまま archive / full delete 候補にする。
+
+推奨 next action:
+
+- `app_20260201_agendasnap`:
+  - entry: `C:\Users\kuroron\Documents\RD\20260201_AgendaSnap\main.py`
+  - source_root: `C:\Users\kuroron\Documents\RD\20260201_AgendaSnap`
+  - 先に検収用 app_id または一時 repo で Apply。
+  - 既存 metadata を維持したい場合は、`apps/app_20260201_agendasnap/app.yaml` の display/detail/search を metadata override 化するか、Apply 後に差分確認して本番登録前に調整する。
+  - App Pack safety: run.entry、`.auth` / storage state / cookie / session / token / credential state JSON 非混入、required entry inspection、SHA256、execution_test_result の `approval_allowed` を確認する。
+- `officetopdf_toc`:
+  - まず `OfficeToPDF_TOC.py` の所在を確認する。元の `drive-download-20260427T120504Z-3-001` directory を復元するか、別場所にある source を指定し直す。
+  - source が見つかるまでは本番 app_id で Apply しない。
+  - enabled=true のため、復元できない場合は一時的な disabled 化、または full delete / archive を別作業で判断する。
+- `addnum_pdf`:
+  - まず `AddNum_PDF.py` の所在を確認する。source が見つかれば `officetopdf_toc` と同じ source_root にできる可能性がある。
+  - enabled=false のため復元優先度は低い。復元しない場合は disabled のまま archive / full delete 候補にする。
+
+次に Codex へ依頼すべき復元作業:
+
+1. `app_20260201_agendasnap` を検収用 app_id / 一時 repo で App Studio Apply し、source scope / secret scan / build profile / App Pack safety を確認する。
+2. その検収が通ったら、本番 app_id `app_20260201_agendasnap` で再登録し、`verify_release.ps1` の AgendaSnap NG を解消する。
+3. `OfficeToPDF_TOC.py` と `AddNum_PDF.py` の元 source を再入手またはパス修正してから、それぞれ同じ検収 -> 本番再登録の順で進める。
+
 ## 調査で確認した根拠
 
 ### 1. release 検証が壊れた登録を見逃す
