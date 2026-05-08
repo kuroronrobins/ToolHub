@@ -11,7 +11,7 @@ import { SystemInfoDialog } from "./components/SystemInfoDialog";
 import { UpdateNotice } from "./components/UpdateNotice";
 import { UpdateSummaryDialog } from "./components/UpdateSummaryDialog";
 import { ALL_CATEGORY, enabledApps, getCategoryList } from "./lib/appCatalog";
-import { checkUpdatesMvp, launchApp, listApps } from "./lib/api";
+import { checkUpdatesRemote, launchApp, listApps } from "./lib/api";
 import { filterApps } from "./lib/search";
 import type { LaunchEvent, RunStatus, ToolApp } from "./lib/types";
 import type { UpdateSummary } from "./lib/updateTypes";
@@ -54,7 +54,7 @@ export default function App() {
 
   async function checkForUpdates() {
     try {
-      const summary = await checkUpdatesMvp();
+      const summary = await checkUpdatesRemote();
       if (shouldShowUserUpdateNotice(summary)) {
         setUpdateSummary(summary);
       } else {

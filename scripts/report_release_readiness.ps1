@@ -14,6 +14,9 @@ $AppManifestPath = Join-Path $ReleaseDir "app_manifest.json"
 $ReleaseManifestPath = Join-Path $ReleaseDir "manifest.json"
 $AppPacksDir = Join-Path $ReleaseDir "app_packs"
 $StagingDir = Join-Path $ReleaseDir "staging"
+$DefaultLauncherConfigPath = Join-Path $Root "config.default\launcher.yaml"
+$TauriConfigPath = Join-Path $Root "launcher\src-tauri\tauri.conf.json"
+$CommandsPath = Join-Path $Root "launcher\src-tauri\src\commands.rs"
 $Failed = $false
 
 function Write-Line {
@@ -78,6 +81,175 @@ function New-ItemRecord {
         pre_check = @($PreCheck)
         recommended_action = $RecommendedAction
     }
+}
+
+function New-BetaReadyRecord {
+    param(
+        [string]$Category,
+        [string]$Id,
+        [string]$State,
+        [string]$Reason,
+        [string]$RecommendedAction,
+        [string]$Path = "",
+        [string]$Verification = "read_only",
+        [string]$Phase = ""
+    )
+
+    [ordered]@{
+        category = $Category
+        id = $Id
+        state = $State
+        reason = $Reason
+        path = $Path
+        verification = $Verification
+        phase = $Phase
+        recommended_action = $RecommendedAction
+    }
+}
+
+function Add-BetaReadyItem {
+    param(
+        [ValidateSet("blockers", "warnings", "manual_checks", "future_formal_only")]
+        [string]$Severity,
+        [object]$Record
+    )
+    $Report.beta_ready[$Severity] = @($Report.beta_ready[$Severity]) + @($Record)
+}
+
+function Get-UpdateSourceFromConfig {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return $null
+    }
+
+    $InUpdates = $false
+    foreach ($Line in @(Get-Content -Encoding UTF8 $Path)) {
+        if ($Line -match "^\s*updates\s*:\s*$") {
+            $InUpdates = $true
+            continue
+        }
+        if ($InUpdates -and $Line -match "^\S") {
+            $InUpdates = $false
+        }
+        if ($InUpdates -and $Line -match "^\s{2,}(source_url|manifest_url|url)\s*:\s*(.+?)\s*$") {
+            $Value = ([string]$Matches[2]).Trim().Trim('"').Trim("'")
+            if (-not [string]::IsNullOrWhiteSpace($Value)) {
+                return $Value
+            }
+        }
+    }
+    return $null
+}
+
+function Add-BetaReadyClassifications {
+    $Phase1 = "Phase 1"
+    $Phase2 = "Phase 2"
+    $Phase3 = "Phase 3"
+    $Phase4 = "Phase 4"
+    $Phase5 = "Phase 5"
+
+    foreach ($RelativePath in @(
+        "runner",
+        "apps",
+        "runtime",
+        "config.default",
+        "release\manifest.json",
+        "release\app_manifest.json",
+        "updater",
+        "README.md"
+    )) {
+        $Path = Join-Path $Root $RelativePath
+        if (-not (Test-Path -LiteralPath $Path)) {
+            Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "distribution_source_missing:$RelativePath" -State "missing" -Reason "A required installer payload source is missing from the repository." -RecommendedAction "Restore the path before building a Beta installer." -Path (To-RelativePath $Path) -Phase $Phase1)
+        }
+    }
+
+    if (Test-Path -LiteralPath $TauriConfigPath -PathType Leaf) {
+        $TauriConfigText = Get-Content -Raw -Encoding UTF8 $TauriConfigPath
+        foreach ($Resource in @("../../runner", "../../apps", "../../runtime", "../../config.default", "../../release/manifest.json", "../../release/app_manifest.json", "../../updater", "../../README.md")) {
+            if ($TauriConfigText -notmatch [regex]::Escape($Resource)) {
+                Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "tauri_resource_missing:$Resource" -State "missing" -Reason "Tauri bundle.resources does not list a required Beta payload resource." -RecommendedAction "Add the resource before building a Beta installer." -Path (To-RelativePath $TauriConfigPath) -Phase $Phase1)
+            }
+        }
+    } else {
+        Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "tauri_config_missing" -State "missing" -Reason "Tauri config is missing, so installer payload resources cannot be checked." -RecommendedAction "Restore launcher/src-tauri/tauri.conf.json." -Path (To-RelativePath $TauriConfigPath) -Phase $Phase1)
+    }
+
+    if ($ReleaseManifest -and $ReleaseManifest.toolhub -and $ReleaseManifest.toolhub.installer -and $ReleaseManifest.toolhub.installer.file) {
+        $InstallerPathForBeta = Join-Path (Join-Path $ReleaseDir "dist_installer") ([string]$ReleaseManifest.toolhub.installer.file)
+        if (Test-Path -LiteralPath $InstallerPathForBeta -PathType Leaf) {
+            $ActualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $InstallerPathForBeta).Hash.ToLowerInvariant()
+            $ExpectedHash = [string]$ReleaseManifest.toolhub.installer.sha256
+            if ([string]::IsNullOrWhiteSpace($ExpectedHash)) {
+                Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "installer_sha256_missing" -State "sha256_missing" -Reason "Installer artifact exists but release/manifest.json has no installer sha256." -RecommendedAction "Package the installer through scripts/package_installer.ps1 so sha256 is recorded." -Path (To-RelativePath $InstallerPathForBeta) -Phase $Phase1)
+            } elseif ($ActualHash -ne $ExpectedHash) {
+                Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "installer_sha256_mismatch" -State "sha256_mismatch" -Reason "Installer artifact sha256 does not match release/manifest.json." -RecommendedAction "Rebuild or repackage the installer before Beta distribution." -Path (To-RelativePath $InstallerPathForBeta) -Phase $Phase1)
+            }
+            if ($ReleaseManifest.toolhub.installer.size) {
+                $ActualSize = (Get-Item -LiteralPath $InstallerPathForBeta).Length
+                if ([int64]$ReleaseManifest.toolhub.installer.size -ne $ActualSize) {
+                    Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "installer_size_mismatch" -State "size_mismatch" -Reason "Installer artifact size does not match release/manifest.json." -RecommendedAction "Rebuild or repackage the installer before Beta distribution." -Path (To-RelativePath $InstallerPathForBeta) -Phase $Phase1)
+                }
+            } else {
+                Add-BetaReadyItem "warnings" (New-BetaReadyRecord -Category "beta_ready_warning" -Id "installer_size_missing" -State "size_missing" -Reason "Installer artifact exists but release/manifest.json has no installer size." -RecommendedAction "Package the installer through scripts/package_installer.ps1 so size is recorded." -Path (To-RelativePath $InstallerPathForBeta) -Phase $Phase1)
+            }
+        } else {
+            Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "installer_artifact_missing" -State "missing" -Reason "release/manifest.json points to an installer, but the artifact is not present." -RecommendedAction "Build/package the installer before Beta distribution." -Path (To-RelativePath $InstallerPathForBeta) -Phase $Phase1)
+        }
+    } else {
+        Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "installer_manifest_entry_missing" -State "missing" -Reason "release/manifest.json does not define toolhub.installer.file." -RecommendedAction "Fix the release manifest through the packaging flow before Beta distribution." -Path (To-RelativePath $ReleaseManifestPath) -Phase $Phase1)
+    }
+
+    if (-not (Test-Path -LiteralPath $StageManifest -PathType Leaf)) {
+        Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "installer_staging_manifest_missing" -State "missing" -Reason "Installer staging manifest is not present, so payload contents have not been captured for this checkout." -RecommendedAction "Run the release packaging flow during Phase 1; do not generate artifacts in Phase 0." -Path (To-RelativePath $StageManifest) -Phase $Phase1)
+    }
+
+    if (-not (Test-Path -LiteralPath $PythonExe -PathType Leaf)) {
+        Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "python_runtime_missing" -State "missing" -Reason "runtime/python/python.exe is required for Beta installer environments that must not depend on user-installed Python." -RecommendedAction "Prepare an approved Python runtime archive and verify it with verify_runtime.ps1 -RequireRuntime during Phase 1." -Path (To-RelativePath $PythonExe) -Phase $Phase1)
+    } else {
+        Add-BetaReadyItem "manual_checks" (New-BetaReadyRecord -Category "beta_ready_manual_check" -Id "embedded_python_used_after_install" -State "manual_check_required" -Reason "Local runtime/python/python.exe exists, but this report cannot prove the installed app uses the bundled Python." -RecommendedAction "Verify in a clean installed environment that ToolHub uses runtime/python/python.exe instead of PATH Python." -Path (To-RelativePath $PythonExe) -Verification "manual" -Phase $Phase1)
+    }
+
+    if ($WebRuntimeFiles.Count -eq 0) {
+        Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "web_runtime_missing" -State "missing" -Reason "Web automation runtime files are required for Beta installer environments that run web automation apps." -RecommendedAction "Prepare an approved Web runtime archive and verify it with verify_runtime.ps1 -RequireRuntime during Phase 1." -Path (To-RelativePath $WebRuntimeDir) -Phase $Phase1)
+    } else {
+        Add-BetaReadyItem "manual_checks" (New-BetaReadyRecord -Category "beta_ready_manual_check" -Id "web_runtime_used_after_install" -State "manual_check_required" -Reason "Local Web automation runtime files exist, but this report cannot prove the installed app uses them." -RecommendedAction "Verify sample_playwright_app in a clean installed environment." -Path (To-RelativePath $WebRuntimeDir) -Verification "manual" -Phase $Phase1)
+    }
+
+    Add-BetaReadyItem "manual_checks" (New-BetaReadyRecord -Category "beta_ready_manual_check" -Id "verify_runtime_require_runtime_release_machine" -State "manual_check_required" -Reason "Beta requires verify_runtime.ps1 -RequireRuntime to pass on the release build machine." -RecommendedAction "Run .\scripts\verify_runtime.ps1 -RequireRuntime during Phase 1." -Verification "manual" -Phase $Phase1)
+    Add-BetaReadyItem "manual_checks" (New-BetaReadyRecord -Category "beta_ready_manual_check" -Id "real_install_uninstall" -State "manual_check_required" -Reason "Actual install and uninstall cannot be proven by this read-only report." -RecommendedAction "Install ToolHub_Setup.exe on a clean Windows user profile or VM, then verify uninstall preserves user data." -Verification "manual" -Phase $Phase1)
+    Add-BetaReadyItem "manual_checks" (New-BetaReadyRecord -Category "beta_ready_manual_check" -Id "install_dir_localappdata_programs" -State "manual_check_required" -Reason "The report cannot prove the actual installer destination." -RecommendedAction "Verify installation under %LOCALAPPDATA%\Programs\ToolHub\." -Verification "manual" -Phase $Phase1)
+    Add-BetaReadyItem "manual_checks" (New-BetaReadyRecord -Category "beta_ready_manual_check" -Id "user_data_separation" -State "manual_check_required" -Reason "The report cannot prove first-run user data behavior in an installed environment." -RecommendedAction "Verify %LOCALAPPDATA%\ToolHub\ is used and existing config/launcher.yaml is not overwritten." -Verification "manual" -Phase $Phase1)
+    Add-BetaReadyItem "manual_checks" (New-BetaReadyRecord -Category "beta_ready_manual_check" -Id "no_user_dev_dependencies" -State "manual_check_required" -Reason "The report cannot prove the target user PC has no Python, Node.js, Rust, Tauri CLI, or pip package dependency." -RecommendedAction "Verify ToolHub on a clean machine without developer toolchains installed." -Verification "manual" -Phase $Phase1)
+    Add-BetaReadyItem "manual_checks" (New-BetaReadyRecord -Category "beta_ready_manual_check" -Id "installed_app_cards_and_samples" -State "manual_check_required" -Reason "The report cannot launch the installed UI or sample apps." -RecommendedAction "Verify app cards, sample_gui_app, and sample_playwright_app from the installed ToolHub." -Verification "manual" -Phase $Phase1)
+
+    $UpdateSource = Get-UpdateSourceFromConfig $DefaultLauncherConfigPath
+    if ([string]::IsNullOrWhiteSpace($UpdateSource)) {
+        Add-BetaReadyItem "manual_checks" (New-BetaReadyRecord -Category "beta_ready_manual_check" -Id "remote_update_source_not_configured" -State "manual_check_required" -Reason "config.default/launcher.yaml does not define updates.manifest_url, updates.source_url, or updates.url for a remote manifest." -RecommendedAction "Decide and configure the Beta remote manifest endpoint before distribution; do not fabricate a placeholder endpoint in code." -Path (To-RelativePath $DefaultLauncherConfigPath) -Verification "manual" -Phase $Phase2)
+    }
+
+    if (Test-Path -LiteralPath $CommandsPath -PathType Leaf) {
+        $CommandsText = Get-Content -Raw -Encoding UTF8 $CommandsPath
+        if ($CommandsText -notmatch "check_updates_remote" -or $CommandsText -notmatch "fetch_manifest_json") {
+            Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "remote_manifest_fetch_not_implemented" -State "not_implemented" -Reason "The current update command is the local manifest MVP; remote manifest fetch is not implemented." -RecommendedAction "Implement remote manifest fetch as Phase 2 without changing manifest schema incompatibly." -Path (To-RelativePath $CommandsPath) -Phase $Phase2)
+        }
+        if ($CommandsText -notmatch "download_update_installer") {
+            Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "installer_download_not_implemented" -State "not_implemented" -Reason "Installer download is still listed as an unsupported update action." -RecommendedAction "Implement installer download to %LOCALAPPDATA%\ToolHub\update_cache\ in Phase 3." -Path (To-RelativePath $CommandsPath) -Phase $Phase3)
+        }
+        if ($CommandsText -notmatch "expected_sha256" -or $CommandsText -notmatch "sha256_file") {
+            Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "downloaded_installer_sha256_verify_not_implemented" -State "not_implemented" -Reason "Downloaded installer sha256 verification is not implemented; this is mandatory even for Beta." -RecommendedAction "Verify downloaded installer sha256 against remote manifest before enabling installer launch in Phase 3." -Path (To-RelativePath $CommandsPath) -Phase $Phase3)
+        }
+        if ($CommandsText -notmatch "write_update_result_log" -or $CommandsText -notmatch "latest_update_result.json") {
+            Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "updater_result_log_not_implemented" -State "not_implemented" -Reason "Persistent updater result logging is not implemented." -RecommendedAction "Add update check/download/verify/launch result logging in Phase 4." -Path (To-RelativePath $CommandsPath) -Phase $Phase4)
+        }
+    } else {
+        Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "update_command_source_missing" -State "missing" -Reason "The update command source file is missing, so update readiness cannot be checked." -RecommendedAction "Restore launcher/src-tauri/src/commands.rs." -Path (To-RelativePath $CommandsPath) -Phase $Phase2)
+    }
+
+    Add-BetaReadyItem "future_formal_only" (New-BetaReadyRecord -Category "future_formal_only" -Id "installer_code_signing" -State "formal_release_required" -Reason "Code signing may be deferred for internal Beta, but it is a formal release blocker unless policy explicitly says otherwise." -RecommendedAction "Decide signing policy before formal release; stop Beta if the distribution policy requires signing." -Phase $Phase5)
+    Add-BetaReadyItem "future_formal_only" (New-BetaReadyRecord -Category "future_formal_only" -Id "manifest_signing" -State "formal_release_required" -Reason "Manifest authenticity is not guaranteed by sha256 alone if the manifest itself is compromised." -RecommendedAction "Add manifest signing or use a trusted release distribution path before formal release." -Phase $Phase5)
+    Add-BetaReadyItem "future_formal_only" (New-BetaReadyRecord -Category "future_formal_only" -Id "backup_and_rollback" -State "formal_release_extension" -Reason "Backup and rollback are outside the Beta installer redistribution MVP." -RecommendedAction "Implement before differential or automatic updates." -Phase $Phase5)
+    Add-BetaReadyItem "future_formal_only" (New-BetaReadyRecord -Category "future_formal_only" -Id "app_pack_and_runtime_unit_updates" -State "formal_release_extension" -Reason "App Pack and runtime unit updates are future extensions after whole-installer update works." -RecommendedAction "Keep Beta MVP on whole-installer redistribution first." -Phase $Phase5)
 }
 
 function Read-JsonFile {
@@ -215,6 +387,12 @@ $Report = [ordered]@{
     docs_check_adjustment_candidates = @()
     intentional_warnings = @()
     blocked_items = @()
+    beta_ready = [ordered]@{
+        blockers = @()
+        warnings = @()
+        manual_checks = @()
+        future_formal_only = @()
+    }
 }
 
 if (-not (Test-Path -LiteralPath $AppManifestPath -PathType Leaf)) {
@@ -324,6 +502,8 @@ if (-not $Cl) {
     Add-ListItem $Report "blocked_items" (New-ItemRecord -Category "blocked_items" -Id "msvc-compiler" -State "not_detected" -Reason "Visual Studio C++ compiler cl.exe was not found in this shell." -RecommendedAction "Use Developer PowerShell or install Visual Studio Build Tools with C++ workload before local Tauri release builds.")
 }
 
+Add-BetaReadyClassifications
+
 $Report.summary = [ordered]@{
     manifest_entries = @($ManifestIds).Count
     app_sources = @($SourceIds).Count
@@ -340,6 +520,10 @@ $Report.summary = [ordered]@{
     docs_check_adjustment_candidates = @($Report.docs_check_adjustment_candidates).Count
     intentional_warnings = @($Report.intentional_warnings).Count
     blocked_items = @($Report.blocked_items).Count
+    beta_ready_blockers = @($Report.beta_ready.blockers).Count
+    beta_ready_warnings = @($Report.beta_ready.warnings).Count
+    beta_ready_manual_checks = @($Report.beta_ready.manual_checks).Count
+    beta_ready_future_formal_only = @($Report.beta_ready.future_formal_only).Count
 }
 
 if ($Json) {
@@ -384,6 +568,23 @@ Write-Line "intentional_warnings: $($Report.summary.intentional_warnings)"
 Write-Line "blocked_items: $($Report.summary.blocked_items)"
 foreach ($Item in @($Report.blocked_items)) {
     Write-Line "  - $($Item.id): $($Item.reason)"
+}
+Write-Line ""
+Write-Line "beta_ready_blockers: $($Report.summary.beta_ready_blockers)"
+foreach ($Item in @($Report.beta_ready.blockers)) {
+    Write-Line "  - [$($Item.phase)] $($Item.id): $($Item.reason)"
+}
+Write-Line "beta_ready_warnings: $($Report.summary.beta_ready_warnings)"
+foreach ($Item in @($Report.beta_ready.warnings)) {
+    Write-Line "  - [$($Item.phase)] $($Item.id): $($Item.reason)"
+}
+Write-Line "beta_ready_manual_checks: $($Report.summary.beta_ready_manual_checks)"
+foreach ($Item in @($Report.beta_ready.manual_checks)) {
+    Write-Line "  - [$($Item.phase)] $($Item.id): $($Item.reason)"
+}
+Write-Line "beta_ready_future_formal_only: $($Report.summary.beta_ready_future_formal_only)"
+foreach ($Item in @($Report.beta_ready.future_formal_only)) {
+    Write-Line "  - [$($Item.phase)] $($Item.id): $($Item.reason)"
 }
 Write-Line ""
 Write-Line "No files were changed. Use -Json for machine-readable details."

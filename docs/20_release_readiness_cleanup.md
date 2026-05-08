@@ -18,18 +18,18 @@ Use the read-only report script:
 .\scripts\report_release_readiness.ps1 -Json
 ```
 
-The script classifies existing warnings into cleanup work, packaging work, release-build work, intentional warnings, and
-blocked local-environment items. It does not write files.
+The script classifies existing warnings into cleanup work, packaging work, release-build work, intentional warnings,
+blocked local-environment items, and Beta Ready readiness items. It does not write files.
 
 ## Current Snapshot
 
-The current repository snapshot after App Pack regeneration is:
+The current repository snapshot from `.\scripts\report_release_readiness.ps1` is:
 
-- manifest entries: 7
-- app sources: 7
-- enabled with source: 5
+- manifest entries: 5
+- app sources: 5
+- enabled with source: 4
 - enabled missing source: 0
-- disabled with source: 2
+- disabled with source: 1
 - disabled stale: 0
 - source missing from manifest: 0
 - package path missing: 0
@@ -39,15 +39,13 @@ The current repository snapshot after App Pack regeneration is:
 Enabled apps with source:
 
 - `sample_gui_app`
-- `sample_cli_app`
 - `sample_playwright_app`
-- `officetopdf_toc`
-- `app_20260201_agendasnap`
+- `run_xcgate_upload`
+- `app_20260215_pdfapplication`
 
 Disabled apps with source:
 
-- `run_xcgate_upload`
-- `addnum_pdf`
+- `app_20260201_agendasnap`
 
 Disabled stale entries:
 
@@ -88,27 +86,19 @@ Current delete candidates:
 
 These should not be treated as cleanup deletion targets in Phase 6:
 
-- Active source apps: `sample_gui_app`, `sample_cli_app`, `sample_playwright_app`, `officetopdf_toc`,
-  `app_20260201_agendasnap`.
-- Hidden but restorable source apps: `run_xcgate_upload`, `addnum_pdf`.
+- Active source apps: `sample_gui_app`, `sample_playwright_app`, `run_xcgate_upload`,
+  `app_20260215_pdfapplication`.
+- Hidden but restorable source apps: `app_20260201_agendasnap`.
 - Apps with valid source and regenerated App Packs.
 - Runtime and installer warnings.
 - Local toolchain warnings.
 
 ## App Pack Regeneration Results
 
-These source apps were repackaged with `.\scripts\package_app_pack.ps1`. The generated zip files are local release
-artifacts under `release/app_packs/`, which is ignored by Git except for `.gitkeep`.
-
-| app_id | version | package | sha256 | enabled |
-| --- | --- | --- | --- | --- |
-| `addnum_pdf` | `0.1.0` | `app_packs/addnum_pdf-0.1.0.zip` | `de74ba6fc688f50c682493e0e3a5831473a51642b24611ee474e3464f0d17ceb` | `false` |
-| `app_20260201_agendasnap` | `0.1.0` | `app_packs/app_20260201_agendasnap-0.1.0.zip` | `e6554b4e105e8dc23b4b37e39f85b7f0bfcb5f16d5f74b8b6858fcb9ad2982e2` | `true` |
-| `officetopdf_toc` | `0.1.0` | `app_packs/officetopdf_toc-0.1.0.zip` | `04825531cfd0baafc9710f44fef83acbdaa8016e9e36b0a3e9bcbd7174c59d8c` | `true` |
-| `run_xcgate_upload` | `0.1.0` | `app_packs/run_xcgate_upload-0.1.0.zip` | `44a5e93551f85787f500457b32fcc010d4b4c548f921481b57c12565cccbb13f` | `false` |
-| `sample_cli_app` | `1.0.0` | `app_packs/sample_cli_app-1.0.0.zip` | `19aa0f02522babec8da842789a60abc4d41191deae593794ff663bca8ce34ccc` | `true` |
-| `sample_gui_app` | `1.0.0` | `app_packs/sample_gui_app-1.0.0.zip` | `cd281ec55628dc9f39c63a214023c25654c81159cc76c76e695b85f465b17c17` | `true` |
-| `sample_playwright_app` | `1.0.0` | `app_packs/sample_playwright_app-1.0.0.zip` | `1fdca7279e3d325c7bc18af19d2bb7881c9789ebd03d675f43c6081541f03487` | `true` |
+Generated zip files under `release/app_packs/` are local release artifacts and are ignored by Git except for
+`.gitkeep`. Exact package paths and hashes change when apps are regenerated. Treat `release/app_manifest.json` and
+`.\scripts\report_release_readiness.ps1 -Json` as the current source for release-readiness status instead of copying a
+static hash table into this document.
 
 Current App Pack rebuild candidates:
 
@@ -127,7 +117,24 @@ Current runtime readiness items:
 - `runtime/python/python.exe` exists and passes `verify_runtime.ps1 -RequireRuntime`.
 - `runtime/web_automation_runtime/` contains Web automation runtime files and passes `verify_runtime.ps1 -RequireRuntime`.
 
-These are shared runtime packaging tasks. They must not be resolved by deleting apps.
+These are local release artifacts in this checkout. They do not prove that an installer has bundled the runtime or that
+an installed ToolHub uses it. Installer-bundled runtime behavior remains a Beta Phase 1 manual check. These are shared
+runtime packaging tasks and must not be resolved by deleting apps.
+
+## Beta Ready Report Section
+
+`.\scripts\report_release_readiness.ps1` now also emits a read-only `beta_ready` section in JSON:
+
+- `blockers`: items that prevent Beta Ready, including missing installer artifact, missing staging manifest, remote
+  update source/config gaps, and updater features that are still not implemented.
+- `warnings`: readiness issues that should be reviewed but are not always immediate blockers.
+- `manual_checks`: checks that require an installed environment or release build machine, such as real install,
+  uninstall, `%LOCALAPPDATA%` placement, bundled runtime use, and sample app launch.
+- `future_formal_only`: formal-release items such as code signing, manifest signing, rollback, and App Pack/runtime
+  unit update extensions.
+
+The report remains read-only. It does not build installers, expand runtime archives, create App Packs, download update
+payloads, or inspect/delete user data beyond repository-local path checks.
 
 Current runtime packaging status:
 

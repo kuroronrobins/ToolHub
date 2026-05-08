@@ -232,9 +232,9 @@ runtime方針は [docs/10_runtime_packaging.md](10_runtime_packaging.md) にま�
 - `runtime/app_envs/<app_id>/`
 - `runtime/web_automation_runtime/`
 
-Python runtime本体、app_env実体、Web自動化用ランタイム本体は未同梱です。正式配布前にローカルruntime archiveを準備し、sha256検証付きで展開する必要があります。
+Python runtime本体、app_env実体、Web自動化用ランタイム本体はGit管理対象には含めません。ローカルrelease artifactとして存在する場合でも、正式配布前に承認済みruntime archiveからsha256検証付きで再現し、installer同梱環境で検証する必要があります。
 
-Rust backendのrunner起動は、現時点ではPATH上の `python` / `py` を探してPython runnerを呼びます。正式配布前に `runtime/python/python.exe` などの同梱runtimeを優先する実装へ切り替える必要があります。
+Rust backendのrunner起動は、`runtime/python/python.exe` があれば優先し、ない場合だけPATH上の `python` / `py` を探します。正式配布前に、installer同梱runtimeでこの経路が使われることを実機で確認する必要があります。
 
 ## App Pack
 

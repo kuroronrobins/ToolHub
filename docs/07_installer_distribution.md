@@ -9,7 +9,7 @@ ToolHubはインストーラー型配布を正式方針にします。
 - Tauri標準のNSIS/MSI bundle生成は確認済みです。
 - 正式配布名 `release/dist_installer/ToolHub_Setup_0.1.0.exe` への収集、`release/manifest.json` のinstaller `sha256` / `size` 更新、`verify_release.ps1 -RequireInstaller` は確認済みです。
 - 実インストール検証、コード署名は未完了です。
-- runtime実体、app_env実体、Web自動化用ランタイム実体はまだ同梱していません。
+- runtime実体やWeb自動化用ランタイム実体はローカルrelease artifactとして存在する場合がありますが、installerへの正式同梱検証は未完了です。
 
 ## User Flow
 

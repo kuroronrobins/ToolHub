@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "runner"))
 from app_studio.ai_metadata_suggester import build_icon_design_brief, metadata_prompt, normalize_icon_actions, normalize_icon_objects, select_icon_composition_template, suggest_icon_prompt, suggest_metadata
 from app_studio.build_profile import analyze_exe_readiness, default_build_profile
 from app_studio.default_icon import default_icon_png
-from app_studio.icon_generator import build_icon_revision_api_base_prompt, fallback_icon_concepts, generate_icon_assets_with_candidates, generate_local_png, icon_image_generation_settings, icon_regeneration_candidate_count, icon_style_settings, image_api_prompt, image_api_summary, regenerate_icon_only
+from app_studio.icon_generator import build_icon_revision_api_base_prompt, fallback_icon_concepts, generate_icon_assets_with_candidates, icon_image_generation_settings, icon_regeneration_candidate_count, icon_style_settings, image_api_prompt, image_api_summary, regenerate_icon_only
 from app_studio.app_env_builder import create_app_env, create_build_env, install_build_tools, run_command
 from app_studio.approval import approve_app, targeted_approval_verification, validate_approval_inputs, verify_release_gate
 from app_studio.build_planner import make_build_plan
@@ -1385,14 +1385,6 @@ class OpenAIFallbackTests(unittest.TestCase):
             self.assertIn("データグリッド", csv_prompt)
             self.assertIn("帳票", report_prompt)
 
-    def test_local_fallback_png_defaults_to_512(self) -> None:
-        with workspace_tempdir() as root:
-            context = make_context(root)
-
-            png = generate_local_png(context, "data grid icon", "")
-
-            self.assertEqual(png_dimensions(png), (512, 512))
-
     def test_secret_blocked_icon_generation_does_not_call_image_api(self) -> None:
         with workspace_tempdir() as root:
             context = make_context(root)
@@ -2015,11 +2007,6 @@ def minimal_artifacts(context, icon_candidate_png: bytes | None = None, icon_can
         icon_candidate_png=icon_candidate_png,
         icon_candidate_url=icon_candidate_url,
     )
-
-
-def png_dimensions(png: bytes) -> tuple[int, int]:
-    assert png.startswith(b"\x89PNG\r\n\x1a\n")
-    return int.from_bytes(png[16:20], "big"), int.from_bytes(png[20:24], "big")
 
 
 if __name__ == "__main__":

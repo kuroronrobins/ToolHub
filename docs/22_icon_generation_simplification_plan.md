@@ -1,6 +1,6 @@
 # App Studio icon generation simplification plan
 
-Status: investigation plus implementation record. The 2026-05-08 default icon phase has been implemented.
+Status: investigation plus implementation record. The 2026-05-08 default icon phase has been implemented, and the local fallback rendering cleanup has started.
 
 Date: 2026-05-08
 
@@ -28,6 +28,18 @@ Implemented in this phase:
 - The App Studio UI no longer shows fallback candidate grids, fallback adoption buttons, hidden fallback buttons, or dead fallback UI blocks.
 - Existing saved proposals that still contain fallback candidates remain readable at the Rust proposal layer, but normal UI filters them out of the AI candidate list.
 
+## 2026-05-08 cleanup update
+
+Implemented in this cleanup phase:
+
+- Removed the unused local PNG/SVG fallback rendering block from `icon_generator.py`.
+- Removed the test that asserted local fallback PNG generation as a feature.
+- Kept the ToolHub common default icon path and assets.
+- Kept `final_app/icon.png`, `icon_work/icon_final.png`, `final_app/icon.svg`, and legacy `icon_work/icon_fallback.svg` output behavior for compatibility.
+- Kept saved proposal read compatibility for legacy fallback fields.
+
+The remaining `fallback_icon_concepts` name refers to deterministic text concept fallback, not local image fallback. It should be renamed in a later phase without changing prompt behavior.
+
 ## Pre-implementation self review
 
 Confirmed before proposing removal:
@@ -35,11 +47,11 @@ Confirmed before proposing removal:
 - App Studio-generated `app.yaml` currently writes `display.icon: icon.png` and `display.icon_fallback: icon.svg`.
 - App Pack packaging and release verification require the file referenced by `display.icon` to exist.
 - The launcher manifest loader requires the `display.icon` field to be present, but if the file is missing it can return an app without PNG/SVG icon data rather than immediately failing.
-- Current Python export writes `final_app/icon.png` even when no API candidate exists, because fallback PNG is used as `icon_final_png`.
+- Current Python export writes `final_app/icon.png` even when no API candidate exists, because the ToolHub common default PNG is used as `icon_final_png`.
 - Rust and React types still model `fallback_png`, `final_png`, fallback candidates, and fallback counts as normal proposal data.
 - Removing fallback generation in one step would risk producing App Studio outputs that packaging and release verification reject.
 
-Therefore, the recommended path is staged: first stop presenting fallback as a selectable candidate, then gate Apply/Approve on an explicit icon source, then remove fallback generation and fallback-specific types.
+Therefore, the recommended path remains staged: remove unused local fallback rendering first, then rename misleading fallback concept plumbing, then shrink fallback-specific types and report fields while keeping old proposal readers tolerant.
 
 ## Current icon generation flow
 
@@ -49,16 +61,15 @@ Current file-based flow:
 2. `tools/app_studio/app_studio/icon_generator.py` builds:
    - initial icon prompt,
    - optional user revision prompt,
-   - local SVG via `generate_local_svg`,
-   - local PNG via `generate_local_png`,
-   - API or fallback candidates via `generate_icon_candidates`.
+   - the fixed ToolHub default SVG/PNG from `default_icon.py`,
+   - API candidates via `generate_icon_candidates`.
 3. If AI image API succeeds:
    - `icon_candidate_*.png` or `icon_candidate_*.url.txt` is saved under `icon_work/`.
    - `candidate_manifest.json` stores candidate metadata.
 4. If AI image API is disabled, blocked, or fails:
-   - local fallback candidates are created with sources such as `fallback` or `fallback_after_api_failure`.
-   - these candidates are still saved in `candidate_manifest.json`.
-5. `main.py` sets `selected_icon_source` to `fallback_png` or `provisional_fallback_png` when no explicit icon override exists.
+   - no local fallback image candidate is created.
+   - failure class, reason, and next action are saved in report/import metadata.
+5. `main.py` sets `selected_icon_source` to `default_icon` when no explicit icon override exists.
 6. `tools/app_studio/app_studio/exporter.py` writes:
    - `icon_work/icon_fallback.svg`,
    - `icon_work/icon_final.svg`,
@@ -69,16 +80,16 @@ Current file-based flow:
    - `final_app/icon.png`,
    - `final_app/icon.svg`.
 7. `launcher/src-tauri/src/app_studio_commands.rs` reads `icon_work/` into proposal structs.
-8. `launcher/src/components/admin/appstudio/AppStudioAiProposalPanel.tsx` separates API candidates and fallback candidates in UI, but fallback adoption paths and fallback preview still remain.
-9. If Apply runs without an explicit PNG override, Python fallback remains the final `icon.png`.
+8. `launcher/src/components/admin/appstudio/AppStudioAiProposalPanel.tsx` shows API candidates only as AI candidates and treats the default icon as the current compatibility icon.
+9. If Apply runs without an explicit PNG override, the ToolHub common default icon remains the final `icon.png`.
 
 ## Fallback inventory
 
 | Item | Current location | Current role | Classification |
 | --- | --- | --- | --- |
-| `generate_local_png` | `icon_generator.py` | Creates local fallback PNG, fallback candidates, and exporter backup PNG | Not removable until Apply/Approve gating or default icon policy is implemented |
-| `generate_local_svg` | `icon_generator.py` | Creates fallback/compat SVG and final SVG | Keep temporarily for launcher/display compatibility; later shrink to a common default SVG or remove from candidate flow |
-| `fallback_icon_concepts` | `icon_generator.py` | Creates local deterministic icon concepts when AI concept generation is unavailable | Removable after fallback candidates are removed |
+| `generate_local_png` | `icon_generator.py` | Former local fallback PNG renderer | Removed in cleanup phase |
+| `generate_local_svg` | `icon_generator.py` | Former local fallback/compat SVG renderer | Removed in cleanup phase; fixed default SVG asset remains |
+| `fallback_icon_concepts` | `icon_generator.py` | Creates deterministic text concepts when AI concept generation is unavailable | Keep temporarily; rename later because the name no longer refers to image fallback |
 | `local-deterministic-fallback` | `icon_generator.py`, reports/UI | Marks local fallback model | Removable after fallback candidates are removed |
 | `provisional_fallback_png` | `main.py`, `import_plan.json` | Marks no-API-candidate final icon as provisional | Removable after `icon_status: undecided` and Apply gating are introduced |
 | `fallback_png` | `main.py`, `icon_override.py`, Rust/TS types | Default selected source when no override exists | Replace with explicit `none`, `uploaded_png`, `ai_candidate_png`, and optional `default_icon` |
@@ -90,7 +101,7 @@ Current file-based flow:
 | fallback adoption UI | `AppStudioAiProposalPanel.tsx` | Lets admin adopt fallback/local provisional icon | Remove or replace with explicit "Use ToolHub default icon temporarily" if that policy is approved |
 | fallback scoring | `apply_icon_candidate_quality`, `evaluate_icon_candidate_quality` | Gives pseudo quality fields to local fallback | Remove with fallback candidates; not useful for admin decision |
 | fallback report fields | report JSON/MD, `ImageApiSummaryPanel` | Explains why fallback was created | Replace with `icon_status`, `failure_class`, reason, next action |
-| fallback to `final_app/icon.png` | `main.py`, `exporter.py`, `icon_override.py` | Ensures packaging has an icon | Cannot be removed until Apply/Approve is gated or a default icon path is selected |
+| default icon to `final_app/icon.png` | `main.py`, `exporter.py`, `icon_override.py` | Ensures packaging has an icon | Keep; this is the current compatibility policy |
 
 ## Deletion classification
 
@@ -379,14 +390,14 @@ Recommended design:
 | D | Stop writing fallback candidates | `icon_generator.py`, `models.py`, tests | On API failure, write diagnosis only; no fallback candidate PNGs in manifest | Medium | If existing tests require fallback candidates for success | Python unit tests | Medium | No after Phase C |
 | E | Simplify candidate manifest and reports | `icon_generator.py`, `exporter.py`, Rust reader, TS types | Make manifest API-candidate-only; move diagnosis to report JSON; remove pseudo score fields from UI | Medium | If saved proposal compatibility must be kept longer | Python tests, frontend build, cargo check | Medium to large | No, unless compatibility window changes |
 | F | Simplify icon override and selected source types | `icon_override.py`, Rust/TS types, metadata cleaning tests | Replace `fallback_png/final_png/candidate_png` with `uploaded_png/ai_candidate_png/default_icon/none` | High | If existing saved overrides must remain writable | Python tests, TS tests, cargo check | Medium | Yes |
-| G | Remove or shrink local fallback generation | `icon_generator.py`, `exporter.py`, docs/tests | Remove `generate_local_png`/`fallback_icon_concepts` from candidate/final paths; keep only common default asset if approved | High | If Apply/packaging still needs generated icon | full check_all plus package tests | Large | Yes |
+| G | Remove or shrink local fallback generation | `icon_generator.py`, `exporter.py`, docs/tests | `generate_local_png`/`generate_local_svg` removal is complete; remaining work is to rename `fallback_icon_concepts` and shrink legacy fallback report/type fields | Medium | If saved proposal compatibility breaks | full check_all plus package tests | Medium | No |
 | H | Docs and scripts alignment | `docs/13_app_studio.md`, `docs/14_admin_and_ai_settings.md`, `docs/21_app_registration_improvement_plan.md`, scripts diagnostics | Replace fallback-as-normal docs with icon-undecided/default-icon policy | Low | If implementation phases are not complete | docs review, check_all | Small | No |
 
-## First implementation prompt recommendation
+## Next implementation prompt recommendation
 
-Recommended first prompt:
+Recommended next prompt:
 
-> AGENTS.md に従って、App Studio のアイコン候補UIから dead code と hidden fallback 採用UIを削除し、fallback 候補は通常の候補カードとして表示しないようにしてください。今回は backend の fallback 生成や app.yaml/App Pack 仕様は変えず、API候補が0件の場合は「アイコン未確定」または「画像API失敗」として理由と次アクションだけを表示してください。保存済み proposal の読み込み互換は維持し、コード変更後に frontend build/typecheck、関連 Python tests、check_all を実行してください。
+> AGENTS.md に従って、現行挙動を変えずに `fallback_icon_concepts` と legacy fallback report/type fields を整理してください。画像fallback候補は復活させず、ToolHub common default icon、`display.icon: icon.png`、saved proposal 読み取り互換は維持してください。変更後に Python tests、必要に応じて frontend build/cargo check、check_all を実行してください。
 
 ## Items not yet confirmed by this document
 

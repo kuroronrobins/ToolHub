@@ -12,7 +12,7 @@ AI/APIキー管理には「画像生成テスト（実API呼び出し）」が�
 
 `gpt-image-2` で `Your organization must be verified` または `Verify Organization` を含む 403 系エラーが返る場合、そのOpenAI組織ではモデル利用に組織認証が必要です。App Studio では `error_category: organization_verification_required` として扱い、`gpt-image-2 は現在のOpenAI組織では利用できません。OpenAI Platformで組織認証を完了するか、別のImage modelを設定してください。認証後、反映まで最大15分程度かかる場合があります。` と案内します。組織認証は OpenAI Platform の Organization settings で行い、反映後に画像生成テストを再実行してください。
 
-画像生成テストの直近結果が `ok:false` の間、App Studio GUI はAI画像候補と再生成が使えない状態として警告します。メタデータ編集や手動入力は継続できますが、fallback画像はAI画像ではなくローカル生成の暫定プレースホルダーです。API失敗中は、アイコンPromptやスタイル補足の効果を画像候補として評価できません。
+画像生成テストの直近結果が `ok:false` の間、App Studio GUI はAI画像候補と再生成が使えない状態として警告します。メタデータ編集や手動入力は継続できますが、AI画像候補は増えません。未採用時は ToolHub共通default icon を現在の `icon.png` として使い、API失敗中はアイコンPromptやスタイル補足の効果を画像候補として評価できません。
 
 AI/APIキー管理では候補モデル `gpt-image-2`、`gpt-image-1.5`、`gpt-image-1`、`gpt-image-1-mini` を順番に実APIテストできます。成功したモデルは「このモデルを使用」で Image model 入力欄へ反映し、保存すると以後の App Studio 実行で使われます。候補モデル確認は実API呼び出しのため、OpenAI API利用料金が発生する場合があります。
 
@@ -26,7 +26,7 @@ GUIでは CLI process の `exit_code` / `process_ok` と、`execution_test_resul
 
 ## AI提案メタデータとmetadata_override
 
-Metadata editor は、現在の編集値と AI/fallback 提案値を項目ごとに並べて表示します。`Adopt` はその項目だけを編集値へコピーし、`Revert` は採用直前の値へ戻します。`Adopt all proposals` は表示中の提案項目だけをまとめて採用します。AI提案は読み込み・生成だけでは確定しません。
+Metadata editor は、現在の編集値と AI提案値を項目ごとに並べて表示します。`Adopt` はその項目だけを編集値へコピーし、`Revert` は採用直前の値へ戻します。`Adopt all proposals` は表示中の提案項目だけをまとめて採用します。AI提案は読み込み・生成だけでは確定しません。
 
 GUIで編集できる metadata は `short_description`、`description`、`categories`、`keywords`、`examples`、`use_cases`、`inputs`、`outputs`、`notes` です。更新GUIでは `release_notes` と `change_summary` も同じ editor で扱います。配列項目はMVPとして改行またはカンマ区切りの textarea です。
 

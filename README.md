@@ -36,7 +36,7 @@ py main.py
 - Web自動化用ランタイム
 - 各Pythonアプリのライブラリ
 
-現段階では、完全なPython同梱runtimeとWeb自動化用ランタイムの同梱は設計・スクリプト雛形までです。正式配布前に `runtime/` の実体作成、インストーラー生成、署名、実機検証が必要です。
+現段階では、runtime実体がローカルrelease artifactとして存在する場合がありますが、installerへの正式同梱検証と実機検証は未完了です。正式配布前に承認済みruntime archiveからの再現、インストーラー生成、署名方針、実機検証が必要です。
 
 現行実装の到達点:
 
@@ -275,6 +275,6 @@ Tauriランチャー経由では、起動時に `%LOCALAPPDATA%\ToolHub\` 配下
 - Web操作サンプルは外部サイト依存を避けるため、安全なローカルHTMLデモを優先します。実行環境が未準備の場合は利用者向けエラーと詳細ログを確認できます。
 - 自動更新は非破壊MVPまでです。起動後にローカルmanifestを読み、通常ユーザーには更新候補がある場合だけ通知します。更新元未設定、更新候補なし、参照した設定ファイルやmanifest pathは管理者画面で確認できますが、manifestダウンロード、更新ファイルの取得、展開、置換、バックアップ、ロールバック、署名検証は未実装です。
 - Rust backendのrunner起動は `runtime/python/python.exe` があれば優先し、無い場合はPATH上の `python` / `py` を探します。正式配布前に同梱runtimeの実体作成と検証が必要です。
-- `ToolHub_Setup.exe` の署名、完全なruntime同梱、実機インストール検証は今後の作業です。
+- `ToolHub_Setup.exe` の署名方針、installerへのruntime同梱検証、実機インストール検証は今後の作業です。
 - `scripts/prepare_runtime.ps1 -AllowMissingRuntime` はruntimeフォルダだけを維持するwarning用です。正式配布前は承認済みarchiveをSHA256付きで展開し、`scripts/verify_runtime.ps1 -RequireRuntime` を通してください。
 - Tauri iconは `launcher/src-tauri/icons/icon.ico` / `icon.png` をGit管理します。必要な場合は `python make_icon.py` で再生成できます。

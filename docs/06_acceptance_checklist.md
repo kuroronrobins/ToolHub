@@ -148,6 +148,48 @@
 - [ ] `runtime/app_envs/<app_id>/` の実体が生成されている
 - [ ] Web自動化用ランタイム実体が同梱されている
 
+## Beta Ready Checklist
+
+この section は [docs/22_beta_installer_updater_plan.md](22_beta_installer_updater_plan.md) の Phase 0 で固定した Beta Ready 判定です。`[x]` は現在確認済み、`[ ]` は Beta Ready までに必要な未完了または未検証項目です。`manual check` は read-only script では確認できないため、clean Windows user profile または VM で確認します。
+
+### Beta Blocker
+
+- [ ] [blocker] Beta 配布用 `ToolHub_Setup.exe` が current release build で生成され、`release/manifest.json` の installer `sha256` / `size` と一致する。
+- [ ] [blocker] `release/staging/installer_payload/staging_manifest.json` で installer payload を確認できる。
+- [ ] [blocker] `runner/`, `apps/`, `runtime/`, `config.default/`, `release/manifest.json`, `release/app_manifest.json`, `updater/`, `README.md` が配布物に含まれる。
+- [ ] [blocker] `runtime/python/python.exe` が installer 同梱環境で使われる。
+- [ ] [blocker] Web automation runtime が installer 同梱環境で使える。
+- [ ] [blocker] release build machine で `.\scripts\verify_runtime.ps1 -RequireRuntime` が pass する。
+- [ ] [blocker] 利用者 PC に Python / Node.js / Rust / Tauri CLI / pip package を要求しないことを clean 環境で確認する。
+- [x] [blocker] remote manifest fetch が実装されている。`check_updates_remote` で remote manifest を取得して現在 version と比較する。
+- [x] [blocker] installer download が実装されている。`download_update_installer` で `%LOCALAPPDATA%\ToolHub\update_cache\` へ保存する。
+- [x] [blocker] download 後の installer sha256 verify が実装されている。`download_update_installer` と `launch_verified_update_installer` で sha256 一致を必須にする。
+- [x] [blocker] updater result log が実装されている。`%LOCALAPPDATA%\ToolHub\data\logs\updater\latest_update_result.json` に check / download / launch 結果を記録する。
+
+### Manual Check
+
+- [ ] [manual check] `ToolHub_Setup.exe` による実インストール検証が済んでいる。
+- [ ] [manual check] `%LOCALAPPDATA%\Programs\ToolHub\` に配置される。
+- [ ] [manual check] `%LOCALAPPDATA%\ToolHub\` に user data が分離される。
+- [ ] [manual check] 初回起動時に default config が copy され、既存 user config を上書きしない。
+- [ ] [manual check] アンインストールで `%LOCALAPPDATA%\ToolHub\` の user data を削除しない。
+- [ ] [manual check] インストール済み環境で app card が表示される。
+- [ ] [manual check] インストール済み環境で `sample_gui_app` が起動できる。
+- [ ] [manual check] インストール済み環境で `sample_playwright_app` が起動できる。
+- [ ] [manual check] Beta 配布用の remote manifest endpoint を決定し、`updates.manifest_url` または同等設定から取得できる。
+
+### Warning / Follow-up
+
+- [x] [warning] `scripts/report_release_readiness.ps1` の `beta_ready` section で blocker / warning / manual check / future_formal_only を確認できる。
+- [ ] [warning] `verify_release.ps1 -Strict` の `runtime/app_envs/<app_id>` 方針を frozen-folder app と矛盾しないように整理する。
+
+### Future / Formal Release Only
+
+- [ ] [future/formal] `ToolHub_Setup.exe` の code signing が完了している。Beta では後回し可能だが formal release blocker。
+- [ ] [future/formal] manifest signing または信頼済み配布経路が決まっている。
+- [ ] [future/formal] backup / rollback が実装されている。
+- [ ] [future/formal] App Pack 単位更新と runtime 単位更新の正式版方針が決まっている。
+
 ## Self-Inspection Result
 
 今回の安定化作業で実行したコマンド:

@@ -43,9 +43,9 @@ ToolHub には App Studio、App Pack、runtime 準備、release manifest、relea
 
 | 領域 | 現状 | Beta での扱い |
 | --- | --- | --- |
-| 更新確認 MVP | `check_updates_mvp` はローカル `release/manifest.json` / `release/app_manifest.json` を読み、現在 version と比較する。 | remote manifest 取得ではない。Beta Phase 2 で拡張する。 |
+| 更新確認 MVP / remote check | `check_updates_mvp` はローカル manifest 確認として維持し、`check_updates_remote` が remote manifest を取得して現在 version と比較する。 | Beta では remote check を起動時通知と管理者画面の基準にする。 |
 | 通常利用者向け更新通知 | 起動後に更新確認し、`update_available` の場合だけ通知する。`source_not_configured` / `no_update` は通常利用者へ毎回出さない。 | Beta でもこの通知方針を維持する。 |
-| 管理者向け更新確認 | 管理者画面で status、current / local manifest version、参照 config、manifest path、未実装操作を表示する。 | remote manifest / download / sha256 検証結果をここへ追加する。 |
+| 管理者向け更新確認 | 管理者画面で status、current / local / remote manifest version、参照 config、installer URL、sha256、cache path、download / launch result を表示する。 | 実 endpoint と実 artifact での検証は別途必要。 |
 | installer packaging script | Tauri bundle から `ToolHub_Setup_<version>.exe` または `.msi` を収集し、installer sha256 / size を `release/manifest.json` に書く。 | 実インストール検証は別途必要。 |
 
 ### スクリプトまたは雛形のみ
@@ -66,16 +66,18 @@ ToolHub には App Studio、App Pack、runtime 準備、release manifest、relea
 | runtime 単位更新 | Heavy Runtime として分離する方針はあるが、runtime 単位の remote download / swap / rollback はない。 |
 | 署名検証 | 正式版での追加項目として記載されているが、現時点では未実装。 |
 
+### MVP実装済み / 未検証
+
+- `check_updates_remote` による remote manifest の取得。
+- remote manifest と現在 version の比較。
+- `toolhub.installer.url` または `toolhub.installer.file` からの installer URL 解決。
+- `download_update_installer` による installer の `update_cache` へのダウンロード。
+- ダウンロード済み installer の sha256 検証。
+- sha256 検証後の user confirmation と `launch_verified_update_installer` による installer 起動。
+- check / download / launch の update result 永続記録。
+
 ### 未実装
 
-- remote manifest の取得。
-- remote manifest と現在 version の比較。
-- installer URL の解決。
-- installer の `update_cache` へのダウンロード。
-- ダウンロード済み installer の sha256 検証。
-- sha256 検証後の user confirmation。
-- installer 起動と ToolHub 終了案内。
-- update log / update result の永続記録。
 - 更新後の version 確認。
 - バックアップ / ロールバック実処理。
 - installer / manifest の署名検証。
@@ -399,6 +401,13 @@ Beta Phase 3 では、まず管理者画面で詳細つきの操作を完成さ�
 後続作業:
 
 - Phase 1 の installer 実機検証へ進む。
+
+Phase 0 実施状況:
+
+- `docs/06_acceptance_checklist.md` に Beta Ready checklist を追加済み。
+- `scripts/report_release_readiness.ps1` に read-only の `beta_ready` JSON section を追加済み。分類は `blockers`, `warnings`, `manual_checks`, `future_formal_only`。
+- Phase 0 の report は artifact を生成せず、runtime 展開、installer build、App Pack 生成、user data 変更を行わない。
+- 現時点では Phase 1 の artifact / runtime / 実機検証 blocker と、Phase 2 の remote endpoint 判断が残っているため、Beta Ready ではない。
 
 ### Phase 1: インストーラー Beta Ready
 
@@ -767,9 +776,10 @@ python main.py --check
 
 ## 次にCodexへ依頼する実装候補
 
-1. Phase 0 実装: `docs/06_acceptance_checklist.md` に Beta Ready checklist を追加し、`report_release_readiness.ps1` の現状出力と照合してください。
-2. Phase 1 実装: runtime archive を前提に `build_release.ps1 -RequireRuntime` から実インストール検証手順まで通せるよう、installer / runtime の Beta Ready 検証を整備してください。
-3. Phase 2 実装: `check_updates_mvp` を壊さずに remote manifest fetch と version comparison を追加し、通常 UI と管理者 UI に状態を表示してください。
-4. Phase 3 実装: remote manifest の installer 情報から `ToolHub_Setup.exe` を `update_cache` へ download し、sha256 検証後にユーザー操作で起動できるようにしてください。
-5. Phase 4 実装: update log / result 記録、再起動後 version 確認、failure diagnosis、release readiness report 連携を追加してください。
-6. Phase 5 設計: signature、backup、rollback、App Pack 単位更新、runtime 単位更新、CI / GitHub Releases 連携の正式版設計を分割してください。
+実装開始時は、まず [24_beta_installer_updater_execution_handoff.md](24_beta_installer_updater_execution_handoff.md) を読む。ユーザー不在でも停止条件に当たらない限り、同 handoff の順番で実装、検証、報告まで進める。
+
+1. Phase 1 実装: runtime archive を前提に `build_release.ps1 -RequireRuntime` から実インストール検証手順まで通せるよう、installer / runtime の Beta Ready 検証を整備してください。
+2. Phase 2 検証: 実 endpoint または mock manifest で `check_updates_remote` の `no_update` / `update_available` / fetch failure を確認してください。
+3. Phase 3 検証: 実 installer または mock file で `download_update_installer` の download / size mismatch / sha256 mismatch / verified launch gating を確認してください。
+4. Phase 4 実装: 再起動後 version 確認と failure diagnosis 表示を追加してください。check / download / launch result log と release readiness report 連携は実装済みです。
+5. Phase 5 設計: signature、backup、rollback、App Pack 単位更新、runtime 単位更新、CI / GitHub Releases 連携の正式版設計を分割してください。

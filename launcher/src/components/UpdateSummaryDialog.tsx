@@ -63,6 +63,10 @@ export function UpdateSummaryDialog({ summary, onClose }: Props) {
               <strong>{summary.localManifestVersion ?? "未確認"}</strong>
             </div>
             <div className="version-row">
+              <span>remote manifest</span>
+              <strong>{summary.remoteManifestVersion ?? "未確認"}</strong>
+            </div>
+            <div className="version-row">
               <span>更新元</span>
               <strong>{summary.updateSourceConfigured ? summary.updateSourceUrl ?? "設定済み" : "未設定"}</strong>
             </div>
@@ -83,6 +87,9 @@ export function UpdateSummaryDialog({ summary, onClose }: Props) {
             ) : null}
             <div className="version-row"><span>設定種別</span><strong>{summary.configSource ? CONFIG_SOURCE_LABELS[summary.configSource] ?? summary.configSource : "-"}</strong></div>
             <div className="version-row"><span>設定ファイル</span><strong>{summary.configPath ?? "-"}</strong></div>
+            <div className="version-row"><span>remote manifest</span><strong>{summary.remoteManifestUrl ?? "-"}</strong></div>
+            <div className="version-row"><span>installer</span><strong>{summary.installerUrl ?? "-"}</strong></div>
+            <div className="version-row"><span>installer sha256</span><strong>{summary.installerSha256 ?? "-"}</strong></div>
             <div className="version-row"><span>manifest</span><strong>{summary.localManifestPath ?? "-"}</strong></div>
             <div className="version-row"><span>app manifest</span><strong>{summary.appManifestPath ?? "-"}</strong></div>
           </div>

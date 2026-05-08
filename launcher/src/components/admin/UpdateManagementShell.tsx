@@ -1,12 +1,13 @@
-import { PackageCheck, RefreshCw, UploadCloud } from "lucide-react";
+import { Download, ExternalLink, RefreshCw } from "lucide-react";
 import { useState } from "react";
-import { checkUpdatesMvp } from "../../lib/api";
-import type { UpdateItem, UpdateSummary } from "../../lib/updateTypes";
+import { checkUpdatesRemote, downloadUpdateInstaller, launchVerifiedUpdateInstaller } from "../../lib/api";
+import type { UpdateDownloadResult, UpdateItem, UpdateLaunchResult, UpdateSummary } from "../../lib/updateTypes";
 
 const STATUS_LABELS: Record<string, string> = {
   source_not_configured: "更新元未設定",
   no_update: "更新候補なし",
   update_available: "更新候補あり",
+  remote_manifest_fetch_failed: "remote manifest取得失敗",
 };
 
 const CONFIG_SOURCE_LABELS: Record<string, string> = {
@@ -26,20 +27,71 @@ const UNSUPPORTED_ACTION_LABELS: Record<string, string> = {
 
 export function UpdateManagementShell() {
   const [summary, setSummary] = useState<UpdateSummary | null>(null);
+  const [downloadResult, setDownloadResult] = useState<UpdateDownloadResult | null>(null);
+  const [launchResult, setLaunchResult] = useState<UpdateLaunchResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   async function checkUpdates() {
     setBusy(true);
     setError("");
+    setDownloadResult(null);
+    setLaunchResult(null);
     try {
-      setSummary(await checkUpdatesMvp());
+      setSummary(await checkUpdatesRemote());
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "更新確認に失敗しました。");
     } finally {
       setBusy(false);
     }
   }
+
+  async function downloadInstaller() {
+    if (!summary?.installerUrl || !summary.installerSha256) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setLaunchResult(null);
+    try {
+      setDownloadResult(
+        await downloadUpdateInstaller({
+          manifestUrl: summary.remoteManifestUrl ?? summary.updateSourceUrl ?? null,
+          installerUrl: summary.installerUrl,
+          installerFile: summary.installerFile ?? null,
+          expectedSha256: summary.installerSha256,
+          expectedSize: summary.installerSize ?? null,
+        }),
+      );
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : "installer download failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function launchInstaller() {
+    if (!downloadResult?.verified || !downloadResult.cachePath || !summary?.installerSha256) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      setLaunchResult(
+        await launchVerifiedUpdateInstaller({
+          cachePath: downloadResult.cachePath,
+          expectedSha256: summary.installerSha256,
+        }),
+      );
+    } catch (launchError) {
+      setError(launchError instanceof Error ? launchError.message : "installer launch failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const canDownload = Boolean(summary?.installerUrl && summary.installerSha256 && !busy);
+  const canLaunch = Boolean(downloadResult?.verified && downloadResult.cachePath && summary?.installerSha256 && !busy);
 
   return (
     <section className="admin-panel-section">
@@ -53,18 +105,18 @@ export function UpdateManagementShell() {
       <div className="admin-card-grid">
         <button className="admin-work-card" type="button" onClick={() => void checkUpdates()} disabled={busy}>
           <RefreshCw size={22} aria-hidden="true" />
-          <strong>{busy ? "確認中" : "更新確認MVP"}</strong>
-          <span>ローカルmanifestと更新元URLの設定を読み取ります。ダウンロードや適用は行いません。</span>
+          <strong>{busy ? "確認中" : "remote更新確認"}</strong>
+          <span>remote manifestを取得し、現在versionと比較します。</span>
         </button>
-        <button className="admin-work-card" type="button" disabled>
-          <PackageCheck size={22} aria-hidden="true" />
-          <strong>App Pack確認</strong>
-          <span>App Pack の整合性確認に接続予定</span>
+        <button className="admin-work-card" type="button" onClick={() => void downloadInstaller()} disabled={!canDownload}>
+          <Download size={22} aria-hidden="true" />
+          <strong>installer取得</strong>
+          <span>update_cacheへ保存し、remote manifestのsha256で検証します。</span>
         </button>
-        <button className="admin-work-card danger" type="button" disabled>
-          <UploadCloud size={22} aria-hidden="true" />
-          <strong>publish準備</strong>
-          <span>将来は再認証を必須にする操作</span>
+        <button className="admin-work-card danger" type="button" onClick={() => void launchInstaller()} disabled={!canLaunch}>
+          <ExternalLink size={22} aria-hidden="true" />
+          <strong>installer起動</strong>
+          <span>sha256検証済みのToolHub_Setup.exeだけをユーザー操作で起動します。</span>
         </button>
       </div>
       {summary ? (
@@ -73,9 +125,14 @@ export function UpdateManagementShell() {
           <div><span>status</span><strong>{statusLabel(summary.status)}</strong></div>
           <div><span>current version</span><strong>{summary.currentVersion ?? "-"}</strong></div>
           <div><span>local manifest version</span><strong>{summary.localManifestVersion ?? "-"}</strong></div>
+          <div><span>remote manifest version</span><strong>{summary.remoteManifestVersion ?? "-"}</strong></div>
           <div><span>update source configured</span><strong>{summary.updateSourceConfigured ? "設定済み" : "未設定"}</strong></div>
           <div><span>update source URL</span><strong>{summary.updateSourceUrl ?? "-"}</strong></div>
           <div><span>config source</span><strong>{configSourceLabel(summary.configSource)}</strong></div>
+          <div className="wide"><span>remote manifest URL</span><strong>{summary.remoteManifestUrl ?? "-"}</strong></div>
+          <div className="wide"><span>installer URL</span><strong>{summary.installerUrl ?? "-"}</strong></div>
+          <div className="wide"><span>installer sha256</span><strong>{summary.installerSha256 ?? "-"}</strong></div>
+          <div className="wide"><span>update cache</span><strong>{summary.updateCachePath ?? "-"}</strong></div>
           <div className="wide"><span>config path</span><strong>{summary.configPath ?? "-"}</strong></div>
           <div className="wide"><span>local manifest path</span><strong>{summary.localManifestPath ?? "-"}</strong></div>
           <div className="wide"><span>app manifest path</span><strong>{summary.appManifestPath ?? "-"}</strong></div>
@@ -110,6 +167,30 @@ export function UpdateManagementShell() {
             <p className="admin-muted">未実装: {summary.unsupportedActions.map((action) => UNSUPPORTED_ACTION_LABELS[action] ?? action).join("、")}</p>
           ) : null}
         </details>
+        {downloadResult || launchResult ? (
+          <details className="admin-details" open>
+            <summary>installer update operation</summary>
+            <div className="version-list">
+              {downloadResult ? (
+                <>
+                  <div className="version-row"><span>download status</span><strong>{downloadResult.status}</strong></div>
+                  <div className="version-row"><span>verified</span><strong>{downloadResult.verified ? "yes" : "no"}</strong></div>
+                  <div className="version-row"><span>size</span><strong>{downloadResult.actualSize ?? "-"}</strong></div>
+                  <div className="version-row"><span>sha256</span><strong>{downloadResult.actualSha256 ?? "-"}</strong></div>
+                  <div className="version-row"><span>cache</span><strong>{downloadResult.cachePath ?? "-"}</strong></div>
+                  <div className="version-row"><span>message</span><strong>{downloadResult.message}</strong></div>
+                </>
+              ) : null}
+              {launchResult ? (
+                <>
+                  <div className="version-row"><span>launch status</span><strong>{launchResult.status}</strong></div>
+                  <div className="version-row"><span>verified</span><strong>{launchResult.verified ? "yes" : "no"}</strong></div>
+                  <div className="version-row"><span>message</span><strong>{launchResult.message}</strong></div>
+                </>
+              ) : null}
+            </div>
+          </details>
+        ) : null}
         </>
       ) : null}
       {error ? <p className="admin-error">{error}</p> : null}
