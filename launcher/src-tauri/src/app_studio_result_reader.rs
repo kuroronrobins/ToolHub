@@ -1,3 +1,4 @@
+use crate::app_studio_types::AppStudioTimingPhase;
 use serde::Serialize;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -56,15 +57,6 @@ pub struct AppStudioResultSummary {
     pub catalog_load_error: Option<String>,
     pub catalog_root: Option<String>,
     pub app_studio_repo_root: Option<String>,
-}
-
-#[derive(Debug, Serialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct AppStudioTimingPhase {
-    pub phase: String,
-    pub label: String,
-    pub status: String,
-    pub duration_seconds: Option<f64>,
 }
 
 pub fn read_summary(

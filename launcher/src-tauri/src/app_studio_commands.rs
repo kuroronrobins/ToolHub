@@ -20,14 +20,15 @@ use crate::app_studio_process::{
     append_app_studio_gui_log, command_line_for_log, mask_sensitive, redact_cli_arg_value,
     result_from_process,
 };
+pub use crate::app_studio_result_reader::AppStudioResultSummary;
 use crate::app_studio_result_reader::{output_dir_from_app_yaml, read_summary};
-pub use crate::app_studio_result_reader::{AppStudioResultSummary, AppStudioTimingPhase};
 pub use crate::app_studio_types::{
     AppStudioAiDiagnostics, AppStudioDeletePlan, AppStudioDeletePlanTarget,
     AppStudioEditableMetadata, AppStudioFullDeletePostCheckSummary, AppStudioFullDeleteRecord,
     AppStudioFullDeleteResult, AppStudioIconOverride, AppStudioIconRegenerateRequest,
     AppStudioImportRequest, AppStudioManagedApp, AppStudioManagementActionResult,
-    AppStudioPreflightResult, AppStudioRegisteredApp, AppStudioRunResult, AppStudioUpdateRequest,
+    AppStudioPreflightResult, AppStudioRegisteredApp, AppStudioRunResult, AppStudioTimingPhase,
+    AppStudioUpdateRequest,
 };
 use serde::Serialize;
 use serde_json::{Map, Value};

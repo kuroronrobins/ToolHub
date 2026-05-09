@@ -1228,7 +1228,7 @@ Implemented scope:
 
 - Added `launcher/src-tauri/src/app_studio_types.rs` as the public App Studio Tauri DTO boundary.
 - Moved public request/response DTOs out of `app_studio_commands.rs`: import/update/icon-regenerate requests, editable metadata, icon override, registered/managed app summaries, delete plan/apply DTOs, run result, preflight result, and AI diagnostics.
-- Kept `AppStudioResultSummary`, `AppStudioTimingPhase`, and AI proposal/icon suggestion structs in their existing reader modules.
+- Kept `AppStudioResultSummary` and AI proposal/icon suggestion structs in their existing reader modules.
 - Left `PythonCandidate` and `AiEnvPlan` in `app_studio_commands.rs` because they are command-internal execution helpers, not public API DTOs.
 - Updated `app_studio_cli_args.rs`, `app_studio_overrides.rs`, and `app_studio_process.rs` to import shared DTOs from `app_studio_types.rs`.
 - Kept re-exports in `app_studio_commands.rs` so existing internal references through the command module remain compatible.
@@ -1246,6 +1246,26 @@ Remaining follow-up:
 - `app_studio_commands.rs` still owns Tauri command wrappers, Python discovery, AI env injection, process orchestration, preflight, management, delete, and shared local helpers.
 - The next safe split remains `app_studio_preflight.rs` for read-only preflight/discovery, but only after tests cover runtime Python priority and PATH fallback behavior.
 - Management/delete should still be split as its own safety-focused module, not mixed with process execution cleanup.
+
+## 2026-05-10 P1 follow-up: Rust DTO boundary finish
+
+Implemented scope:
+
+- Moved `AppStudioTimingPhase` from `app_studio_result_reader.rs` into `app_studio_types.rs` so the shared DTO module no longer depends on the artifact reader module.
+- Updated `app_studio_result_reader.rs` to import `AppStudioTimingPhase` from `app_studio_types.rs`.
+- Kept `AppStudioResultSummary` in `app_studio_result_reader.rs` because it is the reader-owned artifact summary shape returned by `read_summary()`.
+- Kept `PythonCandidate` and `AiEnvPlan` in `app_studio_commands.rs` because they are command-internal helpers for Python discovery and AI environment planning.
+- Added a focused serialization assertion for `AppStudioTimingPhase` and `AppStudioRunResult.timingPhases` to preserve the existing camelCase JSON shape.
+
+Compatibility notes:
+
+- Tauri command names, arguments, and return JSON shape were not changed.
+- `AppStudioTimingPhase` kept the same fields, derives, `serde(rename_all = "camelCase")`, and field ordering.
+- React/TypeScript, Python CLI argv, Python discovery, env injection, process spawn, management/delete behavior, app.yaml schema, App Pack spec, runner I/F, and release manifest compatibility were not changed.
+
+Remaining follow-up:
+
+- `AppStudioResultSummary` can be revisited later only if the artifact reader is split from its response DTO, but that is not required for the current boundary and should not be mixed with behavior changes.
 
 Recommended next Codex task:
 

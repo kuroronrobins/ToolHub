@@ -1,4 +1,3 @@
-use crate::app_studio_result_reader::AppStudioTimingPhase;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -203,6 +202,15 @@ pub struct AppStudioFullDeleteResult {
     pub apps: Vec<AppStudioManagedApp>,
 }
 
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioTimingPhase {
+    pub phase: String,
+    pub label: String,
+    pub status: String,
+    pub duration_seconds: Option<f64>,
+}
+
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AppStudioRunResult {
@@ -296,8 +304,9 @@ pub struct AppStudioAiDiagnostics {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppStudioIconOverride, AppStudioImportRequest, AppStudioRunResult};
-    use crate::app_studio_result_reader::AppStudioTimingPhase;
+    use super::{
+        AppStudioIconOverride, AppStudioImportRequest, AppStudioRunResult, AppStudioTimingPhase,
+    };
     use serde_json::{json, Value};
 
     #[test]
@@ -407,7 +416,12 @@ mod tests {
             timing_wall_clock_total_seconds: Some(1.2),
             timing_cli_measured_total_seconds: Some(1.1),
             timing_unmeasured_overhead_seconds: Some(0.1),
-            timing_phases: vec![AppStudioTimingPhase::default()],
+            timing_phases: vec![AppStudioTimingPhase {
+                phase: "build".to_string(),
+                label: "Build".to_string(),
+                status: "ok".to_string(),
+                duration_seconds: Some(1.25),
+            }],
             process_wall_clock_seconds: Some(1.3),
             manifest_enabled: Some(false),
             approval_record_status: Some("not_approved".to_string()),
@@ -429,6 +443,28 @@ mod tests {
         assert_eq!(value["approvalAllowed"], Value::from(true));
         assert_eq!(value["approvalBlockingWarningsCount"], Value::from(0));
         assert_eq!(value["timingPhases"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            value["timingPhases"][0]["durationSeconds"],
+            Value::from(1.25)
+        );
         assert!(value.get("selected_build_mode").is_none());
+        assert!(value["timingPhases"][0].get("duration_seconds").is_none());
+    }
+
+    #[test]
+    fn timing_phase_serializes_existing_camel_case_shape() {
+        let phase = AppStudioTimingPhase {
+            phase: "runtime_check".to_string(),
+            label: "Runtime check".to_string(),
+            status: "warn".to_string(),
+            duration_seconds: Some(3.5),
+        };
+
+        let value = serde_json::to_value(phase).expect("timing phase should serialize");
+        assert_eq!(value["phase"], Value::from("runtime_check"));
+        assert_eq!(value["label"], Value::from("Runtime check"));
+        assert_eq!(value["status"], Value::from("warn"));
+        assert_eq!(value["durationSeconds"], Value::from(3.5));
+        assert!(value.get("duration_seconds").is_none());
     }
 }
