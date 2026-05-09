@@ -166,13 +166,22 @@ build:
     )
 
 
-def write_execution_result(repo: Path, app_id: str, status: str, approval_allowed: bool, approval_blocking: bool = False) -> None:
+def write_execution_result(
+    repo: Path,
+    app_id: str,
+    status: str,
+    approval_allowed: bool,
+    approval_blocking: bool = False,
+    result_app_id: str | None = None,
+    evidence: dict[str, object] | None = None,
+    generated_at: str = "2026-01-01T00:00:00",
+) -> None:
     category = "approval_blocking_warning" if approval_blocking else "non_blocking_warning" if status == "warn" else status
     write_json(
         repo / "data" / "logs" / "app_studio" / f"{app_id}_execution_test_result.json",
         {
-            "app_id": app_id,
-            "generated_at": "2026-01-01T00:00:00",
+            "app_id": result_app_id or app_id,
+            "generated_at": generated_at,
             "overall_status": status,
             "approval_allowed": approval_allowed,
             "approval_blocking_warnings_count": 1 if approval_blocking else 0,
@@ -188,7 +197,56 @@ def write_execution_result(repo: Path, app_id: str, status: str, approval_allowe
                     "approval_blocking": approval_blocking or status == "fail",
                 }
             ],
+            "evidence": evidence or {},
         },
+    )
+
+
+def write_runtime_result(
+    repo: Path,
+    app_id: str,
+    status: str,
+    result_app_id: str | None = None,
+    evidence: dict[str, object] | None = None,
+    approval_blocking: bool = False,
+) -> None:
+    category = "approval_blocking_warning" if approval_blocking else "fail" if status == "fail" else "info"
+    write_json(
+        repo / "data" / "logs" / "app_studio" / f"{app_id}_runtime_check_result.json",
+        {
+            "app_id": result_app_id or app_id,
+            "overall_status": status,
+            "approval_blocking_warnings_count": 1 if approval_blocking else 0,
+            "non_blocking_warnings_count": 0,
+            "info_count": 0,
+            "unresolved_distribution_risks_count": 1 if approval_blocking or status == "fail" else 0,
+            "approval_blocking_reasons": ["runtime risk"] if approval_blocking else [],
+            "non_blocking_warning_summaries": [],
+            "checks": [
+                {
+                    "name": "runtime check",
+                    "status": status,
+                    "detail": "test",
+                    "approval_category": category,
+                    "approval_blocking": approval_blocking or status == "fail",
+                }
+            ],
+            "evidence": evidence or {},
+        },
+    )
+
+
+def append_output_mirror(repo: Path, app_id: str, output_dir: Path) -> None:
+    app_yaml = repo / "apps" / app_id / "app.yaml"
+    text = app_yaml.read_text(encoding="utf-8").rstrip()
+    write_text(
+        app_yaml,
+        text
+        + f"""
+
+build:
+  output_mirror: "{output_dir.as_posix()}"
+""",
     )
 
 
@@ -1174,6 +1232,147 @@ admin:
 
             with self.assertRaisesRegex(ValueError, "stale.*result_path"):
                 validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+    def test_approval_rejects_execution_result_for_wrong_app_id(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            write_execution_result(repo, app_id, "pass", True, result_app_id="other_app")
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+
+            with self.assertRaisesRegex(ValueError, "Execution test result app_id mismatch"):
+                validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+    def test_approval_rejects_execution_result_for_wrong_output_dir(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            output_dir = root / "ToolHub_AppStudio_Output" / app_id
+            wrong_output_dir = root / "ToolHub_AppStudio_Output" / "other_app"
+            write_minimal_registered_app(repo, app_id)
+            append_output_mirror(repo, app_id, output_dir)
+            write_execution_result(repo, app_id, "pass", True, evidence={"output_dir": str(wrong_output_dir)})
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+
+            with self.assertRaisesRegex(ValueError, "Execution test result output_dir mismatch"):
+                validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+    def test_approval_rejects_missing_execution_result(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+
+            with self.assertRaisesRegex(FileNotFoundError, "Execution test result JSON was not found"):
+                validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+    def test_approval_rejects_execution_overall_fail_even_when_approval_allowed_true(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            write_execution_result(repo, app_id, "fail", True)
+            result_path = repo / "data" / "logs" / "app_studio" / f"{app_id}_execution_test_result.json"
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            result["checks"] = []
+            write_json(result_path, result)
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+
+            with self.assertRaisesRegex(ValueError, "Execution test result overall_status=fail"):
+                validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+    def test_approval_rejects_runtime_result_for_wrong_app_id(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            write_execution_result(repo, app_id, "pass", True)
+            write_runtime_result(repo, app_id, "pass", result_app_id="other_app")
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+
+            with self.assertRaisesRegex(ValueError, "Runtime check result app_id mismatch"):
+                validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+    def test_approval_rejects_runtime_result_for_wrong_output_dir(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            output_dir = root / "ToolHub_AppStudio_Output" / app_id
+            wrong_output_dir = root / "ToolHub_AppStudio_Output" / "other_app"
+            write_minimal_registered_app(repo, app_id)
+            append_output_mirror(repo, app_id, output_dir)
+            write_execution_result(repo, app_id, "pass", True, evidence={"output_dir": str(output_dir)})
+            write_runtime_result(repo, app_id, "pass", evidence={"output_dir": str(wrong_output_dir)})
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+
+            with self.assertRaisesRegex(ValueError, "Runtime check result output_dir mismatch"):
+                validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+    def test_approval_rejects_runtime_fail_result(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            write_execution_result(repo, app_id, "pass", True)
+            write_runtime_result(repo, app_id, "fail")
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+
+            with self.assertRaisesRegex(ValueError, "Runtime check result blocks approval"):
+                validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+    def test_approval_rejects_stale_runtime_result_with_context(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            output_dir = root / "ToolHub_AppStudio_Output" / app_id
+            final_app = output_dir / "final_app"
+            bin_dir = final_app / "bin" / app_id
+            bin_dir.mkdir(parents=True)
+            write_minimal_registered_app(repo, app_id)
+            append_output_mirror(repo, app_id, output_dir)
+            write_text(
+                final_app / "app.yaml",
+                f"""id: {app_id}
+run:
+  entry: bin/{app_id}/{app_id}.exe
+""",
+            )
+            write_text(bin_dir / f"{app_id}.exe", "fake exe\n")
+            write_execution_result(repo, app_id, "pass", True, evidence={"output_dir": str(output_dir)})
+            write_runtime_result(repo, app_id, "pass", evidence={"output_dir": str(output_dir)})
+            runtime_path = repo / "data" / "logs" / "app_studio" / f"{app_id}_runtime_check_result.json"
+            newer = runtime_path.stat().st_mtime + 10
+            os.utime(final_app / "app.yaml", (newer, newer))
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+
+            with self.assertRaisesRegex(ValueError, "Runtime check result is stale"):
+                validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+    def test_approval_rejects_runtime_approval_blocking_warnings(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            write_execution_result(repo, app_id, "pass", True)
+            write_runtime_result(repo, app_id, "warn", approval_blocking=True)
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+
+            with self.assertRaisesRegex(ValueError, "Runtime check result contains approval-blocking warnings"):
+                validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+    def test_approval_uses_file_mtime_not_generated_at_for_freshness(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            write_execution_result(repo, app_id, "pass", True, generated_at="not-a-timestamp")
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+
+            _, result = validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+            self.assertEqual(result["generated_at"], "not-a-timestamp")
 
     def test_approval_failure_reports_result_path_and_fail_checks(self) -> None:
         with workspace_tempdir() as root:

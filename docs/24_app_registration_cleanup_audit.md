@@ -643,3 +643,28 @@ docs/15_app_studio_update_gui.md と docs/21_app_registration_improvement_plan.m
 - PowerShell helper は parser syntax と `verify_release.ps1` 実行で確認するが、PowerShell 関数単位の isolated
   unit test はまだない。
 - Python と PowerShell の required entry contract は同じ挙動に揃っているが、single source 化は未実施。
+
+## 2026-05-10 P0 follow-up: approval result consistency 固定
+
+実施範囲:
+
+- approval gate が `data/logs/app_studio/<app_id>_execution_test_result.json` の `app_id` を確認し、承認対象と異なる
+  result を拒否することを unit test で固定した。
+- `apps/<app_id>/app.yaml` の `output_mirror` と execution/runtime result の `evidence.output_dir` が両方ある場合、
+  異なる `output_dir` の result を拒否することを固定した。
+- 既存の execution result stale 判定に加え、runtime result が存在する場合は `final_app/app.yaml` と
+  `final_app/run.entry` に対して stale でないことを確認する低リスク gate を追加した。
+- runtime result が存在する場合、wrong app、fail check、`overall_status: fail`、approval-blocking warning は承認不可として
+  Python unit test で固定した。
+- `generated_at` は現時点では履歴表示情報として扱い、鮮度判定は file mtime と artifact consistency に基づくことを
+  現行仕様として test で固定した。
+
+残した follow-up:
+
+- `runtime_check_result.json` の存在自体を全 App Studio 登録で必須にするかは、保存済み proposal / old result 互換の
+  判断が必要なため未実施。今回の gate は「存在する runtime result を誤用しない」範囲に留めた。
+- `generated_at` の厳密な期限、source hash、import_plan hash、build profile hash による freshness 判定は運用判断を伴うため未実施。
+- old result 互換のため、`app_id` field が存在しない古い result を一律拒否する判断は未実施。現時点では field が存在して
+  承認対象と異なる場合を拒否する。
+- Rust / React 側は result 表示を継続し、approval の authoritative decision は Python gate に残した。UI の warning / next action
+  の正規化は別フェーズで扱う。

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -120,6 +121,7 @@ def validate_approval_inputs(repo_root: Path, manifest: dict[str, Any], app_id: 
         raise FileNotFoundError(f"Execution test result JSON was not found: {result_path}")
     result = json.loads(result_path.read_text(encoding="utf-8"))
 
+    validate_result_identity_and_output_dir(repo_root, app_id, app_yaml, result, result_path, "Execution test result")
     checks = result.get("checks") or []
     fail_checks = [item for item in checks if item.get("status") == "fail"]
     warn_checks = [item for item in checks if item.get("status") == "warn"]
@@ -142,6 +144,8 @@ def validate_approval_inputs(repo_root: Path, manifest: dict[str, Any], app_id: 
         )
     if fail_checks:
         raise ValueError(f"Execution test result contains fail checks. result_path={result_path}; fail_checks={format_check_summaries(fail_checks)}")
+    if result.get("overall_status") == "fail":
+        raise ValueError(f"Execution test result overall_status=fail. result_path={result_path}; fail_checks={format_check_summaries(fail_checks)}")
     if strict and approval_blocking_warn_checks:
         raise ValueError(
             "StrictApproval rejects approval-blocking warning checks. "
@@ -152,7 +156,93 @@ def validate_approval_inputs(repo_root: Path, manifest: dict[str, Any], app_id: 
             "Approval-blocking warnings are not allowed for this approval. "
             f"result_path={result_path}; warn_checks={format_check_summaries(approval_blocking_warn_checks)}"
         )
+    validate_runtime_check_for_approval(repo_root, app_id, app_yaml)
     return entry, result
+
+
+def validate_runtime_check_for_approval(repo_root: Path, app_id: str, app_yaml: Path) -> None:
+    result_path = repo_root / "data" / "logs" / "app_studio" / f"{app_id}_runtime_check_result.json"
+    if not result_path.is_file():
+        return
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    validate_result_identity_and_output_dir(repo_root, app_id, app_yaml, result, result_path, "Runtime check result")
+    stale_signals = stale_runtime_result_signals(result, result_path)
+    if stale_signals:
+        raise ValueError(
+            "Runtime check result is stale. "
+            f"result_path={result_path}; stale_against={'; '.join(stale_signals)}"
+        )
+    checks = result.get("checks") if isinstance(result.get("checks"), list) else []
+    fail_checks = [item for item in checks if isinstance(item, dict) and item.get("status") == "fail"]
+    if result.get("overall_status") == "fail" or fail_checks:
+        raise ValueError(
+            "Runtime check result blocks approval. "
+            f"result_path={result_path}; overall_status={result.get('overall_status')}; "
+            f"fail_checks={format_check_summaries(fail_checks)}"
+        )
+    if int(result.get("approval_blocking_warnings_count") or 0) > 0:
+        raise ValueError(
+            "Runtime check result contains approval-blocking warnings. "
+            f"result_path={result_path}; approval_blocking_reasons={result.get('approval_blocking_reasons') or []}"
+        )
+
+
+def validate_result_identity_and_output_dir(
+    repo_root: Path,
+    app_id: str,
+    app_yaml: Path,
+    result: dict[str, Any],
+    result_path: Path,
+    label: str,
+) -> None:
+    actual_app_id = result.get("app_id")
+    if isinstance(actual_app_id, str) and actual_app_id and actual_app_id != app_id:
+        raise ValueError(
+            f"{label} app_id mismatch. "
+            f"result_path={result_path}; expected_app_id={app_id}; result_app_id={actual_app_id}"
+        )
+    if actual_app_id is not None and not isinstance(actual_app_id, str):
+        raise ValueError(
+            f"{label} app_id is invalid. "
+            f"result_path={result_path}; expected_app_id={app_id}; result_app_id={actual_app_id!r}"
+        )
+
+    expected_output = find_output_mirror(repo_root, app_id)
+    actual_output = result_output_dir(result)
+    if expected_output and actual_output and not same_path(repo_root, expected_output, actual_output):
+        raise ValueError(
+            f"{label} output_dir mismatch. "
+            f"result_path={result_path}; app_yaml={app_yaml}; "
+            f"app_yaml_output_mirror={expected_output}; result_output_dir={actual_output}"
+        )
+
+
+def result_output_dir(result: dict[str, Any]) -> str:
+    value = result.get("output_dir")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    evidence = result.get("evidence")
+    if isinstance(evidence, dict):
+        value = evidence.get("output_dir")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def same_path(repo_root: Path, expected: Path, actual: str) -> bool:
+    expected_path = resolve_for_compare(repo_root, expected)
+    actual_path = resolve_for_compare(repo_root, Path(actual))
+    return os.path.normcase(str(expected_path)) == os.path.normcase(str(actual_path))
+
+
+def resolve_for_compare(repo_root: Path, path: Path) -> Path:
+    base = path.expanduser()
+    if not base.is_absolute():
+        base = repo_root / base
+    try:
+        return base.resolve()
+    except Exception:
+        return base.absolute()
 
 
 def stale_execution_result_signals(repo_root: Path, app_id: str, app_yaml: Path, result_path: Path) -> list[str]:
@@ -164,6 +254,21 @@ def stale_execution_result_signals(repo_root: Path, app_id: str, app_yaml: Path,
 
     entry = app_yaml_run_entry(app_yaml) or f"bin/{app_id}/{app_id}.exe"
     compare_target(result_mtime, repo_root / "apps" / app_id / entry, "frozen exe", signals)
+    return signals
+
+
+def stale_runtime_result_signals(result: dict[str, Any], result_path: Path) -> list[str]:
+    output = result_output_dir(result)
+    if not output:
+        return []
+    output_dir = Path(output)
+    result_mtime = result_path.stat().st_mtime
+    signals: list[str] = []
+    final_app = output_dir / "final_app"
+    compare_target(result_mtime, final_app / "app.yaml", "final_app/app.yaml", signals)
+    entry = app_yaml_run_entry(final_app / "app.yaml")
+    if entry:
+        compare_target(result_mtime, final_app / entry, "final_app run.entry", signals)
     return signals
 
 
