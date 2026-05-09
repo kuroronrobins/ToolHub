@@ -2091,6 +2091,67 @@ Remaining follow-up:
 - Keep `report_release_readiness.ps1` separate unless a future readiness-helper audit identifies a concrete read-only helper boundary.
 - If direct `package_app_pack.ps1` execution is needed for confidence, use a temporary repo/fixture copy; do not run it against production `apps/` / `release/` unless artifact changes are explicitly in scope.
 
+## 2026-05-10 P2 audit: `verify_release.ps1` App Pack contract helper adoption
+
+Scope:
+
+- This is an audit-only pass. `scripts/verify_release.ps1`, `scripts/package_app_pack.ps1`, `scripts/report_release_readiness.ps1`, `scripts/check_all.ps1`, Python production code, Rust code, React/TypeScript code, apps, release manifests, runtime files, data, logs, generated artifacts, dependencies, and lock files were not changed.
+- The App Pack spec, app.yaml public schema, runner public I/F, release manifest compatibility, App Studio frozen-folder lock-file contract, and legacy Python-runner lock exception remain unchanged.
+- `scripts/lib/app_pack_contract.ps1` is treated as a read-only helper candidate for `verify_release.ps1`; this pass does not make `verify_release.ps1` dot-source it.
+
+Current `verify_release.ps1` responsibility:
+
+- Acts as the independent release gate for `release/manifest.json`, `release/app_manifest.json`, app sources, App Pack packages, runtime and installer artifacts, staging manifests, hashes, sizes, and release consistency.
+- Owns all release-gate output and exit semantics: `[OK]`, `[WARN]`, `[NG]`, `-Strict`, `-RequireInstaller`, `-RequireRuntime`, `-RequireAppPacks`, and final process exit code.
+- Validates app manifest entries, enabled/disabled app source presence, app.yaml references, App Pack package existence, `sha256`, zip entries, runtime/app_env skeletons, installer metadata, stale manifest entries, and runtime/installer requirements.
+
+Overlap with `scripts/lib/app_pack_contract.ps1`:
+
+- `verify_release.ps1` still carries local copies of these pure helper responsibilities:
+  - YAML scalar reading / normalization.
+  - app-relative path normalization.
+  - app-relative file resolution.
+  - app.yaml app-relative field reading.
+  - frozen-folder detection.
+  - `runtime.requirements_lock` handling, including implicit `requirements.lock` for frozen-folder apps.
+- These helpers are used only to derive `run.entry`, `display.icon`, and lock-file references from app.yaml before routing the result through `verify_release.ps1` gate-specific checks.
+- `scripts/lib/app_pack_contract.ps1` also exposes `Get-AppPackRequiredEntries` and `Get-AppPackContractSummary`, but replacing `verify_release.ps1` zip-entry checks with those higher-level helpers would be a larger behavior-risk step because the current release gate owns the individual `[OK]` / `[NG]` labels.
+
+Low-risk adoption candidates:
+
+1. Dot-source `scripts/lib/app_pack_contract.ps1` from `verify_release.ps1` and remove only the local pure helper definitions with the same names:
+   - `Normalize-YamlScalar`
+   - `Read-YamlSectionScalar`
+   - `Normalize-AppRelativePath`
+   - `Resolve-AppRelativeFile`
+   - `Read-AppRelativeYamlFile`
+   - `Test-AppStudioFrozenFolderYaml`
+   - `Get-RequirementsLockPathForAppPack`
+2. Keep `Test-AppYamlReferencedFile` and `Test-ZipContainsEntry` local so source-reference and zip-entry errors continue to flow through the same `Fail` messages.
+3. Keep the existing try/catch around app.yaml parsing. The shared helper can throw for invalid references, but `verify_release.ps1` must keep converting those failures into `[NG]` without changing the final exit behavior.
+4. Keep `Pass`, `Warn`, `Fail`, strict-mode escalation, package/hash/runtime/installer/stale-entry checks, and exit handling local to `verify_release.ps1`.
+
+Candidates to avoid for now:
+
+- Moving `[OK]` / `[WARN]` / `[NG]`, `-Strict`, `-RequireInstaller`, `-RequireRuntime`, `-RequireAppPacks`, or exit-code logic into `scripts/lib/app_pack_contract.ps1`.
+- Replacing `Test-ZipContainsEntry` with `Get-AppPackRequiredEntries` in the first adoption step. That would risk changing current per-entry output labels and severity routing.
+- Moving `sha256`, package existence, installer, runtime, stale manifest, staging manifest, or app_env checks into the App Pack contract helper.
+- Making `report_release_readiness.ps1` consume this helper as part of the same change. Readiness classification and release verification should remain separate.
+
+Semantics to preserve during a future implementation:
+
+- Missing or invalid app.yaml references must still be reported with the current `[NG]` gate semantics.
+- `-Strict` must continue to escalate warnings exactly as it does today.
+- `-RequireInstaller`, `-RequireRuntime`, and `-RequireAppPacks` must keep their current missing-artifact behavior.
+- Helper loading failures should be explicit and should not silently skip contract checks.
+- Function-name collisions should be avoided by removing local duplicate pure helper definitions rather than relying on PowerShell function overwrite order.
+
+Recommended next implementation unit:
+
+- Start by adopting only the same-name pure helpers listed above in `verify_release.ps1`.
+- Do not change `verify_release.ps1` output wording, severity names, strict-mode behavior, require-flag behavior, package/hash checks, zip-entry labels, or exit codes in that task.
+- Minimum validation for that future implementation should include the App Pack parity test, PowerShell parser check, Python App Pack contract fixture test, and a `verify_release.ps1` run or a documented reason for not running it.
+
 Historical next Codex task queued after the management split, now covered by the audit section above:
 
 ```text
