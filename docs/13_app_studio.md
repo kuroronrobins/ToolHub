@@ -20,7 +20,7 @@ Icon候補の `source` が `api_generate` または `api_edit` のものだけ�
 
 新規登録GUIでは、スタイルプリセットを先に選ばせず、アイコンPromptまたは「スタイル補足」にユーザーが文章で指定します。CLI互換のため `iconStylePreset` は残っていますが、GUIはスタイル補足がある場合だけ `custom` として送り、未指定時は `user_prompt` 相当としてユーザーPromptからスタイルを解釈します。後段の固定 prompt や過去候補のPromptは、ユーザーのモチーフ、構図、スタイル、色、素材、動きの指定を上書きしない前提です。
 
-再生成時に修正元PNGが選ばれている場合、CLI はそのPNGを一時ファイルとして渡し、OpenAI SDK の画像編集API経路を試みます。画像編集APIが失敗した場合は `candidate_manifest.json` と GUI に失敗理由を残し、local fallback candidate は作成しません。画像候補の自動採点は、MVPでは vision model 評価ではなく、prompt/concept 評価に PNG の小サイズ視認性・コントラスト・余白の簡易検査を加えた deterministic rule-based 評価です。Vision 評価を実行していない場合は `image_evaluation_status: fallback_rule_based` または `not_run` として明示します。
+再生成時に修正元PNGが選ばれている場合、CLI はそのPNGを一時ファイルとして渡し、OpenAI SDK の画像編集API経路を試みます。画像編集APIが失敗した場合は `candidate_manifest.json` と GUI に失敗理由を残し、local fallback candidate は作成しません。画像候補の自動採点は、MVPでは vision model 評価ではなく、prompt/concept 評価に PNG の小サイズ視認性・コントラスト・余白の簡易検査を加えた deterministic rule-based 評価です。PNG簡易検査を実行した場合は `image_evaluation_status: deterministic_png_check`、実行していない場合は `not_run` として明示します。
 
 GUIでは CLI process の `exit_code` / `process_ok` と、`execution_test_result.json` の `overall_status` / `approval_allowed` を分けて表示します。通常新規登録の frozen-folder では runner dry execution や Playwright ログイン未確認により `overall_status: warn` になることがあります。警告は `approval_blocking_warning`、`non_blocking_warning`、`info` に分類され、`approval_allowed: true` かつ `approval_blocking_warnings_count: 0` の場合は、デフォルトの慎重モードでも承認できます。App Packが見つからない場合は App Pack 欄だけ `not found` と表示します。Apply後はGUIが `app_studio_read_result` を再実行し、生成済みJSONの内容を表示へ反映します。
 
@@ -601,7 +601,7 @@ does not run. If PNG bytes are available, App Studio performs deterministic
 rule-based checks by decoding the PNG with the standard library, sampling the
 image at small sizes, and checking contrast, visible canvas usage, and
 silhouette preservation. In that case `image_evaluation_status` is
-`fallback_rule_based`. If only a URL candidate exists, or pixels cannot be
+`deterministic_png_check`. If only a URL candidate exists, or pixels cannot be
 decoded, `image_evaluation_status` stays `not_run` or the note explains that
 only prompt/concept checks were used.
 

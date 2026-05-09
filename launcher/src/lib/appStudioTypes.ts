@@ -316,6 +316,8 @@ export interface AppStudioBuildProfile {
   manual_checks?: string[];
 }
 
+// `fallback_png` is accepted for legacy saved proposals only. New selections use
+// uploaded PNG, AI candidate PNG, or the ToolHub common default icon.
 export type AppStudioSelectedIconSource = "candidate_png" | "final_png" | "fallback_png" | "default_icon" | "uploaded_png" | "ai_candidate_png";
 export type AppStudioIconStylePreset = "user_prompt" | "modern" | "vivid" | "realistic" | "colored_pencil" | "watercolor" | "flat_vector" | "3d_soft" | "glassmorphism" | "clay" | "custom";
 
@@ -401,7 +403,9 @@ export interface AppStudioAiIconCandidate {
 export interface AppStudioImageApiSummary {
   apiCandidateCount?: number;
   api_candidate_count?: number;
+  /** @deprecated Legacy manifest compatibility only. New writers do not emit local fallback image candidates. */
   fallbackCandidateCount?: number;
+  /** @deprecated Legacy manifest compatibility only. New writers do not emit local fallback image candidates. */
   fallback_candidate_count?: number;
   imageApiSuccess?: boolean;
   image_api_success?: boolean;
@@ -413,11 +417,17 @@ export interface AppStudioImageApiSummary {
   failure_message?: string;
   adminNextAction?: string;
   admin_next_action?: string;
+  /** @deprecated Legacy manifest compatibility only. Use failureClass/failureMessage/adminNextAction. */
   fallbackCreatedReason?: string;
+  /** @deprecated Legacy manifest compatibility only. Use failure_class/failure_message/admin_next_action. */
   fallback_created_reason?: string;
+  /** @deprecated Legacy manifest compatibility marker. */
   fallbackCandidateCountDeprecated?: boolean;
+  /** @deprecated Legacy manifest compatibility marker. */
   fallback_candidate_count_deprecated?: boolean;
+  /** @deprecated Legacy manifest compatibility marker. */
   fallbackCreatedReasonDeprecated?: boolean;
+  /** @deprecated Legacy manifest compatibility marker. */
   fallback_created_reason_deprecated?: boolean;
   selectedIconSource?: string;
   selected_icon_source?: string;
@@ -450,13 +460,21 @@ export interface AppStudioImageApiSummary {
   image_evaluation_status?: string;
   imageEvaluationNote?: string;
   image_evaluation_note?: string;
+  /** @deprecated Pseudo quality summary retained only for old manifests. Normal UI does not rank by this. */
   recommendedCandidateId?: string;
+  /** @deprecated Pseudo quality summary retained only for old manifests. Normal UI does not rank by this. */
   recommended_candidate_id?: string;
+  /** @deprecated Pseudo quality summary retained only for old manifests. */
   recommendedQualityLabel?: string;
+  /** @deprecated Pseudo quality summary retained only for old manifests. */
   recommended_quality_label?: string;
+  /** @deprecated Pseudo quality summary retained only for old manifests. */
   recommendedQualityTotal?: number;
+  /** @deprecated Pseudo quality summary retained only for old manifests. */
   recommended_quality_total?: number;
+  /** @deprecated Pseudo quality summary retained only for old manifests. */
   qualityLabelCounts?: Record<string, number>;
+  /** @deprecated Pseudo quality summary retained only for old manifests. */
   quality_label_counts?: Record<string, number>;
   revisionMode?: string;
   revision_mode?: string;

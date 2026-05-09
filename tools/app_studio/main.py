@@ -258,7 +258,6 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         default_icon_used=default_icon_used,
         default_icon_reason=default_icon_reason if default_icon_used else "",
     )
-    icon_provisional_fallback_used = False
     build_plan_md = build_plan_markdown(plan, context)
     import_plan = {
         "app_id": context.app_id,
@@ -311,7 +310,6 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "default_icon_reason": default_icon_reason if default_icon_used else "",
         "icon_status": icon_status,
         "icon_override_used": bool(args.icon_override),
-        "icon_provisional_fallback_used": icon_provisional_fallback_used,
         "icon_override_warnings": icon_override_warnings,
         "metadata_ai_report": metadata.get("_ai_generation_report", ""),
         "metadata_override_used": bool(metadata_override_applied),

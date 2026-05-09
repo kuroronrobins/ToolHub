@@ -383,7 +383,7 @@ class IconCandidateAsset:
     concept: dict[str, Any] = field(default_factory=dict)
     scores: dict[str, float] = field(default_factory=dict)
     score_total: float = 0.0
-    score_basis: str = "prompt_concept_only"
+    score_basis: str = "rule_based_prompt_and_manifest"
     semantic_score: float = 0.0
     specificity_score: float = 0.0
     small_size_score: float = 0.0

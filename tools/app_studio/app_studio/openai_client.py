@@ -7,6 +7,14 @@ from typing import Any
 
 
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
+LEGACY_LOCAL_DETERMINISTIC_FALLBACK_MODEL = "local-deterministic-fallback"
+DETERMINISTIC_TEXT_PROMPT_MODEL = "deterministic-text-prompt-fallback"
+IMAGE_MODEL_NOT_CONFIGURED = "image-model-not-configured"
+INTERNAL_PLACEHOLDER_MODELS = {
+    LEGACY_LOCAL_DETERMINISTIC_FALLBACK_MODEL,
+    DETERMINISTIC_TEXT_PROMPT_MODEL,
+    IMAGE_MODEL_NOT_CONFIGURED,
+}
 
 
 @dataclass
@@ -113,7 +121,7 @@ def get_text_model() -> str | None:
     if value is None:
         return None
     value = value.strip()
-    if not value or value == "local-deterministic-fallback":
+    if not value or value in INTERNAL_PLACEHOLDER_MODELS:
         return None
     return value
 
@@ -123,15 +131,21 @@ def get_image_model() -> str | None:
     if value is None:
         return DEFAULT_IMAGE_MODEL
     value = value.strip()
-    return value or None
+    if not value or value in INTERNAL_PLACEHOLDER_MODELS:
+        return None
+    return value
 
 
 def text_model() -> str:
-    return get_text_model() or "local-deterministic-fallback"
+    return get_text_model() or DETERMINISTIC_TEXT_PROMPT_MODEL
 
 
 def image_model() -> str:
-    return get_image_model() or "local-deterministic-fallback"
+    return get_image_model() or IMAGE_MODEL_NOT_CONFIGURED
+
+
+def is_internal_placeholder_model(value: str | None) -> bool:
+    return bool(value and value.strip() in INTERNAL_PLACEHOLDER_MODELS)
 
 
 def has_api_key() -> bool:

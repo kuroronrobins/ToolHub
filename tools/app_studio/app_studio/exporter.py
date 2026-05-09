@@ -43,6 +43,8 @@ def export_suggestion(
     icon_work = output_dir / "icon_work"
     write_text(icon_work / "icon_prompt_initial.md", artifacts.icon_prompt_initial)
     write_text(icon_work / "icon_prompt_revision.md", artifacts.icon_prompt_revision)
+    # Legacy SVG compatibility artifact. Current App Studio icon selection uses PNG
+    # API candidates, uploaded PNG overrides, or the ToolHub common default icon.
     write_text(icon_work / "icon_fallback.svg", artifacts.icon_svg)
     write_text(icon_work / "icon_final.svg", artifacts.icon_svg)
     icon_final_png = artifacts.icon_final_png or default_icon_png()

@@ -1,8 +1,8 @@
 # App Studio icon cleanup execution handoff
 
-Status: implementation handoff plus execution tracker. Phase 0 through Phase 2 have been executed in the cleanup pass that removed local fallback rendering.
+Status: implementation handoff plus execution tracker. Phase 0 through Phase 2 have been executed in the cleanup pass that removed local fallback rendering. Phase 3 through Phase 4 are the current cleanup scope.
 
-Date: 2026-05-08
+Date: 2026-05-09
 
 ## Purpose
 
@@ -19,6 +19,24 @@ current visible behavior:
 - Local generated fallback images must not return as candidates.
 - `display.icon: icon.png` compatibility must be preserved.
 - Existing saved proposals with legacy fallback fields should remain readable.
+
+## Fallback term policy
+
+Use these meanings consistently:
+
+- `local fallback image candidate`: deprecated and removed. Do not regenerate local PNG/SVG alternatives and do not show them as candidates.
+- `ToolHub common default icon`: the current icon written to `icon.png` when no uploaded icon or adopted AI candidate exists. It is not a candidate, not AI-generated, and not scored.
+- `legacy fallback fields`: old proposal/manifest fields such as `fallback_png`, `provisional_fallback_png`, `fallback_candidate_count`, and old fallback candidates. They are accepted only for saved proposal compatibility.
+- `deterministic text/prompt fallback`: deterministic prompt/concept text used when a text model is skipped or unavailable. This is not an image fallback candidate.
+- `icon_work/icon_fallback.svg`: legacy SVG compatibility artifact only. Current icon selection is PNG-first and uses uploaded PNG, adopted API PNG, or the ToolHub common default icon.
+
+Current Phase 3 through Phase 4 residuals to keep under control:
+
+- `deterministic_icon_concepts` may remain as text concept generation fallback; it must not create images.
+- `local-deterministic-fallback` may appear only as legacy input. New reports should prefer explicit text/image placeholder names.
+- Deprecated fallback counters/reasons may be read from old manifests but should not be emitted by new writers.
+- Pseudo quality fields may remain on candidate detail records, but normal UI must not rank or present them as a visual quality guarantee.
+- `test/ToolHub_AppStudio_Output/...` contains old generated outputs. Treat these as legacy/generated artifacts unless a test explicitly references them.
 
 ## Non-goals
 
@@ -70,8 +88,8 @@ Purpose:
 Required checks:
 
 ```powershell
-rg -n "generate_local_png|generate_local_svg|fallback_icon_concepts|local-deterministic-fallback|fallback_png|provisional_fallback_png|icon_fallback|fallback_candidate|fallbackCreatedReason|fallback_candidate_count|prompt_concept_only|fallback_rule_based" tools launcher docs scripts
-rg -n "selected_icon_source|icon_status|default_icon|uploaded_png|candidate_png|ai_candidate" tools launcher
+rg -n "generate_local_png|generate_local_svg|fallback_icon_concepts|local-deterministic-fallback|fallback_png|provisional_fallback_png|icon_fallback|fallback_candidate|fallbackCreatedReason|fallback_candidate_count|prompt_concept_only|fallback_rule_based" tools launcher docs scripts test
+rg -n "selected_icon_source|icon_status|default_icon|uploaded_png|candidate_png|ai_candidate" tools launcher docs test
 rg -n "display.icon|icon.png|icon.svg|icon_fallback" tools scripts docs launcher
 ```
 
@@ -147,13 +165,15 @@ python -m unittest discover -s tools/app_studio/tests
 
 ### Phase 3: rename misleading fallback concept plumbing
 
+Status: completed in the Phase 3-4 cleanup pass.
+
 Purpose:
 
 - Separate "AI concept fallback" from "image fallback candidate".
 
 Preferred direction:
 
-- Rename `fallback_icon_concepts` to a non-image-fallback name such as `deterministic_icon_concepts`.
+- Rename `fallback_icon_concepts` to `deterministic_icon_concepts`.
 - Replace report/UI wording that suggests local images were generated.
 - Keep generated prompt behavior unchanged.
 
@@ -169,6 +189,8 @@ python -m unittest discover -s tools/app_studio/tests
 ```
 
 ### Phase 4: simplify candidate metadata without breaking readers
+
+Status: completed in the Phase 3-4 cleanup pass for new output and normal UI. Legacy readers still tolerate old fields.
 
 Purpose:
 
@@ -197,6 +219,8 @@ cargo check
 ```
 
 ### Phase 5: split large icon modules
+
+Status: not started. Start only after Phase 3 through Phase 4 cleanup is validated.
 
 Purpose:
 
@@ -319,20 +343,21 @@ After editing:
 
 ## Recommended next implementation prompt
 
-Use this as the next instruction if the goal is to continue after the local fallback renderer cleanup:
+Use this as the next instruction if the goal is to continue after Phase 3 through Phase 4 cleanup:
 
 ```text
 AGENTS.md のルールに従って、1 回の作業で実装・セルフレビュー・検証まで実施してください。
 
 目的:
 ToolHub App Studio のアイコン生成まわりを、現行挙動を変えずに cleanup してください。
-次は Phase 3 から Phase 4 を対象にします。
+次は Phase 5 の module split / compat isolation を対象にします。
 
 実施内容:
 - fallback / local icon rendering 関連の参照を再確認する。
-- `fallback_icon_concepts` を、画像fallbackではなく deterministic concept fallback だと分かる名前へ変更する。
-- `local-deterministic-fallback` の残存表示・report用途を確認し、現行挙動を変えずに誤解の少ない名前または表示へ寄せる。
-- fallback candidate 用の deprecated report/type fields を、新規出力と通常UIからさらに縮小できるか確認する。
+- 既存挙動を変えずに `icon_generator.py` の prompt / candidate / diagnostics / quality 周辺を機械的に分割する。
+- legacy fallback fields の読み取り互換を normalizer / compat 層へ隔離する。
+- pseudo quality metadata は通常UIに出さず、必要なら details/report-only に留める。
+- new output に fallback candidate counter/reason を戻さない。
 - local fallback image candidate を復活させない。
 - ToolHub common default icon の挙動は維持する。
 - `display.icon: icon.png` と `final_app/icon.png` の互換性を維持する。

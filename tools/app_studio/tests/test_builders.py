@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "runner"))
 from app_studio.ai_metadata_suggester import build_icon_design_brief, metadata_prompt, normalize_icon_actions, normalize_icon_objects, select_icon_composition_template, suggest_icon_prompt, suggest_metadata
 from app_studio.build_profile import analyze_exe_readiness, default_build_profile
 from app_studio.default_icon import default_icon_png
-from app_studio.icon_generator import build_icon_revision_api_base_prompt, fallback_icon_concepts, generate_icon_assets_with_candidates, icon_image_generation_settings, icon_regeneration_candidate_count, icon_style_settings, image_api_prompt, image_api_summary, regenerate_icon_only
+from app_studio.icon_generator import build_icon_revision_api_base_prompt, deterministic_icon_concepts, generate_icon_assets_with_candidates, icon_image_generation_settings, icon_regeneration_candidate_count, icon_style_settings, image_api_prompt, image_api_summary, regenerate_icon_only
 from app_studio.app_env_builder import create_app_env, create_build_env, install_build_tools, run_command
 from app_studio.approval import approve_app, targeted_approval_verification, validate_approval_inputs, verify_release_gate
 from app_studio.build_planner import make_build_plan
@@ -1327,7 +1327,7 @@ class OpenAIFallbackTests(unittest.TestCase):
             self.assertIn("pdf/document", brief.input_objects)
             self.assertIn("converging", brief.composition_template)
 
-    def test_fallback_concepts_are_distinct_by_direction(self) -> None:
+    def test_deterministic_concepts_are_distinct_by_direction(self) -> None:
         with workspace_tempdir() as root:
             context = make_context(root, "pdf_merge_tool")
             brief = build_icon_design_brief(
@@ -1340,7 +1340,7 @@ class OpenAIFallbackTests(unittest.TestCase):
                 },
             )
 
-            concepts = fallback_icon_concepts(brief, 3)
+            concepts = deterministic_icon_concepts(brief, 3)
 
             self.assertEqual({concept.direction for concept in concepts}, {"literal", "balanced", "signature"})
             self.assertEqual(len({concept.composition for concept in concepts}), 3)
@@ -1432,7 +1432,7 @@ class OpenAIFallbackTests(unittest.TestCase):
         self.assertEqual(candidates[0].source, "api_generate")
         summary = image_api_summary(candidates, {"preset": "vivid"})
         self.assertEqual(summary["api_candidate_count"], len(candidates))
-        self.assertEqual(summary["fallback_candidate_count"], 0)
+        self.assertNotIn("fallback_candidate_count", summary)
         self.assertTrue(summary["image_api_success"])
         self.assertIn(f"api_candidate_count: {len(candidates)}", report)
 
@@ -1469,7 +1469,7 @@ class OpenAIFallbackTests(unittest.TestCase):
             },
         )
         self.assertEqual(summary["api_candidate_count"], 0)
-        self.assertEqual(summary["fallback_candidate_count"], 0)
+        self.assertNotIn("fallback_candidate_count", summary)
         self.assertFalse(summary["image_api_success"])
         self.assertEqual(summary["latest_image_api_failure"], "unsupported model")
         self.assertEqual(summary["failure_class"], "unsupported_model")
@@ -1745,7 +1745,7 @@ class IconCandidateExportTests(unittest.TestCase):
                     number=2,
                     source="fallback",
                     prompt="p2",
-                    model="local-deterministic-fallback",
+                    model="legacy-local-model",
                     status="fallback",
                     resolution="512x512",
                     is_fallback=True,
@@ -1766,14 +1766,14 @@ class IconCandidateExportTests(unittest.TestCase):
             self.assertEqual(manifest["candidates"][0]["concept_id"], "literal_1")
             self.assertEqual(manifest["candidates"][0]["scores"]["semantic_clarity"], 9.0)
             self.assertEqual(manifest["candidates"][0]["score_total"], 25.0)
-            self.assertIn(manifest["candidates"][0]["score_basis"], {"prompt_concept_only", "rule_based_pixels_and_prompt", "rule_based_prompt_and_manifest"})
+            self.assertIn(manifest["candidates"][0]["score_basis"], {"rule_based_pixels_and_prompt", "rule_based_prompt_and_manifest"})
             self.assertIn("quality_total", manifest["candidates"][0])
             self.assertIn("quality_label", manifest["candidates"][0])
             self.assertIn("quality_warnings", manifest["candidates"][0])
-            self.assertIn(manifest["candidates"][0]["image_evaluation_status"], {"fallback_rule_based", "not_run"})
+            self.assertIn(manifest["candidates"][0]["image_evaluation_status"], {"deterministic_png_check", "not_run"})
             self.assertEqual(manifest["image_api_summary"]["api_candidate_count"], 1)
-            self.assertEqual(manifest["image_api_summary"]["fallback_candidate_count"], 0)
-            self.assertIn("recommended_candidate_id", manifest["image_api_summary"])
+            self.assertNotIn("fallback_candidate_count", manifest["image_api_summary"])
+            self.assertNotIn("recommended_candidate_id", manifest["image_api_summary"])
 
     def test_default_icon_is_used_without_candidates(self) -> None:
         with workspace_tempdir() as root:
@@ -1787,7 +1787,6 @@ class IconCandidateExportTests(unittest.TestCase):
                     "icon_status": "default_icon",
                     "icon_ai_diagnostics": {
                         "api_candidate_count": 0,
-                        "fallback_candidate_count": 0,
                         "image_api_success": False,
                         "selected_icon_source": "default_icon",
                         "default_icon_used": True,
@@ -1962,6 +1961,8 @@ def make_icon_regeneration_output(root: Path, app_id: str = "pdf_merge_tool"):
     write_text(icon_work / "icon_prompt_initial.md", "Initial prompt")
     write_text(icon_work / "icon_prompt_revision.md", "Previous revision prompt")
     (icon_work / "icon_candidate_1.png").write_bytes(b"\x89PNG\r\n\x1a\nbase")
+    # Legacy schema v2 fixture: readers must tolerate old fallback counters,
+    # but current writers no longer emit them.
     write_json(
         icon_work / "candidate_manifest.json",
         {

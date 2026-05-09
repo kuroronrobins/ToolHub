@@ -1080,7 +1080,7 @@ function iconSourceLabel(source?: string): string {
     return "PNG選択済み";
   }
   if (source === "fallback_png") {
-    return "旧fallback（default icon扱い）";
+    return "旧入力（default icon扱い）";
   }
   return "未採用";
 }

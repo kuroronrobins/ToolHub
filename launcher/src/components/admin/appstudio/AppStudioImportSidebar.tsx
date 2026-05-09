@@ -114,8 +114,11 @@ function collectWarnings(preflight: AppStudioPreflightResult | null, result: App
   if (result?.executionStatus === "warn") {
     warnings.add("配布物検証が警告扱いです。ログとレポートを確認してください。");
   }
-  if (reportStatus(aiProposal?.icon.aiReport) === "フォールバック") {
-    warnings.add("画像生成はフォールバックPNGを使用しています。");
+  const imageSummary = aiProposal?.icon.imageApiSummary;
+  const apiCandidateCount = Number(imageSummary?.apiCandidateCount ?? imageSummary?.api_candidate_count ?? 0);
+  const defaultIconUsed = Boolean(imageSummary?.defaultIconUsed ?? imageSummary?.default_icon_used);
+  if (apiCandidateCount === 0 && defaultIconUsed) {
+    warnings.add("AI画像候補は保存されていません。未採用時のToolHub共通default iconを使用しています。");
   }
   return Array.from(warnings);
 }
@@ -150,7 +153,7 @@ function reportStatus(report?: string | null): string {
     return "成功";
   }
   if (value === "fallback") {
-    return "フォールバック";
+    return "API未実行（代替処理）";
   }
   if (value === "skipped") {
     return "スキップ";

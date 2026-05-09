@@ -1,8 +1,8 @@
 # App Studio icon generation simplification plan
 
-Status: investigation plus implementation record. The 2026-05-08 default icon phase has been implemented, and the local fallback rendering cleanup has started.
+Status: investigation plus implementation record. The 2026-05-08 default icon phase, local fallback rendering cleanup, and Phase 3-4 terminology/metadata cleanup have been implemented.
 
-Date: 2026-05-08
+Date: 2026-05-09
 
 ## Scope
 
@@ -38,7 +38,17 @@ Implemented in this cleanup phase:
 - Kept `final_app/icon.png`, `icon_work/icon_final.png`, `final_app/icon.svg`, and legacy `icon_work/icon_fallback.svg` output behavior for compatibility.
 - Kept saved proposal read compatibility for legacy fallback fields.
 
-The remaining `fallback_icon_concepts` name refers to deterministic text concept fallback, not local image fallback. It should be renamed in a later phase without changing prompt behavior.
+## 2026-05-09 Phase 3-4 cleanup update
+
+Implemented in this cleanup phase:
+
+- Renamed `fallback_icon_concepts` to `deterministic_icon_concepts`; it remains text concept generation only and does not create image candidates.
+- Replaced new internal placeholder model labels with `deterministic-text-prompt-fallback` and `image-model-not-configured`; `local-deterministic-fallback` remains accepted as legacy input.
+- Stopped emitting fallback candidate counters/reasons in new `image_api_summary` output.
+- Kept legacy `fallback_png` / `provisional_fallback_png` / old fallback candidate reads tolerant in Python/Rust/TypeScript.
+- Removed pseudo quality recommendation summary fields from new `image_api_summary`; normal UI no longer sorts candidates by pseudo score.
+- Renamed the PNG rule-based check status from `fallback_rule_based` to `deterministic_png_check` for new outputs.
+- Documented `icon_work/icon_fallback.svg` as a legacy SVG compatibility artifact, not a current candidate.
 
 ## Pre-implementation self review
 
@@ -89,10 +99,10 @@ Current file-based flow:
 | --- | --- | --- | --- |
 | `generate_local_png` | `icon_generator.py` | Former local fallback PNG renderer | Removed in cleanup phase |
 | `generate_local_svg` | `icon_generator.py` | Former local fallback/compat SVG renderer | Removed in cleanup phase; fixed default SVG asset remains |
-| `fallback_icon_concepts` | `icon_generator.py` | Creates deterministic text concepts when AI concept generation is unavailable | Keep temporarily; rename later because the name no longer refers to image fallback |
-| `local-deterministic-fallback` | `icon_generator.py`, reports/UI | Marks local fallback model | Removable after fallback candidates are removed |
-| `provisional_fallback_png` | `main.py`, `import_plan.json` | Marks no-API-candidate final icon as provisional | Removable after `icon_status: undecided` and Apply gating are introduced |
-| `fallback_png` | `main.py`, `icon_override.py`, Rust/TS types | Default selected source when no override exists | Replace with explicit `none`, `uploaded_png`, `ai_candidate_png`, and optional `default_icon` |
+| `deterministic_icon_concepts` | `icon_generator.py` | Creates deterministic text concepts when AI concept generation is unavailable | Keep as text-only fallback; not an image candidate |
+| `local-deterministic-fallback` | legacy reports/input | Old internal placeholder label | Keep as read/display compatibility only; new reports use clearer placeholder labels |
+| `provisional_fallback_png` | old `import_plan.json` | Legacy no-API-candidate marker | Read compatibility only; new output uses `default_icon` / `icon_status` |
+| `fallback_png` | `icon_override.py`, Rust/TS types | Legacy selected source | Read compatibility only; new standard source is `default_icon`, `uploaded_png`, or AI candidate PNG |
 | `final_png` | React/Rust/Python override flow | Can mean adopted final PNG or fallback-derived final PNG | Split into explicit selected icon source; avoid using `final_png` as a semantic source |
 | `icon_final.png` | `icon_work/`, `exporter.py` | Final working PNG, currently fallback if no API/override | Keep only after explicit adoption or explicit default icon choice |
 | `icon_final.svg` | `icon_work/`, `exporter.py` | Compatibility SVG, currently local fallback | Shrink to compatibility-only if still needed |
@@ -112,7 +122,7 @@ Can be removed after a small UI/type migration:
 - `false && ...` fallback warning/dead blocks.
 - fallback candidate score display.
 - fallback count/reason in primary UI.
-- `prompt_concept_only` and `fallback_rule_based` as admin-facing quality labels.
+- old pseudo quality labels such as `prompt_concept_only` and `fallback_rule_based` as admin-facing quality labels.
 
 Cannot be removed immediately without compatibility work:
 
@@ -390,14 +400,14 @@ Recommended design:
 | D | Stop writing fallback candidates | `icon_generator.py`, `models.py`, tests | On API failure, write diagnosis only; no fallback candidate PNGs in manifest | Medium | If existing tests require fallback candidates for success | Python unit tests | Medium | No after Phase C |
 | E | Simplify candidate manifest and reports | `icon_generator.py`, `exporter.py`, Rust reader, TS types | Make manifest API-candidate-only; move diagnosis to report JSON; remove pseudo score fields from UI | Medium | If saved proposal compatibility must be kept longer | Python tests, frontend build, cargo check | Medium to large | No, unless compatibility window changes |
 | F | Simplify icon override and selected source types | `icon_override.py`, Rust/TS types, metadata cleaning tests | Replace `fallback_png/final_png/candidate_png` with `uploaded_png/ai_candidate_png/default_icon/none` | High | If existing saved overrides must remain writable | Python tests, TS tests, cargo check | Medium | Yes |
-| G | Remove or shrink local fallback generation | `icon_generator.py`, `exporter.py`, docs/tests | `generate_local_png`/`generate_local_svg` removal is complete; remaining work is to rename `fallback_icon_concepts` and shrink legacy fallback report/type fields | Medium | If saved proposal compatibility breaks | full check_all plus package tests | Medium | No |
+| G | Remove or shrink local fallback generation | `icon_generator.py`, `exporter.py`, docs/tests | `generate_local_png`/`generate_local_svg` removal, `deterministic_icon_concepts` rename, and new-output fallback counter shrink are complete; remaining work is deeper type/module simplification | Medium | If saved proposal compatibility breaks | full check_all plus package tests | Medium | No |
 | H | Docs and scripts alignment | `docs/13_app_studio.md`, `docs/14_admin_and_ai_settings.md`, `docs/21_app_registration_improvement_plan.md`, scripts diagnostics | Replace fallback-as-normal docs with icon-undecided/default-icon policy | Low | If implementation phases are not complete | docs review, check_all | Small | No |
 
 ## Next implementation prompt recommendation
 
 Recommended next prompt:
 
-> AGENTS.md に従って、現行挙動を変えずに `fallback_icon_concepts` と legacy fallback report/type fields を整理してください。画像fallback候補は復活させず、ToolHub common default icon、`display.icon: icon.png`、saved proposal 読み取り互換は維持してください。変更後に Python tests、必要に応じて frontend build/cargo check、check_all を実行してください。
+> AGENTS.md に従って、現行挙動を変えずに App Studio icon modules を機械的に分割し、legacy fallback 読み取り互換を normalizer/compat 層へ隔離してください。画像fallback候補は復活させず、ToolHub common default icon、`display.icon: icon.png`、saved proposal 読み取り互換は維持してください。変更後に Python tests、必要に応じて frontend build/cargo check、check_all を実行してください。
 
 ## Items not yet confirmed by this document
 

@@ -11,7 +11,7 @@ import zlib
 from .ai_metadata_suggester import build_icon_design_brief, sanitize_ai_text, suggest_icon_prompt
 from .default_icon import DEFAULT_ICON_REASON, DEFAULT_ICON_SOURCE, default_icon_png, default_icon_svg
 from .models import DependencyReport, IconCandidateAsset, IconConcept, IconDesignBrief, SecretScanReport, StudioContext
-from .openai_client import ai_enabled, complete_json, decode_base64_image, failure_guidance, generate_image, has_api_key, edit_image, image_model, normalize_failure_class, text_model
+from .openai_client import ai_enabled, complete_json, decode_base64_image, failure_guidance, generate_image, has_api_key, edit_image, image_model, is_internal_placeholder_model, normalize_failure_class, text_model
 from .secret_scanner import ai_submission_block_reason, scan_ai_payload_text, secret_scan_status
 
 
@@ -416,7 +416,6 @@ def regenerate_icon_only(
         "output_dir": str(output_dir),
         "candidate_count": len(candidates),
         "api_candidate_count": sum(1 for candidate in candidates if is_api_candidate(candidate)),
-        "fallback_candidate_count": sum(1 for candidate in candidates if candidate.is_fallback),
         "revision_mode": revision_mode,
         "image_quality_mode": generation_settings["mode"],
         "image_api_seconds": timings.get("image_api_call", 0.0),
@@ -639,7 +638,7 @@ def icon_revision_concepts(
     user_instruction = sanitize_ai_text(user_revision_instruction, 900)
     if user_instruction:
         return user_directed_icon_concepts(brief, count, mode, user_instruction)
-    base = fallback_icon_concepts(brief, max(count, 3))
+    base = deterministic_icon_concepts(brief, max(count, 3))
     if mode == "tweak":
         ordered = base
     elif mode == "refine":
@@ -910,7 +909,7 @@ def generate_icon_candidates(
                     "status: skipped",
                     "model: deterministic-icon-regeneration",
                     "used_api: false",
-                    "fallback_reason: icon-regenerate reuses the saved function interpretation and deterministic revision concepts.",
+                    "deterministic_reason: icon-regenerate reuses the saved function interpretation and deterministic revision concepts.",
                 ]
             )
         ]
@@ -989,9 +988,9 @@ def generate_icon_concepts(
     allow_ai: bool,
     count: int,
 ) -> tuple[list[IconConcept], list[str]]:
-    fallback = fallback_icon_concepts(brief, count)
+    deterministic = deterministic_icon_concepts(brief, count)
     if not allow_ai:
-        return fallback, [skipped_concept_report("AI use was not allowed.")]
+        return deterministic, [skipped_concept_report("AI use was not allowed.")]
 
     result = complete_json(
         (
@@ -1019,11 +1018,11 @@ def generate_icon_concepts(
         ),
     )
     if not result.ok:
-        return fallback, [result.report]
+        return deterministic, [result.report]
     concepts = parse_icon_concepts(result.content, brief, count)
     if len(concepts) < count:
         existing = {concept.concept_id for concept in concepts}
-        concepts.extend([concept for concept in fallback if concept.concept_id not in existing])
+        concepts.extend([concept for concept in deterministic if concept.concept_id not in existing])
     return concepts[:count], [result.report]
 
 
@@ -1063,7 +1062,8 @@ def parse_icon_concepts(content: str, brief: IconDesignBrief, count: int) -> lis
     return concepts
 
 
-def fallback_icon_concepts(brief: IconDesignBrief, count: int) -> list[IconConcept]:
+def deterministic_icon_concepts(brief: IconDesignBrief, count: int) -> list[IconConcept]:
+    """Deterministic prompt concepts only; this never creates local image candidates."""
     concepts: list[IconConcept] = []
     for index in range(max(count, 3)):
         direction = ICON_CONCEPT_DIRECTIONS[index % len(ICON_CONCEPT_DIRECTIONS)]
@@ -1102,7 +1102,7 @@ def skipped_concept_report(reason: str) -> str:
             "status: skipped",
             f"model: {text_model()}",
             "used_api: false",
-            f"fallback_reason: {reason or 'AI use was not allowed.'}",
+            f"deterministic_reason: {reason or 'AI use was not allowed.'}",
         ]
     )
 
@@ -1196,7 +1196,7 @@ def evaluate_icon_candidate_quality(
     pixel_status = "not_run"
     if candidate.png:
         metrics = png_quality_metrics(candidate.png)
-        pixel_status = "fallback_rule_based"
+        pixel_status = "deterministic_png_check"
         if metrics.get("ok"):
             small_size = max(small_size, float(metrics["small_size_score"]))
             aesthetic = max(aesthetic, float(metrics["aesthetic_score"]))
@@ -1250,7 +1250,7 @@ def evaluate_icon_candidate_quality(
         "quality_label": quality_label(quality_total),
         "quality_reasons": dedupe_text(reasons)[:5],
         "quality_warnings": dedupe_text(warnings)[:6],
-        "score_basis": "rule_based_pixels_and_prompt" if pixel_status == "fallback_rule_based" else "rule_based_prompt_and_manifest",
+        "score_basis": "rule_based_pixels_and_prompt" if pixel_status == "deterministic_png_check" else "rule_based_prompt_and_manifest",
         "image_evaluation_status": pixel_status,
         "image_evaluation_note": " ".join(note_parts)
         or "Vision evaluation was not run; deterministic prompt/concept checks were used.",
@@ -1820,17 +1820,6 @@ def payload_secret_scan_status(candidates: list[IconCandidateAsset]) -> str:
     return "not_run"
 
 
-def fallback_created_reason_from_summary(summary: dict[str, Any]) -> str:
-    if summary.get("api_candidate_count", 0):
-        return ""
-    if summary.get("ai_submission_blocked"):
-        return str(summary.get("ai_submission_block_reason") or "AI submission was blocked.")
-    latest_failure = str(summary.get("latest_image_api_failure") or "")
-    if latest_failure:
-        return latest_failure
-    return "No API image candidate was saved, so local provisional fallback icons were generated."
-
-
 def image_failure_diagnostics_from_reports(reports: list[str]) -> dict[str, Any]:
     diagnostics: dict[str, Any] = {}
     for report in reports:
@@ -1876,9 +1865,7 @@ def image_api_summary(
     diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     api_candidates = [candidate for candidate in candidates if is_api_candidate(candidate)]
-    fallback_candidates = [candidate for candidate in candidates if candidate.is_fallback]
-    model = next((candidate.model for candidate in candidates if candidate.model and candidate.model != "local-deterministic-fallback"), image_model())
-    recommended = recommended_icon_candidate(candidates)
+    model = next((candidate.model for candidate in candidates if candidate.model and not is_internal_placeholder_model(candidate.model)), image_model())
     diagnostics = diagnostics or {}
     latest_failure = last_image_api_failure(candidates)
     if not api_candidates:
@@ -1894,29 +1881,24 @@ def image_api_summary(
     ai_block_reason = next((candidate.ai_submission_block_reason for candidate in candidates if candidate.ai_submission_block_reason), "")
     ai_block_reason = str(diagnostics.get("ai_submission_block_reason") or ai_block_reason)
     package_status = str(diagnostics.get("package_secret_scan_status") or "not_recorded")
-    label_counts: dict[str, int] = {}
-    for candidate in candidates:
-        label = candidate.quality_label or quality_label(candidate.quality_total)
-        label_counts[label] = label_counts.get(label, 0) + 1
     statuses = {candidate.image_evaluation_status for candidate in candidates if candidate.image_evaluation_status}
-    if "fallback_rule_based" in statuses:
-        image_evaluation_status = "fallback_rule_based"
+    if "deterministic_png_check" in statuses:
+        image_evaluation_status = "deterministic_png_check"
+    elif "fallback_rule_based" in statuses:
+        # Legacy manifests used this name for deterministic PNG checks.
+        image_evaluation_status = "deterministic_png_check"
     elif statuses:
         image_evaluation_status = sorted(statuses)[0]
     else:
         image_evaluation_status = "not_run"
     return {
         "api_candidate_count": len(api_candidates),
-        "fallback_candidate_count": len(fallback_candidates),
-        "fallback_candidate_count_deprecated": True,
         "image_api_success": bool(api_candidates),
         "image_generation_status": "success" if api_candidates else "failed",
         "latest_image_api_failure": latest_failure,
         "failure_class": failure_class,
         "failure_message": str(diagnostics.get("failure_message") or (guidance.message_ja if guidance else "")),
         "admin_next_action": str(diagnostics.get("admin_next_action") or (guidance.next_action_ja if guidance else "")),
-        "fallback_created_reason": "",
-        "fallback_created_reason_deprecated": True,
         "selected_icon_source": str(diagnostics.get("selected_icon_source") or DEFAULT_ICON_SOURCE),
         "default_icon_used": bool(diagnostics.get("default_icon_used", not api_candidates)),
         "default_icon_reason": str(diagnostics.get("default_icon_reason") or DEFAULT_ICON_REASON),
@@ -1930,18 +1912,6 @@ def image_api_summary(
         "ai_submission_block_reason": ai_block_reason,
         "model": model,
         "style_preset": (style_settings or {}).get("preset", ""),
-        "score_basis": "rule_based_pixels_and_prompt",
         "image_evaluation_status": image_evaluation_status,
         "image_evaluation_note": "Vision evaluation is not run in this MVP; candidates use deterministic prompt/concept checks and PNG small-size checks when pixels are available.",
-        "recommended_candidate_id": recommended.candidate_id if recommended else "",
-        "recommended_quality_label": recommended.quality_label if recommended else "",
-        "recommended_quality_total": recommended.quality_total if recommended else 0.0,
-        "quality_label_counts": label_counts,
     }
-
-
-def recommended_icon_candidate(candidates: list[IconCandidateAsset]) -> IconCandidateAsset | None:
-    selectable = [candidate for candidate in candidates if not candidate.is_fallback]
-    if not selectable:
-        return None
-    return max(selectable, key=lambda candidate: (candidate.quality_total, candidate.score_total, -float(candidate.number)))
