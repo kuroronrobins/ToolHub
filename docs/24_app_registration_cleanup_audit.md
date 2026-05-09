@@ -1288,6 +1288,28 @@ Remaining follow-up:
 - `preflight_for_request()` and `preflight_for_update_request()` still live in `app_studio_commands.rs` because they currently share validation messages, app registration lookup, and version comparison helpers with command orchestration.
 - A later split can move the preflight result builder only after isolating app-id/path/version validation helpers without changing operator-facing messages.
 
+## 2026-05-10 P1 follow-up: Rust normal preflight builder split
+
+Implemented scope:
+
+- Moved the normal registration preflight result builder into `app_studio_preflight.rs` as `build_import_preflight_result()`.
+- Moved the shared preflight validation helpers for entry path, source root, app_id, and Python missing message into `app_studio_preflight.rs`; `app_studio_commands.rs` now imports them for apply/approve/delete/update validation where needed.
+- Kept update preflight-specific registered app lookup and version comparison in `app_studio_commands.rs`.
+- Added focused Rust tests for `.py` entry acceptance, `auto`/`frozen-folder` build mode validity, camelCase `AppStudioPreflightResult` serialization, `.exe` rejection, and invalid app_id rejection.
+
+Compatibility notes:
+
+- Tauri command names, arguments, and return JSON shape were not changed.
+- `AppStudioPreflightResult` fields and serde shape were not changed.
+- Python discovery order and source labels were not changed.
+- Update preflight still applies the same registered app, app.yaml, new version, and SemVer checks after the normal preflight builder runs.
+- React/TypeScript, Python CLI argv, env injection, process spawn, management/delete behavior, app.yaml schema, App Pack spec, runner I/F, and release manifest compatibility were not changed.
+
+Remaining follow-up:
+
+- Version comparison and registered app lookup can move only with a dedicated update-preflight module pass.
+- Broader validation helper consolidation should avoid changing current Japanese operator-facing messages.
+
 Recommended next Codex task:
 
 ```text

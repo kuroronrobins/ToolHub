@@ -16,7 +16,11 @@ use crate::app_studio_overrides::{
     write_build_profile_override_file, write_icon_override_file, write_icon_revision_image_file,
     write_metadata_override_file,
 };
-use crate::app_studio_preflight::{find_python_candidate, runtime_python_path, PythonCandidate};
+use crate::app_studio_preflight::{
+    build_import_preflight_result, find_python_candidate, python_missing_message,
+    runtime_python_path, validate_app_id, validate_entry_path, validate_source_root_path,
+    PythonCandidate,
+};
 use crate::app_studio_process::{
     append_app_studio_gui_log, command_line_for_log, mask_sensitive, redact_cli_arg_value,
     result_from_process,
@@ -104,7 +108,7 @@ pub fn app_studio_preflight(
 ) -> Result<AppStudioPreflightResult, String> {
     session.require_authenticated()?;
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
-    Ok(preflight_for_request(
+    Ok(build_import_preflight_result(
         &request,
         &root,
         find_python_candidate(&root),
@@ -922,152 +926,13 @@ fn validate_update_request(request: &AppStudioUpdateRequest, root: &Path) -> Res
     Ok(())
 }
 
-fn validate_entry_path(entry: &Path) -> Result<(), String> {
-    let lower = entry.to_string_lossy().to_lowercase();
-    for marker in [".env", ".pem", ".key", "credentials", "secrets", "token"] {
-        if lower.contains(marker) {
-            return Err("Entryファイルのパスに秘密情報らしい名前が含まれています。".to_string());
-        }
-    }
-    Ok(())
-}
-
-fn validate_source_root_path(entry: &Path, source_root: Option<&str>) -> Result<(), String> {
-    let Some(value) = source_root.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(());
-    };
-    let root = PathBuf::from(value);
-    if !root.is_dir() {
-        return Err("sourceRootフォルダが見つかりません。".to_string());
-    }
-    let entry_path = entry
-        .canonicalize()
-        .map_err(|_| "Entryファイルのパスを解決できません。".to_string())?;
-    let root_path = root
-        .canonicalize()
-        .map_err(|_| "sourceRootフォルダのパスを解決できません。".to_string())?;
-    if root_path.parent().is_none() || root_path.parent() == Some(root_path.as_path()) {
-        return Err(
-            "sourceRootが広すぎます。アプリのプロジェクトフォルダを指定してください。".to_string(),
-        );
-    }
-    if !entry_path.starts_with(&root_path) {
-        return Err("EntryファイルはsourceRoot配下に配置してください。".to_string());
-    }
-    Ok(())
-}
-
-fn validate_app_id(app_id: &str) -> Result<(), String> {
-    let value = app_id.trim();
-    if value.is_empty() || value.len() > 64 {
-        return Err("AppIdは1文字以上64文字以下で指定してください。".to_string());
-    }
-    let mut chars = value.chars();
-    let Some(first) = chars.next() else {
-        return Err("AppIdを指定してください。".to_string());
-    };
-    if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
-        return Err("AppIdは英小文字または数字で開始してください。".to_string());
-    }
-    if !value
-        .chars()
-        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' || ch == '-')
-    {
-        return Err(
-            "AppIdには英小文字、数字、ハイフン、アンダースコアのみ使用できます。".to_string(),
-        );
-    }
-    Ok(())
-}
-
-fn python_missing_message() -> String {
-    "App Studioを実行するPythonが見つかりません。runtime/python/python.exeを配置するか、管理者の開発環境にpythonまたはpyを用意してください。通常ランチャー機能には影響しません。".to_string()
-}
-
-fn preflight_for_request(
-    request: &AppStudioImportRequest,
-    root: &Path,
-    python_candidate: Option<PythonCandidate>,
-) -> AppStudioPreflightResult {
-    let mut warnings = Vec::new();
-    let mut errors = Vec::new();
-
-    let entry = PathBuf::from(request.entry.trim());
-    let entry_exists = !request.entry.trim().is_empty() && entry.is_file();
-    if request.entry.trim().is_empty() {
-        errors.push("Entryファイルを指定してください。".to_string());
-    } else if !entry_exists {
-        errors.push("Entryファイルが見つかりません。".to_string());
-    } else if let Err(error) = validate_entry_path(&entry) {
-        errors.push(error);
-    }
-    if entry_exists {
-        if let Err(error) = validate_source_root_path(&entry, request.source_root.as_deref()) {
-            errors.push(error);
-        }
-    }
-    if entry
-        .extension()
-        .and_then(|value| value.to_str())
-        .map(|value| value.eq_ignore_ascii_case("exe"))
-        .unwrap_or(false)
-    {
-        errors.push("Normal App Studio registration accepts Python source only. Existing exe registration is not available in this flow.".to_string());
-    }
-
-    let build_mode_valid = ["auto", "frozen-folder"].contains(&request.build_mode.as_str());
-    if !build_mode_valid {
-        errors.push("BuildModeが不正です。".to_string());
-    }
-
-    if request.create_app_env || request.rebuild_app_env {
-        errors.push("Normal App Studio registration uses an internal build_env, not runtime/app_envs options.".to_string());
-    }
-
-    let app_id_valid = match clean_optional(&request.app_id) {
-        Some(app_id) => match validate_app_id(app_id) {
-            Ok(()) => true,
-            Err(error) => {
-                errors.push(error);
-                false
-            }
-        },
-        None => {
-            warnings.push("AppIdが未入力です。CLI側の自動生成に任せます。".to_string());
-            true
-        }
-    };
-
-    let runtime_python_exists = runtime_python_path(root).is_file();
-
-    let (python_source, python_path) = match python_candidate {
-        Some(candidate) => (candidate.source, Some(candidate.path.display().to_string())),
-        None => {
-            errors.push(python_missing_message());
-            ("missing".to_string(), None)
-        }
-    };
-
-    AppStudioPreflightResult {
-        ok: errors.is_empty(),
-        entry_exists,
-        app_id_valid,
-        build_mode_valid,
-        python_source,
-        python_path,
-        runtime_python_exists,
-        warnings,
-        errors,
-    }
-}
-
 fn preflight_for_update_request(
     request: &AppStudioUpdateRequest,
     root: &Path,
     python_candidate: Option<PythonCandidate>,
 ) -> AppStudioPreflightResult {
     let import_request = import_request_from_update(request);
-    let mut result = preflight_for_request(&import_request, root, python_candidate);
+    let mut result = build_import_preflight_result(&import_request, root, python_candidate);
     let registered = find_registered_app(root, &request.app_id);
 
     if registered.is_none() {
@@ -2725,7 +2590,7 @@ mod tests {
             build_frozen_folder: false,
             verify_runtime: false,
         };
-        let result = preflight_for_request(&request, entry.parent().unwrap(), None);
+        let result = build_import_preflight_result(&request, entry.parent().unwrap(), None);
         assert!(!result.ok);
         assert_eq!(result.python_source, "missing");
         assert!(result.errors.iter().any(|item| item.contains("Python")));

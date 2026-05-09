@@ -1,3 +1,4 @@
+use crate::app_studio_types::{AppStudioImportRequest, AppStudioPreflightResult};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -40,6 +41,148 @@ pub(crate) fn find_python_candidate(root: &Path) -> Option<PythonCandidate> {
     })
 }
 
+pub(crate) fn build_import_preflight_result(
+    request: &AppStudioImportRequest,
+    root: &Path,
+    python_candidate: Option<PythonCandidate>,
+) -> AppStudioPreflightResult {
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+
+    let entry = PathBuf::from(request.entry.trim());
+    let entry_exists = !request.entry.trim().is_empty() && entry.is_file();
+    if request.entry.trim().is_empty() {
+        errors.push("Entryファイルを指定してください。".to_string());
+    } else if !entry_exists {
+        errors.push("Entryファイルが見つかりません。".to_string());
+    } else if let Err(error) = validate_entry_path(&entry) {
+        errors.push(error);
+    }
+    if entry_exists {
+        if let Err(error) = validate_source_root_path(&entry, request.source_root.as_deref()) {
+            errors.push(error);
+        }
+    }
+    if entry
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.eq_ignore_ascii_case("exe"))
+        .unwrap_or(false)
+    {
+        errors.push("Normal App Studio registration accepts Python source only. Existing exe registration is not available in this flow.".to_string());
+    }
+
+    let build_mode_valid = ["auto", "frozen-folder"].contains(&request.build_mode.as_str());
+    if !build_mode_valid {
+        errors.push("BuildModeが不正です。".to_string());
+    }
+
+    if request.create_app_env || request.rebuild_app_env {
+        errors.push("Normal App Studio registration uses an internal build_env, not runtime/app_envs options.".to_string());
+    }
+
+    let app_id_valid = match clean_optional(&request.app_id) {
+        Some(app_id) => match validate_app_id(app_id) {
+            Ok(()) => true,
+            Err(error) => {
+                errors.push(error);
+                false
+            }
+        },
+        None => {
+            warnings.push("AppIdが未入力です。CLI側の自動生成に任せます。".to_string());
+            true
+        }
+    };
+
+    let runtime_python_exists = runtime_python_path(root).is_file();
+
+    let (python_source, python_path) = match python_candidate {
+        Some(candidate) => (candidate.source, Some(candidate.path.display().to_string())),
+        None => {
+            errors.push(python_missing_message());
+            ("missing".to_string(), None)
+        }
+    };
+
+    AppStudioPreflightResult {
+        ok: errors.is_empty(),
+        entry_exists,
+        app_id_valid,
+        build_mode_valid,
+        python_source,
+        python_path,
+        runtime_python_exists,
+        warnings,
+        errors,
+    }
+}
+
+pub(crate) fn validate_entry_path(entry: &Path) -> Result<(), String> {
+    let lower = entry.to_string_lossy().to_lowercase();
+    for marker in [".env", ".pem", ".key", "credentials", "secrets", "token"] {
+        if lower.contains(marker) {
+            return Err("Entryファイルのパスに秘密情報らしい名前が含まれています。".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_source_root_path(
+    entry: &Path,
+    source_root: Option<&str>,
+) -> Result<(), String> {
+    let Some(value) = source_root.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    let root = PathBuf::from(value);
+    if !root.is_dir() {
+        return Err("sourceRootフォルダが見つかりません。".to_string());
+    }
+    let entry_path = entry
+        .canonicalize()
+        .map_err(|_| "Entryファイルのパスを解決できません。".to_string())?;
+    let root_path = root
+        .canonicalize()
+        .map_err(|_| "sourceRootフォルダのパスを解決できません。".to_string())?;
+    if root_path.parent().is_none() || root_path.parent() == Some(root_path.as_path()) {
+        return Err(
+            "sourceRootが広すぎます。アプリのプロジェクトフォルダを指定してください。".to_string(),
+        );
+    }
+    if !entry_path.starts_with(&root_path) {
+        return Err("EntryファイルはsourceRoot配下に配置してください。".to_string());
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_app_id(app_id: &str) -> Result<(), String> {
+    let value = app_id.trim();
+    if value.is_empty() || value.len() > 64 {
+        return Err("AppIdは1文字以上64文字以下で指定してください。".to_string());
+    }
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return Err("AppIdを指定してください。".to_string());
+    };
+    if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
+        return Err("AppIdは英小文字または数字で開始してください。".to_string());
+    }
+    if !value
+        .chars()
+        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' || ch == '-')
+    {
+        return Err(
+            "AppIdには英小文字、数字、ハイフン、アンダースコアのみ使用できます。".to_string(),
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn python_missing_message() -> String {
+    "App Studioを実行するPythonが見つかりません。runtime/python/python.exeを配置するか、管理者の開発環境にpythonまたはpyを用意してください。通常ランチャー機能には影響しません。".to_string()
+}
+
 fn find_on_path(command: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path) {
@@ -57,9 +200,18 @@ fn find_on_path(command: &str) -> Option<PathBuf> {
     None
 }
 
+fn clean_optional(value: &Option<String>) -> Option<&str> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_studio_types::AppStudioImportRequest;
+    use serde_json::Value;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_root(name: &str) -> PathBuf {
@@ -68,6 +220,36 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("toolhub_app_studio_preflight_{name}_{suffix}"))
+    }
+
+    fn base_request(entry: &Path) -> AppStudioImportRequest {
+        AppStudioImportRequest {
+            entry: entry.display().to_string(),
+            source_root: entry.parent().map(|path| path.display().to_string()),
+            app_id: Some("my_tool".to_string()),
+            name: Some("My Tool".to_string()),
+            version: None,
+            build_mode: "auto".to_string(),
+            icon_prompt: None,
+            icon_style_preset: None,
+            icon_style_custom: None,
+            icon_revision_image: None,
+            metadata: None,
+            icon_override: None,
+            build_profile: None,
+            create_app_env: false,
+            rebuild_app_env: false,
+            generate_lock: false,
+            build_frozen_folder: false,
+            verify_runtime: false,
+        }
+    }
+
+    fn python_candidate() -> PythonCandidate {
+        PythonCandidate {
+            source: "python".to_string(),
+            path: PathBuf::from("C:/Python/python.exe"),
+        }
     }
 
     #[test]
@@ -96,6 +278,65 @@ mod tests {
 
         assert_eq!(candidate.source, "runtime");
         assert_eq!(candidate.path, runtime_python);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn build_import_preflight_result_accepts_python_entry_and_serializes_camel_case() {
+        let root = temp_root("python_entry");
+        let source = root.join("source");
+        let entry = source.join("main.py");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(&entry, b"print('ok')").unwrap();
+        let request = base_request(&entry);
+
+        let result = build_import_preflight_result(&request, &root, Some(python_candidate()));
+
+        assert!(result.ok);
+        assert!(result.entry_exists);
+        assert!(result.app_id_valid);
+        assert!(result.build_mode_valid);
+        assert_eq!(result.python_source, "python");
+        assert!(!result.runtime_python_exists);
+
+        let value = serde_json::to_value(&result).expect("preflight result should serialize");
+        assert_eq!(value["entryExists"], Value::Bool(true));
+        assert_eq!(value["appIdValid"], Value::Bool(true));
+        assert_eq!(value["buildModeValid"], Value::Bool(true));
+        assert_eq!(value["pythonSource"], Value::String("python".to_string()));
+        assert!(value.get("entry_exists").is_none());
+
+        let mut frozen_request = request.clone();
+        frozen_request.build_mode = "frozen-folder".to_string();
+        let frozen_result =
+            build_import_preflight_result(&frozen_request, &root, Some(python_candidate()));
+        assert!(frozen_result.build_mode_valid);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn build_import_preflight_result_rejects_exe_entry_and_invalid_app_id() {
+        let root = temp_root("exe_entry");
+        let source = root.join("source");
+        let entry = source.join("app.exe");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(&entry, b"not really an exe").unwrap();
+        let mut request = base_request(&entry);
+        request.app_id = Some("BadId".to_string());
+
+        let result = build_import_preflight_result(&request, &root, Some(python_candidate()));
+
+        assert!(!result.ok);
+        assert!(result.entry_exists);
+        assert!(!result.app_id_valid);
+        assert!(result.build_mode_valid);
+        assert!(result
+            .errors
+            .iter()
+            .any(|item| item.contains("Existing exe registration is not available")));
+        assert!(result.errors.iter().any(|item| item.contains("AppId")));
 
         let _ = std::fs::remove_dir_all(root);
     }
