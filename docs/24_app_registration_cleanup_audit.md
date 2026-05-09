@@ -1629,6 +1629,36 @@ Decision:
 - Full delete apply is safe to split only as an exact behavior-preserving move after the test coverage above is confirmed.
 - No destructive behavior should be changed in the same task as a module split.
 
+## 2026-05-10 P1 follow-up: Rust full delete apply safety unit split
+
+Implemented scope:
+
+- Added `launcher/src-tauri/src/app_studio_full_delete.rs` as the destructive full-delete safety boundary.
+- Moved `full_delete_apply()` plus its validation, fresh-plan use, UI snapshot comparison, ordered target deletion, path safety checks, manifest-entry removal, post-check, and full-delete GUI log record into the new module.
+- Kept the Tauri command wrapper and admin-session gate in `app_studio_commands.rs`.
+- Kept `AppStudioFullDeleteResult`, `AppStudioFullDeleteRecord`, `AppStudioFullDeletePostCheckSummary`, `AppStudioDeletePlan`, and `AppStudioDeletePlanTarget` in `app_studio_types.rs`.
+- Kept the read-only target classifier in `app_studio_delete_plan.rs`.
+
+Compatibility notes:
+
+- Tauri command names, arguments, and return JSON shape were not changed.
+- React/TypeScript API shape was not changed.
+- Delete target categories and excluded categories were not changed.
+- `user_data`, `external_reference`, `shared_runtime`, and `managed_generated_candidate` are still forbidden as delete targets.
+- App Pack and staging matching rules remain owned by the read-only planner and were not changed.
+- The fresh plan is still rebuilt immediately before apply, and the optional displayed `planSnapshot` is still compared against fresh state.
+- The deletion order is unchanged: App Pack zip, staging artifact, runtime app env, App Studio backup, lifecycle backup, `apps/<app_id>/`, other non-manifest managed targets, then manifest-entry removal.
+- Path safety remains unchanged: parent traversal, repo-root deletion, repo-external targets, shared runtime targets, unsafe manifest target paths, and excluded/delete overlap are rejected.
+- Manifest mutation still removes only the target app entry from `release/app_manifest.json`; the manifest file itself is not a delete target.
+- Post-check still requires no failed deletes, no manifest entry, and no remaining existing non-manifest delete targets for `ok=true`.
+- Python, PowerShell scripts, React/TypeScript, apps, release artifacts, runtime, data, logs, generated files, app.yaml schema, App Pack spec, and release manifest compatibility were not changed.
+
+Remaining follow-up:
+
+- Validate the split in an environment where `cargo check` and focused Rust tests are not blocked.
+- Add or keep focused tests around stale snapshot mismatch, forbidden categories, excluded/delete overlap, path traversal, repo-root/outside-root rejection, shared runtime rejection, manifest-entry skip after earlier failure, and post-check remaining target detection.
+- Do not change delete categories, App Pack/staging matching, manifest-entry semantics, or production PowerShell apply behavior in the same task as this split.
+
 Historical next Codex task queued after the management split, now covered by the audit section above:
 
 ```text

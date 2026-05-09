@@ -481,7 +481,8 @@ Phase 1-A / 1-B 実施状況:
 - Phase 1-B: VM 検証フローを `scripts/beta_vm/` に作成済み。VirtualBox / VMware / Hyper-V / 手動 VM の共有フォルダから installer を実行し、開発ツールなし環境での install / launch / runtime / uninstall / user data preservation を JSON / Markdown に記録する。
 - Phase 1-B: VM コピー用 package は `scripts/beta_vm/prepare_vm_test_package.ps1` で `scripts/beta_vm/package/ToolHub_Beta_VM_Test/` に作成する。package には `release/manifest.json`、`ToolHub_Setup_0.1.0.exe`、`staging_manifest.json`、`vm_install_test.ps1`、`VM_TEST_PACKAGE_README.md`、checksum、results folder を含める。
 - Phase 1-B: VM package は host で生成済み。package 内 installer の sha256 / size は `release/manifest.json` と一致する。VM 実行は未実施であり、clean Windows VM に package をコピーしてから実施する。
-- Phase 1-B: VM から戻した `latest_vm_install_result.json` は `scripts/beta_vm/import_vm_test_result.ps1` で要約し、`docs/06_acceptance_checklist.md` へ反映する。
+- Phase 1-B: 初回 VM 実行では ToolHub window は起動したが、アプリ一覧は 0 件で、期待 install dir `%LOCALAPPDATA%\Programs\ToolHub\` が存在しなかった。実 install location と起動 exe が未特定のため、root 解決や payload 欠落をまだ断定しない。
+- Phase 1-B: `scripts/beta_vm/vm_install_test.ps1` は install location discovery、ToolHub.exe discovery、process path logging、payload layout summary、launcher log scan、`likely_failure_category` を記録するように強化済み。VM から戻した `latest_vm_install_result.json` は `scripts/beta_vm/import_vm_test_result.ps1` で要約し、`docs/06_acceptance_checklist.md` へ反映する。
 - Phase 1-B: 実 install / launch / sample app / uninstall / user data preservation は clean Windows VM または clean Windows user profile の manual check として残す。installer / uninstaller UI と sample app 起動は人間確認を伴うため、検証結果を確認するまで完了済みとはしない。
 
 ### Phase 2: remote manifest による更新検知

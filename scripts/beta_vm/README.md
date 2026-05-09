@@ -58,10 +58,18 @@ Do not install Python, Node.js, Rust, npm, cargo, or Tauri CLI in the VM before 
 - `ToolHub_Setup_0.1.0.exe` exists.
 - installer `sha256` and `size` match `release\manifest.json`.
 - installer can run.
-- `%LOCALAPPDATA%\Programs\ToolHub\ToolHub.exe` exists.
-- installed payload includes `runner`, `apps`, `runtime`, `config.default`, and `release`.
+- environment paths are recorded: `LOCALAPPDATA`, `APPDATA`, `ProgramFiles`, `ProgramFiles(x86)`, `USERPROFILE`, and user name.
+- installer process start / finish, exit code, timeout state, and ToolHub processes before / after installer are recorded.
+- expected install dir `%LOCALAPPDATA%\Programs\ToolHub` is checked, but the script also searches for the actual install location.
+- install location discovery checks `%LOCALAPPDATA%\Programs\ToolHub`, `%LOCALAPPDATA%\ToolHub`, `%ProgramFiles%\ToolHub`, `%ProgramFiles(x86)%\ToolHub`, `%LOCALAPPDATA%\Programs\com.toolhub.launcher`, `%LOCALAPPDATA%\Programs\ToolHub*`, Start Menu shortcut targets, uninstall registry entries, and running ToolHub processes.
+- every discovered `ToolHub*.exe` is recorded with path, size, and modified time.
+- the ToolHub exe actually launched by the script, or already running after the installer, is recorded.
+- installed payload discovery checks each discovered install dir and `resources` child for `runner`, `apps`, `runtime`, `config.default`, and `release`.
 - installed payload includes `runtime\python\python.exe`.
 - installed payload includes `runtime\web_automation_runtime`.
+- installed payload includes `release\manifest.json` and `release\app_manifest.json`.
+- `%LOCALAPPDATA%\ToolHub` logs are scanned for launcher/backend errors where possible.
+- `likely_failure_category` is recorded as one of `installer_not_completed`, `install_dir_unexpected`, `installed_payload_missing`, `apps_not_in_payload`, `root_resolution_failed`, `app_manifest_load_failed`, `app_yaml_load_failed`, `user_data_or_config_issue`, or `unknown`.
 - ToolHub launches.
 - `%LOCALAPPDATA%\ToolHub` is created.
 - uninstall can run when an uninstaller is present.

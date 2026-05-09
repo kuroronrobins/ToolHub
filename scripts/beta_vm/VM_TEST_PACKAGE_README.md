@@ -38,10 +38,17 @@ The script records these checks automatically where possible:
 - `ToolHub_Setup_0.1.0.exe` exists.
 - installer sha256 / size match `release\manifest.json`.
 - installer can be executed.
-- `%LOCALAPPDATA%\Programs\ToolHub\ToolHub.exe` is created.
-- installed payload includes `runner`, `apps`, `runtime`, `config.default`, and `release`.
+- environment paths and installer process result are recorded.
+- expected install dir `%LOCALAPPDATA%\Programs\ToolHub` is checked.
+- actual install location is discovered from known directories, Start Menu shortcuts, uninstall registry entries, and running ToolHub processes.
+- all discovered `ToolHub*.exe` candidates are recorded with path, size, and modified time.
+- the ToolHub exe actually launched by the test, or already running after the installer, is recorded.
+- installed payload discovery checks discovered install dirs and `resources` children for `runner`, `apps`, `runtime`, `config.default`, and `release`.
 - installed payload includes `runtime\python\python.exe`.
 - installed payload includes `runtime\web_automation_runtime`.
+- installed payload includes `release\manifest.json` and `release\app_manifest.json`.
+- `%LOCALAPPDATA%\ToolHub` logs are scanned for launcher/backend errors where possible.
+- `likely_failure_category` is recorded for triage.
 - ToolHub starts.
 - `%LOCALAPPDATA%\ToolHub` is created.
 - uninstall can run when an uninstaller exists.
@@ -75,6 +82,7 @@ If the test fails, also report:
 - screenshots of installer / uninstaller errors
 - `%LOCALAPPDATA%\ToolHub` path existence
 - `%LOCALAPPDATA%\Programs\ToolHub` path existence
+- actual fields from `latest_vm_install_result.json`: `discovered_install_dirs`, `discovered_toolhub_exes`, `launched_toolhub_exe`, `payload_layout_summary`, and `likely_failure_category`
 
 ## Notes
 

@@ -34,6 +34,36 @@ $StartedAt = Get-Date
 $Stamp = $StartedAt.ToString("yyyyMMdd_HHmmss")
 $Checks = New-Object System.Collections.Generic.List[object]
 $Artifacts = [ordered]@{}
+$ExpectedInstallDir = Join-Path $env:LOCALAPPDATA "Programs\ToolHub"
+$ExpectedToolHubExe = Join-Path $ExpectedInstallDir "ToolHub.exe"
+$UserDataDir = Join-Path $env:LOCALAPPDATA "ToolHub"
+$CandidateInstallDirs = New-Object System.Collections.Generic.List[string]
+$DiscoveredInstallDirs = New-Object System.Collections.Generic.List[string]
+$DiscoveredToolHubExes = New-Object System.Collections.Generic.List[object]
+$PayloadLayoutSummary = New-Object System.Collections.Generic.List[object]
+$ShortcutRecords = @()
+$UninstallRegistryRecords = @()
+$ToolHubProcessRecords = @()
+$InstallerExecution = [ordered]@{}
+$LogSummary = [ordered]@{
+    searched_paths = @()
+    files = @()
+    matched_lines = @()
+}
+$LaunchedToolHubExe = ""
+$ResourceRootCandidate = ""
+$LikelyFailureCategory = "unknown"
+$EnvironmentSnapshot = [ordered]@{
+    local_app_data = $env:LOCALAPPDATA
+    app_data = $env:APPDATA
+    program_files = $env:ProgramFiles
+    program_files_x86 = ${env:ProgramFiles(x86)}
+    user_profile = $env:USERPROFILE
+    username = $env:USERNAME
+    computer_name = $env:COMPUTERNAME
+    powershell_version = $PSVersionTable.PSVersion.ToString()
+    process_architecture = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()
+}
 
 function Write-Utf8NoBom {
     param([string]$Path, [string]$Content)
@@ -48,8 +78,11 @@ function Add-Check {
         [ValidateSet("pass", "fail", "warning", "manual_check", "not_run")]
         [string]$Status,
         [string]$Message,
-        [hashtable]$Data = @{}
+        [object]$Data = $null
     )
+    if ($null -eq $Data) {
+        $Data = @{}
+    }
     $Checks.Add([ordered]@{
         id = $Id
         description = $Description
@@ -72,6 +105,15 @@ function Get-CheckCount {
     return $Count
 }
 
+function Get-CheckStatus {
+    param([string]$Id)
+    $Match = @($Checks | Where-Object { $_.id -eq $Id } | Select-Object -First 1)
+    if ($Match.Count -eq 0) {
+        return ""
+    }
+    return [string]$Match[0].status
+}
+
 function Add-ManualPromptCheck {
     param([string]$Id, [string]$Description, [string]$Prompt)
     if (-not $PauseForManualGuiChecks) {
@@ -88,22 +130,440 @@ function Add-ManualPromptCheck {
     }
 }
 
-function Find-FirstExistingPath {
-    param([string[]]$BasePaths, [string]$RelativePath)
-    foreach ($BasePath in $BasePaths) {
-        if ([string]::IsNullOrWhiteSpace($BasePath)) {
-            continue
+function Add-UniquePath {
+    param(
+        [System.Collections.Generic.List[string]]$List,
+        [string]$Path,
+        [switch]$OnlyIfExists
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return
+    }
+    try {
+        $FullPath = [System.IO.Path]::GetFullPath($Path)
+    } catch {
+        return
+    }
+    if ($OnlyIfExists -and -not (Test-Path -LiteralPath $FullPath)) {
+        return
+    }
+    if (-not $List.Contains($FullPath)) {
+        $List.Add($FullPath) | Out-Null
+    }
+}
+
+function Get-PathFromCommandLine {
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ""
+    }
+    $Trimmed = $Text.Trim()
+    if ($Trimmed -match '^\s*"([^"]+?\.exe)"') {
+        return $Matches[1]
+    }
+    if ($Trimmed -match '^\s*([A-Za-z]:\\[^\s"]+?\.exe)') {
+        return $Matches[1]
+    }
+    if ($Trimmed -match '([A-Za-z]:\\[^"]+?\.exe)') {
+        return $Matches[1]
+    }
+    return ""
+}
+
+function Get-ShortcutRecords {
+    $Records = @()
+    $ShortcutRoots = @(
+        (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu"),
+        (Join-Path $env:ProgramData "Microsoft\Windows\Start Menu"),
+        (Join-Path $env:USERPROFILE "Desktop")
+    )
+    try {
+        $Shell = New-Object -ComObject WScript.Shell
+        foreach ($Root in $ShortcutRoots) {
+            if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+                continue
+            }
+            $Links = @(Get-ChildItem -LiteralPath $Root -Filter "*.lnk" -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.BaseName -like "*ToolHub*" })
+            foreach ($Link in $Links) {
+                try {
+                    $Shortcut = $Shell.CreateShortcut($Link.FullName)
+                    $Records += [ordered]@{
+                        path = $Link.FullName
+                        target_path = [string]$Shortcut.TargetPath
+                        arguments = [string]$Shortcut.Arguments
+                        working_directory = [string]$Shortcut.WorkingDirectory
+                    }
+                } catch {
+                    $Records += [ordered]@{
+                        path = $Link.FullName
+                        target_path = ""
+                        arguments = ""
+                        working_directory = ""
+                        error = $_.Exception.Message
+                    }
+                }
+            }
         }
-        $Candidate = Join-Path $BasePath $RelativePath
-        if (Test-Path -LiteralPath $Candidate) {
-            return $Candidate
+    } catch {
+        $Records += [ordered]@{
+            path = ""
+            target_path = ""
+            arguments = ""
+            working_directory = ""
+            error = $_.Exception.Message
         }
     }
-    return $null
+    return @($Records)
+}
+
+function Get-UninstallRegistryRecords {
+    $Records = @()
+    $RegistryRoots = @(
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+    foreach ($Root in $RegistryRoots) {
+        $Items = @(Get-ItemProperty -Path $Root -ErrorAction SilentlyContinue)
+        foreach ($Item in $Items) {
+            $Fields = @(
+                [string]$Item.DisplayName,
+                [string]$Item.DisplayIcon,
+                [string]$Item.InstallLocation,
+                [string]$Item.UninstallString
+            ) -join " "
+            if ($Fields -notlike "*ToolHub*") {
+                continue
+            }
+            $Records += [ordered]@{
+                registry_path = [string]$Item.PSPath
+                display_name = [string]$Item.DisplayName
+                display_version = [string]$Item.DisplayVersion
+                publisher = [string]$Item.Publisher
+                install_location = [string]$Item.InstallLocation
+                display_icon = [string]$Item.DisplayIcon
+                uninstall_string = [string]$Item.UninstallString
+                quiet_uninstall_string = [string]$Item.QuietUninstallString
+            }
+        }
+    }
+    return @($Records)
+}
+
+function Get-ToolHubProcessRecords {
+    $Records = @()
+    try {
+        $Processes = @(Get-CimInstance Win32_Process -Filter "Name LIKE 'ToolHub%'" -ErrorAction SilentlyContinue)
+        foreach ($Process in $Processes) {
+            $Records += [ordered]@{
+                id = [int]$Process.ProcessId
+                name = [string]$Process.Name
+                executable_path = [string]$Process.ExecutablePath
+                command_line = [string]$Process.CommandLine
+            }
+        }
+    } catch {
+        $Processes = @(Get-Process -Name "ToolHub*" -ErrorAction SilentlyContinue)
+        foreach ($Process in $Processes) {
+            $Path = ""
+            try {
+                $Path = [string]$Process.Path
+            } catch {
+                $Path = ""
+            }
+            $Records += [ordered]@{
+                id = [int]$Process.Id
+                name = [string]$Process.ProcessName
+                executable_path = $Path
+                command_line = ""
+            }
+        }
+    }
+    return @($Records)
+}
+
+function Add-ToolHubExeRecord {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return
+    }
+    try {
+        $Item = Get-Item -LiteralPath $Path
+        $FullPath = $Item.FullName
+        foreach ($Existing in $DiscoveredToolHubExes) {
+            if ([string]$Existing.path -eq $FullPath) {
+                return
+            }
+        }
+        $DiscoveredToolHubExes.Add([ordered]@{
+            path = $FullPath
+            directory = $Item.DirectoryName
+            size = [int64]$Item.Length
+            last_write_time_utc = $Item.LastWriteTimeUtc.ToString("o")
+        }) | Out-Null
+    } catch {
+        return
+    }
+}
+
+function Test-PayloadRoot {
+    param([string]$Root)
+    $Exists = Test-Path -LiteralPath $Root -PathType Container
+    $Apps = Join-Path $Root "apps"
+    $Runner = Join-Path $Root "runner"
+    $Runtime = Join-Path $Root "runtime"
+    $ConfigDefault = Join-Path $Root "config.default"
+    $Release = Join-Path $Root "release"
+    $ReleaseManifest = Join-Path $Release "manifest.json"
+    $AppManifest = Join-Path $Release "app_manifest.json"
+    $PythonExe = Join-Path $Runtime "python\python.exe"
+    $WebRuntime = Join-Path $Runtime "web_automation_runtime"
+    $AppYamlCount = 0
+    if (Test-Path -LiteralPath $Apps -PathType Container) {
+        $AppYamlCount = @(Get-ChildItem -LiteralPath $Apps -Filter "app.yaml" -Recurse -ErrorAction SilentlyContinue).Count
+    }
+    return [ordered]@{
+        root = $Root
+        exists = $Exists
+        apps = (Test-Path -LiteralPath $Apps -PathType Container)
+        app_yaml_count = $AppYamlCount
+        runner = (Test-Path -LiteralPath $Runner -PathType Container)
+        runtime = (Test-Path -LiteralPath $Runtime -PathType Container)
+        config_default = (Test-Path -LiteralPath $ConfigDefault -PathType Container)
+        release = (Test-Path -LiteralPath $Release -PathType Container)
+        release_manifest = (Test-Path -LiteralPath $ReleaseManifest -PathType Leaf)
+        app_manifest = (Test-Path -LiteralPath $AppManifest -PathType Leaf)
+        runtime_python = (Test-Path -LiteralPath $PythonExe -PathType Leaf)
+        web_automation_runtime = (Test-Path -LiteralPath $WebRuntime -PathType Container)
+    }
+}
+
+function Add-PayloadRootSummary {
+    param([string]$Root)
+    if ([string]::IsNullOrWhiteSpace($Root)) {
+        return
+    }
+    try {
+        $FullRoot = [System.IO.Path]::GetFullPath($Root)
+    } catch {
+        return
+    }
+    foreach ($Existing in $PayloadLayoutSummary) {
+        if ([string]$Existing.root -eq $FullRoot) {
+            return
+        }
+    }
+    $PayloadLayoutSummary.Add((Test-PayloadRoot -Root $FullRoot)) | Out-Null
+}
+
+function Update-InstallDiscovery {
+    Add-UniquePath -List $CandidateInstallDirs -Path $ExpectedInstallDir
+    Add-UniquePath -List $CandidateInstallDirs -Path (Join-Path $env:LOCALAPPDATA "ToolHub")
+    Add-UniquePath -List $CandidateInstallDirs -Path (Join-Path $env:ProgramFiles "ToolHub")
+    if (-not [string]::IsNullOrWhiteSpace(${env:ProgramFiles(x86)})) {
+        Add-UniquePath -List $CandidateInstallDirs -Path (Join-Path ${env:ProgramFiles(x86)} "ToolHub")
+    }
+    Add-UniquePath -List $CandidateInstallDirs -Path (Join-Path $env:LOCALAPPDATA "Programs\com.toolhub.launcher")
+    Add-UniquePath -List $CandidateInstallDirs -Path (Join-Path $env:LOCALAPPDATA "Programs\ToolHub\ToolHub")
+
+    foreach ($Path in $CandidateInstallDirs.ToArray()) {
+        Add-UniquePath -List $DiscoveredInstallDirs -Path $Path -OnlyIfExists
+    }
+
+    $ProgramsDir = Join-Path $env:LOCALAPPDATA "Programs"
+    if (Test-Path -LiteralPath $ProgramsDir -PathType Container) {
+        foreach ($Pattern in @("ToolHub*", "*ToolHub*", "com.toolhub*")) {
+            $Matches = @(Get-ChildItem -LiteralPath $ProgramsDir -Directory -Filter $Pattern -ErrorAction SilentlyContinue)
+            foreach ($Match in $Matches) {
+                Add-UniquePath -List $CandidateInstallDirs -Path $Match.FullName
+                Add-UniquePath -List $DiscoveredInstallDirs -Path $Match.FullName -OnlyIfExists
+            }
+        }
+    }
+
+    $script:ShortcutRecords = @(Get-ShortcutRecords)
+    foreach ($Shortcut in $ShortcutRecords) {
+        if (-not [string]::IsNullOrWhiteSpace($Shortcut.target_path)) {
+            Add-ToolHubExeRecord -Path $Shortcut.target_path
+            $Parent = Split-Path -Parent $Shortcut.target_path
+            Add-UniquePath -List $CandidateInstallDirs -Path $Parent
+            Add-UniquePath -List $DiscoveredInstallDirs -Path $Parent -OnlyIfExists
+        }
+        if (-not [string]::IsNullOrWhiteSpace($Shortcut.working_directory)) {
+            Add-UniquePath -List $CandidateInstallDirs -Path $Shortcut.working_directory
+            Add-UniquePath -List $DiscoveredInstallDirs -Path $Shortcut.working_directory -OnlyIfExists
+        }
+    }
+
+    $script:UninstallRegistryRecords = @(Get-UninstallRegistryRecords)
+    foreach ($Entry in $UninstallRegistryRecords) {
+        foreach ($Path in @($Entry.install_location)) {
+            Add-UniquePath -List $CandidateInstallDirs -Path $Path
+            Add-UniquePath -List $DiscoveredInstallDirs -Path $Path -OnlyIfExists
+        }
+        foreach ($CommandText in @($Entry.display_icon, $Entry.uninstall_string, $Entry.quiet_uninstall_string)) {
+            $CommandPath = Get-PathFromCommandLine -Text $CommandText
+            if (-not [string]::IsNullOrWhiteSpace($CommandPath)) {
+                Add-ToolHubExeRecord -Path $CommandPath
+                $Parent = Split-Path -Parent $CommandPath
+                Add-UniquePath -List $CandidateInstallDirs -Path $Parent
+                Add-UniquePath -List $DiscoveredInstallDirs -Path $Parent -OnlyIfExists
+            }
+        }
+    }
+
+    $script:ToolHubProcessRecords = @(Get-ToolHubProcessRecords)
+    foreach ($Process in $ToolHubProcessRecords) {
+        if (-not [string]::IsNullOrWhiteSpace($Process.executable_path)) {
+            Add-ToolHubExeRecord -Path $Process.executable_path
+            $Parent = Split-Path -Parent $Process.executable_path
+            Add-UniquePath -List $CandidateInstallDirs -Path $Parent
+            Add-UniquePath -List $DiscoveredInstallDirs -Path $Parent -OnlyIfExists
+        }
+    }
+
+    Add-ToolHubExeRecord -Path $ExpectedToolHubExe
+    foreach ($InstallDir in $DiscoveredInstallDirs.ToArray()) {
+        $ExeMatches = @(Get-ChildItem -LiteralPath $InstallDir -File -Filter "ToolHub*.exe" -Recurse -ErrorAction SilentlyContinue)
+        foreach ($Exe in $ExeMatches) {
+            Add-ToolHubExeRecord -Path $Exe.FullName
+        }
+    }
+
+    foreach ($InstallDir in $DiscoveredInstallDirs.ToArray()) {
+        Add-PayloadRootSummary -Root $InstallDir
+        Add-PayloadRootSummary -Root (Join-Path $InstallDir "resources")
+    }
+    foreach ($Exe in $DiscoveredToolHubExes) {
+        Add-PayloadRootSummary -Root $Exe.directory
+        Add-PayloadRootSummary -Root (Join-Path $Exe.directory "resources")
+    }
+}
+
+function Find-PayloadRoot {
+    foreach ($Summary in $PayloadLayoutSummary) {
+        if ($Summary.apps -and $Summary.runner -and $Summary.app_manifest) {
+            return [string]$Summary.root
+        }
+    }
+    foreach ($Summary in $PayloadLayoutSummary) {
+        if ($Summary.apps -and $Summary.runner) {
+            return [string]$Summary.root
+        }
+    }
+    return ""
+}
+
+function Get-PayloadFlag {
+    param([string]$Name)
+    foreach ($Summary in $PayloadLayoutSummary) {
+        if ([bool]$Summary.$Name) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Get-LogSummary {
+    $SearchRoots = @(
+        (Join-Path $UserDataDir "data\logs"),
+        (Join-Path $UserDataDir "logs"),
+        $UserDataDir
+    )
+    $Searched = @()
+    $Files = @()
+    $MatchedLines = @()
+    foreach ($Root in $SearchRoots) {
+        if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+            continue
+        }
+        $Searched += $Root
+        $LogFiles = @(Get-ChildItem -LiteralPath $Root -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in @(".log", ".json", ".txt") } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 25)
+        foreach ($File in $LogFiles) {
+            $Files += [ordered]@{
+                path = $File.FullName
+                size = [int64]$File.Length
+                last_write_time_utc = $File.LastWriteTimeUtc.ToString("o")
+            }
+            try {
+                $Matches = @(Select-String -LiteralPath $File.FullName -Pattern "error|failed|panic|project root|app_manifest|app.yaml|list_apps|アプリ" -SimpleMatch:$false -ErrorAction SilentlyContinue |
+                    Select-Object -First 20)
+                foreach ($Match in $Matches) {
+                    $MatchedLines += [ordered]@{
+                        path = $File.FullName
+                        line = [int]$Match.LineNumber
+                        text = [string]$Match.Line
+                    }
+                }
+            } catch {
+                $MatchedLines += [ordered]@{
+                    path = $File.FullName
+                    line = 0
+                    text = "log scan failed: $($_.Exception.Message)"
+                }
+            }
+        }
+    }
+    return [ordered]@{
+        searched_paths = @($Searched)
+        files = @($Files)
+        matched_lines = @($MatchedLines)
+    }
+}
+
+function Set-LikelyFailureCategory {
+    if ((Get-CheckStatus "installer_completed") -ne "pass") {
+        $script:LikelyFailureCategory = "installer_not_completed"
+        return
+    }
+    if ($DiscoveredToolHubExes.Count -eq 0 -and $DiscoveredInstallDirs.Count -eq 0) {
+        $script:LikelyFailureCategory = "install_dir_unexpected"
+        return
+    }
+    if ($DiscoveredToolHubExes.Count -gt 0 -and -not (Get-PayloadFlag "runner") -and -not (Get-PayloadFlag "apps") -and -not (Get-PayloadFlag "release")) {
+        $script:LikelyFailureCategory = "installed_payload_missing"
+        return
+    }
+    if (-not (Get-PayloadFlag "apps")) {
+        $script:LikelyFailureCategory = "apps_not_in_payload"
+        return
+    }
+    if (-not (Get-PayloadFlag "app_manifest")) {
+        $script:LikelyFailureCategory = "app_manifest_load_failed"
+        return
+    }
+    foreach ($Line in @($LogSummary.matched_lines)) {
+        $Text = [string]$Line.text
+        if ($Text -match "project root|root was not found") {
+            $script:LikelyFailureCategory = "root_resolution_failed"
+            return
+        }
+        if ($Text -match "app.yaml") {
+            $script:LikelyFailureCategory = "app_yaml_load_failed"
+            return
+        }
+    }
+    if ((Get-CheckStatus "app_cards_visible") -eq "fail") {
+        $script:LikelyFailureCategory = "root_resolution_failed"
+        return
+    }
+    if ((Get-CheckStatus "user_data_dir_created") -eq "fail") {
+        $script:LikelyFailureCategory = "user_data_or_config_issue"
+        return
+    }
+    $script:LikelyFailureCategory = "unknown"
 }
 
 function Save-Results {
     param([string]$FatalMessage = "")
+    $script:ResourceRootCandidate = Find-PayloadRoot
+    $script:LogSummary = Get-LogSummary
+    Set-LikelyFailureCategory
+
     $FailCount = Get-CheckCount -Status "fail"
     $ManualCount = Get-CheckCount -Status "manual_check"
     $PassCount = Get-CheckCount -Status "pass"
@@ -117,7 +577,7 @@ function Save-Results {
         "pass"
     }
     $Report = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         test_name = "toolhub_beta_vm_install_test"
         started_at = $StartedAt.ToString("o")
         finished_at = (Get-Date).ToString("o")
@@ -125,7 +585,27 @@ function Save-Results {
         fatal_message = $FatalMessage
         shared_root = $SharedRoot
         results_dir = $ResultsDir
+        environment = $EnvironmentSnapshot
         local_app_data = $env:LOCALAPPDATA
+        expected_install_dir = $ExpectedInstallDir
+        expected_install_dir_exists = (Test-Path -LiteralPath $ExpectedInstallDir -PathType Container)
+        candidate_install_dirs = @($CandidateInstallDirs.ToArray())
+        discovered_install_dirs = @($DiscoveredInstallDirs.ToArray())
+        discovered_toolhub_exes = @($DiscoveredToolHubExes.ToArray())
+        launched_toolhub_exe = $LaunchedToolHubExe
+        shortcut_records = @($ShortcutRecords)
+        uninstall_registry_records = @($UninstallRegistryRecords)
+        toolhub_process_records = @($ToolHubProcessRecords)
+        installer_execution = $InstallerExecution
+        payload_layout_summary = @($PayloadLayoutSummary.ToArray())
+        apps_dir_found = (Get-PayloadFlag "apps")
+        runner_dir_found = (Get-PayloadFlag "runner")
+        runtime_dir_found = (Get-PayloadFlag "runtime")
+        release_manifest_found = (Get-PayloadFlag "release_manifest")
+        app_manifest_found = (Get-PayloadFlag "app_manifest")
+        resource_root_candidate = $ResourceRootCandidate
+        log_summary = $LogSummary
+        likely_failure_category = $LikelyFailureCategory
         artifacts = $Artifacts
         counts = [ordered]@{
             pass = $PassCount
@@ -137,7 +617,7 @@ function Save-Results {
         checks = $Checks.ToArray()
     }
 
-    $Json = $Report | ConvertTo-Json -Depth 10
+    $Json = $Report | ConvertTo-Json -Depth 12
     $JsonPath = Join-Path $ResultsDir "vm_install_result_$Stamp.json"
     $MarkdownPath = Join-Path $ResultsDir "vm_install_result_$Stamp.md"
     $LatestJsonPath = Join-Path $ResultsDir "latest_vm_install_result.json"
@@ -149,8 +629,39 @@ function Save-Results {
     $Lines.Add("# ToolHub Beta VM Install Result") | Out-Null
     $Lines.Add("") | Out-Null
     $Lines.Add(("- overall_status: {0}" -f $OverallStatus)) | Out-Null
-    $Lines.Add(("- local_app_data: {0}" -f $env:LOCALAPPDATA)) | Out-Null
+    $Lines.Add(("- likely_failure_category: {0}" -f $LikelyFailureCategory)) | Out-Null
+    $Lines.Add(("- expected_install_dir: {0}" -f $ExpectedInstallDir)) | Out-Null
+    $Lines.Add(("- expected_install_dir_exists: {0}" -f (Test-Path -LiteralPath $ExpectedInstallDir -PathType Container))) | Out-Null
+    $Lines.Add(("- launched_toolhub_exe: {0}" -f $LaunchedToolHubExe)) | Out-Null
+    $Lines.Add(("- resource_root_candidate: {0}" -f $ResourceRootCandidate)) | Out-Null
     $Lines.Add("") | Out-Null
+    $Lines.Add("## Discovered Install Dirs") | Out-Null
+    foreach ($Path in $DiscoveredInstallDirs.ToArray()) {
+        $Lines.Add(("- {0}" -f $Path)) | Out-Null
+    }
+    if ($DiscoveredInstallDirs.Count -eq 0) {
+        $Lines.Add("- none") | Out-Null
+    }
+    $Lines.Add("") | Out-Null
+    $Lines.Add("## Discovered ToolHub Exes") | Out-Null
+    foreach ($Exe in $DiscoveredToolHubExes.ToArray()) {
+        $Lines.Add(("- {0}" -f $Exe.path)) | Out-Null
+    }
+    if ($DiscoveredToolHubExes.Count -eq 0) {
+        $Lines.Add("- none") | Out-Null
+    }
+    $Lines.Add("") | Out-Null
+    $Lines.Add("## Payload Layout Summary") | Out-Null
+    $Lines.Add("| root | apps | runner | runtime | release_manifest | app_manifest | app_yaml_count |") | Out-Null
+    $Lines.Add("| --- | --- | --- | --- | --- | --- | --- |") | Out-Null
+    foreach ($Summary in $PayloadLayoutSummary.ToArray()) {
+        $Lines.Add(("| {0} | {1} | {2} | {3} | {4} | {5} | {6} |" -f $Summary.root, $Summary.apps, $Summary.runner, $Summary.runtime, $Summary.release_manifest, $Summary.app_manifest, $Summary.app_yaml_count)) | Out-Null
+    }
+    if ($PayloadLayoutSummary.Count -eq 0) {
+        $Lines.Add("| none | False | False | False | False | False | 0 |") | Out-Null
+    }
+    $Lines.Add("") | Out-Null
+    $Lines.Add("## Checks") | Out-Null
     $Lines.Add("| status | id | message |") | Out-Null
     $Lines.Add("| --- | --- | --- |") | Out-Null
     foreach ($Check in $Checks) {
@@ -173,20 +684,127 @@ function Start-InstallerAndRecord {
     )
 
     Write-Host "Start the ToolHub installer UI. Do not select any option that deletes user data."
-    $StartedInstaller = Start-Process -FilePath $InstallerPath -PassThru -ErrorAction Stop
-    if (-not $StartedInstaller.WaitForExit([Math]::Max(1, $InstallerTimeoutMinutes) * 60 * 1000)) {
-        Add-Check -Id $CheckId -Description $Description -Status "manual_check" -Message "installer did not exit within $InstallerTimeoutMinutes minutes"
+    $BeforeProcesses = @(Get-ToolHubProcessRecords)
+    $InstallerExecution = [ordered]@{
+        installer_path = $InstallerPath
+        started_at = (Get-Date).ToString("o")
+        process_id = $null
+        exit_code = $null
+        timed_out = $false
+        finished_at = ""
+        toolhub_processes_before = @($BeforeProcesses)
+        toolhub_processes_after = @()
+    }
+    try {
+        $StartedInstaller = Start-Process -FilePath $InstallerPath -PassThru -ErrorAction Stop
+        $InstallerExecution.process_id = $StartedInstaller.Id
+        if (-not $StartedInstaller.WaitForExit([Math]::Max(1, $InstallerTimeoutMinutes) * 60 * 1000)) {
+            $InstallerExecution.timed_out = $true
+            $InstallerExecution.finished_at = (Get-Date).ToString("o")
+            $InstallerExecution.toolhub_processes_after = @(Get-ToolHubProcessRecords)
+            Add-Check -Id $CheckId -Description $Description -Status "manual_check" -Message "installer did not exit within $InstallerTimeoutMinutes minutes" -Data $InstallerExecution
+            return $false
+        }
+        $InstallerExecution.exit_code = $StartedInstaller.ExitCode
+        $InstallerExecution.finished_at = (Get-Date).ToString("o")
+        $InstallerExecution.toolhub_processes_after = @(Get-ToolHubProcessRecords)
+        if ($StartedInstaller.ExitCode -eq 0) {
+            Add-Check -Id $CheckId -Description $Description -Status "pass" -Message "installer exited with code 0" -Data $InstallerExecution
+            return $true
+        }
+        Add-Check -Id $CheckId -Description $Description -Status "fail" -Message "installer exited with code $($StartedInstaller.ExitCode)" -Data $InstallerExecution
         return $false
+    } catch {
+        $InstallerExecution.finished_at = (Get-Date).ToString("o")
+        $InstallerExecution.error = $_.Exception.Message
+        Add-Check -Id $CheckId -Description $Description -Status "fail" -Message "installer start failed: $($_.Exception.Message)" -Data $InstallerExecution
+        return $false
+    } finally {
+        $script:InstallerExecution = $InstallerExecution
     }
-    if ($StartedInstaller.ExitCode -eq 0) {
-        Add-Check -Id $CheckId -Description $Description -Status "pass" -Message "installer exited with code 0"
-        return $true
+}
+
+function Select-LaunchExe {
+    foreach ($Process in @(Get-ToolHubProcessRecords)) {
+        if (-not [string]::IsNullOrWhiteSpace($Process.executable_path) -and (Test-Path -LiteralPath $Process.executable_path -PathType Leaf)) {
+            return [string]$Process.executable_path
+        }
     }
-    Add-Check -Id $CheckId -Description $Description -Status "fail" -Message "installer exited with code $($StartedInstaller.ExitCode)"
-    return $false
+    foreach ($Exe in $DiscoveredToolHubExes.ToArray()) {
+        if ([string]$Exe.path -like "*ToolHub.exe") {
+            return [string]$Exe.path
+        }
+    }
+    if ($DiscoveredToolHubExes.Count -gt 0) {
+        return [string]$DiscoveredToolHubExes[0].path
+    }
+    return ""
+}
+
+function Record-ToolHubLaunch {
+    $RunningBeforeLaunch = @(Get-ToolHubProcessRecords)
+    if ($RunningBeforeLaunch.Count -gt 0) {
+        $script:LaunchedToolHubExe = [string]$RunningBeforeLaunch[0].executable_path
+        Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "pass" -Message "ToolHub was already running after installer" -Data @{ processes = @($RunningBeforeLaunch) }
+        Add-ManualPromptCheck -Id "app_cards_visible" -Description "app cards are visible in GUI" -Prompt "Are app cards visible in the ToolHub window?"
+        Add-ManualPromptCheck -Id "sample_gui_app_launch" -Description "sample_gui_app launches from installed ToolHub" -Prompt "Did sample_gui_app launch successfully?"
+        Add-ManualPromptCheck -Id "sample_playwright_app_launch" -Description "sample_playwright_app launches from installed ToolHub" -Prompt "Did sample_playwright_app launch successfully?"
+        return
+    }
+
+    $LaunchExe = Select-LaunchExe
+    if ([string]::IsNullOrWhiteSpace($LaunchExe)) {
+        Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "not_run" -Message "No ToolHub.exe candidate was found"
+        return
+    }
+    $script:LaunchedToolHubExe = $LaunchExe
+    try {
+        $ToolHubProcess = Start-Process -FilePath $LaunchExe -PassThru -ErrorAction Stop
+        Start-Sleep -Seconds $LaunchSeconds
+        $RunningAfterLaunch = @(Get-ToolHubProcessRecords)
+        if ($ToolHubProcess.HasExited) {
+            if ($ToolHubProcess.ExitCode -eq 0) {
+                Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "pass" -Message "ToolHub launched and exited with code 0" -Data @{ launched_exe = $LaunchExe; processes = @($RunningAfterLaunch) }
+            } else {
+                Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "fail" -Message "ToolHub exited early with code $($ToolHubProcess.ExitCode)" -Data @{ launched_exe = $LaunchExe; processes = @($RunningAfterLaunch) }
+            }
+        } else {
+            Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "pass" -Message "ToolHub stayed running for $LaunchSeconds seconds" -Data @{ launched_exe = $LaunchExe; processes = @($RunningAfterLaunch) }
+            Add-ManualPromptCheck -Id "app_cards_visible" -Description "app cards are visible in GUI" -Prompt "Are app cards visible in the ToolHub window?"
+            Add-ManualPromptCheck -Id "sample_gui_app_launch" -Description "sample_gui_app launches from installed ToolHub" -Prompt "Did sample_gui_app launch successfully?"
+            Add-ManualPromptCheck -Id "sample_playwright_app_launch" -Description "sample_playwright_app launches from installed ToolHub" -Prompt "Did sample_playwright_app launch successfully?"
+            $ToolHubProcess.CloseMainWindow() | Out-Null
+            Start-Sleep -Seconds 3
+            if (-not $ToolHubProcess.HasExited) {
+                Stop-Process -Id $ToolHubProcess.Id -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {
+        Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "fail" -Message "ToolHub launch failed: $($_.Exception.Message)" -Data @{ launched_exe = $LaunchExe }
+    }
+}
+
+function Find-UninstallCandidates {
+    $Candidates = New-Object System.Collections.Generic.List[string]
+    foreach ($Entry in $UninstallRegistryRecords) {
+        foreach ($CommandText in @($Entry.uninstall_string, $Entry.quiet_uninstall_string)) {
+            $CommandPath = Get-PathFromCommandLine -Text $CommandText
+            Add-UniquePath -List $Candidates -Path $CommandPath -OnlyIfExists
+        }
+    }
+    foreach ($InstallDir in $DiscoveredInstallDirs.ToArray()) {
+        $Matches = @(Get-ChildItem -LiteralPath $InstallDir -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match "uninstall|unins" })
+        foreach ($Match in $Matches) {
+            Add-UniquePath -List $Candidates -Path $Match.FullName -OnlyIfExists
+        }
+    }
+    return @($Candidates.ToArray())
 }
 
 try {
+    Add-Check -Id "environment_snapshot_recorded" -Description "VM environment paths are recorded" -Status "pass" -Message "environment snapshot recorded" -Data $EnvironmentSnapshot
+
     foreach ($ToolName in @("python", "pip", "node", "npm", "rustc", "cargo", "tauri")) {
         $Commands = @(Get-Command $ToolName -ErrorAction SilentlyContinue)
         if ($Commands.Count -eq 0) {
@@ -215,6 +833,9 @@ try {
     $Artifacts["installer_path"] = $InstallerPath
     $Artifacts["expected_size"] = $ExpectedSize
     $Artifacts["expected_sha256"] = $ExpectedSha256
+    $Artifacts["expected_install_dir"] = $ExpectedInstallDir
+    $Artifacts["expected_toolhub_exe"] = $ExpectedToolHubExe
+    $Artifacts["user_data_dir"] = $UserDataDir
 
     if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) {
         Add-Check -Id "installer_exists" -Description "installer exists" -Status "fail" -Message "installer not found: $InstallerPath"
@@ -238,67 +859,59 @@ try {
     }
 
     $InstallerCompleted = Start-InstallerAndRecord -CheckId "installer_completed" -Description "installer completes"
-    if (-not $InstallerCompleted) {
-        Save-Results
-        return
-    }
+    Update-InstallDiscovery
 
-    $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\ToolHub"
-    $UserDataDir = Join-Path $env:LOCALAPPDATA "ToolHub"
-    $ToolHubExe = Join-Path $InstallDir "ToolHub.exe"
-    $Artifacts["install_dir"] = $InstallDir
-    $Artifacts["user_data_dir"] = $UserDataDir
-    $Artifacts["toolhub_exe"] = $ToolHubExe
-
-    if (Test-Path -LiteralPath $ToolHubExe -PathType Leaf) {
-        Add-Check -Id "toolhub_exe_exists" -Description "ToolHub.exe exists in install dir" -Status "pass" -Message "ToolHub.exe found: $ToolHubExe"
+    if (Test-Path -LiteralPath $ExpectedInstallDir -PathType Container) {
+        Add-Check -Id "expected_install_dir_exists" -Description "expected install dir exists" -Status "pass" -Message "expected install dir exists: $ExpectedInstallDir"
     } else {
-        Add-Check -Id "toolhub_exe_exists" -Description "ToolHub.exe exists in install dir" -Status "fail" -Message "ToolHub.exe not found: $ToolHubExe"
+        Add-Check -Id "expected_install_dir_exists" -Description "expected install dir exists" -Status "fail" -Message "expected install dir is missing: $ExpectedInstallDir"
+    }
+    if ($DiscoveredInstallDirs.Count -gt 0) {
+        Add-Check -Id "install_location_discovery" -Description "install location discovery finds candidates" -Status "pass" -Message "discovered $($DiscoveredInstallDirs.Count) install dir candidate(s)" -Data @{ discovered_install_dirs = @($DiscoveredInstallDirs.ToArray()); shortcuts = @($ShortcutRecords); registry = @($UninstallRegistryRecords) }
+    } else {
+        Add-Check -Id "install_location_discovery" -Description "install location discovery finds candidates" -Status "fail" -Message "no install dir candidates were discovered" -Data @{ candidate_install_dirs = @($CandidateInstallDirs.ToArray()); shortcuts = @($ShortcutRecords); registry = @($UninstallRegistryRecords) }
+    }
+    if ($DiscoveredToolHubExes.Count -gt 0) {
+        Add-Check -Id "toolhub_exe_discovery" -Description "ToolHub.exe discovery finds candidates" -Status "pass" -Message "discovered $($DiscoveredToolHubExes.Count) ToolHub exe candidate(s)" -Data @{ discovered_toolhub_exes = @($DiscoveredToolHubExes.ToArray()) }
+    } else {
+        Add-Check -Id "toolhub_exe_discovery" -Description "ToolHub.exe discovery finds candidates" -Status "fail" -Message "no ToolHub exe candidates were discovered"
     }
 
-    $PayloadRoots = @($InstallDir, (Join-Path $InstallDir "resources"))
-    foreach ($RequiredPath in @("runner", "apps", "runtime", "config.default", "release")) {
-        $FoundPath = Find-FirstExistingPath -BasePaths $PayloadRoots -RelativePath $RequiredPath
-        if ($null -ne $FoundPath) {
-            Add-Check -Id "payload_$($RequiredPath.Replace('.', '_'))_exists" -Description "$RequiredPath payload exists" -Status "pass" -Message "$RequiredPath found: $FoundPath"
+    foreach ($RequiredPath in @("runner", "apps", "runtime", "config_default", "release")) {
+        $Field = if ($RequiredPath -eq "config_default") { "config_default" } else { $RequiredPath }
+        $Found = Get-PayloadFlag $Field
+        $CheckIdName = $RequiredPath.Replace(".", "_")
+        if ($Found) {
+            Add-Check -Id "payload_$($CheckIdName)_exists" -Description "$RequiredPath payload exists" -Status "pass" -Message "$RequiredPath found in discovered payload layout"
         } else {
-            Add-Check -Id "payload_$($RequiredPath.Replace('.', '_'))_exists" -Description "$RequiredPath payload exists" -Status "fail" -Message "$RequiredPath not found under install dir or resources dir"
+            Add-Check -Id "payload_$($CheckIdName)_exists" -Description "$RequiredPath payload exists" -Status "fail" -Message "$RequiredPath not found in discovered payload layout" -Data @{ payload_layout_summary = @($PayloadLayoutSummary.ToArray()) }
         }
     }
-
-    if (Find-FirstExistingPath -BasePaths $PayloadRoots -RelativePath "runtime\python\python.exe") {
-        Add-Check -Id "bundled_python_exists" -Description "bundled runtime python exists" -Status "pass" -Message "runtime/python/python.exe found"
+    if (Get-PayloadFlag "runtime_python") {
+        Add-Check -Id "bundled_python_exists" -Description "bundled runtime python exists" -Status "pass" -Message "runtime/python/python.exe found in discovered payload layout"
     } else {
-        Add-Check -Id "bundled_python_exists" -Description "bundled runtime python exists" -Status "fail" -Message "runtime/python/python.exe not found"
+        Add-Check -Id "bundled_python_exists" -Description "bundled runtime python exists" -Status "fail" -Message "runtime/python/python.exe not found in discovered payload layout"
     }
-    if (Find-FirstExistingPath -BasePaths $PayloadRoots -RelativePath "runtime\web_automation_runtime") {
-        Add-Check -Id "web_automation_runtime_exists" -Description "bundled web automation runtime exists" -Status "pass" -Message "runtime/web_automation_runtime found"
+    if (Get-PayloadFlag "web_automation_runtime") {
+        Add-Check -Id "web_automation_runtime_exists" -Description "bundled web automation runtime exists" -Status "pass" -Message "runtime/web_automation_runtime found in discovered payload layout"
     } else {
-        Add-Check -Id "web_automation_runtime_exists" -Description "bundled web automation runtime exists" -Status "fail" -Message "runtime/web_automation_runtime not found"
+        Add-Check -Id "web_automation_runtime_exists" -Description "bundled web automation runtime exists" -Status "fail" -Message "runtime/web_automation_runtime not found in discovered payload layout"
+    }
+    if (Get-PayloadFlag "release_manifest") {
+        Add-Check -Id "release_manifest_found" -Description "installed release manifest exists" -Status "pass" -Message "release/manifest.json found in discovered payload layout"
+    } else {
+        Add-Check -Id "release_manifest_found" -Description "installed release manifest exists" -Status "fail" -Message "release/manifest.json not found in discovered payload layout"
+    }
+    if (Get-PayloadFlag "app_manifest") {
+        Add-Check -Id "app_manifest_found" -Description "installed app manifest exists" -Status "pass" -Message "release/app_manifest.json found in discovered payload layout"
+    } else {
+        Add-Check -Id "app_manifest_found" -Description "installed app manifest exists" -Status "fail" -Message "release/app_manifest.json not found in discovered payload layout"
     }
 
-    if (Test-Path -LiteralPath $ToolHubExe -PathType Leaf) {
-        $ToolHubProcess = Start-Process -FilePath $ToolHubExe -PassThru -ErrorAction Stop
-        Start-Sleep -Seconds $LaunchSeconds
-        if ($ToolHubProcess.HasExited) {
-            if ($ToolHubProcess.ExitCode -eq 0) {
-                Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "pass" -Message "ToolHub launched and exited with code 0"
-            } else {
-                Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "fail" -Message "ToolHub exited early with code $($ToolHubProcess.ExitCode)"
-            }
-        } else {
-            Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "pass" -Message "ToolHub stayed running for $LaunchSeconds seconds"
-            Add-ManualPromptCheck -Id "app_cards_visible" -Description "app cards are visible in GUI" -Prompt "Are app cards visible in the ToolHub window?"
-            Add-ManualPromptCheck -Id "sample_gui_app_launch" -Description "sample_gui_app launches from installed ToolHub" -Prompt "Did sample_gui_app launch successfully?"
-            Add-ManualPromptCheck -Id "sample_playwright_app_launch" -Description "sample_playwright_app launches from installed ToolHub" -Prompt "Did sample_playwright_app launch successfully?"
-            $ToolHubProcess.CloseMainWindow() | Out-Null
-            Start-Sleep -Seconds 3
-            if (-not $ToolHubProcess.HasExited) {
-                Stop-Process -Id $ToolHubProcess.Id -Force -ErrorAction SilentlyContinue
-            }
-        }
+    if ($InstallerCompleted) {
+        Record-ToolHubLaunch
     } else {
-        Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "not_run" -Message "ToolHub.exe was not found"
+        Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "not_run" -Message "installer did not complete"
     }
 
     if (Test-Path -LiteralPath $UserDataDir -PathType Container) {
@@ -314,27 +927,24 @@ try {
         Add-Check -Id "user_data_preserved_after_reinstall" -Description "user data remains after reinstall" -Status "not_run" -Message "SkipUninstall was specified"
     } else {
         $UninstallSucceeded = $false
-        $UninstallCandidates = @()
-        if (Test-Path -LiteralPath $InstallDir -PathType Container) {
-            $UninstallCandidates = @(Get-ChildItem -LiteralPath $InstallDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "uninstall" })
-        }
+        $UninstallCandidates = @(Find-UninstallCandidates)
         if ($UninstallCandidates.Count -eq 0) {
-            Add-Check -Id "uninstall_completed" -Description "ToolHub uninstalls" -Status "manual_check" -Message "no uninstaller executable was found under $InstallDir"
+            Add-Check -Id "uninstall_completed" -Description "ToolHub uninstalls" -Status "manual_check" -Message "no uninstaller executable was found in registry or discovered install dirs"
             Add-Check -Id "user_data_preserved_after_uninstall" -Description "user data remains after uninstall" -Status "not_run" -Message "uninstaller was not found"
             Add-Check -Id "reinstall_completed" -Description "ToolHub reinstalls" -Status "not_run" -Message "uninstaller was not found"
             Add-Check -Id "user_data_preserved_after_reinstall" -Description "user data remains after reinstall" -Status "not_run" -Message "uninstaller was not found"
         } else {
-            $UninstallerPath = $UninstallCandidates[0].FullName
+            $UninstallerPath = $UninstallCandidates[0]
             $Artifacts["uninstaller_path"] = $UninstallerPath
             Write-Host "Start the ToolHub uninstaller UI. Do not select any option that deletes user data."
             $UninstallerProcess = Start-Process -FilePath $UninstallerPath -PassThru -ErrorAction Stop
             if (-not $UninstallerProcess.WaitForExit([Math]::Max(1, $UninstallerTimeoutMinutes) * 60 * 1000)) {
-                Add-Check -Id "uninstall_completed" -Description "ToolHub uninstalls" -Status "manual_check" -Message "uninstaller did not exit within $UninstallerTimeoutMinutes minutes"
+                Add-Check -Id "uninstall_completed" -Description "ToolHub uninstalls" -Status "manual_check" -Message "uninstaller did not exit within $UninstallerTimeoutMinutes minutes" -Data @{ uninstaller_path = $UninstallerPath }
             } elseif ($UninstallerProcess.ExitCode -eq 0) {
-                Add-Check -Id "uninstall_completed" -Description "ToolHub uninstalls" -Status "pass" -Message "uninstaller exited with code 0"
+                Add-Check -Id "uninstall_completed" -Description "ToolHub uninstalls" -Status "pass" -Message "uninstaller exited with code 0" -Data @{ uninstaller_path = $UninstallerPath }
                 $UninstallSucceeded = $true
             } else {
-                Add-Check -Id "uninstall_completed" -Description "ToolHub uninstalls" -Status "fail" -Message "uninstaller exited with code $($UninstallerProcess.ExitCode)"
+                Add-Check -Id "uninstall_completed" -Description "ToolHub uninstalls" -Status "fail" -Message "uninstaller exited with code $($UninstallerProcess.ExitCode)" -Data @{ uninstaller_path = $UninstallerPath }
             }
 
             if (Test-Path -LiteralPath $UserDataDir -PathType Container) {
@@ -349,6 +959,7 @@ try {
             } elseif ($UninstallSucceeded) {
                 $ReinstallSucceeded = Start-InstallerAndRecord -CheckId "reinstall_completed" -Description "ToolHub reinstalls"
                 if ($ReinstallSucceeded) {
+                    Update-InstallDiscovery
                     if (Test-Path -LiteralPath $UserDataDir -PathType Container) {
                         Add-Check -Id "user_data_preserved_after_reinstall" -Description "user data remains after reinstall" -Status "pass" -Message "user data dir exists after reinstall: $UserDataDir"
                     } else {

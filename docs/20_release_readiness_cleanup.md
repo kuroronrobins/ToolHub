@@ -205,7 +205,13 @@ is unavailable. Keep the Sandbox flow for machines that support it, but use the 
 - The VM package has been generated on the host. The packaged installer matches `release/manifest.json`
   (`sha256=57b222c4c8f15ccf755ae55a1cb3abd8d0328a601b97afce857e390319993319`, `size=290362631`). This only proves the
   package contents and hash consistency; it does not prove VM install / launch yet.
-- `scripts/beta_vm/import_vm_test_result.ps1` summarizes a returned `latest_vm_install_result.json` and shows the
+- An initial clean Windows VM run launched the ToolHub window, but the app list was empty and the expected install dir
+  `%LOCALAPPDATA%\Programs\ToolHub\` did not exist. Do not assume a single root cause yet.
+- `scripts/beta_vm/vm_install_test.ps1` now records install location discovery, discovered `ToolHub*.exe` candidates,
+  the launched/running process path, payload layout under discovered dirs and `resources`, launcher log matches, and a
+  `likely_failure_category` value.
+- `scripts/beta_vm/import_vm_test_result.ps1` summarizes a returned `latest_vm_install_result.json`, including
+  `discovered_install_dirs`, `discovered_toolhub_exes`, `launched_toolhub_exe`, `payload_layout_summary`, and the
   checklist reflection candidate without requiring the VM to exist on the host.
 
 ## Intentional Warnings
