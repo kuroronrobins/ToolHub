@@ -1659,6 +1659,126 @@ Remaining follow-up:
 - Add or keep focused tests around stale snapshot mismatch, forbidden categories, excluded/delete overlap, path traversal, repo-root/outside-root rejection, shared runtime rejection, manifest-entry skip after earlier failure, and post-check remaining target detection.
 - Do not change delete categories, App Pack/staging matching, manifest-entry semantics, or production PowerShell apply behavior in the same task as this split.
 
+## 2026-05-10 final cleanup inventory: practical phase boundary
+
+Purpose:
+
+- Reconcile the App Studio cleanup work completed after the original audit.
+- Decide whether the current P0/P1 cleanup can be treated as a practical stopping point before a separate P2/P3 phase.
+- Document what is complete, what remains intentionally deferred, and what should not be changed without a separate design decision.
+
+Current phase decision:
+
+- **Decision: practical phase boundary reached.**
+- The current branch has enough P0 safety coverage and P1 responsibility separation to pause cleanup work and move to the next product or release-readiness phase.
+- Remaining work is no longer an immediate registration-success or destructive-safety blocker. It is mostly maintainability polish, test broadening, or larger architecture cleanup.
+- Do not treat this as "App Studio is finished." Treat it as "P0/P1 cleanup is usable and bounded."
+
+P0 completed items:
+
+- `requirements.lock` / App Pack required entries / `verify_release` contract documented and covered by tests.
+- App Studio frozen-folder registration keeps `requirements.lock` as a distribution reproducibility artifact without forcing it onto legacy Python runner sample apps.
+- Approval gate validates execution/runtime result app id consistency, output_dir consistency, stale final_app/result relationships, fail status, `approval_allowed=false`, and approval-blocking warnings.
+- Approval rejection now exposes actionable failure reasons and next actions through Python gate messages, diagnose output, and UI guidance.
+- `diagnose_app_studio_import.ps1` classifies approval gate failures, runtime result failures, and global release verification warnings separately.
+- UI approval guidance is normalized enough that wrong-app, stale, blocking warning, secret block, and warning-only states are no longer spread as ad-hoc text in every component.
+
+P1 UI completed items:
+
+- `appStudioIconProposal.ts` remains the icon proposal normalizer boundary after the Phase 0-7 icon cleanup.
+- `appStudioRunResult.ts` normalizes result status labels, warning-only handling, next actions, approval guidance, runtime/execution/app-pack/verify summaries, and result message helpers for new registration UI.
+- `AppStudioUpdateWizard` uses the same result/next-action normalizer direction for update apply/approve/suggest results.
+- `appStudioApproval.ts` remains the approval-decision helper; it does not replace the Python approval gate as the authoritative decision source.
+
+P1 Rust completed modules:
+
+| Module | Boundary now owned by the module | Notes |
+| --- | --- | --- |
+| `app_studio_result_reader.rs` | Result summary / artifact reader | Reads import plan, execution/runtime/timing/approval/app-pack/catalog artifacts for UI result summaries. |
+| `app_studio_ai_proposal_reader.rs` | AI proposal / icon artifact reader | Preserves saved proposal, legacy candidate manifest, flat candidate files, and final icon preview compatibility. |
+| `app_studio_cli_args.rs` | Request normalization and CLI argv builder | Keeps App Studio CLI argv semantics out of command wrappers. |
+| `app_studio_process.rs` | Process result shaping, stdout/stderr masking, GUI log helper | Keeps secret masking and command-line redaction centralized. |
+| `app_studio_overrides.rs` | Metadata/icon/build-profile override writers and icon revision temp image writer | Preserves override JSON shapes and data URL handling. |
+| `app_studio_types.rs` | Public request/response DTO boundary | Owns Tauri-facing DTOs, serde attributes, and JSON shape. |
+| `app_studio_preflight.rs` | Python discovery and normal import preflight builder | Keeps Python discovery order and preflight result shape unchanged. |
+| `app_studio_delete_plan.rs` | Read-only delete planner and target classifier | Owns managed/excluded target classification, App Pack/staging/backup/user-data/shared-runtime discovery. |
+| `app_studio_management.rs` | Management list and enabled toggle | Owns management status/warning/recommended-action mapping and existing-entry enabled writes. |
+| `app_studio_full_delete.rs` | Destructive full-delete safety unit | Owns validation, fresh plan, snapshot comparison, ordered deletion, path safety, manifest entry removal, post-check, and GUI log record. |
+
+Delete safety completed items:
+
+- Read-only delete planning is separated from destructive apply.
+- Destructive apply is now one cohesive safety unit in `app_studio_full_delete.rs`.
+- Deletable categories remain `managed_required`, `managed_generated`, and `managed_history`.
+- Excluded categories remain `external_reference`, `user_data`, `shared_runtime`, and `managed_generated_candidate`.
+- The backend still rebuilds a fresh plan at apply time and compares a UI-provided snapshot before deleting.
+- Path safety still rejects traversal, repo-root deletion, repo-external targets, shared runtime targets, invalid manifest targets, and delete/excluded overlap.
+- Manifest mutation still removes only the target app entry from `release/app_manifest.json`; the manifest file itself is never a delete target.
+- Post-check still requires no failed deletes, absent manifest entry, and no remaining existing non-manifest delete targets for `ok=true`.
+- Targeted full-delete Rust tests, PowerShell parity, and temporary-fixture full-delete E2E passed during the split validation.
+
+Guardrails to keep:
+
+- Do not change app.yaml public schema, App Pack spec, runner public I/F, release manifest compatibility, saved proposal compatibility, old candidate manifest compatibility, or user data semantics inside cleanup-only tasks.
+- Do not promote user data, external references, shared runtime folders, or generated candidates into delete targets.
+- Do not revive local fallback image candidates or fallback adoption UI in icon cleanup follow-ups.
+- Do not weaken stdout/stderr/API-key masking when moving process code.
+- Do not combine destructive behavior changes with module moves.
+- Do not treat PowerShell production `-Apply` as equivalent to the authenticated Rust full-delete path without a separate safety design.
+
+Remaining P1 candidates:
+
+- Split any remaining small command-internal helpers from `app_studio_commands.rs` only when the move is mechanical and behavior-preserving.
+- Add focused Rust unit tests for `app_studio_full_delete.rs` if future edits touch validation or post-check internals.
+- Add a small TypeScript delete UI normalizer if Delete tab wording starts to drift from backend categories.
+- Replace mojibake historical prompt blocks in docs with short English/Japanese maintenance notes when docs readability becomes the task.
+
+Remaining P2 candidates:
+
+- Review and reduce duplication between Python registrar/exporter/runtime checks and PowerShell package/verify scripts.
+- Reduce `tools/app_studio/main.py` orchestration size by extracting command-specific use cases, after current behavior has more end-to-end fixture coverage.
+- Broaden TypeScript tests around result normalizer integration with the visible wizard/sidebar panels.
+- Add release-readiness test fixtures that distinguish global release debt from app-registration-specific failures.
+- Improve docs cross-links among `docs/13_app_studio.md`, App Pack spec, release readiness, and delete lifecycle docs.
+
+Remaining P3 / larger design candidates:
+
+- Revisit saved proposal / old import_plan / old candidate_manifest compatibility after an explicit migration policy exists.
+- Reconsider release/app manifest source-of-truth boundaries only as a release/update architecture project.
+- Rework installer/signing/update trust and runtime packaging as a separate release engineering phase.
+- Consider a broader Python App Studio domain decomposition only after P2 script/spec duplication is mapped.
+
+High-risk items intentionally deferred:
+
+- Any destructive category expansion or deletion of user data / external references / shared runtimes.
+- Any App Pack or staging matching rule change.
+- Any generated_at time-window freshness requirement for approval.
+- Any source-hash freshness gate for approval.
+- Any release manifest schema change or migration.
+- Any dependency, lock file, runtime archive, installer artifact, or generated App Pack change.
+
+Final validation state recorded for this phase:
+
+- Current docs-only inventory validation in this pass: `git diff --check`.
+- Most recent Rust full-delete split validation: `rustfmt --check`, `cargo check`, `cargo test full_delete`, `scripts/test_app_delete_plan_parity.ps1`, and `scripts/test_app_full_delete_e2e.ps1` passed.
+- Previous P0/P1 validations are recorded in the individual follow-up sections above; do not claim they were all rerun in this inventory pass.
+- `check_all.ps1` was not rerun for this inventory pass because the change is docs-only and the script can mix unrelated cargo/MSVC/App Pack/installer artifact conditions with cleanup status.
+
+Current recommended next task:
+
+```text
+AGENTS.md のルールに従って、1 回の作業で現状確認・必要最小限の実装・セルフレビュー・検証まで実施してください。
+
+目的:
+ToolHub App Studio cleanup は P0/P1 の実用上の区切りに到達済みです。
+次フェーズとして、P2 の「Python registrar/exporter/runtime checks と PowerShell package/verify scripts の重複整理」を監査してください。
+
+条件:
+- app.yaml public schema、App Pack spec、runner public I/F、release manifest compatibility は変更しない。
+- 実装変更は行わず、docs/24 または新規 docs に責務重複、source of truth、低リスク統一候補、高リスク停止条件を整理する。
+- apps / release / runtime / generated artifacts は変更しない。
+```
+
 Historical next Codex task queued after the management split, now covered by the audit section above:
 
 ```text
