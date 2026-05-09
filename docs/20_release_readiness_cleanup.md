@@ -7,7 +7,8 @@ this document were cleaned from `release/app_manifest.json`. App Packs for all s
 `release/app_manifest.json` now points at the generated zip files with matching SHA256 values. Runtime packaging
 operations are scripted for local archives, and this checkout now has Python/Web runtime files expanded from local
 runtime sources. The archives and expanded runtime files remain Git-ignored release artifacts.
-Phase 6 still does not delete source-present apps or build installers.
+Phase 6 cleanup itself did not delete source-present apps or build installers. Later Beta Phase 1-A work generated the
+current installer artifact and staging manifest; Phase 1-B real install / uninstall validation is still manual.
 
 ## Current Report Command
 
@@ -35,6 +36,8 @@ The current repository snapshot from `.\scripts\report_release_readiness.ps1` is
 - package path missing: 0
 - sha256 mismatch: 0
 - App Pack rebuild candidates: 0
+- installer build required: 0
+- beta ready blockers: 0
 
 Enabled apps with source:
 
@@ -147,17 +150,30 @@ Current runtime packaging status:
 - Runtime files under `runtime/python/`, `runtime/web_automation_runtime/`, and archives under `vendor/runtime/` remain
   Git-ignored and must be present on the release build machine.
 
-## Installer Build Required
+## Installer Artifact Status
 
 Current installer readiness items:
 
-- `release/manifest.json` points to `release/dist_installer/ToolHub_Setup_0.1.0.exe`, but the file is not present.
-- `release/staging/installer_payload/staging_manifest.json` is not present.
+- `release/dist_installer/ToolHub_Setup_0.1.0.exe` exists as a generated, Git-ignored release artifact.
+- `release/manifest.json` records installer `sha256=57b222c4c8f15ccf755ae55a1cb3abd8d0328a601b97afce857e390319993319` and `size=290362631`.
+- `scripts/verify_release.ps1 -RequireInstaller -RequireRuntime` passes for the current generated artifact set.
+- `release/staging/installer_payload/staging_manifest.json` exists and captures the installer payload.
 
-These are release build tasks. They must not be resolved by deleting apps.
+These checks prove artifact and manifest consistency only. They do not prove real install, first launch, bundled runtime
+selection in an installed environment, uninstall, or user data preservation.
+
+## Phase 1-B Install Validation Status
+
+Current PC read-only observation:
+
+- `%LOCALAPPDATA%\Programs\ToolHub\` does not currently exist in this profile.
+- `%LOCALAPPDATA%\ToolHub\` already exists in this profile.
+
+Because existing user data is present, this current profile is not a clean install target. Do not run uninstall against
+this profile as a destructive validation unless the data is backed up and a human explicitly approves current-profile
+testing. Use a clean Windows user profile or VM for Phase 1-B.
 
 ## Intentional Warnings
-
 Normal verification can warn for:
 
 - disabled stale entries kept as history until deletion is confirmed
@@ -193,10 +209,12 @@ Use Developer PowerShell for Visual Studio, or install Visual Studio Build Tools
 2. Preserve the generated local runtime archives or replace them with formally approved archives, then rerun
    `.\scripts\prepare_runtime.ps1` with SHA256 values if the runtime source changes.
 3. Run `.\scripts\verify_runtime.ps1 -RequireRuntime` on the release build machine.
-4. Build installer/release artifacts.
-5. Decide and implement the strict `runtime/app_envs/<app_id>` policy for frozen-folder apps.
-6. Run normal verification.
-7. Move to strict/formal verification after generated artifacts and strict policy are handled.
+4. Preserve the current installer artifact set or rebuild it if source/runtime/app packs change.
+5. Run Phase 1-B in a clean Windows user profile or VM: install, launch, app cards, `sample_gui_app`,
+   `sample_playwright_app`, uninstall, and user data preservation.
+6. Decide and implement the strict `runtime/app_envs/<app_id>` policy for frozen-folder apps.
+7. Move to endpoint validation for the Beta updater.
+8. Move to strict/formal verification after generated artifacts, install validation, and strict policy are handled.
 
 ## Remaining Work This Phase Does Not Do
 
@@ -209,4 +227,4 @@ Use Developer PowerShell for Visual Studio, or install Visual Studio Build Tools
 - It does not remove backups.
 - It does not download runtime from the internet.
 - It does not commit runtime archives or expanded runtime binaries to Git.
-- It does not build installers.
+- The cleanup phase itself does not build installers; Beta Phase 1-A generated the current installer artifacts separately.

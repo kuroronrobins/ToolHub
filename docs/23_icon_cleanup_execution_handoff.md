@@ -289,6 +289,10 @@ python -m unittest discover -s tools/app_studio/tests
 ### Phase 6: UI normalization
 
 Status: started on 2026-05-09.
+Finishing pass: `AppStudioImportWizard` revision prompt summary now reads through
+`appStudioIconProposal.ts`, and normal UI no longer branches on
+`candidate.fallback`. Legacy fallback source labels normalize to the ToolHub
+common default icon label instead of exposing old fallback wording.
 
 Purpose:
 

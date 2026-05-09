@@ -35,6 +35,11 @@ export interface NormalizedDefaultIconState {
   finalPngDataUrl?: string | null;
 }
 
+export interface NormalizedIconRevisionPromptInfo {
+  userRevisionInstruction: string;
+  finalImageApiPrompt: string;
+}
+
 export interface NormalizedIconProposal {
   currentSource: AppStudioSelectedIconSource | "unknown";
   currentSourceLabel: string;
@@ -50,6 +55,7 @@ export interface NormalizedIconProposal {
   canAdoptPrimaryPng: boolean;
   defaultIcon: NormalizedDefaultIconState;
   diagnosis: NormalizedIconDiagnosis;
+  revisionPromptInfo: NormalizedIconRevisionPromptInfo;
 }
 
 export function normalizeAppStudioIconProposal(
@@ -110,6 +116,10 @@ export function normalizeAppStudioIconProposal(
       finalPngDataUrl: icon?.finalPngDataUrl ?? null,
     },
     diagnosis,
+    revisionPromptInfo: {
+      userRevisionInstruction: summaryStringValue(summary?.userRevisionInstruction ?? summary?.user_revision_instruction),
+      finalImageApiPrompt: summaryStringValue(summary?.finalImageApiPrompt ?? summary?.final_image_api_prompt),
+    },
   };
 }
 
@@ -153,9 +163,6 @@ export function iconSourceLabel(source?: string | null): string {
   }
   if (normalized === "final_png") {
     return "PNG選択済み";
-  }
-  if (LEGACY_FALLBACK_ICON_SOURCES.has(summaryStringValue(source))) {
-    return "旧入力（default icon扱い）";
   }
   return "未採用";
 }

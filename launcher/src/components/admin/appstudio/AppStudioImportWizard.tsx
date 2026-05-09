@@ -18,8 +18,6 @@ import {
   iconSourceLabel,
   normalizeAppStudioIconProposal,
   selectedIconCandidateForProposal,
-  summaryNumberValue,
-  summaryStringValue,
 } from "../../../lib/appStudioIconProposal";
 import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
 import { IMAGE_TEST_UPDATED_EVENT, imageApiFailureGuidance, loadImageGenerationTestResult, type StoredImageGenerationTestResult } from "../../../lib/imageApiHealth";
@@ -681,9 +679,8 @@ export function AppStudioImportWizard() {
     const baseIcon = lastRevisionBase?.pngDataUrl ?? baseCandidate?.pngDataUrl ?? null;
     const latestIcon = latestCandidate?.pngDataUrl ?? null;
     const adoptedIcon = request.iconOverride?.pngDataUrl ?? null;
-    const imageSummary = aiProposal?.icon.imageApiSummary;
-    const savedRevisionInstruction = summaryStringValue(imageSummary?.userRevisionInstruction ?? imageSummary?.user_revision_instruction);
-    const finalImageApiPrompt = latestCandidate?.prompt || summaryStringValue(imageSummary?.finalImageApiPrompt ?? imageSummary?.final_image_api_prompt);
+    const savedRevisionInstruction = normalizedIcon?.revisionPromptInfo.userRevisionInstruction ?? "";
+    const finalImageApiPrompt = latestCandidate?.prompt || normalizedIcon?.revisionPromptInfo.finalImageApiPrompt || "";
     const intermediatePrompt = aiProposal?.icon.promptRevision || request.iconPrompt || "";
     return (
       <section className="studio-icon-revision-panel">

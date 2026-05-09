@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  iconSourceLabel,
   normalizeAppStudioIconProposal,
   normalizeIconSource,
   previewIconDataUrl,
@@ -30,6 +31,8 @@ describe("appStudioIconProposal", () => {
         defaultIconUsed: true,
         fallbackCandidateCount: 1,
         fallbackCreatedReason: "legacy field only",
+        userRevisionInstruction: "make it sharper",
+        finalImageApiPrompt: "final image prompt",
       },
       candidates: [
         {
@@ -58,6 +61,10 @@ describe("appStudioIconProposal", () => {
     expect(normalized.canAdoptPrimaryPng).toBe(false);
     expect(normalized.defaultIcon.used).toBe(true);
     expect(normalized.defaultIcon.finalPngDataUrl).toBe(PNG_DEFAULT);
+    expect(normalized.revisionPromptInfo).toEqual({
+      userRevisionInstruction: "make it sharper",
+      finalImageApiPrompt: "final image prompt",
+    });
   });
 
   it("turns old flat candidate fields into a visible legacy API candidate", () => {
@@ -97,6 +104,8 @@ describe("appStudioIconProposal", () => {
 
     expect(normalized.currentSource).toBe("default_icon");
     expect(normalizeIconSource("provisional_fallback_png")).toBe("default_icon");
+    expect(iconSourceLabel("fallback_png")).toBe("ToolHub共通default icon");
+    expect(iconSourceLabel("provisional_fallback_png")).toBe("ToolHub共通default icon");
     expect(normalized.apiCandidates[0].scoreBasis).toBe("rule_based_prompt_and_manifest");
     expect(normalized.apiCandidates[0].imageEvaluationStatus).toBe("deterministic_png_check");
   });

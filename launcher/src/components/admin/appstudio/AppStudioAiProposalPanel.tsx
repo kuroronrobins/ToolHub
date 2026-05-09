@@ -399,7 +399,7 @@ function IconCandidateCard({ candidate, adopted, onAdopt }: { candidate: AppStud
     <article className={`studio-icon-candidate-card${adopted ? " selected" : ""}`}>
       <div className="studio-icon-candidate-head">
         <strong>候補 {candidate.number || candidate.candidateId}</strong>
-        <span className={candidate.fallback ? "admin-status-pill warn" : "admin-status-pill"}>{candidate.fallback ? "旧互換候補" : candidateSourceLabel(candidate.source)}</span>
+        <span className="admin-status-pill">{candidateSourceLabel(candidate.source)}</span>
       </div>
       {candidate.pngDataUrl ? (
         <img className="studio-icon-preview primary-icon-preview" src={candidate.pngDataUrl} alt={`PNGアイコン候補 ${candidate.number}`} />

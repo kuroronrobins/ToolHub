@@ -144,9 +144,9 @@
 - [x] `runtime/web_automation_runtime/` が作成される
 - [x] runtimeをGitに含めない方針がdocsと `.gitignore` にある
 - [x] runtime同梱が未完了の場合、未完了としてdocsに明記されている
-- [ ] `runtime/python/python.exe` の実体が同梱されている
+- [x] `runtime/python/python.exe` の実体が release build machine checkout にあり、`verify_runtime.ps1 -RequireRuntime` で検証されている
 - [ ] `runtime/app_envs/<app_id>/` の実体が生成されている
-- [ ] Web自動化用ランタイム実体が同梱されている
+- [x] Web自動化用ランタイム実体が release build machine checkout にあり、`verify_runtime.ps1 -RequireRuntime` で検証されている
 
 ## Beta Ready Checklist
 
@@ -154,12 +154,12 @@
 
 ### Beta Blocker
 
-- [ ] [blocker] Beta 配布用 `ToolHub_Setup.exe` が current release build で生成され、`release/manifest.json` の installer `sha256` / `size` と一致する。
-- [ ] [blocker] `release/staging/installer_payload/staging_manifest.json` で installer payload を確認できる。
-- [ ] [blocker] `runner/`, `apps/`, `runtime/`, `config.default/`, `release/manifest.json`, `release/app_manifest.json`, `updater/`, `README.md` が配布物に含まれる。
+- [x] [blocker] Beta 配布用 `ToolHub_Setup.exe` が current release build で生成され、`release/manifest.json` の installer `sha256` / `size` と一致する。
+- [x] [blocker] `release/staging/installer_payload/staging_manifest.json` で installer payload を確認できる。
+- [x] [blocker] `runner/`, `apps/`, `runtime/`, `config.default/`, `release/manifest.json`, `release/app_manifest.json`, `updater/`, `README.md` が配布物に含まれる。
 - [ ] [blocker] `runtime/python/python.exe` が installer 同梱環境で使われる。
 - [ ] [blocker] Web automation runtime が installer 同梱環境で使える。
-- [ ] [blocker] release build machine で `.\scripts\verify_runtime.ps1 -RequireRuntime` が pass する。
+- [x] [blocker] release build machine で `.\scripts\verify_runtime.ps1 -RequireRuntime` が pass する。
 - [ ] [blocker] 利用者 PC に Python / Node.js / Rust / Tauri CLI / pip package を要求しないことを clean 環境で確認する。
 - [x] [blocker] remote manifest fetch が実装されている。`check_updates_remote` で remote manifest を取得して現在 version と比較する。
 - [x] [blocker] installer download が実装されている。`download_update_installer` で `%LOCALAPPDATA%\ToolHub\update_cache\` へ保存する。
@@ -181,6 +181,49 @@
 - [ ] [manual check] Beta 配布用の remote manifest endpoint を決定し、`updates.manifest_url` または同等設定から取得できる。
 - [ ] [manual check] 実 endpoint / 実 installer で remote check、download、sha256 match / mismatch、cache 外 path 拒否、verified launch gating を確認する。
 
+### Phase 1-B Installation Test Record
+
+2026-05-09 時点の Phase 1-B 準備結果:
+
+- [x] installer artifact preflight: `release/dist_installer/ToolHub_Setup_0.1.0.exe` は存在し、`release/manifest.json` の `sha256` / `size` と一致する。
+- [x] staging manifest preflight: `release/staging/installer_payload/staging_manifest.json` は存在する。
+- [ ] current PC install / uninstall: 未実施。現在の Windows profile には既存の `%LOCALAPPDATA%\ToolHub\` user data が存在するため、clean install 検証としては使わない。
+- [ ] clean Windows user profile または VM での install / launch / uninstall / reinstall 検証: 未実施。
+
+現在 PC の read-only 事前確認:
+
+| 項目 | 結果 | 備考 |
+| --- | --- | --- |
+| installer path | `release/dist_installer/ToolHub_Setup_0.1.0.exe` | `sha256=57b222c4c8f15ccf755ae55a1cb3abd8d0328a601b97afce857e390319993319`, `size=290362631` |
+| expected install dir | `%LOCALAPPDATA%\Programs\ToolHub\` | 現在 profile では存在しないことを read-only で確認。 |
+| expected user data dir | `%LOCALAPPDATA%\ToolHub\` | 現在 profile では存在することを read-only で確認。中身の変更、削除、installer 実行はしていない。 |
+| install result | 未実施 | clean profile / VM で実施する。 |
+| first launch | 未実施 | install 後に確認する。 |
+| app card | 未実施 | install 後に確認する。 |
+| `sample_gui_app` | 未実施 | install 後に確認する。 |
+| `sample_playwright_app` | 未実施 | install 後に確認する。 |
+| uninstall | 未実施 | install 後に確認する。 |
+| user data preservation | 未実施 | uninstall / reinstall 後に確認する。 |
+
+clean profile / VM で記録する結果:
+
+| チェック | 期待結果 | 結果 |
+| --- | --- | --- |
+| `ToolHub_Setup_0.1.0.exe` 実行 | per-user install が完了する | 未実施 |
+| install dir | `%LOCALAPPDATA%\Programs\ToolHub\` に `ToolHub.exe` と payload が配置される | 未実施 |
+| first launch | ToolHub が起動する | 未実施 |
+| user data dir | `%LOCALAPPDATA%\ToolHub\` が作成される | 未実施 |
+| existing config preservation | 既存 `config/launcher.yaml` を上書きしない | 未実施 |
+| app card | インストール済み環境で app card が表示される | 未実施 |
+| `sample_gui_app` | インストール済み環境で起動できる | 未実施 |
+| `sample_playwright_app` | インストール済み環境で起動できる | 未実施 |
+| bundled Python | PATH Python ではなく同梱 `runtime/python/python.exe` を使う | 未実施 |
+| Web automation runtime | 同梱 `runtime/web_automation_runtime/` が使える | 未実施 |
+| no user dev dependencies | Python / Node.js / Rust / Tauri CLI / pip package なしで動く | 未実施 |
+| uninstall | ToolHub 本体をアンインストールできる | 未実施 |
+| user data after uninstall | `%LOCALAPPDATA%\ToolHub\` が残る | 未実施 |
+| reinstall | 再インストールできる | 未実施 |
+| user data after reinstall | 既存 user data が残る | 未実施 |
 ### Warning / Follow-up
 
 - [x] [warning] `scripts/report_release_readiness.ps1` の `beta_ready` section で blocker / warning / manual check / future_formal_only を確認できる。

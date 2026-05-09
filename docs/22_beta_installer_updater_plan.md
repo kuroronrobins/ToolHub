@@ -413,7 +413,7 @@ Phase 0 実施状況:
 - `docs/06_acceptance_checklist.md` に Beta Ready checklist を追加済み。
 - `scripts/report_release_readiness.ps1` に read-only の `beta_ready` JSON section を追加済み。分類は `blockers`, `warnings`, `manual_checks`, `future_formal_only`。
 - Phase 0 の report は artifact を生成せず、runtime 展開、installer build、App Pack 生成、user data 変更を行わない。
-- 現時点では Phase 1 の artifact / runtime / 実機検証 blocker と、Phase 2 の remote endpoint 判断が残っているため、Beta Ready ではない。
+- Phase 1-A で installer artifact、staging manifest、runtime 検証は完了済み。Phase 1-B の実インストール / アンインストール検証と、Phase 2 の remote endpoint 判断は残っている。
 
 ### Phase 1: インストーラー Beta Ready
 
@@ -466,7 +466,15 @@ Phase 0 実施状況:
 
 後続作業:
 
-- Phase 2 の remote manifest 更新検知に進む。
+- Phase 1-B の clean profile / VM 実機検証を完了し、並行して Phase 2 の remote manifest endpoint 判断へ進む。
+
+Phase 1-A / 1-B 実施状況:
+
+- Phase 1-A: `release/dist_installer/ToolHub_Setup_0.1.0.exe` を生成済み。`release/manifest.json` の installer `sha256` / `size` と一致し、`verify_release.ps1 -RequireInstaller -RequireRuntime` は pass。
+- Phase 1-A: `release/staging/installer_payload/staging_manifest.json` を生成済み。payload に `runner/`, `apps/`, `runtime/`, `config.default/`, `release/manifest.json`, `release/app_manifest.json`, `updater/`, `README.md` が含まれる。
+- Phase 1-B: 現在 PC で read-only 事前確認を実施。`%LOCALAPPDATA%\Programs\ToolHub\` は存在せず、`%LOCALAPPDATA%\ToolHub\` は既存 user data として存在する。
+- Phase 1-B: 現在 PC は clean profile ではなく、既存 user data を壊すリスクを避けるため installer 実行、起動、uninstall、reinstall は未実施。
+- Phase 1-B: 実 install / launch / sample app / uninstall / user data preservation は clean Windows user profile または VM の manual check として残す。
 
 ### Phase 2: remote manifest による更新検知
 
@@ -784,7 +792,7 @@ python main.py --check
 
 実装開始時は、まず [24_beta_installer_updater_execution_handoff.md](24_beta_installer_updater_execution_handoff.md) を読む。ユーザー不在でも停止条件に当たらない限り、同 handoff の順番で実装、検証、報告まで進める。
 
-1. Phase 1 実装: runtime archive を前提に `build_release.ps1 -RequireRuntime` から実インストール検証手順まで通せるよう、installer / runtime の Beta Ready 検証を整備してください。
+1. Phase 1-B 検証: clean Windows user profile または VM で `ToolHub_Setup_0.1.0.exe` の install / first launch / sample app / uninstall / reinstall / user data preservation を記録してください。
 2. Phase 2 検証: 実 endpoint または mock manifest で `check_updates_remote` の `no_update` / `update_available` / fetch failure を確認してください。
 3. Phase 3 検証: 実 installer または mock file で `download_update_installer` の download / size mismatch / sha256 mismatch / verified launch gating を確認してください。
 4. Phase 4 実装: 再起動後 version 確認と failure diagnosis 表示を追加してください。check / download / launch result log と release readiness report 連携は実装済みです。
