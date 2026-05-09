@@ -7,8 +7,8 @@
                     "installer":  {
                                       "file":  "ToolHub_Setup_0.1.0.exe",
                                       "type":  "nsis",
-                                      "sha256":  "57b222c4c8f15ccf755ae55a1cb3abd8d0328a601b97afce857e390319993319",
-                                      "size":  290362631
+                                      "sha256":  "44855bbd6f4cb82ad1bf9d50116835c0407b1d201df54c3d7c141e288bf9aebf",
+                                      "size":  290289588
                                   }
                 },
     "core":  {

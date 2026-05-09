@@ -206,7 +206,7 @@
 - [x] PATH 隔離テスト実行結果: `scripts/beta_isolated_path/results/latest_isolated_path_result.json` で `overall_status=pass`。Python / pip / Node.js / npm / Rust / cargo / Tauri CLI は isolated PATH から見えず、ToolHub は15秒以上起動し、隔離された `LOCALAPPDATA` 配下に `%LOCALAPPDATA%\ToolHub\` 相当の user data dir を作成した。
 - [ ] PATH 隔離テストの log / json 作成結果: warning。隔離 user data dir と `data/logs/` dir は作成されたが、初回起動だけでは `.log` / `.json` file は作成されなかった。
 - [x] VM 検証パッケージ作成フロー: `scripts/beta_vm/prepare_vm_test_package.ps1` で `scripts/beta_vm/package/ToolHub_Beta_VM_Test/` に clean VM コピー用 package を作成できる。package / results は `.gitkeep` 以外 Git 管理しない。
-- [x] VM 検証パッケージ生成結果: `ToolHub_Beta_VM_Test` package を生成済み。package 内 installer は `sha256=57b222c4c8f15ccf755ae55a1cb3abd8d0328a601b97afce857e390319993319`, `size=290362631` で `release/manifest.json` と一致する。
+- [x] VM 検証パッケージ生成結果: `ToolHub_Beta_VM_Test` package を生成済み。package 内 installer は `sha256=44855bbd6f4cb82ad1bf9d50116835c0407b1d201df54c3d7c141e288bf9aebf`, `size=290289588` で `release/manifest.json` と一致する。
 - [x] VM 結果取り込み補助: `scripts/beta_vm/import_vm_test_result.ps1` で VM から戻した `latest_vm_install_result.json` の主要 check を表示できる。
 - [ ] VM 本検証結果: 初回 VM 実行では ToolHub window は起動したが、アプリ一覧は 0 件で、期待 install dir `%LOCALAPPDATA%\Programs\ToolHub\` が存在しなかった。原因は未確定のため Phase 1-B は未完了。
 - [x] VM 診断強化: `vm_install_test.ps1` は期待 install dir 固定ではなく、Start Menu shortcut、uninstall registry、running process、known install dirs から実 install location / 起動 exe / payload layout / launcher logs / `likely_failure_category` を記録する。
