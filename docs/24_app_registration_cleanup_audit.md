@@ -1310,17 +1310,131 @@ Remaining follow-up:
 - Version comparison and registered app lookup can move only with a dedicated update-preflight module pass.
 - Broader validation helper consolidation should avoid changing current Japanese operator-facing messages.
 
-Recommended next Codex task:
+## 2026-05-10 P1 audit: management/delete safety domain
+
+Scope of this audit:
+
+- Rechecked App Studio management list, enabled toggle, delete plan, and full-delete apply after the Rust reader/argv/process/override/DTO/preflight splits.
+- Did not change delete behavior, PowerShell scripts, React UI behavior, Tauri command names, request/response JSON shape, app.yaml schema, App Pack spec, release manifest compatibility, apps, release artifacts, runtime, data, logs, or generated files.
+- Treated delete as a separate safety domain because it can remove repository-managed app source, generated artifacts, runtime app_envs, and backup/history folders.
+
+Current delete safety source of truth:
+
+- Governance docs: `docs/17_app_management_model.md`, `docs/18_app_delete_execution_plan.md`, `docs/19_full_delete_executor_design.md`, `docs/09_app_pack_spec.md`, and `docs/13_app_studio.md`.
+- Production implementation: `launcher/src-tauri/src/app_studio_commands.rs` still owns `app_studio_management_list_apps`, `app_studio_management_set_enabled`, `app_studio_delete_plan`, `app_studio_full_delete_apply`, and their private safety helpers.
+- Public DTO boundary: `launcher/src-tauri/src/app_studio_types.rs` owns `AppStudioManagedApp`, `AppStudioDeletePlan`, `AppStudioDeletePlanTarget`, `AppStudioManagementActionResult`, and full-delete result DTOs.
+- UI surface: `AppStudioDeleteManager.tsx` displays backend categories and warnings, invokes hide/show/plan/apply commands, and sends the displayed plan snapshot back to the apply command. It is not the authoritative safety decision.
+- PowerShell surface: `plan_app_delete.ps1` is a dry-run planner and `execute_app_delete.ps1` is a dry-run executor plus temporary-fixture apply only. Production PowerShell `-Apply` remains intentionally rejected.
+- Release readiness: `report_release_readiness.ps1` classifies disabled stale entries as delete candidates and lists prechecks, but does not delete.
+
+Rust / PowerShell / UI responsibility split:
+
+| Layer | Current responsibility | Safety note |
+| --- | --- | --- |
+| Rust command | Admin-session enforcement, management list, enabled toggle, delete plan generation, full-delete apply, stale snapshot comparison, manifest-entry mutation, path safety, post-check, refreshed app list. | Production source of truth for destructive apply. |
+| PowerShell scripts | Planner parity, dry-run executor ordering, temporary-fixture apply E2E, rehearsal, check_all integration. | Production `-Apply` is refused to avoid a second destructive path. |
+| React UI | Operator-facing labels, plan display, supported-status button gate, result display, passing plan snapshot to Rust. | UI can reduce accidental clicks but must not be the only safety gate. |
+| Docs | Safety model and operational constraints. | Must stay aligned with Rust categories and PowerShell parity scripts. |
+
+Management list responsibilities:
+
+- Merges `release/app_manifest.json` entries and `apps/*/app.yaml` source directories into one managed list.
+- Reports `active`, `disabled_with_source`, `disabled_stale`, `enabled_missing_source`, `source_missing_from_manifest`, and `invalid_manifest`.
+- Uses the current delete plan only to summarize target/excluded counts and blocked/ready status.
+- Should remain separate from release-readiness cleanup: stale disabled entries are candidates, not automatic deletion.
+
+Enabled toggle responsibilities:
+
+- Hide sets the existing manifest entry to `enabled=false`.
+- Show sets `enabled=true` only when `apps/<app_id>/app.yaml` exists.
+- It mutates only the app's `enabled` field in `release/app_manifest.json`; it does not rebuild the manifest, create source, regenerate App Packs, or delete artifacts.
+
+Delete plan and full-delete responsibilities:
+
+- `build_delete_plan()` classifies repository-managed targets, excluded targets, warnings, and blocking reasons.
+- `full_delete_apply()` regenerates a fresh plan, validates it, compares a UI-provided snapshot when present, deletes ordered repo-managed targets, removes only the app's manifest entry, and returns post-check details.
+- Safety validation rejects forbidden categories in delete targets, path traversal, paths outside the repo root, shared runtime targets, excluded/delete overlap, and manifest-file deletion masquerading as a file target.
+- Missing generated targets are treated as already clean; unsafe targets are not.
+
+Categories that may be deleted by production full delete:
+
+- `managed_required`: `apps/<app_id>/` and the target entry inside `release/app_manifest.json`.
+- `managed_generated`: the manifest package path, `release/app_packs/<app_id>-*.zip`, strict `release/staging/` artifacts, and `runtime/app_envs/<app_id>/`.
+- `managed_history`: `backups/app_studio/**/<app_id>/` and legacy `backups/app_lifecycle/**/<app_id>/`.
+
+Categories that must remain excluded:
+
+- `external_reference`: external absolute paths discovered in `app.yaml`, including source entry and output mirror references.
+- `user_data`: `%LOCALAPPDATA%/ToolHub/data/`, logs, browser profiles, app state, and app-specific state under the user-data root.
+- `shared_runtime`: `runtime/python/` and `runtime/web_automation_runtime/`.
+- `managed_generated_candidate`: staging paths that only partially contain the app id.
+
+Never auto-delete:
+
+- `release/app_manifest.json` as a file; only the target app entry may be removed.
+- User data, logs, browser profiles, app state, credentials, or external source/output mirror folders.
+- Shared runtimes under `runtime/python/` and `runtime/web_automation_runtime/`.
+- Repo-external paths, path traversal targets, empty/ambiguous paths, and any excluded target.
+- Staging candidates found by app-id substring only.
+
+App Pack and staging matching safety notes:
+
+- App Pack targets come from the manifest `package` path plus `release/app_packs/<app_id>-*.zip`.
+- Staging targets are strict: a path segment must equal `<app_id>`, equal `<app_id>-<version>`, or start with `<app_id>-<version>.` / `<app_id>-<version>-`.
+- Plain substring matching is not enough for deletion. Partial matches are reported as `managed_generated_candidate` excluded targets and require human review or a stricter ownership rule before deletion.
+
+Existing verification scripts and checks:
+
+- `scripts/test_app_delete_plan.ps1`: PowerShell dry-run planner classification and exclusion checks.
+- `scripts/test_app_delete_plan_parity.ps1`: PowerShell planner vs Rust helper parity on a temporary fixture.
+- `scripts/rehearse_app_delete.ps1`: temporary repo-local rehearsal that restores manifest and removes temporary artifacts after dry-run validation.
+- `scripts/test_app_delete_executor_design.ps1`: dry-run executor ordering and temporary-gate refusal checks.
+- `scripts/test_app_full_delete_e2e.ps1`: temporary-fixture apply that proves managed targets are deleted and exclusions remain.
+- `scripts/check_all.ps1`: syntax checks, dry-run planner tests, parity, rehearsal, executor design, temporary full-delete E2E, and Rust `cargo test full_delete` when cargo is available.
+
+Next safe split candidates:
+
+1. **Read-only delete planner module (`app_studio_delete_plan.rs`)**
+   - Move `build_delete_plan()`, target constructors/sorters, App Pack/staging/backup/external-reference/user-data collectors, and path normalization helpers.
+   - Keep `full_delete_apply()` and manifest mutation in `app_studio_commands.rs` for this step.
+   - Risk: medium. Planner output is public UI/API data and must preserve category names, actions, notes, ordering, `normalizedPath`, and `comparisonKey`.
+   - Validation: Rust full-delete/delete-plan tests, PowerShell parity, and `git diff --check`.
+
+2. **Management list/toggle module (`app_studio_management.rs`)**
+   - Move managed-app listing, status/warning/recommended-action mapping, registered app YAML reader, release manifest read/write helpers, and `management_set_enabled()`.
+   - Risk: medium. It writes `release/app_manifest.json`, but the write is limited to an existing app entry's `enabled` field.
+   - Keep command wrappers and admin-session checks in `app_studio_commands.rs`.
+
+3. **Full-delete apply module (`app_studio_full_delete.rs`)**
+   - Move only after planner and management modules are stable. Include validation, snapshot comparison, ordered delete execution, manifest-entry removal, and post-checks as one safety unit.
+   - Risk: medium-high. This is the destructive production path and must preserve the current fresh-plan/snapshot/path-safety gates.
+
+4. **Delete UI normalizer**
+   - Optional TypeScript follow-up after backend categories stabilize. Centralize category/action/note/message labels now local to `AppStudioDeleteManager.tsx`.
+   - Risk: low-medium UI drift risk; no backend behavior change.
+
+Implementation decisions required before changing behavior:
+
+- Any expansion of delete target categories.
+- Any change to user data, external references, shared runtime, or staging candidate handling.
+- Any change to App Pack or staging matching rules.
+- Any production PowerShell `-Apply` support.
+- Any move of `enabled` state out of `release/app_manifest.json`.
+- Any automatic stale manifest cleanup outside the full-delete flow.
+- Any app.yaml schema, App Pack spec, release manifest compatibility, or Tauri/TypeScript API shape change.
+
+Recommended next Codex task after this audit:
 
 ```text
 AGENTS.md のルールに従って、1 回の作業で実装・セルフレビュー・検証まで実施してください。
 
 目的:
-ToolHub App Studio の P1 改善として、launcher/src-tauri/src/app_studio_commands.rs から public DTO structs を app_studio_types.rs へ低リスクに分離してください。
+ToolHub App Studio の P1 改善として、launcher/src-tauri/src/app_studio_commands.rs に残る delete plan の読み取り専用 planner を app_studio_delete_plan.rs に低リスクに分離してください。
 
 条件:
-- Tauri command 名、引数、戻り値 JSON shape、serde rename、React/TypeScript API shape を変更しない。
-- Python discovery / env injection / process spawn / management / delete の挙動は変更しない。
-- app_studio_commands.rs 側は必要な型を new module から import/re-export するだけにする。
-- 可能なら既存 Rust tests が compile する範囲で import を調整し、docs/24 に境界と残 follow-up を追記する。
+- Tauri command 名、引数、戻り値 JSON shape、React/TypeScript API shape を変更しない。
+- 削除対象カテゴリ、excluded category、App Pack/staging matching rule、normalizedPath/comparisonKey、operator-facing action/note 文言を変更しない。
+- full_delete_apply の destructive behavior、manifest entry removal、enabled toggle、PowerShell scripts は変更しない。
+- 既存 Rust delete/full_delete tests、PowerShell parity/rehearsal の前提を壊さない。
+- apps / release / runtime / data / logs / 生成物は触らない。
 ```
