@@ -114,11 +114,26 @@ def validate_approval_inputs(repo_root: Path, manifest: dict[str, Any], app_id: 
         raise ValueError(f"App is not listed in release/app_manifest.json: {app_id}")
     app_yaml = repo_root / "apps" / app_id / "app.yaml"
     if not app_yaml.is_file():
-        raise FileNotFoundError(f"app.yaml was not found: {app_yaml}")
+        raise FileNotFoundError(
+            approval_gate_message(
+                "app.yaml was not found.",
+                app_id,
+                None,
+                [f"app_yaml={app_yaml}"],
+                next_action=f"restore apps/{app_id}/app.yaml or rerun App Studio Apply before Approve",
+            )
+        )
 
     result_path = repo_root / "data" / "logs" / "app_studio" / f"{app_id}_execution_test_result.json"
     if not result_path.is_file():
-        raise FileNotFoundError(f"Execution test result JSON was not found: {result_path}")
+        raise FileNotFoundError(
+            approval_gate_message(
+                "Execution test result JSON was not found.",
+                app_id,
+                result_path,
+                [f"expected=data/logs/app_studio/{app_id}_execution_test_result.json"],
+            )
+        )
     result = json.loads(result_path.read_text(encoding="utf-8"))
 
     validate_result_identity_and_output_dir(repo_root, app_id, app_yaml, result, result_path, "Execution test result")
@@ -133,28 +148,67 @@ def validate_approval_inputs(repo_root: Path, manifest: dict[str, Any], app_id: 
     stale_signals = stale_execution_result_signals(repo_root, app_id, app_yaml, result_path)
     if stale_signals:
         raise ValueError(
-            "Execution test result is stale. "
-            f"result_path={result_path}; stale_against={'; '.join(stale_signals)}"
+            approval_gate_message(
+                "Execution test result is stale.",
+                app_id,
+                result_path,
+                [f"stale_against={'; '.join(stale_signals)}"],
+            )
         )
     if result.get("approval_allowed") is not True:
         raise ValueError(
-            "Execution test result does not allow approval. "
-            f"result_path={result_path}; generated_at={result.get('generated_at')}; overall_status={result.get('overall_status')}; "
-            f"fail_checks={format_check_summaries(fail_checks)}; warn_checks={format_check_summaries(warn_checks)}"
+            approval_gate_message(
+                "Execution test result does not allow approval.",
+                app_id,
+                result_path,
+                [
+                    f"generated_at={result.get('generated_at')}",
+                    f"overall_status={result.get('overall_status')}",
+                    f"fail_checks={format_check_summaries(fail_checks)}",
+                    f"warn_checks={format_check_summaries(warn_checks)}",
+                ],
+                next_action="open execution_test_result.json, fix the fail checks, rerun App Studio Apply, then retry Approve",
+            )
         )
     if fail_checks:
-        raise ValueError(f"Execution test result contains fail checks. result_path={result_path}; fail_checks={format_check_summaries(fail_checks)}")
+        raise ValueError(
+            approval_gate_message(
+                "Execution test result contains fail checks.",
+                app_id,
+                result_path,
+                [f"fail_checks={format_check_summaries(fail_checks)}"],
+                next_action="fix the listed fail checks, rerun App Studio Apply, then retry Approve",
+            )
+        )
     if result.get("overall_status") == "fail":
-        raise ValueError(f"Execution test result overall_status=fail. result_path={result_path}; fail_checks={format_check_summaries(fail_checks)}")
+        raise ValueError(
+            approval_gate_message(
+                "Execution test result overall_status=fail.",
+                app_id,
+                result_path,
+                [f"fail_checks={format_check_summaries(fail_checks)}"],
+                next_action="rerun App Studio Apply after fixing the failed execution checks, then retry Approve",
+            )
+        )
     if strict and approval_blocking_warn_checks:
         raise ValueError(
-            "StrictApproval rejects approval-blocking warning checks. "
-            f"result_path={result_path}; warn_checks={format_check_summaries(approval_blocking_warn_checks)}"
+            approval_gate_message(
+                "StrictApproval rejects approval-blocking warning checks.",
+                app_id,
+                result_path,
+                [f"warn_checks={format_check_summaries(approval_blocking_warn_checks)}"],
+                next_action="resolve the approval-blocking warnings or rerun Approve only after the risk is resolved",
+            )
         )
     if not allow_warnings and approval_blocking_warn_checks:
         raise ValueError(
-            "Approval-blocking warnings are not allowed for this approval. "
-            f"result_path={result_path}; warn_checks={format_check_summaries(approval_blocking_warn_checks)}"
+            approval_gate_message(
+                "Approval-blocking warnings are not allowed for this approval.",
+                app_id,
+                result_path,
+                [f"warn_checks={format_check_summaries(approval_blocking_warn_checks)}"],
+                next_action="resolve the approval-blocking warnings, rerun App Studio Apply, then retry Approve",
+            )
         )
     validate_runtime_check_for_approval(repo_root, app_id, app_yaml)
     return entry, result
@@ -169,21 +223,37 @@ def validate_runtime_check_for_approval(repo_root: Path, app_id: str, app_yaml: 
     stale_signals = stale_runtime_result_signals(result, result_path)
     if stale_signals:
         raise ValueError(
-            "Runtime check result is stale. "
-            f"result_path={result_path}; stale_against={'; '.join(stale_signals)}"
+            approval_gate_message(
+                "Runtime check result is stale.",
+                app_id,
+                result_path,
+                [f"stale_against={'; '.join(stale_signals)}"],
+            )
         )
     checks = result.get("checks") if isinstance(result.get("checks"), list) else []
     fail_checks = [item for item in checks if isinstance(item, dict) and item.get("status") == "fail"]
     if result.get("overall_status") == "fail" or fail_checks:
         raise ValueError(
-            "Runtime check result blocks approval. "
-            f"result_path={result_path}; overall_status={result.get('overall_status')}; "
-            f"fail_checks={format_check_summaries(fail_checks)}"
+            approval_gate_message(
+                "Runtime check result blocks approval.",
+                app_id,
+                result_path,
+                [
+                    f"overall_status={result.get('overall_status')}",
+                    f"fail_checks={format_check_summaries(fail_checks)}",
+                ],
+                next_action="open runtime_check_result.json, fix the distribution failure, rerun App Studio Apply, then retry Approve",
+            )
         )
     if int(result.get("approval_blocking_warnings_count") or 0) > 0:
         raise ValueError(
-            "Runtime check result contains approval-blocking warnings. "
-            f"result_path={result_path}; approval_blocking_reasons={result.get('approval_blocking_reasons') or []}"
+            approval_gate_message(
+                "Runtime check result contains approval-blocking warnings.",
+                app_id,
+                result_path,
+                [f"approval_blocking_reasons={result.get('approval_blocking_reasons') or []}"],
+                next_action="resolve the runtime approval-blocking warnings, rerun App Studio Apply, then retry Approve",
+            )
         )
 
 
@@ -198,23 +268,55 @@ def validate_result_identity_and_output_dir(
     actual_app_id = result.get("app_id")
     if isinstance(actual_app_id, str) and actual_app_id and actual_app_id != app_id:
         raise ValueError(
-            f"{label} app_id mismatch. "
-            f"result_path={result_path}; expected_app_id={app_id}; result_app_id={actual_app_id}"
+            approval_gate_message(
+                f"{label} app_id mismatch.",
+                app_id,
+                result_path,
+                [f"expected_app_id={app_id}", f"result_app_id={actual_app_id}"],
+            )
         )
     if actual_app_id is not None and not isinstance(actual_app_id, str):
         raise ValueError(
-            f"{label} app_id is invalid. "
-            f"result_path={result_path}; expected_app_id={app_id}; result_app_id={actual_app_id!r}"
+            approval_gate_message(
+                f"{label} app_id is invalid.",
+                app_id,
+                result_path,
+                [f"expected_app_id={app_id}", f"result_app_id={actual_app_id!r}"],
+            )
         )
 
     expected_output = find_output_mirror(repo_root, app_id)
     actual_output = result_output_dir(result)
     if expected_output and actual_output and not same_path(repo_root, expected_output, actual_output):
         raise ValueError(
-            f"{label} output_dir mismatch. "
-            f"result_path={result_path}; app_yaml={app_yaml}; "
-            f"app_yaml_output_mirror={expected_output}; result_output_dir={actual_output}"
+            approval_gate_message(
+                f"{label} output_dir mismatch.",
+                app_id,
+                result_path,
+                [
+                    f"app_yaml={app_yaml}",
+                    f"app_yaml_output_mirror={expected_output}",
+                    f"result_output_dir={actual_output}",
+                ],
+            )
         )
+
+
+def approval_gate_message(
+    reason: str,
+    app_id: str,
+    result_path: Path | None,
+    details: list[str],
+    next_action: str | None = None,
+) -> str:
+    parts = [reason]
+    if result_path is not None:
+        parts.append(f"result_path={result_path}")
+    parts.extend(item for item in details if item)
+    action = next_action or "rerun App Studio Apply for this app, refresh the result, then retry Approve"
+    parts.append(f"next_action={action}")
+    parts.append(f"diagnostic=scripts/diagnose_app_studio_import.ps1 -AppId {app_id}")
+    return "; ".join(parts)
 
 
 def result_output_dir(result: dict[str, Any]) -> str:
@@ -265,18 +367,18 @@ def stale_runtime_result_signals(result: dict[str, Any], result_path: Path) -> l
     result_mtime = result_path.stat().st_mtime
     signals: list[str] = []
     final_app = output_dir / "final_app"
-    compare_target(result_mtime, final_app / "app.yaml", "final_app/app.yaml", signals)
+    compare_target(result_mtime, final_app / "app.yaml", "final_app/app.yaml", signals, "runtime_check_result.json")
     entry = app_yaml_run_entry(final_app / "app.yaml")
     if entry:
-        compare_target(result_mtime, final_app / entry, "final_app run.entry", signals)
+        compare_target(result_mtime, final_app / entry, "final_app run.entry", signals, "runtime_check_result.json")
     return signals
 
 
-def compare_target(result_mtime: float, path: Path, label: str, signals: list[str]) -> None:
+def compare_target(result_mtime: float, path: Path, label: str, signals: list[str], result_label: str = "execution_test_result.json") -> None:
     if not path.is_file():
         return
     if path.stat().st_mtime > result_mtime:
-        signals.append(f"{label} is newer than execution_test_result.json ({path})")
+        signals.append(f"{label} is newer than {result_label} ({path})")
 
 
 def app_yaml_run_entry(path: Path) -> str | None:

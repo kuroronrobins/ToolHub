@@ -1,4 +1,5 @@
 import type { AppStudioAiProposal, AppStudioImportRequest, AppStudioPreflightResult, AppStudioRunResult } from "../../../lib/appStudioTypes";
+import { getAppStudioApprovalFailureGuidance } from "../../../lib/appStudioApproval";
 import { normalizeAppStudioIconProposal } from "../../../lib/appStudioIconProposal";
 import { AppStudioOperationBanner, type StudioOperationState } from "./AppStudioOperationBanner";
 import { type AppStudioImportStep, importStepLabel } from "./AppStudioStepNav";
@@ -101,6 +102,10 @@ function nextAction(
   }
   if (result.enabled) {
     return "承認済みです。通常ランチャーで表示と起動を確認してください。";
+  }
+  const approvalFailureGuidance = getAppStudioApprovalFailureGuidance(result);
+  if (approvalFailureGuidance) {
+    return approvalFailureGuidance.nextAction;
   }
   if (result.executionStatus === "fail" || result.approvalAllowed === false) {
     return "配布物検証の失敗を解消してから承認してください。";

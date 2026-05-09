@@ -1230,8 +1230,13 @@ admin:
             os.utime(app_yaml, (newer, newer))
             manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
 
-            with self.assertRaisesRegex(ValueError, "stale.*result_path"):
+            with self.assertRaises(ValueError) as cm:
                 validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+            message = str(cm.exception)
+            self.assertIn("stale_against=", message)
+            self.assertIn("next_action=", message)
+            self.assertIn("diagnostic=scripts/diagnose_app_studio_import.ps1", message)
 
     def test_approval_rejects_execution_result_for_wrong_app_id(self) -> None:
         with workspace_tempdir() as root:
@@ -1241,8 +1246,14 @@ admin:
             write_execution_result(repo, app_id, "pass", True, result_app_id="other_app")
             manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
 
-            with self.assertRaisesRegex(ValueError, "Execution test result app_id mismatch"):
+            with self.assertRaises(ValueError) as cm:
                 validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+            message = str(cm.exception)
+            self.assertIn("Execution test result app_id mismatch", message)
+            self.assertIn("expected_app_id=demo_app", message)
+            self.assertIn("result_app_id=other_app", message)
+            self.assertIn("next_action=", message)
 
     def test_approval_rejects_execution_result_for_wrong_output_dir(self) -> None:
         with workspace_tempdir() as root:
@@ -1255,8 +1266,14 @@ admin:
             write_execution_result(repo, app_id, "pass", True, evidence={"output_dir": str(wrong_output_dir)})
             manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
 
-            with self.assertRaisesRegex(ValueError, "Execution test result output_dir mismatch"):
+            with self.assertRaises(ValueError) as cm:
                 validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+            message = str(cm.exception)
+            self.assertIn("Execution test result output_dir mismatch", message)
+            self.assertIn("app_yaml_output_mirror=", message)
+            self.assertIn("result_output_dir=", message)
+            self.assertIn("next_action=", message)
 
     def test_approval_rejects_missing_execution_result(self) -> None:
         with workspace_tempdir() as root:
@@ -1319,8 +1336,14 @@ admin:
             write_runtime_result(repo, app_id, "fail")
             manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
 
-            with self.assertRaisesRegex(ValueError, "Runtime check result blocks approval"):
+            with self.assertRaises(ValueError) as cm:
                 validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+            message = str(cm.exception)
+            self.assertIn("Runtime check result blocks approval", message)
+            self.assertIn("result_path=", message)
+            self.assertIn("fail_checks=", message)
+            self.assertIn("next_action=", message)
 
     def test_approval_rejects_stale_runtime_result_with_context(self) -> None:
         with workspace_tempdir() as root:
@@ -1347,8 +1370,14 @@ run:
             os.utime(final_app / "app.yaml", (newer, newer))
             manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
 
-            with self.assertRaisesRegex(ValueError, "Runtime check result is stale"):
+            with self.assertRaises(ValueError) as cm:
                 validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+            message = str(cm.exception)
+            self.assertIn("Runtime check result is stale", message)
+            self.assertIn("stale_against=", message)
+            self.assertIn("runtime_check_result.json", message)
+            self.assertIn("next_action=", message)
 
     def test_approval_rejects_runtime_approval_blocking_warnings(self) -> None:
         with workspace_tempdir() as root:
@@ -1359,8 +1388,14 @@ run:
             write_runtime_result(repo, app_id, "warn", approval_blocking=True)
             manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
 
-            with self.assertRaisesRegex(ValueError, "Runtime check result contains approval-blocking warnings"):
+            with self.assertRaises(ValueError) as cm:
                 validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+            message = str(cm.exception)
+            self.assertIn("Runtime check result contains approval-blocking warnings", message)
+            self.assertIn("approval_blocking_reasons=", message)
+            self.assertIn("runtime risk", message)
+            self.assertIn("next_action=", message)
 
     def test_approval_uses_file_mtime_not_generated_at_for_freshness(self) -> None:
         with workspace_tempdir() as root:
@@ -1373,6 +1408,20 @@ run:
             _, result = validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
 
             self.assertEqual(result["generated_at"], "not-a-timestamp")
+
+    def test_approval_does_not_require_runtime_result_for_legacy_compatibility(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            write_execution_result(repo, app_id, "pass", True)
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+
+            entry, result = validate_approval_inputs(repo, manifest, app_id, strict=False, allow_warnings=True)
+
+            self.assertEqual(entry["version"], "0.1.0")
+            self.assertTrue(result["approval_allowed"])
+            self.assertFalse((repo / "data" / "logs" / "app_studio" / f"{app_id}_runtime_check_result.json").exists())
 
     def test_approval_failure_reports_result_path_and_fail_checks(self) -> None:
         with workspace_tempdir() as root:

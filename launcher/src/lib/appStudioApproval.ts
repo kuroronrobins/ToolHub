@@ -19,6 +19,11 @@ export interface AppStudioApprovalDecision {
   modeDecision: string;
 }
 
+export interface AppStudioApprovalFailureGuidance {
+  reason: string;
+  nextAction: string;
+}
+
 export function getAppStudioApprovalDecision(
   result: AppStudioRunResult | null,
   approvalMode: AppStudioApprovalMode,
@@ -74,6 +79,10 @@ export function getAppStudioApprovalDecision(
 }
 
 function approvalDisallowedReason(result: AppStudioRunResult): string {
+  const guidance = getAppStudioApprovalFailureGuidance(result);
+  if (guidance) {
+    return guidance.reason;
+  }
   if ((result.unresolvedDistributionRisksCount ?? 0) > 0) {
     return `未解決の配布リスクが ${result.unresolvedDistributionRisksCount} 件あります。`;
   }
@@ -81,6 +90,54 @@ function approvalDisallowedReason(result: AppStudioRunResult): string {
     return "secret混入リスクがあります。secret_scan_report.md を確認してください。";
   }
   return "execution_test_result.json が承認不可を示しています。再度テスト登録するか、fail check を確認してください。";
+}
+
+export function getAppStudioApprovalFailureGuidance(result: AppStudioRunResult | null): AppStudioApprovalFailureGuidance | null {
+  const summary = result?.approvalFailureSummary?.trim();
+  if (!summary) {
+    return null;
+  }
+  const lower = summary.toLowerCase();
+  const retryApply = "App Studio のテスト登録を再実行し、結果を再読み込みしてから承認してください。";
+  if (lower.includes("app_id mismatch")) {
+    return {
+      reason: `承認ゲートが別アプリの検証結果を検出しました。${compactSummary(summary)}`,
+      nextAction: retryApply,
+    };
+  }
+  if (lower.includes("output_dir mismatch")) {
+    return {
+      reason: `承認ゲートが別の出力フォルダの検証結果を検出しました。${compactSummary(summary)}`,
+      nextAction: "現在の出力先で App Studio のテスト登録を再実行し、結果を再読み込みしてから承認してください。",
+    };
+  }
+  if (lower.includes(" is stale") || lower.includes("stale_against=")) {
+    return {
+      reason: `承認ゲートが古い検証結果を検出しました。${compactSummary(summary)}`,
+      nextAction: retryApply,
+    };
+  }
+  if (lower.includes("runtime check result blocks approval") || lower.includes("runtime check result contains approval-blocking warnings")) {
+    return {
+      reason: `runtime 検証が承認を止めています。${compactSummary(summary)}`,
+      nextAction: "runtime_check_result.json の fail または配布リスク警告を解消し、テスト登録を再実行してください。",
+    };
+  }
+  if (lower.includes("execution test result does not allow approval") || lower.includes("execution test result contains fail checks") || lower.includes("overall_status=fail")) {
+    return {
+      reason: `execution 検証が承認を止めています。${compactSummary(summary)}`,
+      nextAction: "execution_test_result.json の fail check を解消し、テスト登録を再実行してください。",
+    };
+  }
+  return {
+    reason: `承認ゲートで停止しました。${compactSummary(summary)}`,
+    nextAction: "approval_record.md の Failures を確認し、必要なら診断スクリプトを実行してください。",
+  };
+}
+
+function compactSummary(value: string): string {
+  const first = value.split("|")[0]?.trim() || value;
+  return first.length > 220 ? `${first.slice(0, 220)}...` : first;
 }
 
 function blocked(

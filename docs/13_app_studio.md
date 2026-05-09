@@ -401,6 +401,14 @@ data/logs/app_studio/<app_id>_execution_test_result.json
 
 承認時は `execution_test_result.json`、`apps/<app_id>/app.yaml`、`release/app_manifest.json`、App Pack 生成、可能な範囲の `verify_release.ps1` を確認します。失敗した場合は `enabled=true` にせず、途中で変更した場合も元に戻します。
 
+承認ゲートで止まった場合は、管理 UI の「承認ゲート診断」と `data/logs/app_studio/<app_id>_approval_record.md` の `Failures` を確認します。代表的な原因と次の操作は以下です。
+
+- `execution_test_result.json` が無い、`app_id` が違う、`output_dir` が違う、または stale: 対象 app の App Studio Apply を再実行し、結果を再読み込みしてから承認します。
+- `execution_test_result.json` が `approval_allowed=false` または `overall_status=fail`: fail check を解消して Apply を再実行します。
+- `runtime_check_result.json` が存在し、wrong app / wrong output_dir / stale / fail / approval-blocking warning を示す: runtime distribution check の原因を直して Apply を再実行します。互換性のため、古い登録に対して `runtime_check_result.json` の存在だけは必須化していません。
+- `generated_at` は履歴表示です。現時点の freshness 判定は file mtime と artifact consistency を使います。
+- 原因が UI だけで分からない場合は `.\scripts\diagnose_app_studio_import.ps1 -AppId "<app_id>"` を実行します。
+
 ## OpenAI API連携
 
 AI 連携は明示的に有効化した場合だけ試行します。未設定時や失敗時は local fallback candidate を作らず、ToolHub共通default icon を `icon.png` に使います。

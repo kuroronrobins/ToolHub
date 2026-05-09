@@ -93,6 +93,36 @@ function Get-Prop {
     return $null
 }
 
+function Get-ResultOutputDir {
+    param([object]$Data)
+    if ($null -eq $Data) {
+        return ""
+    }
+    $Value = [string](Get-Prop -Object $Data -Name "output_dir")
+    if (-not [string]::IsNullOrWhiteSpace($Value)) {
+        return $Value
+    }
+    $Evidence = Get-Prop -Object $Data -Name "evidence"
+    $EvidenceOutput = [string](Get-Prop -Object $Evidence -Name "output_dir")
+    if (-not [string]::IsNullOrWhiteSpace($EvidenceOutput)) {
+        return $EvidenceOutput
+    }
+    return ""
+}
+
+function Test-SamePathText {
+    param([string]$Left, [string]$Right)
+    if ([string]::IsNullOrWhiteSpace($Left) -or [string]::IsNullOrWhiteSpace($Right)) {
+        return $false
+    }
+    $LeftFull = Resolve-FullPathSafe -Value $Left
+    $RightFull = Resolve-FullPathSafe -Value $Right
+    if ([string]::IsNullOrWhiteSpace($LeftFull) -or [string]::IsNullOrWhiteSpace($RightFull)) {
+        return $false
+    }
+    return [string]::Equals($LeftFull, $RightFull, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
 function Read-JsonFile {
     param([string]$Path)
     $Result = [ordered]@{
@@ -569,9 +599,14 @@ $ManifestState = Read-JsonFile -Path $ManifestPath
 
 $ApprovalAllowed = "missing"
 $OverallStatus = "missing"
+$ExecutionResultAppId = ""
+$ExecutionResultOutputDir = ""
+$ExecutionBlockingWarningsCount = 0
 $FailChecks = @()
 $WarnChecks = @()
 if ($ExecutionState.status -eq "ok") {
+    $ExecutionResultAppId = [string](Get-Prop -Object $ExecutionState.data -Name "app_id")
+    $ExecutionResultOutputDir = Get-ResultOutputDir -Data $ExecutionState.data
     $ApprovalRaw = Get-Prop -Object $ExecutionState.data -Name "approval_allowed"
     if ($null -ne $ApprovalRaw) {
         $ApprovalAllowed = [string]$ApprovalRaw
@@ -579,6 +614,10 @@ if ($ExecutionState.status -eq "ok") {
     $OverallRaw = Get-Prop -Object $ExecutionState.data -Name "overall_status"
     if ($null -ne $OverallRaw) {
         $OverallStatus = [string]$OverallRaw
+    }
+    $BlockingRaw = Get-Prop -Object $ExecutionState.data -Name "approval_blocking_warnings_count"
+    if ($null -ne $BlockingRaw) {
+        $ExecutionBlockingWarningsCount = [int]($BlockingRaw -as [int])
     }
     foreach ($CheckItem in @((Get-Prop -Object $ExecutionState.data -Name "checks"))) {
         $Status = [string](Get-Prop -Object $CheckItem -Name "status")
@@ -591,6 +630,65 @@ if ($ExecutionState.status -eq "ok") {
 } elseif ($ExecutionState.status -eq "parse_error") {
     $ApprovalAllowed = "parse_error"
     $OverallStatus = "parse_error"
+}
+
+$RuntimeOverallStatus = "missing"
+$RuntimeResultAppId = ""
+$RuntimeResultOutputDir = ""
+$RuntimeBlockingWarningsCount = 0
+$RuntimeFailChecks = @()
+if ($RuntimeState.status -eq "ok") {
+    $RuntimeResultAppId = [string](Get-Prop -Object $RuntimeState.data -Name "app_id")
+    $RuntimeResultOutputDir = Get-ResultOutputDir -Data $RuntimeState.data
+    $RuntimeOverallRaw = Get-Prop -Object $RuntimeState.data -Name "overall_status"
+    if ($null -ne $RuntimeOverallRaw) {
+        $RuntimeOverallStatus = [string]$RuntimeOverallRaw
+    }
+    $RuntimeBlockingRaw = Get-Prop -Object $RuntimeState.data -Name "approval_blocking_warnings_count"
+    if ($null -ne $RuntimeBlockingRaw) {
+        $RuntimeBlockingWarningsCount = [int]($RuntimeBlockingRaw -as [int])
+    }
+    foreach ($CheckItem in @((Get-Prop -Object $RuntimeState.data -Name "checks"))) {
+        $Status = [string](Get-Prop -Object $CheckItem -Name "status")
+        if ($Status -eq "fail") {
+            $RuntimeFailChecks += $CheckItem
+        }
+    }
+} elseif ($RuntimeState.status -eq "parse_error") {
+    $RuntimeOverallStatus = "parse_error"
+}
+
+if (-not [string]::IsNullOrWhiteSpace($ExecutionResultAppId) -and $ExecutionResultAppId -ne $AppId) {
+    Add-Classification "execution_result_wrong_app"
+    Add-Action "execution_test_result.json belongs to a different app_id. Rerun Apply for this app and verify result app_id matches before approving."
+}
+if (-not [string]::IsNullOrWhiteSpace($ResolvedOutputDir) -and -not [string]::IsNullOrWhiteSpace($ExecutionResultOutputDir) -and -not (Test-SamePathText -Left $ResolvedOutputDir -Right $ExecutionResultOutputDir)) {
+    Add-Classification "execution_result_output_dir_mismatch"
+    Add-Action "execution_test_result.json points at a different output_dir. Refresh the App Studio result or rerun Apply for the current output mirror."
+}
+if ($OverallStatus -eq "fail") {
+    Add-Classification "execution_result_fail"
+    Add-Action "execution_test_result.json has overall_status=fail. Fix the fail checks and rerun Apply before approving."
+}
+if ($ExecutionBlockingWarningsCount -gt 0) {
+    Add-Classification "execution_approval_blocking_warning"
+    Add-Action "execution_test_result.json has approval-blocking warnings. Resolve them, rerun Apply, and retry Approve."
+}
+if (-not [string]::IsNullOrWhiteSpace($RuntimeResultAppId) -and $RuntimeResultAppId -ne $AppId) {
+    Add-Classification "runtime_result_wrong_app"
+    Add-Action "runtime_check_result.json belongs to a different app_id. Rerun Apply for this app and verify runtime result app_id matches before approving."
+}
+if (-not [string]::IsNullOrWhiteSpace($ResolvedOutputDir) -and -not [string]::IsNullOrWhiteSpace($RuntimeResultOutputDir) -and -not (Test-SamePathText -Left $ResolvedOutputDir -Right $RuntimeResultOutputDir)) {
+    Add-Classification "runtime_result_output_dir_mismatch"
+    Add-Action "runtime_check_result.json points at a different output_dir. Rerun Apply so runtime and execution results come from the same output mirror."
+}
+if ($RuntimeOverallStatus -eq "fail" -or $RuntimeFailChecks.Count -gt 0) {
+    Add-Classification "runtime_result_fail"
+    Add-Action "runtime_check_result.json blocks approval. Fix the distribution check failure and rerun Apply before approving."
+}
+if ($RuntimeBlockingWarningsCount -gt 0) {
+    Add-Classification "runtime_approval_blocking_warning"
+    Add-Action "runtime_check_result.json has approval-blocking warnings. Resolve the runtime distribution risk and rerun Apply before approving."
 }
 
 if ($ApprovalAllowed -eq "True" -or $ApprovalAllowed -eq "true") {
@@ -872,11 +970,15 @@ if ($FrozenHints -contains "No module named PyInstaller") {
 }
 
 $TimestampSignals = @()
+$RuntimeTimestampSignals = @()
 $ExecutionItem = if (Test-Path -LiteralPath $ExecutionJsonPath -PathType Leaf) { Get-Item -LiteralPath $ExecutionJsonPath } else { $null }
+$RuntimeItem = if (Test-Path -LiteralPath $RuntimeJsonPath -PathType Leaf) { Get-Item -LiteralPath $RuntimeJsonPath } else { $null }
 $FrozenItem = if ($FrozenReportPath -and (Test-Path -LiteralPath $FrozenReportPath -PathType Leaf)) { Get-Item -LiteralPath $FrozenReportPath } else { $null }
 $AppsExeItem = if (Test-Path -LiteralPath $AppExePath -PathType Leaf) { Get-Item -LiteralPath $AppExePath } else { $null }
 $AppYamlItem = if (Test-Path -LiteralPath $AppYamlPath -PathType Leaf) { Get-Item -LiteralPath $AppYamlPath } else { $null }
 $AppBuildProfileItem = if (Test-Path -LiteralPath $AppBuildProfilePath -PathType Leaf) { Get-Item -LiteralPath $AppBuildProfilePath } else { $null }
+$FinalAppYamlPath = if ($FinalAppDir) { Join-Path $FinalAppDir "app.yaml" } else { $null }
+$FinalAppYamlItem = if ($FinalAppYamlPath -and (Test-Path -LiteralPath $FinalAppYamlPath -PathType Leaf)) { Get-Item -LiteralPath $FinalAppYamlPath } else { $null }
 if ($ExecutionItem -and $FrozenItem -and $ExecutionItem.LastWriteTime -lt $FrozenItem.LastWriteTime) {
     $TimestampSignals += "execution_test_result.json is older than frozen_folder_build_report.md"
 }
@@ -888,6 +990,21 @@ if ($ExecutionItem -and $AppYamlItem -and $ExecutionItem.LastWriteTime -lt $AppY
 }
 if ($ExecutionItem -and $AppBuildProfileItem -and $ExecutionItem.LastWriteTime -lt $AppBuildProfileItem.LastWriteTime) {
     $TimestampSignals += "execution_test_result.json is older than apps build_profile.json"
+}
+if ($RuntimeItem -and $FinalAppYamlItem -and $RuntimeItem.LastWriteTime -lt $FinalAppYamlItem.LastWriteTime) {
+    $RuntimeTimestampSignals += "runtime_check_result.json is older than final_app/app.yaml"
+}
+if ($RuntimeItem -and $FinalAppYamlPath) {
+    $FinalAppRunEntry = Get-YamlScalar -Path $FinalAppYamlPath -Key "entry"
+    if (-not [string]::IsNullOrWhiteSpace($FinalAppRunEntry)) {
+        $FinalAppRunEntryPath = Join-RelativePath -Base $FinalAppDir -Relative $FinalAppRunEntry
+        if (Test-Path -LiteralPath $FinalAppRunEntryPath -PathType Leaf) {
+            $FinalAppRunEntryItem = Get-Item -LiteralPath $FinalAppRunEntryPath
+            if ($RuntimeItem.LastWriteTime -lt $FinalAppRunEntryItem.LastWriteTime) {
+                $RuntimeTimestampSignals += "runtime_check_result.json is older than final_app run.entry"
+            }
+        }
+    }
 }
 if ($ImportPlanState.status -eq "ok") {
     $SelectedBuildMode = [string](Get-Prop -Object $ImportPlanState.data -Name "selected_build_mode")
@@ -915,6 +1032,10 @@ if (($AppsExeExists -and ($ApprovalAllowed -eq "False" -or $ApprovalAllowed -eq 
         $TimestampSignals += "apps exe exists while execution_test_result/frozen report still records failure"
     }
     Add-Action "Rerun Apply with the current code and verify execution_test_result.json LastWriteTime changes."
+}
+if ($RuntimeTimestampSignals.Count -gt 0) {
+    Add-Classification "runtime_result_stale_suspected"
+    Add-Action "Rerun Apply with the current code and verify runtime_check_result.json LastWriteTime changes."
 }
 
 $MirrorOnly = @()
@@ -1038,6 +1159,15 @@ switch -Regex (($Classifications -join "|")) {
     "secret_scan_overblocking_suspected" { Add-Action "Documentation-only OPENAI_API_KEY or placeholder values should not block Apply after rerunning with the updated scanner." }
     "secret_scan_packaged_secret_risk" { Add-Action "A secret finding appears packaged or not safely excluded; remove it before distribution." }
     "secret_scan_ai_only_block" { Add-Action "AI fallback is expected; Apply can continue when apply_blocked_by_secret_scan=false." }
+    "execution_result_wrong_app" { Add-Action "Approval gate will reject this result because app_id does not match the requested app." }
+    "execution_result_output_dir_mismatch" { Add-Action "Approval gate will reject this result because output_mirror and execution evidence point at different folders." }
+    "execution_result_fail" { Add-Action "Approval gate will reject this result until execution overall_status is no longer fail." }
+    "execution_approval_blocking_warning" { Add-Action "Approval gate will reject this result until approval-blocking execution warnings are resolved." }
+    "runtime_result_wrong_app" { Add-Action "Approval gate will reject this runtime result because app_id does not match the requested app." }
+    "runtime_result_output_dir_mismatch" { Add-Action "Approval gate will reject this runtime result because output_mirror and runtime evidence point at different folders." }
+    "runtime_result_fail" { Add-Action "Approval gate will reject this runtime result until runtime overall_status is no longer fail." }
+    "runtime_approval_blocking_warning" { Add-Action "Approval gate will reject this runtime result until runtime approval-blocking warnings are resolved." }
+    "runtime_result_stale_suspected" { Add-Action "Approval gate can reject stale runtime results; rerun Apply so runtime_check_result.json is newer than final_app artifacts." }
     "approval_rolled_back_or_failed" { Add-Action "Approval did not complete; compare targeted verification failures and verify_release_before/after in approval_record.md." }
     "approval_succeeded_with_global_verify_warnings" { Add-Action "Home visibility should depend on manifest enabled=true and catalog parsing; global verify warnings are pre-existing release debt." }
     "manifest_disabled_after_approval_failure" { Add-Action "release/app_manifest.json still has enabled=false because approval failed or rolled back." }
@@ -1106,6 +1236,9 @@ $ReportLines = @(
     "",
     "- approval_allowed: $ApprovalAllowed",
     "- overall_status: $OverallStatus",
+    "- execution result app_id: $(if ($ExecutionResultAppId) { $ExecutionResultAppId } else { "missing" })",
+    "- execution result output_dir: $(if ($ExecutionResultOutputDir) { $ExecutionResultOutputDir } else { "missing" })",
+    "- execution approval_blocking_warnings_count: $ExecutionBlockingWarningsCount",
     "- execution_test_result path: $ExecutionJsonPath",
     "- last_write_time: $(Format-Time $ExecutionState.last_write_time)",
     "- interpretation: $(if ($ApprovalAllowed -eq "False" -or $ApprovalAllowed -eq "false") { "Approve is directly blocked by approval_allowed=false; root cause is the fail check content below." } else { "No approval_allowed=false direct gate was detected." })",
@@ -1115,6 +1248,22 @@ $ReportLines = @(
 $ReportLines += Format-CheckList -Checks $FailChecks
 $ReportLines += @("", "### Warn Checks")
 $ReportLines += Format-CheckList -Checks $WarnChecks
+
+$ReportLines += @(
+    "",
+    "## Runtime Approval Gate",
+    "",
+    "- runtime_check_result status: $($RuntimeState.status)",
+    "- runtime overall_status: $RuntimeOverallStatus",
+    "- runtime result app_id: $(if ($RuntimeResultAppId) { $RuntimeResultAppId } else { "missing" })",
+    "- runtime result output_dir: $(if ($RuntimeResultOutputDir) { $RuntimeResultOutputDir } else { "missing" })",
+    "- runtime approval_blocking_warnings_count: $RuntimeBlockingWarningsCount",
+    "- runtime_check_result path: $RuntimeJsonPath",
+    "- last_write_time: $(Format-Time $RuntimeState.last_write_time)",
+    "",
+    "### Runtime Fail Checks"
+)
+$ReportLines += Format-CheckList -Checks $RuntimeFailChecks
 
 $ReportLines += @(
     "",
@@ -1182,6 +1331,8 @@ $ReportLines += @(
     "### Timestamp Comparison"
 )
 $ReportLines += Format-ArrayLines -Items $TimestampSignals
+$ReportLines += @("", "### Runtime Timestamp Comparison")
+$ReportLines += Format-ArrayLines -Items $RuntimeTimestampSignals
 $ReportLines += @("", "### Old app_env / PyInstaller Signals")
 $ReportLines += Format-ArrayLines -Items $OldSignals
 $ReportLines += @(
@@ -1283,10 +1434,23 @@ $Summary = [ordered]@{
     direct_approval_gate = [ordered]@{
         approval_allowed = $ApprovalAllowed
         overall_status = $OverallStatus
+        result_app_id = $ExecutionResultAppId
+        result_output_dir = $ExecutionResultOutputDir
+        approval_blocking_warnings_count = $ExecutionBlockingWarningsCount
         fail_count = $FailChecks.Count
         warn_count = $WarnChecks.Count
         path = $ExecutionJsonPath
         last_write_time = $ExecutionState.last_write_time
+    }
+    runtime_approval_gate = [ordered]@{
+        status = $RuntimeState.status
+        overall_status = $RuntimeOverallStatus
+        result_app_id = $RuntimeResultAppId
+        result_output_dir = $RuntimeResultOutputDir
+        approval_blocking_warnings_count = $RuntimeBlockingWarningsCount
+        fail_count = $RuntimeFailChecks.Count
+        path = $RuntimeJsonPath
+        last_write_time = $RuntimeState.last_write_time
     }
     frozen_build = [ordered]@{
         status = $FrozenStatus
@@ -1325,6 +1489,11 @@ $Summary = [ordered]@{
         build_env_python = $TraceBuildEnvPython
         pyinstaller_probe_python = $TraceProbePython
         pyinstaller_build_python = $TraceBuildPython
+    }
+    stale_signals = [ordered]@{
+        execution = @($TimestampSignals)
+        runtime = @($RuntimeTimestampSignals)
+        old_path = @($OldSignals)
     }
     manifest = [ordered]@{
         registered = [bool]$ManifestEntry

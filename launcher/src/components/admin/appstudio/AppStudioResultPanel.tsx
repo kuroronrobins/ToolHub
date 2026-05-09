@@ -2,7 +2,7 @@ import { CheckCircle2, CircleAlert, FolderOpen, PackageCheck, ShieldCheck } from
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { appStudioOpenOutputDir } from "../../../lib/appStudioApi";
-import { getAppStudioApprovalDecision } from "../../../lib/appStudioApproval";
+import { getAppStudioApprovalDecision, getAppStudioApprovalFailureGuidance } from "../../../lib/appStudioApproval";
 import type { AppStudioApprovalMode, AppStudioRunResult } from "../../../lib/appStudioTypes";
 
 interface Props {
@@ -21,8 +21,9 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
   const warningOnly = Boolean(result && result.executionStatus === "warn" && result.approvalAllowed === true);
   const secretBlocked = Boolean(result?.applyBlockedBySecretScan || (result?.secretBlockingCount ?? 0) > 0);
   const approvalDecision = getAppStudioApprovalDecision(result, approvalMode, busy);
+  const approvalFailureGuidance = getAppStudioApprovalFailureGuidance(result);
   const canApprove = approvalDecision.canApprove;
-  const nextAction = nextActionText(result, lastAction, approvalDecision.reason);
+  const nextAction = nextActionText(result, lastAction, approvalFailureGuidance?.nextAction ?? approvalDecision.reason);
 
   async function openOutputDir() {
     if (!result?.outputDir) {
@@ -125,15 +126,17 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
           {result.timingReport ? <p>Report: {result.timingReport}</p> : null}
         </div>
       ) : null}
-      {result?.approvalFailureSummary || result?.verifyReleaseFailureSummary || result?.catalogDisabledReason || result?.catalogLoadError ? (
+      {approvalFailureGuidance || result?.approvalFailureSummary || result?.verifyReleaseFailureSummary || result?.catalogDisabledReason || result?.catalogLoadError ? (
         <div className="studio-manual-checks">
-          <strong>承認後の表示診断</strong>
-          {result.approvalFailureSummary ? <p>承認失敗理由: {result.approvalFailureSummary}</p> : null}
-          {result.verifyReleaseStatus ? <p>verify_release: {result.verifyReleaseStatus}</p> : null}
-          {result.verifyReleaseFailureSummary ? <p>verify_release詳細: {result.verifyReleaseFailureSummary}</p> : null}
-          {result.catalogDisabledReason ? <p>ホームに表示されない理由: {result.catalogDisabledReason}</p> : null}
-          {result.catalogLoadError ? <p>catalog読込エラー: {result.catalogLoadError}</p> : null}
-          {result.approvalRecordPath ? <p>承認記録: {result.approvalRecordPath}</p> : null}
+          <strong>承認ゲート診断</strong>
+          {approvalFailureGuidance ? <p>{approvalFailureGuidance.reason}</p> : null}
+          {approvalFailureGuidance ? <p>次にやること: {approvalFailureGuidance.nextAction}</p> : null}
+          {result?.approvalFailureSummary ? <p>承認失敗理由: {result.approvalFailureSummary}</p> : null}
+          {result?.verifyReleaseStatus ? <p>verify_release: {result.verifyReleaseStatus}</p> : null}
+          {result?.verifyReleaseFailureSummary ? <p>verify_release詳細: {result.verifyReleaseFailureSummary}</p> : null}
+          {result?.catalogDisabledReason ? <p>ホームに表示されない理由: {result.catalogDisabledReason}</p> : null}
+          {result?.catalogLoadError ? <p>catalog読込エラー: {result.catalogLoadError}</p> : null}
+          {result?.approvalRecordPath ? <p>承認記録: {result.approvalRecordPath}</p> : null}
         </div>
       ) : null}
 

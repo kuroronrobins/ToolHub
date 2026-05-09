@@ -668,3 +668,22 @@ docs/15_app_studio_update_gui.md と docs/21_app_registration_improvement_plan.m
   承認対象と異なる場合を拒否する。
 - Rust / React 側は result 表示を継続し、approval の authoritative decision は Python gate に残した。UI の warning / next action
   の正規化は別フェーズで扱う。
+
+## 2026-05-10 P0 follow-up: approval diagnosis / UI 表示整備
+
+実施範囲:
+
+- approval gate の拒否メッセージに `result_path`、expected/actual、`stale_against`、`next_action`、診断コマンドを含め、
+  `approval_record.md` から管理者・開発者が次の操作を追えるようにした。
+- `runtime_check_result.json` の stale 表示では、対象を `runtime_check_result.json` として表示するように整えた。
+- `diagnose_app_studio_import.ps1` に execution/runtime result の app_id、output_dir、fail、approval-blocking warning、
+  runtime stale の分類を追加した。診断は読み取り専用で、実ファイル更新や削除は行わない。
+- React UI は `approvalFailureSummary` を `承認ゲート診断` として表示し、wrong app / wrong output_dir / stale /
+  execution fail / runtime fail に対する次の操作を日本語で示すようにした。
+- TypeScript helper test と Python unit test で、代表的な拒否理由が診断可能な文言を持つことを固定した。
+
+残した follow-up:
+
+- runtime result の存在必須化、`generated_at` 期限判定、source hash freshness 判定は引き続き未実施。
+- approval record の stale/old result を UI でいつ無視するかは、保存済み old result 互換と Apply 後 refresh の設計判断が必要。
+- Rust command の大規模分割や approval UX の全面再設計は別フェーズに残す。
