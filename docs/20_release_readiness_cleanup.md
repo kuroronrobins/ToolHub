@@ -191,6 +191,10 @@ is unavailable. Keep the Sandbox flow for machines that support it, but use the 
 - `scripts/beta_isolated_path/run_isolated_path_test.ps1` hides Python / pip / Node.js / npm / Rust / cargo / Tauri CLI
   from PATH only inside the script process and can launch ToolHub with `LOCALAPPDATA` redirected to ignored results.
   This is a useful dependency-smoke test, not proof of a clean user PC.
+- The isolated PATH test has been run without `-DryRun`. The latest result is `overall_status=pass`: ToolHub stayed
+  running for 15 seconds with the isolated PATH and created a user data directory under
+  `scripts/beta_isolated_path/results/localappdata_20260510_005517/ToolHub`. The log/json file check remains a warning
+  because first launch created `data/logs/` but no `.log` or `.json` file.
 - `scripts/beta_vm/vm_install_test.ps1` is the clean-environment proof path. Run it inside a clean Windows VM via a
   shared folder. It records developer-tool absence, installer sha256 / size, installer execution, install directory,
   user data directory, bundled runtime, ToolHub launch, manual app checks, uninstall, and user data preservation.

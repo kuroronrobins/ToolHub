@@ -477,6 +477,7 @@ Phase 1-A / 1-B 実施状況:
 - Phase 1-B: Windows Sandbox 検証フローを `scripts/beta_sandbox/` に作成済み。host repo は read-only、結果 folder は writeable で mount し、Sandbox 内で preflight / install / launch / uninstall 結果を JSON / Markdown に記録する。
 - Phase 1-B: 現在 PC は Windows Home / Core のため Windows Sandbox が使えない。Sandbox 方式は残すが、この PC では代替として `scripts/beta_isolated_path/` と `scripts/beta_vm/` を使う。
 - Phase 1-B: PATH 隔離テストは現在プロセスだけ PATH を最小化し、host の開発ツールを消さずに ToolHub 起動の補助確認を行う。ただしこれは clean PC の完全証明ではない。
+- Phase 1-B: PATH 隔離テストを DryRun なしで実行済み。`overall_status=pass`、ToolHub は isolated PATH で15秒以上起動し、隔離された `LOCALAPPDATA` 配下に user data dir を作成した。初回起動だけでは `.log` / `.json` file が作成されず `isolated_logs_created=warning` のため、log 生成確認は VM / installed workflow 側に残す。
 - Phase 1-B: VM 検証フローを `scripts/beta_vm/` に作成済み。VirtualBox / VMware / Hyper-V / 手動 VM の共有フォルダから installer を実行し、開発ツールなし環境での install / launch / runtime / uninstall / user data preservation を JSON / Markdown に記録する。
 - Phase 1-B: 実 install / launch / sample app / uninstall / user data preservation は clean Windows VM または clean Windows user profile の manual check として残す。installer / uninstaller UI と sample app 起動は人間確認を伴うため、検証結果を確認するまで完了済みとはしない。
 

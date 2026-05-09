@@ -203,7 +203,8 @@
 - [x] `scripts/beta_isolated_path/run_isolated_path_test.ps1` を作成し、現在プロセスだけ PATH を最小化して Python / pip / Node.js / npm / Rust / cargo / Tauri CLI を見えなくする補助検証を用意した。host の環境変数は恒久変更しない。
 - [x] PATH 隔離テストは `LOCALAPPDATA` / `APPDATA` を ignored results 配下へ向けて ToolHub を起動できる。ただし host 上の補助検証であり、開発ツールなし PC の完全証明ではない。
 - [x] `scripts/beta_vm/vm_install_test.ps1` を作成し、VirtualBox / VMware / Hyper-V / 手動 VM の共有フォルダから installer 実行、sha256 / size、install dir、user data、runtime、first launch、uninstall、user data 保持を JSON / Markdown に記録できるようにした。
-- [ ] PATH 隔離テスト実行結果: 未実施。まず `-DryRun` で discovery と PATH 隔離だけ確認する。
+- [x] PATH 隔離テスト実行結果: `scripts/beta_isolated_path/results/latest_isolated_path_result.json` で `overall_status=pass`。Python / pip / Node.js / npm / Rust / cargo / Tauri CLI は isolated PATH から見えず、ToolHub は15秒以上起動し、隔離された `LOCALAPPDATA` 配下に `%LOCALAPPDATA%\ToolHub\` 相当の user data dir を作成した。
+- [ ] PATH 隔離テストの log / json 作成結果: warning。隔離 user data dir と `data/logs/` dir は作成されたが、初回起動だけでは `.log` / `.json` file は作成されなかった。
 - [ ] VM 本検証結果: 未実施。clean Windows VM で `scripts/beta_vm/results/latest_vm_install_result.*` を確認してから Phase 1-B 完了判定する。
 
 現在 PC の read-only 事前確認:
