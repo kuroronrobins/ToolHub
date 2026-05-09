@@ -2186,6 +2186,68 @@ Remaining follow-up:
 - Avoid moving release-gate severity, package/hash/runtime/installer/stale-entry checks, or zip-entry labels into `scripts/lib/app_pack_contract.ps1`.
 - If a later task broadens `verify_release.ps1` adoption to `Get-AppPackRequiredEntries` or `Get-AppPackContractSummary`, require before/after output comparison because that is higher risk than same-name helper adoption.
 
+## 2026-05-10 P2 audit: `report_release_readiness.ps1` boundary and App Pack helper adoption
+
+Scope:
+
+- This is an audit-only pass. `scripts/report_release_readiness.ps1`, `scripts/verify_release.ps1`, `scripts/package_app_pack.ps1`, `scripts/check_all.ps1`, Python production code, Rust code, React/TypeScript code, apps, release manifests, runtime files, data, logs, generated artifacts, dependencies, and lock files were not changed.
+- The App Pack spec, app.yaml public schema, runner public I/F, release manifest compatibility, App Studio frozen-folder lock-file contract, and legacy Python-runner lock exception remain unchanged.
+- `report_release_readiness.ps1` is treated as a read-only classifier, not a release gate.
+
+Current `report_release_readiness.ps1` responsibility:
+
+- Builds a read-only cleanup/readiness report in text or JSON form.
+- Classifies manifest/app source state:
+  - enabled source apps.
+  - enabled entries with missing source as blockers/hide candidates.
+  - disabled source apps as intentional warnings.
+  - disabled stale entries as delete candidates with pre-checks and excluded categories.
+  - source apps missing from `release/app_manifest.json` as blockers.
+- Classifies App Pack rebuild work using release manifest `package` / `sha256` and local zip existence/hash, without inspecting app.yaml required entries or App Pack zip contents.
+- Classifies runtime packaging, installer build/staging, local MSVC toolchain, app_env policy, and Beta Ready items.
+- Produces recommended actions and manual-check/future-formal categories. It does not create App Packs, mutate manifests, delete files, or change exit behavior based on `verify_release.ps1` gate semantics.
+
+Overlap with `scripts/lib/app_pack_contract.ps1`:
+
+- There is no direct same-name helper overlap today. `report_release_readiness.ps1` does not define or call:
+  - YAML scalar helpers.
+  - app-relative path normalization.
+  - app.yaml `run.entry` / `display.icon` parsing.
+  - frozen-folder detection.
+  - `runtime.requirements_lock` resolution.
+  - App Pack required entry construction.
+- Apparent overlaps are broader release concepts, not App Pack contract helpers:
+  - `Entry-Enabled` for release manifest history compatibility.
+  - `package` path existence and `sha256` mismatch classification.
+  - App Pack target discovery for stale delete candidates.
+  - runtime/app_env/installer/staging readiness categories.
+- These concepts are not covered by `scripts/lib/app_pack_contract.ps1`, whose scope is app.yaml/App Pack contract parsing.
+
+Difference from `verify_release.ps1`:
+
+- `verify_release.ps1` is an independent release gate with `[OK]` / `[WARN]` / `[NG]`, `-Strict`, `-RequireInstaller`, `-RequireRuntime`, `-RequireAppPacks`, zip-entry checks, and final process exit semantics.
+- `report_release_readiness.ps1` is a triage report. It groups the same repository state into cleanup work, packaging work, release-build work, intentional warnings, blocked local-environment items, Beta Ready blockers/warnings/manual checks, and future formal-release items.
+- Missing app_env is a warning / docs-check-adjustment candidate in the readiness report, while `verify_release.ps1 -Strict` can escalate it. That difference is intentional until formal release policy decides otherwise.
+- App Pack hash mismatch is a `blocked_items` classification in the report, but the report does not replace `verify_release.ps1` as the release gate.
+
+Low-risk adoption candidates:
+
+- None for the current `scripts/lib/app_pack_contract.ps1` surface. Because the readiness script does not parse app.yaml App Pack contract fields, dot-sourcing the helper now would add dependency surface without removing meaningful duplication.
+- A future low-risk task could add a new read-only readiness classification for source-present App Studio frozen-folder apps whose `runtime.requirements_lock`, `display.icon`, or `run.entry` target is missing. If that classification is added, it should use `Get-AppPackContractSummary` / `Resolve-AppRelativeFile` from `scripts/lib/app_pack_contract.ps1` and report the result as source repair / App Pack blocker, not as delete work and not as a release gate.
+
+Candidates to avoid:
+
+- Do not move `Entry-Enabled`, report record construction, summary counting, or recommended-action wording into `scripts/lib/app_pack_contract.ps1`.
+- Do not move package existence, `sha256`, runtime, installer, staging, app_env, MSVC, Beta Ready, updater, signing, rollback, or formal-release classifications into the App Pack contract helper.
+- Do not make `report_release_readiness.ps1` inherit `[OK]` / `[WARN]` / `[NG]`, `-Strict`, `-Require*`, or exit semantics from `verify_release.ps1`.
+- Do not treat readiness classifications as App Pack spec changes or as grounds to require `requirements.lock` for legacy Python-runner apps.
+
+Recommended next implementation unit:
+
+- Keep `report_release_readiness.ps1` unchanged for now.
+- If a concrete gap needs implementation, add only a read-only "App Studio source contract repair" classification that consumes `scripts/lib/app_pack_contract.ps1` for app.yaml contract parsing and leaves existing readiness categories, output shape, and exit behavior intact.
+- Validate that future task with the App Pack parity test, PowerShell parser check, Python App Pack fixture test, `report_release_readiness.ps1 -Json`, and a before/after diff of summary counts.
+
 Historical next Codex task queued after the management split, now covered by the audit section above:
 
 ```text
