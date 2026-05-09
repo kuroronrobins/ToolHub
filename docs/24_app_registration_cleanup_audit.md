@@ -1956,6 +1956,33 @@ Remaining follow-up:
 - Consider narrowing registrar's compatibility re-exports only after all imports move to `app_pack_contract.py`.
 - Keep `verify_release.ps1` severity behavior and report-release-readiness classification separate unless a release policy task explicitly changes that boundary.
 
+## 2026-05-10 P2 follow-up: PowerShell read-only App Pack contract helper module
+
+Implemented scope:
+
+- Added `scripts/lib/app_pack_contract.ps1` as a side-effect-free PowerShell helper module for App Pack contract parity tests.
+- Moved the read-only mirror helper logic out of `scripts/test_app_pack_contract_parity.ps1`:
+  - YAML scalar reading / normalization.
+  - app-relative path normalization and containment resolution.
+  - frozen-folder detection.
+  - `runtime.requirements_lock` handling, including implicit `requirements.lock` for frozen-folder apps.
+  - App Pack required entry construction.
+  - App Pack contract summary generation.
+- Updated `scripts/test_app_pack_contract_parity.ps1` to dot-source the helper module and keep only fixture loading plus test assertions.
+
+Compatibility notes:
+
+- `scripts/lib/app_pack_contract.ps1` defines functions only. It does not run a main flow, read fixtures, write files, update manifests, create zips, or touch `apps/`, `release/`, `runtime/`, `data/`, or `logs/` when dot-sourced.
+- `scripts/package_app_pack.ps1`, `scripts/verify_release.ps1`, and `scripts/report_release_readiness.ps1` production behavior was not changed.
+- The PowerShell parity test still reads the same shared golden fixture used by Python tests.
+- App Pack spec, app.yaml schema, runner public I/F, release manifest compatibility, Python production behavior, Rust code, React/TypeScript code, apps, release manifests, runtime files, generated artifacts, dependencies, and lock files were not changed.
+
+Remaining follow-up:
+
+- After this helper remains stable, evaluate whether `package_app_pack.ps1` and `verify_release.ps1` can safely dot-source it.
+- Any production script adoption must preserve current output, severity, packaging, verification, and manifest update behavior, and should be guarded by the parity test plus script parser checks.
+- Do not combine production PowerShell helper adoption with any App Pack spec, lock-file scope, `verify_release.ps1` severity, or release-readiness classification changes.
+
 Historical next Codex task queued after the management split, now covered by the audit section above:
 
 ```text
