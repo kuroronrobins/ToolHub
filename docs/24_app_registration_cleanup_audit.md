@@ -40,6 +40,381 @@ ToolHub App Studio のアプリ登録処理全体を、次の実装フェーズ�
 
 これは今回の監査由来の変更ではない。`.gitup/` はユーザー指定の原則変更しない範囲に該当するため、監査では触れていない。
 
+## 2026-05-10 full registration cleanup re-audit
+
+### Audit metadata
+
+- Audit date: 2026-05-10
+- Purpose: review the whole ToolHub App Studio app registration flow and prepare cleanup material for later implementation phases.
+- Scope: App Studio Python CLI, Rust/Tauri commands, React admin UI, PowerShell packaging/release scripts, docs, runner/release/runtime touch points, and representative app manifests.
+- Code changes made in this phase: none.
+- Files intentionally not changed: Python implementation, React implementation, Rust implementation, PowerShell scripts, `apps/`, `release/`, `runtime/`, generated output, user data, lock files, Cargo files, package files, existing `app.yaml`, App Pack artifacts, installer artifacts.
+- Documentation change in this phase: this audit section only.
+- Starting `git status --short`:
+
+```text
+ m .gitup/backups/20260507_193856_rebuild_from_github/current
+```
+
+The `.gitup` file was already dirty before this audit and was not touched.
+
+### Pre-implementation self review
+
+- Objective: produce an audit document, not a refactor.
+- Main allowed edit: `docs/24_app_registration_cleanup_audit.md`.
+- Interface risk: app.yaml schema, App Pack spec, runner I/F, release manifest compatibility, saved proposal compatibility, and user data must remain untouched.
+- Verification risk: broad checks such as `check_all.ps1` can be noisy because they may touch generated assets, hit Cargo/MSVC policy limits, or report existing release readiness gaps. This phase uses read-only inspection plus minimal diff validation.
+- Scope guard: icon cleanup is treated as completed guardrails from `docs/23_icon_cleanup_execution_handoff.md`; this audit does not reopen fallback/default icon behavior.
+
+### Icon cleanup guardrails carried forward
+
+The icon cleanup handoff remains a separate completed phase. New cleanup work must preserve:
+
+- Default icon is not an AI candidate.
+- Local fallback image candidates are not reintroduced.
+- Fallback adoption UI is not restored.
+- Saved proposal, old `candidate_manifest.json`, and legacy flat `icon_candidate_1.png` / `.url.txt` compatibility stay readable.
+- `display.icon: icon.png` remains the normal generated app icon contract.
+- `appStudioIconProposal.ts` remains the UI-side icon proposal normalizer boundary.
+
+### App Studio registration flow diagram
+
+```mermaid
+flowchart TD
+    A["React admin UI"] --> B["Tauri commands"]
+    B --> C["Rust request validation and CLI argv builder"]
+    C --> D["Python CLI tools/app_studio/main.py"]
+    D --> E["Preflight, inventory, secret scan"]
+    E --> F["Dependency analysis and build plan"]
+    F --> G["Metadata and icon proposal generation"]
+    G --> H["Suggestion artifacts in ToolHub_AppStudio_Output/app_id"]
+    H --> I{"Apply?"}
+    I -->|No| J["Suggest result refresh"]
+    I -->|Yes| K["final_app, build_env, requirements.lock"]
+    K --> L["PyInstaller frozen-folder build"]
+    L --> M["runtime/distribution check"]
+    M --> N["Temporary copy to apps/app_id"]
+    N --> O["release/app_manifest.json enabled=false"]
+    O --> P["App Pack zip and pack_manifest.json"]
+    P --> Q["execution_test_result.json"]
+    Q --> R["React result and next-action normalizer"]
+    R --> S{"Approve?"}
+    S -->|No| T["Manager reviews reports"]
+    S -->|Yes| U["Python approval gate"]
+    U --> V["verify_release targeted/global gate"]
+    V --> W["release/app_manifest.json enabled=true or rollback"]
+    W --> X["approval_record.md and UI refresh"]
+```
+
+### Python CLI flow
+
+Normal registration currently flows through `tools/app_studio/main.py`:
+
+1. Parse CLI flags for import, approve, image-test, and icon-regenerate.
+2. Enforce normal registration policy in `normalize_normal_registration_args()`: Python source only, frozen-folder build, requirements lock generation, runtime verification, no runtime `app_env`.
+3. Create `StudioContext` and timing recorder.
+4. Run file inventory, secret scan, dependency analysis, build planning, build profile merge, exe readiness analysis.
+5. Run metadata and icon suggestion, apply metadata/icon overrides, and build the `GeneratedArtifacts` payload.
+6. Write suggestion artifacts with `exporter.export_suggestion()`.
+7. On Apply, create internal `build_env`, generate `requirements.lock`, install build tools, run PyInstaller frozen-folder build, run runtime/distribution check.
+8. Copy `final_app/` to `apps/<app_id>/`, update `release/app_manifest.json` with `enabled=false`, generate App Pack, mirror the pack back to output, run execution checks.
+9. On Approve, `approval.py` validates result identity/freshness, flips `enabled=true`, repackages App Pack, runs targeted and global release verification, and rolls back on app-specific failure.
+
+### Rust command / Tauri flow
+
+Current split boundaries:
+
+- `app_studio_result_reader.rs`: read-only result summary from import plan, execution/runtime/timing reports, App Pack path, approval record, release manifest, and catalog visibility.
+- `app_studio_ai_proposal_reader.rs`: read-only AI metadata/icon proposal loading, including legacy candidate compatibility.
+- `app_studio_cli_args.rs`: normal registration request normalization and CLI argv builders for import/update/approve/icon-regenerate/image-test.
+- `app_studio_process.rs`: process output shaping, stdout/stderr masking, GUI log append, command-line logging, arg redaction.
+- `app_studio_overrides.rs`: metadata/icon/build-profile override files and icon revision PNG temp files.
+
+`app_studio_commands.rs` still owns:
+
+- Tauri command wrappers and admin session checks.
+- Public request/response DTO structs serialized to TypeScript.
+- Python executable discovery and Python missing diagnostics.
+- AI/API env plan and env injection.
+- Actual `Command::new(...).output()` process execution and orchestration order.
+- Preflight and file picker helpers.
+- Management list / show-hide.
+- Delete plan and full-delete apply.
+- Shared path, app id, YAML/JSON, semver, stdout extraction, and catalog helper functions.
+
+This is improved from the original single-file state, but the file remains the central orchestrator.
+
+### React UI flow
+
+- `AppStudioImportWizard.tsx`: new registration wizard state, suggest/apply/approve calls, metadata/icon override adoption, operation banner, result refresh.
+- `AppStudioUpdateWizard.tsx`: update proposal/apply/approve UI; now shares result message and next-action helpers where the result type matches the normal registration flow.
+- `AppStudioResultPanel.tsx`: detailed result, approval state, App Pack/release/runtime/execution summaries.
+- `AppStudioImportSidebar.tsx`: step summary, warnings, next action.
+- `AppStudioRunLog.tsx`: stdout/stderr/log display with warning-only handling.
+- `appStudioRunResult.ts`: view normalizer for run result status, warning-only, next action, timing, catalog, approval guidance.
+- `appStudioApproval.ts`: UI helper for approval decision/guidance, while Python remains the authoritative approval gate.
+- `appStudioIconProposal.ts`: UI normalizer for AI icon proposals and legacy candidate filtering.
+
+### Generated artifacts
+
+| Artifact | Producer | Primary consumer | Notes |
+| --- | --- | --- | --- |
+| `ToolHub_AppStudio_Output/<app_id>/import_plan.json` | Python main/export/trace | Rust result reader, UI, diagnosis | Broad historical report and summary source, not the final runtime truth. |
+| `file_inventory.json` / `.md` | Python file classifier | Developer/admin review | Supports source scope and exclusion decisions. |
+| `secret_scan_report.md` | Python secret scanner | UI, admin, approval troubleshooting | Blocks Apply for real package risk. |
+| `dependency_report.json` | Python dependency analyzer | build plan, reports | Input for build plan and requirements generation. |
+| `proposed_app.yaml` | Python manifest generator | UI review, final export | Draft app schema before Apply. |
+| `proposed_README.md` | Python readme generator | final app, App Pack | Required App Pack entry after Apply. |
+| `proposed_requirements.txt` | Python dependency analyzer/exporter | final app requirements | Becomes `requirements.txt`. |
+| `build_profile.json` | Python build profile | PyInstaller and runtime checks | Some data is also mirrored into reports and UI summary. |
+| `build_env/` | Python app env builder | PyInstaller, lock generator | Internal build environment only; not runtime/user-facing. |
+| `requirements.lock` | Python lock generator | runtime checker, App Pack, verify_release | Required for App Studio frozen-folder apps, not all legacy apps. |
+| `final_app/` | Python exporter/builder | registrar copy, runtime check | Staged source of truth for the app directory immediately before temporary registration. |
+| `runtime_check_result.json` | Python runtime checker | approval gate, Rust result reader, diagnose | Optional historical artifact for legacy paths, required in current normal Apply result path. |
+| `execution_test_result.json` | Python execution tester | approval gate, Rust result reader, diagnose | Primary approval precondition for normal registration. |
+| `apps/<app_id>/app.yaml` | registrar copy from final_app | runner, release scripts, UI management | Public app schema source for installed/registered app. |
+| `release/app_manifest.json` | registrar/approval/scripts | launcher catalog, release scripts | Release app visibility and package source of truth. |
+| `release/app_packs/<app_id>-<version>.zip` | registrar/package script | release/update distribution | Must contain required entries, pack manifest, and hash. |
+| `pack_manifest.json` inside zip | registrar/package script | verify/release consumers | App Pack-internal metadata. |
+| `approval_record.md` | approval gate | UI summary, diagnose, admin | Historical approval outcome and verification evidence. |
+| `timing_report.json` / `.md` | timing recorder | UI progress/estimates, audit | Useful for performance, not correctness source of truth. |
+
+### Source of truth and duplicated information
+
+| Data | Best current source of truth | Duplicates / historical mirrors | Drift risk |
+| --- | --- | --- | --- |
+| App identity and runtime contract | `apps/<app_id>/app.yaml` after Apply | `proposed_app.yaml`, `import_plan.json`, UI state, `release/app_manifest.json` | Medium. Identity fields are copied and summarized in many places. |
+| Visibility for launcher catalog | `release/app_manifest.json` | Rust management list, approval record, UI result | Medium. Disabled stale entries are valid history but easy to misread. |
+| App Pack payload | `release/app_packs/*.zip` plus `release/app_manifest.json` hash | output mirror `app_pack/`, `registration_copy_report.md`, `pack_manifest.json` | Medium. Python and PowerShell check similar required entries. |
+| Frozen-folder execution entry | `app.yaml` `run.entry` and actual `final_app/bin/...exe` | import plan, runtime result, execution result, verify_release | Medium-high if old result files are trusted. P0 gate now mitigates. |
+| requirements lock | `app.yaml` `runtime.requirements_lock` plus actual file | `requirements.lock` fallback in App Pack/verify helpers, docs/tests | Medium. Improved by contract tests; still duplicated in Python/PowerShell. |
+| Approval decision | Python `approval.py` gate | TS display helpers, approval record, diagnose script | Medium. UI must stay presentation-only. |
+| Icon candidates | `icon_work/candidate_manifest.json` plus final `icon_final.png` | legacy flat candidate files, import plan, UI normalizer | Low-medium. Guardrails exist; compatibility code is intentionally retained. |
+| Build policy | Python `normalize_normal_registration_args()` | Rust CLI normalizer, React build options, docs | Medium. Same frozen-folder policy exists in three languages. |
+
+### Major file responsibility table
+
+| File | Current responsibility | Main callers | Generated/observed artifacts | Audit risk |
+| --- | --- | --- | --- | --- |
+| `tools/app_studio/main.py` | CLI parsing and full import orchestration | Rust commands, scripts | Most output-dir artifacts | Large function and phase orchestration are still centralized. |
+| `tools/app_studio/app_studio/registrar.py` | copy final app, update manifest, App Pack generation | `main.py`, `approval.py` | `apps/<app_id>`, `release/app_manifest.json`, App Pack | App Pack contract overlaps PowerShell. |
+| `tools/app_studio/app_studio/approval.py` | approval gate, release verification, rollback | CLI approve | approval record, manifest enabled=true/rollback | Correctness critical; result freshness policy is intentionally conservative but still mtime-based. |
+| `tools/app_studio/app_studio/runtime_checker.py` | frozen-folder distribution checks | `main.py`, tests | runtime check reports/results | Good focus, but legacy-vs-normal exception handling remains mixed. |
+| `tools/app_studio/app_studio/execution_tester.py` | execution checks and approval summary | `main.py` | execution test reports/results | Approval categories are shared conceptually with UI and docs. |
+| `tools/app_studio/app_studio/exporter.py` | suggestion/final app export and icon candidate files | `main.py` | `final_app/`, icon work, reports | Keeps legacy icon candidate compatibility. |
+| `tools/app_studio/app_studio/app_env_builder.py` | internal build_env and legacy app_env builders | `main.py`, tests | build_env reports/cache | Two env concepts remain in one module. |
+| `launcher/src-tauri/src/app_studio_commands.rs` | Tauri command orchestration and remaining management/delete/discovery | React API | command results and management results | Still large, though read/argv/process/override helpers are split. |
+| `launcher/src-tauri/src/app_studio_cli_args.rs` | Rust request normalization and argv building | app_studio_commands | none | Duplicates Python normal registration policy by design. |
+| `launcher/src-tauri/src/app_studio_result_reader.rs` | result summary artifact reader | app_studio_commands | none | Read-only, good boundary. |
+| `launcher/src-tauri/src/app_studio_ai_proposal_reader.rs` | AI/icon proposal reader | app_studio_commands | none | Compatibility-heavy but isolated. |
+| `launcher/src/lib/appStudioRunResult.ts` | UI result view normalizer | ResultPanel, Sidebar, Wizard, RunLog | none | Good boundary; still relies on raw result shape. |
+| `launcher/src/lib/appStudioApproval.ts` | UI approval guidance | run result normalizer/UI | none | Must remain non-authoritative. |
+| `launcher/src/components/admin/appstudio/AppStudioImportWizard.tsx` | normal import UI state and actions | Admin UI | none | Large component with many workflow concerns. |
+| `launcher/src/components/admin/appstudio/AppStudioUpdateWizard.tsx` | update UI state and actions | Admin UI | none | Improved result helper reuse, still update-state heavy. |
+| `launcher/src/components/admin/appstudio/AppStudioDeleteManager.tsx` | management/delete UI | Admin UI | none | Many label/status helpers remain local. |
+| `scripts/package_app_pack.ps1` | App Pack creation/check script | release/check scripts/manual | App Pack and manifest updates | Duplicates Python App Pack path/schema checks. |
+| `scripts/verify_release.ps1` | release readiness validation | approval, check scripts/manual | stdout status | Critical independent gate, but checks duplicate Python helpers. |
+| `scripts/diagnose_app_studio_import.ps1` | read-only diagnosis | admin/dev | optional JSON/text report | Useful, but duplicates freshness/path/classification logic. |
+| `scripts/report_release_readiness.ps1` | readiness classification | check_all/manual | stdout/report | Some warnings are release-wide, not registration-specific. |
+| `docs/13_app_studio.md` | main App Studio user/dev docs | humans | none | Long and partially mojibake in local display; content needs terminology cleanup. |
+| `docs/15_app_studio_update_gui.md` | update GUI docs | humans | none | Contains old fallback/icon wording that should be reviewed. |
+
+### Unhealthy, waste, and duplication candidates
+
+| Priority | Candidate | Why it matters | Status |
+| --- | --- | --- | --- |
+| P0 | App Pack/requirements/run.entry checks split across Python and PowerShell | Registration can pass but release can fail if contracts drift. | Improved with tests; no single source yet. |
+| P0 | Approval depends on result artifacts | Stale or wrong-app results can approve the wrong state. | P0 gate improved; still mtime/artifact based. |
+| P0 | Result source of truth split | UI, approval, diagnose, and release read different artifacts. | Needs continued documentation and normalizer boundaries. |
+| P1 | `main.py` orchestration remains large | Phase order and artifact writes are implicit in one function. | Candidate for phase orchestrator, not immediate breaking refactor. |
+| P1 | `app_studio_commands.rs` remains large | Tauri DTOs, discovery, env, process, management, delete still co-located. | Several helpers split; DTO/preflight/management remain next candidates. |
+| P1 | Normal registration policy duplicated | Python, Rust, TS, docs must agree on frozen-folder/lock/runtime checks. | Low-risk tests help; still no shared spec file. |
+| P1 | `app_env_builder.py` mixes build_env and app_env | Normal path only uses internal build_env; legacy app_env code remains. | Compatibility boundary should be clearer. |
+| P1 | PowerShell YAML parsing duplicated | `package_app_pack.ps1` and `verify_release.ps1` repeat scalar/path helpers. | Safe to consolidate only with script tests. |
+| P2 | UI workflow state is component-heavy | Wizard components own many action branches and messages. | Normalizers helped; component state remains complex. |
+| P2 | Docs contain historical/fallback terminology | Can mislead future cleanup work, especially icon fallback wording. | Docs-only cleanup candidate. |
+| P2 | Delete management labels and safety helpers are split UI/Rust | Display wording and backend categories can drift. | Keep behavior stable; consider normalizer later. |
+| P3 | Legacy proposal/candidate compatibility code | Adds complexity but protects saved outputs. | Do not delete without migration window. |
+
+### Possibly unused files, functions, or fields
+
+These are not deletion recommendations. They need call graph checks, fixture checks, and compatibility decisions first.
+
+| Candidate | Type | Initial signal | Keep/delete bias |
+| --- | --- | --- | --- |
+| `_legacy_suggest_icon_prompt_removed` in AI metadata/icon code | Function | Name indicates removed behavior shim. | Delete candidate after confirming no tests/imports. |
+| `icon_generator.py` compatibility facade | Module | Cleanup left dedicated newer icon modules. | Keep until imports and docs prove it is unused. |
+| Legacy `fallback_png` / `provisional_fallback_png` fields | Saved proposal fields | Old output compatibility only. | Keep for saved proposal compatibility. |
+| Legacy flat `icon_candidate_1.png` / `.url.txt` readers | Compatibility readers | Old output compatibility. | Keep until migration/archive policy exists. |
+| `create_app_env`, `rebuild_app_env`, `skip_app_env_build` normal request fields | Request fields | Normal registration rejects/normalizes them. | Keep until TypeScript/Rust/Python compatibility decision. |
+| `app-env` / `existing-exe` / `auto` build mode docs and tests | Legacy modes | Normal UI does not expose them. | Keep as historical schema compatibility, but separate docs. |
+| `verify_legacy_runtime()` | Runtime checker branch | Normal path uses frozen-folder. | Keep for old/imported data compatibility. |
+| Stale docs in `docs/15_app_studio_update_gui.md` | Documentation | Search found fallback/local fallback wording. | Low-risk docs cleanup. |
+| Local test/output folders under `test/` or old ToolHub output mirrors | Files/fixtures | Generated-looking paths may exist. | Do not delete until fixture ownership is identified. |
+| Duplicate PowerShell App Pack helper functions | Script functions | Same names/logic as Python equivalents. | Consolidate only if tests can cover both scripts. |
+
+### Compatibility code that should remain
+
+- Existing `app.yaml` schema and optional/legacy fields.
+- App Pack layout and `pack_manifest.json` schema.
+- Runner public I/F and launcher-runner contract.
+- `release/app_manifest.json` and `release/manifest.json` schema/version compatibility.
+- Disabled stale release manifest entries until a deliberate full-delete policy is used.
+- Saved proposals, old import plans, old candidate manifests, and legacy flat icon candidate files.
+- Legacy Python runner sample apps that do not declare frozen-folder distribution and should not be forced to have `requirements.lock`.
+- Runtime packaging assumptions: runtime may not be fully bundled in dev environments.
+- User data and external references discovered by delete planning.
+- App Studio default icon and fallback semantics from the icon cleanup handoff.
+
+### Delete candidates requiring additional confirmation
+
+1. Remove `_legacy_suggest_icon_prompt_removed` if no imports/tests reference it.
+2. Remove or rename stale docs around AI/local fallback candidates after comparing against icon cleanup guardrails.
+3. Hide legacy build-mode controls/types from normal registration DTOs only after saved request compatibility is decided.
+4. Split or retire runtime/app_env creation paths from normal App Studio docs, while keeping code for old app compatibility.
+5. Remove old generated output fixtures only after identifying whether tests/scripts read them.
+6. Collapse duplicated PowerShell YAML/path helper code only after script syntax and behavior tests are added.
+7. Remove old fallback icon candidate reader fields only after archived proposals no longer need them.
+8. Retire direct Python runner registration examples from App Studio docs only if they are moved to a separate legacy section.
+9. Remove unused UI helper functions only after TypeScript `rg` and `npm test` confirm no usage.
+10. Remove stale disabled manifest entries only through the full-delete flow, never as an incidental cleanup.
+
+### File structure improvement ideas
+
+- Python: split `main.py` into `cli.py`, `import_orchestrator.py`, `approval_cli.py`, and `icon_regenerate_cli.py` only after tests lock current stdout/artifact behavior.
+- Python: split `app_env_builder.py` into `build_env_builder.py` and `legacy_app_env_builder.py` or add clearer facade names.
+- Python: consider an `app_pack_contract.py` shared by registrar/approval/tests, then mirror the same rule names in PowerShell docs.
+- Rust: next safe split is public DTOs into `app_studio_types.rs`, preserving `serde(rename_all = "camelCase")` and public re-exports.
+- Rust: split preflight/discovery after tests cover runtime-python priority and PATH fallback.
+- Rust: split management/delete as a dedicated safety domain, not as part of process cleanup.
+- React: continue moving result/next-action display decisions into `appStudioRunResult.ts`; leave workflow state in components.
+- React: consider a small management/delete UI normalizer after backend categories stabilize.
+- Docs: separate current normal registration policy from legacy compatibility notes.
+
+### Call simplification ideas
+
+- Keep Python approval as the authoritative gate; UI helpers should only classify and explain.
+- Keep `verify_release.ps1` as an independent release gate, but align check names with Python App Pack contract tests.
+- Reduce repeated "what is next action" branching in UI by expanding the run result normalizer rather than adding component-specific helpers.
+- Treat `import_plan.json` as historical summary and make `app.yaml`, result JSON, App Pack zip, and release manifest the explicit correctness artifacts.
+- Avoid moving process spawn/env injection until there is a narrow executor adapter with tests for secret handling and log order.
+- Avoid consolidating PowerShell/Python YAML parsing by string sharing; instead first document identical rule names and test examples.
+
+### UI/UX improvement ideas
+
+- Keep admin-facing messages focused on cause, expected/actual, file path, and next action.
+- Do not expose all internal phase names in the main wizard; keep detailed reports linked in result panels.
+- Make warning severity vocabulary consistent: fail, approval-blocking warning, non-blocking warning, info.
+- Keep Apply, Approve, result refresh, Update, and Delete actions visually separate.
+- For stale/wrong-app/wrong-output results, always show the result file and the operation to rerun.
+- In update UI, keep version/release-note specifics in the update component and shared result state in the normalizer.
+- In delete UI, treat user data and external references as excluded/safety information, not normal delete candidates.
+
+### Test and validation gaps
+
+- Python unit tests now cover many frozen-folder, App Pack, requirements.lock, runtime, and approval consistency cases, but `main.py` full orchestration remains hard to test without expensive builds.
+- TypeScript pure helper tests cover approval/run result/icon/metadata/version logic, but React component behavior remains mostly untested.
+- Rust helper tests exist for recent helper splits, but local `cargo check` has been reported as blocked by Windows application control policy in prior phases.
+- PowerShell scripts have syntax checks and manual/targeted execution, but not isolated unit tests for each helper function.
+- `check_all.ps1` can conflate design issues with environment gaps such as missing MSVC, blocked cargo, missing installer artifact, incomplete runtime bundle, or existing App Pack hash mismatch.
+- Fixture vs generated-output ownership is not fully documented for old `test/` and App Studio output mirrors.
+
+### Release, runtime, and App Pack connection issues
+
+- Normal App Studio registration is frozen-folder, but release readiness still reports broader runtime/app_env concerns for the whole product. These should stay separate in reports.
+- `requirements.lock` is required for App Studio frozen-folder apps, but not for legacy Python runner sample apps unless they declare the frozen-folder contract.
+- App Pack required entries are checked by Python and PowerShell with similar but duplicated logic.
+- Approval runs targeted app verification and `verify_release.ps1`; global pre-existing release warnings should not be treated as newly introduced app failures.
+- Existing App Pack sha256 mismatch or missing installer artifact is a release readiness issue unless caused by the current registration.
+- Runtime bundle absence is a release packaging issue, not proof that the frozen-folder app registration artifact is invalid.
+
+### Priority backlog
+
+| Priority | Improvement | Rationale |
+| --- | --- | --- |
+| P0 | Keep approval stale/wrong-app/wrong-output tests maintained | Direct approval safety. |
+| P0 | Keep requirements.lock/App Pack/verify_release contract tests maintained | Direct registration success and release compatibility. |
+| P0 | Add targeted examples for release verification failures that mention the current app | Prevent rollback/report drift. |
+| P1 | Split Rust DTOs into `app_studio_types.rs` | Low behavior risk and reduces `app_studio_commands.rs` size. |
+| P1 | Split Python import orchestration phases behind a facade | Improves maintainability but must preserve artifacts/stdout. |
+| P1 | Clarify build_env vs legacy app_env module/docs | Reduces conceptual debt for normal registration. |
+| P1 | Add PowerShell script helper tests or golden samples | Reduces Python/PowerShell rule drift. |
+| P2 | Clean docs/15 and older fallback terminology | Improves operator/developer clarity. |
+| P2 | Add UI component-level smoke tests for result/approval displays | Protects normalizer integration. |
+| P2 | Add management/delete normalizer | Reduces UI label drift. |
+| P3 | Archive or migrate old proposal/legacy candidate formats | Enables future deletion of compatibility readers. |
+| P3 | Large App Studio architecture split | Useful only after smaller boundaries are stable. |
+
+### Low-risk improvements that can be implemented next
+
+- Docs-only cleanup of stale fallback wording in `docs/15_app_studio_update_gui.md` and related references.
+- Rust DTO split into `app_studio_types.rs` with exact field names and `serde` attributes preserved.
+- Add explicit source-of-truth table to `docs/13_app_studio.md`.
+- Add more pure helper tests for `app_studio_cli_args.rs` and `app_studio_process.rs` if cargo is available.
+- Add PowerShell parser/syntax validation to a focused test script without changing script behavior.
+- Align wording of App Pack required entries between docs, Python error messages, and PowerShell messages.
+- Document legacy app exceptions in a separate compatibility section.
+
+### Medium to high risk improvements requiring a decision first
+
+- Make `runtime_check_result.json` mandatory for all approval paths. This needs saved/old result compatibility decisions.
+- Introduce `generated_at` expiry or source-hash freshness. This needs operational policy and old proposal migration decisions.
+- Change release readiness strict policy around missing app_env skeletons for frozen-folder apps. This affects release acceptance semantics.
+- Create a single implementation source for Python and PowerShell App Pack validation. This may require a cross-language contract artifact or generated checks.
+- Move Python process discovery/env injection/spawn into a Rust executor module. This can affect secret handling and log order.
+- Delete legacy build modes or compatibility fields. This risks app.yaml/request/proposal compatibility.
+- Full Python `main.py` phase refactor. This must preserve stdout, output files, timings, and failure behavior.
+- Delete old disabled/stale manifest entries or generated outputs. This requires user data and full-delete policy decisions.
+
+### Areas to avoid touching without explicit approval
+
+- `apps/`, `release/`, `runtime/`, `data/`, `logs/`, generated App Studio output, App Pack zips, installer artifacts.
+- `launcher/package-lock.json`, `launcher/src-tauri/Cargo.lock`, package/Cargo dependency manifests.
+- App.yaml public schema, App Pack schema, runner public I/F, release manifest compatibility.
+- Saved proposal and legacy icon candidate compatibility.
+- User data, external references, and shared runtime paths discovered by delete planning.
+- Python discovery/env injection/process spawn behavior unless dedicated tests and approval exist.
+
+### Recommended next Codex implementation prompt
+
+```text
+AGENTS.md rules apply. In one pass, implement, self-review, and validate.
+
+Purpose:
+As a P1 cleanup for ToolHub App Studio, split only the public Rust DTO/request/response structs from
+launcher/src-tauri/src/app_studio_commands.rs into launcher/src-tauri/src/app_studio_types.rs.
+
+Constraints:
+- Do not change Tauri command names, arguments, return JSON shape, serde rename attributes, or React/TypeScript API shape.
+- Do not change Python discovery, env injection, process spawn, management, delete, App Pack, app.yaml, runner, release manifest, or Python CLI behavior.
+- Re-export/import moved structs so existing commands compile with the same public shape.
+- Update docs/24 with the boundary and follow-up.
+
+Validation:
+- rustfmt --edition 2021 --check launcher/src-tauri/src/app_studio_commands.rs launcher/src-tauri/src/app_studio_types.rs
+- cd launcher/src-tauri; cargo check
+- cd launcher; npm run build if cargo succeeds or if TypeScript shape concerns appear
+- git diff --check
+```
+
+### Stop-condition findings
+
+No stop condition blocked this audit because no implementation change was made. The following remain stop conditions for future work:
+
+- Breaking app.yaml schema, App Pack spec, runner I/F, or release manifest compatibility.
+- Breaking saved proposal, old import_plan, old candidate_manifest, or legacy flat candidate compatibility.
+- Deleting user data or generated outputs without a full-delete/migration decision.
+- Changing runtime bundle policy, installer/signing/update trust, or Python env injection behavior.
+- Large refactors that cannot be validated in the current environment.
+
+### Post-audit self review
+
+- Scope control: only documentation was changed.
+- Interface impact: none.
+- Generated artifacts: none intentionally changed.
+- Dirty unrelated file: `.gitup/backups/20260507_193856_rebuild_from_github/current` remains unrelated.
+- Main residual risk: some existing docs render as mojibake in local PowerShell output; the audit section was written in ASCII to avoid adding new encoding ambiguity.
+
 `docs/00_AI_CONTEXT.md` は存在しなかった。
 
 ## 事前確認した guardrails
