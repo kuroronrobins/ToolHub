@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { Bot, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { appStudioAiDiagnostics, appStudioReadAiProposal } from "../../../lib/appStudioApi";
+import {
+  candidateConceptSummary,
+  candidateSourceLabel,
+  displayModelName,
+  iconSourceLabel,
+  normalizeAppStudioIconProposal,
+  type NormalizedIconProposal,
+} from "../../../lib/appStudioIconProposal";
 import type { AppStudioAiDiagnostics, AppStudioAiIconCandidate, AppStudioAiProposal, AppStudioIconOverride, AppStudioRunResult, AppStudioSelectedIconSource } from "../../../lib/appStudioTypes";
 import { IMAGE_TEST_UPDATED_EVENT, imageApiFailureGuidance, isOrganizationVerificationRequired, loadImageGenerationTestResult, type StoredImageGenerationTestResult } from "../../../lib/imageApiHealth";
 import { formatAdminError } from "../adminUi";
@@ -125,9 +133,9 @@ export function AppStudioAiProposalPanel({
   const metadata = proposal?.metadata;
   const icon = proposal?.icon;
   const selected = selectedIconSource ?? localSelectedIconSource;
-  const iconCandidates = icon ? sortIconCandidates(normalizedIconCandidates(icon)) : [];
-  const apiCandidates = iconCandidates.filter((candidate) => !candidate.fallback && isApiOrLegacyCandidate(candidate));
-  const primaryPreviewLabel = apiCandidates.length ? "AI PNGアイコン候補" : "ToolHub共通default icon";
+  const normalizedIcon = icon ? normalizeAppStudioIconProposal(icon, selected) : null;
+  const apiCandidates = normalizedIcon?.apiCandidates ?? [];
+  const primaryPreviewLabel = normalizedIcon?.primaryPreviewLabel ?? "ToolHub共通default icon";
   const metadataFields = compact ? METADATA_FIELDS.filter((field) => field.compact) : METADATA_FIELDS;
   const imageApiBlocked = imageApiHealth?.ok === false;
 
@@ -220,7 +228,7 @@ export function AppStudioAiProposalPanel({
             </button>
           </div>
           <IconFunctionInterpretationPanel interpretation={icon.functionInterpretation} />
-          <ImageApiSummaryPanel icon={icon} candidates={iconCandidates} />
+          <ImageApiSummaryPanel normalized={normalizedIcon} />
           <div className="studio-icon-candidate-section">
             <div className="admin-section-head compact">
               <div>
@@ -235,19 +243,19 @@ export function AppStudioAiProposalPanel({
               <IconCandidateCard
                 key={candidate.candidateId}
                 candidate={candidate}
-                adopted={selectedIconSource === "candidate_png" && selectedIconCandidateId === candidate.candidateId}
+                adopted={selected === "candidate_png" && selectedIconCandidateId === candidate.candidateId}
                 onAdopt={() => adoptPng("candidate_png", candidate.pngDataUrl, candidate)}
               />
             ))}
           </div>
           </div>
           <div className="studio-icon-preview-row">
-            {icon.candidatePngDataUrl ? <img className="studio-icon-preview primary-icon-preview" src={icon.candidatePngDataUrl} alt={primaryPreviewLabel} /> : null}
-            {icon.finalPngDataUrl ? <img className="studio-icon-preview" src={icon.finalPngDataUrl} alt="ToolHub共通default icon" /> : null}
+            {normalizedIcon?.candidatePngDataUrl ? <img className="studio-icon-preview primary-icon-preview" src={normalizedIcon.candidatePngDataUrl} alt={primaryPreviewLabel} /> : null}
+            {normalizedIcon?.finalPngDataUrl ? <img className="studio-icon-preview" src={normalizedIcon.finalPngDataUrl} alt="ToolHub共通default icon" /> : null}
           </div>
           <div className="studio-action-row">
-            <span className="admin-status-pill">採用中: {selectedIconLabel(selected)}</span>
-            <button className="secondary-button" type="button" onClick={() => adoptPng("candidate_png", icon.candidatePngDataUrl)} disabled={!icon.candidatePngDataUrl || !apiCandidates.length}>
+            <span className="admin-status-pill">採用中: {iconSourceLabel(selected)}</span>
+            <button className="secondary-button" type="button" onClick={() => adoptPng("candidate_png", normalizedIcon?.candidatePngDataUrl)} disabled={!normalizedIcon?.canAdoptPrimaryPng}>
               <CheckCircle2 size={17} aria-hidden="true" />
               このPNGを採用
             </button>
@@ -257,7 +265,7 @@ export function AppStudioAiProposalPanel({
             </button>
           </div>
           <p className="admin-muted">PNGが標準アイコンです。AI候補を採用していない場合は ToolHub 共通 default icon が final_app/icon.png に使われます。</p>
-          {icon.candidateUrl ? <p className="admin-muted">PNG URL候補: {icon.candidateUrl}</p> : null}
+          {normalizedIcon?.candidateUrl ? <p className="admin-muted">PNG URL候補: {normalizedIcon.candidateUrl}</p> : null}
           <dl className="studio-ai-fields">
             <ReportFields title="画像生成状態" report={icon.aiReport} />
             {!compact ? <Field label="初回Prompt" value={icon.promptInitial} /> : null}
@@ -331,43 +339,37 @@ function IconFunctionInterpretationPanel({ interpretation }: { interpretation?: 
   );
 }
 
-function ImageApiSummaryPanel({ icon, candidates }: { icon: AppStudioAiProposal["icon"]; candidates: AppStudioAiIconCandidate[] }) {
-  const summary = icon.imageApiSummary;
-  const apiCount = numberValue(summary?.apiCandidateCount ?? summary?.api_candidate_count) ?? candidates.filter((candidate) => !candidate.fallback && isApiOrLegacyCandidate(candidate)).length;
-  const failureReasons = candidates.map((candidate) => candidate.fallbackReason || "").filter(Boolean);
-  const latestFailure = stringValue(summary?.latestImageApiFailure ?? summary?.latest_image_api_failure) || failureReasons[failureReasons.length - 1] || "";
-  const failureCategories = candidates.map((candidate) => candidate.errorCategory || "").filter(Boolean);
-  const failureCategory = failureCategories[failureCategories.length - 1] || "";
-  const failureClass = stringValue(summary?.failureClass ?? summary?.failure_class) || failureCategory;
-  const failureMessage = stringValue(summary?.failureMessage ?? summary?.failure_message) || latestFailure;
-  const adminNextAction = stringValue(summary?.adminNextAction ?? summary?.admin_next_action);
-  const selectedIconSource = stringValue(summary?.selectedIconSource ?? summary?.selected_icon_source);
-  const iconStatus = stringValue(summary?.iconStatus ?? summary?.icon_status);
-  const defaultIconUsed = Boolean(summary?.defaultIconUsed ?? summary?.default_icon_used);
-  const defaultIconReason = stringValue(summary?.defaultIconReason ?? summary?.default_icon_reason);
-  const packageSecretScanStatus = stringValue(summary?.packageSecretScanStatus ?? summary?.package_secret_scan_status);
-  const payloadSecretScanStatus = stringValue(summary?.aiPayloadSecretScanStatus ?? summary?.ai_payload_secret_scan_status);
-  const aiSubmissionBlocked = Boolean(summary?.aiSubmissionBlocked ?? summary?.ai_submission_blocked);
-  const aiSubmissionBlockReason = stringValue(summary?.aiSubmissionBlockReason ?? summary?.ai_submission_block_reason);
-  const modelRaw = stringValue(summary?.model) || candidates.find((candidate) => candidate.model && !isInternalPlaceholderModel(candidate.model))?.model || "";
-  const model = displayModelName(modelRaw);
-  const stylePreset = stringValue(summary?.stylePreset ?? summary?.style_preset);
-  const revisionMode = stringValue(summary?.revisionMode ?? summary?.revision_mode);
-  const imageQualityMode = stringValue(summary?.imageQualityMode ?? summary?.image_quality_mode);
-  const imageApiSeconds = numberValue(summary?.imageApiSeconds ?? summary?.image_api_seconds);
-  const proposalReloadSeconds = numberValue(summary?.proposalReloadSeconds ?? summary?.proposal_reload_seconds);
-  const organizationBlocked = isOrganizationVerificationRequired({ model: modelRaw || model, errorCategory: failureClass || failureCategory, fallbackReason: latestFailure, message: latestFailure });
+function ImageApiSummaryPanel({ normalized }: { normalized: NormalizedIconProposal | null }) {
+  if (!normalized) {
+    return null;
+  }
+  const { diagnosis } = normalized;
+  const apiCount = diagnosis.apiCandidateCount;
+  const modelRaw = diagnosis.modelRaw;
+  const model = diagnosis.modelLabel;
+  const latestFailure = diagnosis.latestFailure;
+  const failureClass = diagnosis.failureClass;
+  const failureCategory = diagnosis.failureCategory;
+  const failureMessage = diagnosis.failureMessage;
+  const adminNextAction = diagnosis.adminNextAction;
+  const defaultIconUsed = normalized.defaultIcon.used;
+  const defaultIconReason = normalized.defaultIcon.reason;
+  const organizationBlocked = isOrganizationVerificationRequired({
+    model: modelRaw || model,
+    errorCategory: failureClass || failureCategory,
+    fallbackReason: latestFailure,
+    message: failureMessage || latestFailure,
+  });
   return (
     <div className={`studio-image-api-summary${apiCount > 0 ? " ok" : " warn"}`}>
       <div><span>API候補</span><strong>{apiCount}</strong></div>
       <div><span>画像モデル</span><strong>{model}</strong></div>
-      {selectedIconSource ? <div><span>現在のアイコン</span><strong>{selectedIconLabel(selectedIconSource)}</strong></div> : null}
-      {iconStatus ? <div><span>アイコン状態</span><strong>{iconStatus}</strong></div> : null}
-      {stylePreset ? <div><span>スタイル</span><strong>{stylePreset}</strong></div> : null}
-      {revisionMode ? <div><span>再生成モード</span><strong>{revisionMode}</strong></div> : null}
-      {imageQualityMode ? <div><span>生成品質設定</span><strong>{imageQualityMode}</strong></div> : null}
-      {imageApiSeconds !== null ? <div><span>API秒数</span><strong>{imageApiSeconds.toFixed(1)}秒</strong></div> : null}
-      {proposalReloadSeconds !== null ? <div><span>再読込</span><strong>{proposalReloadSeconds.toFixed(2)}秒</strong></div> : null}
+      <div><span>現在のアイコン</span><strong>{normalized.currentSourceLabel}</strong></div>
+      {diagnosis.stylePreset ? <div><span>スタイル</span><strong>{diagnosis.stylePreset}</strong></div> : null}
+      {diagnosis.revisionMode ? <div><span>再生成モード</span><strong>{diagnosis.revisionMode}</strong></div> : null}
+      {diagnosis.imageQualityMode ? <div><span>生成品質設定</span><strong>{diagnosis.imageQualityMode}</strong></div> : null}
+      {diagnosis.imageApiSeconds !== null ? <div><span>API秒数</span><strong>{diagnosis.imageApiSeconds.toFixed(1)}秒</strong></div> : null}
+      {diagnosis.proposalReloadSeconds !== null ? <div><span>再読込</span><strong>{diagnosis.proposalReloadSeconds.toFixed(2)}秒</strong></div> : null}
       {failureCategory ? <div><span>error_category</span><strong>{failureCategory}</strong></div> : null}
       {apiCount === 0 ? (
         <div className="wide studio-icon-ai-failure">
@@ -378,9 +380,9 @@ function ImageApiSummaryPanel({ icon, candidates }: { icon: AppStudioAiProposal[
         </div>
       ) : null}
       {failureClass ? <div><span>failure_class</span><strong>{failureClass}</strong></div> : null}
-      {packageSecretScanStatus ? <div><span>package secret</span><strong>{secretStatusLabel(packageSecretScanStatus)}</strong></div> : null}
-      {payloadSecretScanStatus ? <div><span>AI payload secret</span><strong>{secretStatusLabel(payloadSecretScanStatus)}</strong></div> : null}
-      {aiSubmissionBlocked ? <div className="wide"><span>AI送信停止理由</span><strong>{aiSubmissionBlockReason || "secret scan によりAI送信を停止しました。"}</strong></div> : null}
+      {diagnosis.packageSecretScanStatus ? <div><span>package secret</span><strong>{secretStatusLabel(diagnosis.packageSecretScanStatus)}</strong></div> : null}
+      {diagnosis.payloadSecretScanStatus ? <div><span>AI payload secret</span><strong>{secretStatusLabel(diagnosis.payloadSecretScanStatus)}</strong></div> : null}
+      {diagnosis.aiSubmissionBlocked ? <div className="wide"><span>AI送信停止理由</span><strong>{diagnosis.aiSubmissionBlockReason || "secret scan によりAI送信を停止しました。"}</strong></div> : null}
       {defaultIconUsed ? <div className="wide"><span>default icon</span><strong>{defaultIconReason || "未採用時の共通アイコンを使用中です。"}</strong></div> : null}
       {latestFailure ? <div className="wide"><span>直近の失敗理由</span><strong>{latestFailure}</strong></div> : null}
       {organizationBlocked ? <div className="wide"><span>案内</span><strong>{model} は現在のOpenAI組織では利用できません。組織認証を完了するか、別のImage modelを設定してください。</strong></div> : null}
@@ -397,7 +399,7 @@ function IconCandidateCard({ candidate, adopted, onAdopt }: { candidate: AppStud
     <article className={`studio-icon-candidate-card${adopted ? " selected" : ""}`}>
       <div className="studio-icon-candidate-head">
         <strong>候補 {candidate.number || candidate.candidateId}</strong>
-        <span className={candidate.fallback ? "admin-status-pill warn" : "admin-status-pill"}>{candidate.fallback ? "旧互換候補" : sourceLabel(candidate.source)}</span>
+        <span className={candidate.fallback ? "admin-status-pill warn" : "admin-status-pill"}>{candidate.fallback ? "旧互換候補" : candidateSourceLabel(candidate.source)}</span>
       </div>
       {candidate.pngDataUrl ? (
         <img className="studio-icon-preview primary-icon-preview" src={candidate.pngDataUrl} alt={`PNGアイコン候補 ${candidate.number}`} />
@@ -436,79 +438,6 @@ function IconCandidateCard({ candidate, adopted, onAdopt }: { candidate: AppStud
       </button>
     </article>
   );
-}
-
-function candidateConceptSummary(candidate: AppStudioAiIconCandidate): string {
-  const concept = candidate.concept as Record<string, unknown> | null | undefined;
-  if (!concept) {
-    return "";
-  }
-  const direction = stringValue(concept.direction) || candidate.conceptId || "";
-  const composition = stringValue(concept.composition);
-  const whySpecific = stringValue(concept.why_specific) || stringValue(concept.whySpecific);
-  return [direction, composition, whySpecific].filter(Boolean).join(" / ");
-}
-
-function stringValue(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function numberValue(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function sortIconCandidates(candidates: AppStudioAiIconCandidate[]): AppStudioAiIconCandidate[] {
-  return [...candidates].sort((left, right) => {
-    if (left.fallback !== right.fallback) {
-      return left.fallback ? 1 : -1;
-    }
-    return (left.number || 0) - (right.number || 0);
-  });
-}
-
-function isApiOrLegacyCandidate(candidate: AppStudioAiIconCandidate): boolean {
-  return Boolean(candidate.source?.startsWith("api") || candidate.source === "legacy");
-}
-
-function normalizedIconCandidates(icon: AppStudioAiProposal["icon"]): AppStudioAiIconCandidate[] {
-  if (Array.isArray(icon.candidates) && icon.candidates.length) {
-    return icon.candidates;
-  }
-  const candidates: AppStudioAiIconCandidate[] = [];
-  if (icon.candidatePngDataUrl || icon.candidateUrl) {
-    candidates.push({
-      candidateId: "icon_candidate_1",
-      number: 1,
-      source: "legacy",
-      prompt: icon.promptRevision || icon.promptInitial,
-      model: "unknown",
-      status: "legacy",
-      resolution: "unknown",
-      fallback: false,
-      pngDataUrl: icon.candidatePngDataUrl,
-      url: icon.candidateUrl,
-    });
-  }
-  return candidates;
-}
-
-function sourceLabel(source?: string | null): string {
-  if (!source) {
-    return "unknown";
-  }
-  if (source === "api_generate") {
-    return "API";
-  }
-  if (source === "api_edit") {
-    return "API edit";
-  }
-  if (source.includes("fallback")) {
-    return "旧互換";
-  }
-  if (source === "api") {
-    return "API生成";
-  }
-  return source;
 }
 
 function Field({ label, value }: { label: string; value?: string | null }) {
@@ -684,38 +613,5 @@ function diagnosticMessage(message: string): string {
     return "AI機能は無効です。未採用時はToolHub共通default iconで続行できます。";
   }
   return message;
-}
-
-function selectedIconLabel(source: AppStudioSelectedIconSource | string): string {
-  if (source === "candidate_png") {
-    return "AI PNG候補";
-  }
-  if (source === "ai_candidate_png") {
-    return "AI PNG候補";
-  }
-  if (source === "uploaded_png") {
-    return "アップロードPNG";
-  }
-  if (source === "default_icon") {
-    return "ToolHub共通default icon";
-  }
-  if (source === "final_png") {
-    return "PNG選択済み";
-  }
-  if (source === "fallback_png" || source === "provisional_fallback_png") {
-    return "旧入力（default icon扱い）";
-  }
-  return "未採用";
-}
-
-function isInternalPlaceholderModel(value?: string | null): boolean {
-  return value === "local-deterministic-fallback" || value === "deterministic-text-prompt-fallback" || value === "image-model-not-configured";
-}
-
-function displayModelName(value?: string | null): string {
-  if (!value || isInternalPlaceholderModel(value)) {
-    return "未設定";
-  }
-  return value;
 }
 

@@ -1,3 +1,4 @@
+import { previewIconDataUrl } from "../../../lib/appStudioIconProposal";
 import type { AppStudioAiProposal, AppStudioEditableMetadata, AppStudioIconOverride } from "../../../lib/appStudioTypes";
 
 interface Props {
@@ -26,16 +27,6 @@ export function AppStudioLauncherPreview({ appId, name, metadata, proposal, icon
       </div>
     </section>
   );
-}
-
-function previewIconDataUrl(iconOverride?: AppStudioIconOverride, proposal?: AppStudioAiProposal | null): string | null {
-  if (iconOverride?.pngDataUrl) {
-    return iconOverride.pngDataUrl;
-  }
-  if (iconOverride?.selectedIconSource === "fallback_png" || iconOverride?.selectedIconSource === "default_icon") {
-    return proposal?.icon.finalPngDataUrl ?? null;
-  }
-  return proposal?.icon.finalPngDataUrl ?? null;
 }
 
 function previewInitial(name?: string, appId?: string): string {

@@ -1,4 +1,5 @@
 import type { AppStudioAiProposal, AppStudioImportRequest, AppStudioPreflightResult, AppStudioRunResult } from "../../../lib/appStudioTypes";
+import { normalizeAppStudioIconProposal } from "../../../lib/appStudioIconProposal";
 import { AppStudioOperationBanner, type StudioOperationState } from "./AppStudioOperationBanner";
 import { type AppStudioImportStep, importStepLabel } from "./AppStudioStepNav";
 
@@ -114,10 +115,8 @@ function collectWarnings(preflight: AppStudioPreflightResult | null, result: App
   if (result?.executionStatus === "warn") {
     warnings.add("配布物検証が警告扱いです。ログとレポートを確認してください。");
   }
-  const imageSummary = aiProposal?.icon.imageApiSummary;
-  const apiCandidateCount = Number(imageSummary?.apiCandidateCount ?? imageSummary?.api_candidate_count ?? 0);
-  const defaultIconUsed = Boolean(imageSummary?.defaultIconUsed ?? imageSummary?.default_icon_used);
-  if (apiCandidateCount === 0 && defaultIconUsed) {
+  const normalizedIcon = aiProposal?.icon ? normalizeAppStudioIconProposal(aiProposal.icon) : null;
+  if (normalizedIcon && normalizedIcon.diagnosis.apiCandidateCount === 0 && normalizedIcon.defaultIcon.used) {
     warnings.add("AI画像候補は保存されていません。未採用時のToolHub共通default iconを使用しています。");
   }
   return Array.from(warnings);

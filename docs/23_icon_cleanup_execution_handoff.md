@@ -41,10 +41,10 @@ Current Phase 3 through Phase 4 residuals to keep under control:
 ## Phase 3-4 residual classification
 
 Checked after Phase 3-4 cleanup on 2026-05-09. No residual requires returning
-local fallback image candidates, and Phase 5 can start as a module split /
-compatibility-isolation task.
+local fallback image candidates. Phase 5 has since isolated module boundaries
+and compatibility handling; Phase 6 should keep using those boundaries.
 
-| Residual term | Classification | Action before Phase 5 |
+| Residual term | Classification | Current action |
 | --- | --- | --- |
 | `fallback_icon_concepts` | docs history / search checklist only | No code action. Current code uses `deterministic_icon_concepts`. |
 | `local-deterministic-fallback` | legacy input/read/display compatibility | Keep tolerant reads and UI display normalization. Do not emit as the new image model label. |
@@ -259,7 +259,7 @@ cargo check
 
 ### Phase 5: split large icon modules
 
-Status: not started. Start only after Phase 3 through Phase 4 cleanup is validated.
+Status: implemented on 2026-05-09. `icon_generator.py` is now a compatibility facade, and the implementation is split into `icon_pipeline.py`, `icon_prompt.py`, `icon_candidates.py`, `icon_diagnostics.py`, `icon_quality.py`, and `icon_compat.py`.
 
 Purpose:
 
@@ -288,6 +288,8 @@ python -m unittest discover -s tools/app_studio/tests
 
 ### Phase 6: UI normalization
 
+Status: started on 2026-05-09.
+
 Purpose:
 
 - Make React components consume a normalized icon proposal shape.
@@ -296,6 +298,7 @@ Preferred direction:
 
 - Add one normalizer for raw proposal icon data.
 - Keep legacy fallback parsing inside the normalizer.
+- Use `launcher/src/lib/appStudioIconProposal.ts` as the UI boundary for current icon source, API candidates, hidden legacy fallback compatibility, default icon state, image API failure diagnosis, and reference-only quality metadata.
 - Components should render:
   - current icon source,
   - API candidates,
@@ -382,19 +385,19 @@ After editing:
 
 ## Recommended next implementation prompt
 
-Use this as the next instruction if the goal is to continue after Phase 3 through Phase 4 cleanup:
+Use this as the next instruction if the goal is to continue Phase 6 UI normalization after the first normalizer pass:
 
 ```text
 AGENTS.md のルールに従って、1 回の作業で実装・セルフレビュー・検証まで実施してください。
 
 目的:
 ToolHub App Studio のアイコン生成まわりを、現行挙動を変えずに cleanup してください。
-次は Phase 5 の module split / compat isolation を対象にします。
+次は Phase 6 の UI normalization の継続を対象にします。
 
 実施内容:
-- fallback / local icon rendering 関連の参照を再確認する。
-- 既存挙動を変えずに `icon_generator.py` の prompt / candidate / diagnostics / quality 周辺を機械的に分割する。
-- legacy fallback fields の読み取り互換を normalizer / compat 層へ隔離する。
+- `launcher/src/lib/appStudioIconProposal.ts` を UI の icon proposal normalizer として維持・拡張する。
+- React components が raw `imageApiSummary` / `candidates` / legacy fallback fields を直接読む箇所を減らす。
+- legacy fallback fields の読み取り互換を normalizer 内へ隔離する。
 - pseudo quality metadata は通常UIに出さず、必要なら details/report-only に留める。
 - new output に fallback candidate counter/reason を戻さない。
 - local fallback image candidate を復活させない。

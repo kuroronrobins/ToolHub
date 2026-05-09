@@ -13,6 +13,14 @@ import {
 } from "../../../lib/appStudioApi";
 import { getAppStudioApprovalDecision } from "../../../lib/appStudioApproval";
 import { suggestAppIdentity } from "../../../lib/appStudioIdentity";
+import {
+  apiIconCandidatesForProposal,
+  iconSourceLabel,
+  normalizeAppStudioIconProposal,
+  selectedIconCandidateForProposal,
+  summaryNumberValue,
+  summaryStringValue,
+} from "../../../lib/appStudioIconProposal";
 import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
 import { IMAGE_TEST_UPDATED_EVENT, imageApiFailureGuidance, loadImageGenerationTestResult, type StoredImageGenerationTestResult } from "../../../lib/imageApiHealth";
 import type {
@@ -408,7 +416,7 @@ export function AppStudioImportWizard() {
 
   function handleProposalLoaded(proposal: AppStudioAiProposal) {
     setAiProposal(proposal);
-    const candidates = iconCandidatesForProposal(proposal);
+    const candidates = apiIconCandidatesForProposal(proposal);
     if (!revisionBaseCandidateId || !candidates.some((candidate) => candidate.candidateId === revisionBaseCandidateId)) {
       setRevisionBaseCandidateId(candidates[0]?.candidateId ?? "");
     }
@@ -424,7 +432,7 @@ export function AppStudioImportWizard() {
       setError("アイコンの修正指示を入力してください。");
       return;
     }
-    const baseCandidate = selectedRevisionBaseCandidate(aiProposal, revisionBaseCandidateId);
+    const baseCandidate = selectedIconCandidateForProposal(aiProposal, revisionBaseCandidateId);
     setLastRevisionBase(baseCandidate);
     const outputDir = aiProposal?.outputDir ?? result?.outputDir;
     const appId = result?.appId ?? aiProposal?.metadata.appId ?? request.appId;
@@ -666,15 +674,16 @@ export function AppStudioImportWizard() {
   }
 
   function renderIconRevisionPanel() {
-    const revisionCandidates = iconCandidatesForProposal(aiProposal);
-    const baseCandidate = selectedRevisionBaseCandidate(aiProposal, revisionBaseCandidateId);
+    const normalizedIcon = aiProposal?.icon ? normalizeAppStudioIconProposal(aiProposal.icon, request.iconOverride?.selectedIconSource) : null;
+    const revisionCandidates = normalizedIcon?.apiCandidates ?? [];
+    const baseCandidate = selectedIconCandidateForProposal(aiProposal, revisionBaseCandidateId);
     const latestCandidate = revisionCandidates[0] ?? null;
     const baseIcon = lastRevisionBase?.pngDataUrl ?? baseCandidate?.pngDataUrl ?? null;
-    const latestIcon = latestCandidate?.pngDataUrl ?? aiProposal?.icon.candidatePngDataUrl ?? aiProposal?.icon.finalPngDataUrl ?? null;
+    const latestIcon = latestCandidate?.pngDataUrl ?? null;
     const adoptedIcon = request.iconOverride?.pngDataUrl ?? null;
     const imageSummary = aiProposal?.icon.imageApiSummary;
-    const savedRevisionInstruction = stringSummaryValue(imageSummary?.userRevisionInstruction ?? imageSummary?.user_revision_instruction);
-    const finalImageApiPrompt = latestCandidate?.prompt || stringSummaryValue(imageSummary?.finalImageApiPrompt ?? imageSummary?.final_image_api_prompt);
+    const savedRevisionInstruction = summaryStringValue(imageSummary?.userRevisionInstruction ?? imageSummary?.user_revision_instruction);
+    const finalImageApiPrompt = latestCandidate?.prompt || summaryStringValue(imageSummary?.finalImageApiPrompt ?? imageSummary?.final_image_api_prompt);
     const intermediatePrompt = aiProposal?.icon.promptRevision || request.iconPrompt || "";
     return (
       <section className="studio-icon-revision-panel">
@@ -877,42 +886,6 @@ function ImageApiBlockedBanner({ result }: { result: StoredImageGenerationTestRe
   );
 }
 
-function iconCandidatesForProposal(proposal: AppStudioAiProposal | null): AppStudioAiIconCandidate[] {
-  const icon = proposal?.icon;
-  if (!icon) {
-    return [];
-  }
-  if (Array.isArray(icon.candidates) && icon.candidates.length) {
-    return icon.candidates.filter((candidate) => !candidate.fallback && isApiOrLegacyCandidate(candidate));
-  }
-  if (icon.candidatePngDataUrl || icon.candidateUrl) {
-    return [
-      {
-        candidateId: "icon_candidate_1",
-        number: 1,
-        source: "legacy",
-        prompt: icon.promptRevision || icon.promptInitial,
-        model: "unknown",
-        status: "legacy",
-        resolution: "unknown",
-        fallback: false,
-        pngDataUrl: icon.candidatePngDataUrl,
-        url: icon.candidateUrl,
-      },
-    ];
-  }
-  return [];
-}
-
-function selectedRevisionBaseCandidate(proposal: AppStudioAiProposal | null, candidateId: string): AppStudioAiIconCandidate | null {
-  const candidates = iconCandidatesForProposal(proposal);
-  return candidates.find((candidate) => candidate.candidateId === candidateId) ?? candidates[0] ?? null;
-}
-
-function isApiOrLegacyCandidate(candidate: AppStudioAiIconCandidate): boolean {
-  return Boolean(candidate.source?.startsWith("api") || candidate.source === "legacy");
-}
-
 function buildIconRevisionContext(
   baseCandidate: AppStudioAiIconCandidate | null,
   iconOverride: AppStudioIconOverride | undefined,
@@ -982,17 +955,8 @@ function revisionModeStrength(mode: IconRevisionMode): { preserve: string; chang
 }
 
 function imageApiSeconds(proposal: AppStudioAiProposal): string {
-  const summary = proposal.icon.imageApiSummary;
-  const seconds = numberSummaryValue(summary?.imageApiSeconds ?? summary?.image_api_seconds);
+  const seconds = normalizeAppStudioIconProposal(proposal.icon).diagnosis.imageApiSeconds;
   return seconds === null ? "未記録" : `${seconds.toFixed(1)}秒`;
-}
-
-function stringSummaryValue(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function numberSummaryValue(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function estimateOperationSeconds(kind: StudioOperationKind, result: AppStudioRunResult | null): number | null {
@@ -1061,26 +1025,4 @@ function messageForResult(result: AppStudioRunResult, action: StudioAction): str
     return "テスト登録と配布物検証が完了しました。問題なければ承認してください。";
   }
   return "登録内容を作成しました。内容を確認して次へ進んでください。";
-}
-
-function iconSourceLabel(source?: string): string {
-  if (source === "candidate_png") {
-    return "AI PNG候補";
-  }
-  if (source === "ai_candidate_png") {
-    return "AI PNG候補";
-  }
-  if (source === "uploaded_png") {
-    return "アップロードPNG";
-  }
-  if (source === "default_icon") {
-    return "ToolHub共通default icon";
-  }
-  if (source === "final_png") {
-    return "PNG選択済み";
-  }
-  if (source === "fallback_png") {
-    return "旧入力（default icon扱い）";
-  }
-  return "未採用";
 }
