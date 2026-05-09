@@ -1,16 +1,15 @@
 # App Studio icon cleanup execution handoff
 
-Status: implementation handoff plus execution tracker. Phase 0 through Phase 4 are complete. Phase 5 module split and compatibility isolation is implemented without changing current icon behavior; future cleanup should continue from the new module boundaries.
+Status: icon cleanup execution tracker. Phase 0 through Phase 7 are complete for the planned cleanup scope. Future work should treat this document as guardrails for maintaining the cleaned boundaries, not as a pending implementation handoff.
 
 Date: 2026-05-09
 
 ## Purpose
 
-This file is a compact execution checklist for the next Codex implementation step.
-It exists so the cleanup can continue while the user is away without losing the original goal.
+This file records the completed App Studio icon cleanup phases and the guardrails that
+future changes must preserve.
 
-The next implementation should clean up App Studio icon-related code while preserving the
-current visible behavior:
+The cleanup preserved the current visible behavior:
 
 - AI image API candidates remain the only generated candidates.
 - Uploaded icon, when present, remains the highest-priority icon source.
@@ -288,8 +287,8 @@ python -m unittest discover -s tools/app_studio/tests
 
 ### Phase 6: UI normalization
 
-Status: started on 2026-05-09.
-Finishing pass: `AppStudioImportWizard` revision prompt summary now reads through
+Status: completed on 2026-05-10.
+Result: `AppStudioImportWizard` revision prompt summary now reads through
 `appStudioIconProposal.ts`, and normal UI no longer branches on
 `candidate.fallback`. Legacy fallback source labels normalize to the ToolHub
 common default icon label instead of exposing old fallback wording.
@@ -325,20 +324,46 @@ npm run build
 
 ### Phase 7: final full check
 
-Run after any code cleanup phase that touches Python plus frontend/Rust:
+Status: completed on 2026-05-10, with the full `check_all.ps1` run blocked by the local Rust execution environment.
+
+Final classification:
+
+- `generate_local_png` / `generate_local_svg`: no active implementation path found; remaining mentions are cleanup-history docs only.
+- `deterministic_icon_concepts`: active deterministic text/prompt concept helper. This is not an image fallback candidate.
+- `local-deterministic-fallback`: compatibility/prompt fallback identifier only; it must not be used as an image candidate source.
+- `fallback_png` / `provisional_fallback_png` / fallback counters and reasons: legacy input/read compatibility only through compat or UI normalization boundaries.
+- `icon_fallback.svg`: legacy SVG compatibility artifact only; it is not an AI image candidate.
+- `prompt_concept_only` / `fallback_rule_based`: legacy values normalized to current reference-only metadata.
+- `deterministic_png_check`: current rule-based PNG/reference metadata check, not a quality guarantee.
+- `launcher/src/lib/appStudioIconProposal.ts`: UI source of truth for normalized icon proposal display, including hidden legacy fallback compatibility.
+
+Final guardrails:
+
+- Do not reintroduce local fallback image candidates.
+- Do not store or display the ToolHub common default icon as an AI candidate.
+- Keep legacy fallback parsing inside `icon_compat.py` and `appStudioIconProposal.ts` boundaries.
+- Keep pseudo quality/reference metadata out of normal UI ranking and quality-guarantee wording.
+- Preserve `display.icon: icon.png` and `final_app/icon.png` compatibility.
+
+Validation run:
 
 ```powershell
-python -m py_compile tools/app_studio/app_studio/openai_client.py tools/app_studio/app_studio/icon_generator.py tools/app_studio/app_studio/exporter.py tools/app_studio/app_studio/icon_override.py tools/app_studio/main.py
+python -m py_compile tools/app_studio/app_studio/*.py tools/app_studio/main.py
 python -m unittest discover -s tools/app_studio/tests
 cd launcher
+npm test -- --run
 npm run build
-cd src-tauri
-cargo check
 cd ..\..
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check_all.ps1
 ```
 
-If any command cannot run because of the local environment, report the exact reason.
+Results:
+
+- Python compile: passed.
+- App Studio Python tests: passed, 117 tests.
+- Launcher Vitest: passed, 7 files / 22 tests.
+- Launcher build: passed.
+- `check_all.ps1`: failed in the existing App delete plan parity test because `cargo` was blocked by Windows application control policy with OS error 4551. The same run also reported missing MSVC `link.exe` / `cl.exe` / C++ workload warnings. These are local environment issues, not icon cleanup regressions.
 
 ## Source-of-truth policy
 
@@ -387,52 +412,9 @@ After editing:
 - Confirm docs match implemented behavior.
 - Run the validation commands for touched layers.
 
-## Recommended next implementation prompt
+## Maintenance note
 
-Use this as the next instruction if the goal is to continue Phase 6 UI normalization after the first normalizer pass:
-
-```text
-AGENTS.md のルールに従って、1 回の作業で実装・セルフレビュー・検証まで実施してください。
-
-目的:
-ToolHub App Studio のアイコン生成まわりを、現行挙動を変えずに cleanup してください。
-次は Phase 6 の UI normalization の継続を対象にします。
-
-実施内容:
-- `launcher/src/lib/appStudioIconProposal.ts` を UI の icon proposal normalizer として維持・拡張する。
-- React components が raw `imageApiSummary` / `candidates` / legacy fallback fields を直接読む箇所を減らす。
-- legacy fallback fields の読み取り互換を normalizer 内へ隔離する。
-- pseudo quality metadata は通常UIに出さず、必要なら details/report-only に留める。
-- new output に fallback candidate counter/reason を戻さない。
-- local fallback image candidate を復活させない。
-- ToolHub common default icon の挙動は維持する。
-- `display.icon: icon.png` と `final_app/icon.png` の互換性を維持する。
-- saved proposal の `fallback_png` / `provisional_fallback_png` 読み取り互換は残す。
-- stale docs / stale labels を current default icon 方針に合わせる。
-- tests を更新する。
-
-禁止:
-- app.yaml 仕様変更。
-- App Pack 仕様変更。
-- runner 公開 I/F 変更。
-- existing apps / release / runtime / data / generated outputs の変更。
-- fallback candidate UI の復活。
-- default icon を AI candidate として扱うこと。
-- 画像モデル自動切替。
-
-検証:
-- python -m py_compile tools/app_studio/app_studio/openai_client.py tools/app_studio/app_studio/icon_generator.py tools/app_studio/app_studio/exporter.py tools/app_studio/app_studio/icon_override.py tools/app_studio/main.py
-- python -m unittest discover -s tools/app_studio/tests
-- launcher を触った場合は npm run build
-- Rust を触った場合は cargo check
-- powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check_all.ps1
-
-完了報告:
-- 変更ファイル
-- 削除/隔離したもの
-- 残した互換処理
-- default icon / app.yaml 互換維持の根拠
-- 実装前/後セルフレビュー
-- 検証結果
-- 未確認事項
-```
+No further cleanup implementation prompt is queued from this handoff. If icon work
+continues, start from the current module and normalizer boundaries, keep compatibility
+read paths isolated, and avoid changing Python generation behavior unless the next task
+explicitly requests a behavior change.
