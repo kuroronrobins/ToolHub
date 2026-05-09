@@ -750,3 +750,19 @@ Remaining follow-up:
 - Add isolated Rust unit tests for `app_studio_ai_proposal_reader.rs` once `cargo` is not blocked by Windows application control policy.
 - Keep any future fallback/default icon behavior changes in Python `icon_compat.py` and TypeScript `appStudioIconProposal.ts`; do not make Rust reader semantics authoritative for UI filtering.
 - Process spawn/env/masking and management/delete splitting remain separate P1/P2 work.
+
+## 2026-05-10 P1 follow-up: Rust CLI argv builder split
+
+Implemented scope:
+
+- Added `launcher/src-tauri/src/app_studio_cli_args.rs` as the pure request normalization and CLI argv builder boundary for App Studio Rust commands.
+- Moved normal registration frozen-folder normalization, update-to-import request mapping, import suggest/apply argv construction, approve argv construction, image-test argv construction, and icon-regenerate argv construction out of `app_studio_commands.rs`.
+- Kept override temp file writing, Python discovery, environment injection, stdout/stderr masking, process spawn, management, and delete plan/apply in `app_studio_commands.rs`.
+- Kept Tauri command names, arguments, return JSON shape, React/TypeScript API shape, Python CLI flag names/order, app.yaml schema, App Pack spec, runner I/F, and release manifest compatibility unchanged.
+- Added Rust unit tests around the pure builder contract for frozen-folder normalization, import suggest/apply flags, update request mapping, approve strict/allow-warnings flags, icon-regenerate optional controls, and image-test model override trimming.
+
+Remaining follow-up:
+
+- Move process spawn/env/masking only after a narrow command execution adapter is defined; do not combine it with CLI argv builder cleanup.
+- Keep management/delete helpers separate because they touch filesystem safety and repo-managed target rules.
+- `cargo check` remains blocked in this environment by Windows application control policy, so the new Rust tests should be run in an environment where `rustc` is allowed.

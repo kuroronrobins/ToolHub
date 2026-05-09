@@ -4,6 +4,14 @@ pub use crate::app_studio_ai_proposal_reader::{
     AppStudioAiIconCandidateSuggestion, AppStudioAiIconSuggestion, AppStudioAiMetadataSuggestion,
     AppStudioAiProposal,
 };
+#[cfg(test)]
+use crate::app_studio_cli_args::approval_flag;
+use crate::app_studio_cli_args::{
+    approval_mode_name, build_approve_cli_args, build_icon_regenerate_cli_args,
+    build_image_test_cli_args, build_import_cli_args, import_request_from_update,
+    normalize_normal_import_request, AppStudioCliAction, AppStudioIconRegenerateCliOptions,
+    AppStudioImportCliOverrides,
+};
 use crate::app_studio_result_reader::{output_dir_from_app_yaml, read_summary};
 pub use crate::app_studio_result_reader::{AppStudioResultSummary, AppStudioTimingPhase};
 use base64::{engine::general_purpose, Engine as _};
@@ -587,11 +595,12 @@ fn run_image_generation_test_for_model(
         return Err("tools/app_studio/main.py was not found.".to_string());
     }
     let ai_env = build_ai_env_plan();
+    let cli_args = build_image_test_cli_args(&script, model_override);
     let mut command = Command::new(&python_candidate.path);
-    command.arg(script).arg("image-test").current_dir(&root);
-    if let Some(model) = model_override.filter(|value| !value.trim().is_empty()) {
-        command.arg("--image-model").arg(model.trim());
+    for arg in &cli_args {
+        command.arg(arg);
     }
+    command.current_dir(&root);
     apply_ai_environment(&mut command, &ai_env);
     let output = command
         .output()
@@ -813,34 +822,20 @@ fn run_icon_regenerate_action(
         return Err("tools/app_studio/main.py が見つかりません。".to_string());
     }
     let ai_env = build_ai_env_plan();
-    let mut cli_args: Vec<String> = vec![
-        script.display().to_string(),
-        "icon-regenerate".to_string(),
-        "--app-id".to_string(),
-        app_id.clone(),
-        "--output-dir".to_string(),
-        output_path.display().to_string(),
-        "--user-revision-instruction".to_string(),
-        instruction,
-        "--revision-mode".to_string(),
-        revision_mode.clone(),
-        "--candidate-count".to_string(),
-        candidate_count.to_string(),
-        "--image-quality-mode".to_string(),
-        image_quality_mode.clone(),
-    ];
-    if let Some(base_candidate_id) = clean_optional(&request.base_candidate_id) {
-        cli_args.push("--base-candidate-id".to_string());
-        cli_args.push(base_candidate_id.to_string());
-    }
-    if let Some(style_preset) = clean_optional(&request.icon_style_preset) {
-        cli_args.push("--icon-style-preset".to_string());
-        cli_args.push(style_preset.to_string());
-    }
-    if let Some(style_custom) = clean_optional(&request.icon_style_custom) {
-        cli_args.push("--icon-style-custom".to_string());
-        cli_args.push(style_custom.to_string());
-    }
+    let cli_args = build_icon_regenerate_cli_args(
+        &script,
+        AppStudioIconRegenerateCliOptions {
+            app_id: &app_id,
+            output_dir: &output_path,
+            user_revision_instruction: &instruction,
+            revision_mode: &revision_mode,
+            candidate_count,
+            image_quality_mode: &image_quality_mode,
+            base_candidate_id: clean_optional(&request.base_candidate_id),
+            icon_style_preset: clean_optional(&request.icon_style_preset),
+            icon_style_custom: clean_optional(&request.icon_style_custom),
+        },
+    );
     let cli_argv = command_line_for_log(
         &python,
         &redact_cli_arg_value(&cli_args, "--user-revision-instruction"),
@@ -955,78 +950,17 @@ fn run_import_action(
     }
     .to_string();
     let ai_env = build_ai_env_plan();
-    let mut cli_args: Vec<String> = vec![
-        script.display().to_string(),
-        "import".to_string(),
-        "--entry".to_string(),
-        request.entry.clone(),
-        "--build-mode".to_string(),
-        request.build_mode.clone(),
-    ];
-    if let Some(source_root) = clean_optional(&request.source_root) {
-        cli_args.push("--source-root".to_string());
-        cli_args.push(source_root.to_string());
-    }
-    if let Some(app_id) = clean_optional(&request.app_id) {
-        cli_args.push("--app-id".to_string());
-        cli_args.push(app_id.to_string());
-    }
-    if let Some(name) = clean_optional(&request.name) {
-        cli_args.push("--name".to_string());
-        cli_args.push(name.to_string());
-    }
-    if let Some(version) = clean_optional(&request.version) {
-        cli_args.push("--version".to_string());
-        cli_args.push(version.to_string());
-    }
-    if let Some(icon_prompt) = clean_optional(&request.icon_prompt) {
-        cli_args.push("--icon-prompt".to_string());
-        cli_args.push(icon_prompt.to_string());
-    }
-    if let Some(style_preset) = clean_optional(&request.icon_style_preset) {
-        cli_args.push("--icon-style-preset".to_string());
-        cli_args.push(style_preset.to_string());
-    }
-    if let Some(style_custom) = clean_optional(&request.icon_style_custom) {
-        cli_args.push("--icon-style-custom".to_string());
-        cli_args.push(style_custom.to_string());
-    }
-    if let Some(path) = icon_revision_image.as_ref() {
-        cli_args.push("--icon-revision-image".to_string());
-        cli_args.push(path.display().to_string());
-    }
-    if let Some((path, _)) = metadata_override.as_ref() {
-        cli_args.push("--metadata-override".to_string());
-        cli_args.push(path.display().to_string());
-    }
-    if let Some((path, _)) = icon_override.as_ref() {
-        cli_args.push("--icon-override".to_string());
-        cli_args.push(path.display().to_string());
-    }
-    if let Some(path) = build_profile_override.as_ref() {
-        cli_args.push("--build-profile".to_string());
-        cli_args.push(path.display().to_string());
-    }
-    if request.create_app_env {
-        cli_args.push("--create-app-env".to_string());
-    }
-    if request.rebuild_app_env {
-        cli_args.push("--rebuild-app-env".to_string());
-    }
-    if request.generate_lock {
-        cli_args.push("--generate-lock".to_string());
-    }
-    if request.build_frozen_folder {
-        cli_args.push("--build-frozen-folder".to_string());
-    }
-    if request.verify_runtime {
-        cli_args.push("--verify-runtime".to_string());
-    }
-    cli_args.push(if action == "apply" {
-        "--apply".to_string()
-    } else {
-        "--suggest".to_string()
-    });
+    let cli_args = build_import_cli_args(
+        &script,
+        &request,
+        AppStudioCliAction::from_action_name(action),
+        AppStudioImportCliOverrides {
+            metadata_override: metadata_override.as_ref().map(|(path, _)| path.as_path()),
+            icon_override: icon_override.as_ref().map(|(path, _)| path.as_path()),
+            build_profile: build_profile_override.as_deref(),
+            icon_revision_image: icon_revision_image.as_deref(),
+        },
+    );
     let cli_argv = command_line_for_log(&python, &cli_args);
 
     append_app_studio_gui_log(
@@ -1146,12 +1080,12 @@ fn run_approve_action(app_id: String, strict: bool) -> Result<AppStudioRunResult
         ],
     );
     let process_started = Instant::now();
-    let output = Command::new(&python)
-        .arg(script)
-        .arg("approve")
-        .arg("--app-id")
-        .arg(&app_id)
-        .arg(approval_flag(strict))
+    let cli_args = build_approve_cli_args(&script, &app_id, strict);
+    let mut command = Command::new(&python);
+    for arg in &cli_args {
+        command.arg(arg);
+    }
+    let output = command
         .current_dir(&root)
         .output()
         .map_err(|_| "App Studio承認処理を起動できませんでした。".to_string())?;
@@ -1337,28 +1271,6 @@ fn validate_request(request: &AppStudioImportRequest) -> Result<(), String> {
     Ok(())
 }
 
-fn normalize_normal_import_request(request: &mut AppStudioImportRequest) -> Result<(), String> {
-    let entry = PathBuf::from(request.entry.trim());
-    if entry
-        .extension()
-        .and_then(|value| value.to_str())
-        .map(|value| value.eq_ignore_ascii_case("exe"))
-        .unwrap_or(false)
-    {
-        return Err("Normal App Studio registration accepts Python source only. Existing exe registration is not available in this flow.".to_string());
-    }
-    if request.create_app_env || request.rebuild_app_env {
-        return Err("Normal App Studio registration uses an internal build_env, not runtime/app_envs options.".to_string());
-    }
-    request.build_mode = "frozen-folder".to_string();
-    request.generate_lock = true;
-    request.build_frozen_folder = true;
-    request.verify_runtime = true;
-    request.create_app_env = false;
-    request.rebuild_app_env = false;
-    Ok(())
-}
-
 fn validate_update_request(request: &AppStudioUpdateRequest, root: &Path) -> Result<(), String> {
     validate_app_id(&request.app_id)?;
     if request.new_version.trim().is_empty() {
@@ -1403,7 +1315,9 @@ fn validate_source_root_path(entry: &Path, source_root: Option<&str>) -> Result<
         .canonicalize()
         .map_err(|_| "sourceRootフォルダのパスを解決できません。".to_string())?;
     if root_path.parent().is_none() || root_path.parent() == Some(root_path.as_path()) {
-        return Err("sourceRootが広すぎます。アプリのプロジェクトフォルダを指定してください。".to_string());
+        return Err(
+            "sourceRootが広すぎます。アプリのプロジェクトフォルダを指定してください。".to_string(),
+        );
     }
     if !entry_path.starts_with(&root_path) {
         return Err("EntryファイルはsourceRoot配下に配置してください。".to_string());
@@ -2905,29 +2819,6 @@ fn yaml_str(value: &serde_yaml::Value, path: &[&str]) -> Option<String> {
     current.as_str().map(|value| value.trim().to_string())
 }
 
-fn import_request_from_update(request: &AppStudioUpdateRequest) -> AppStudioImportRequest {
-    AppStudioImportRequest {
-        entry: request.entry.clone(),
-        source_root: None,
-        app_id: Some(request.app_id.clone()),
-        name: request.name.clone(),
-        version: Some(request.new_version.clone()),
-        build_mode: request.build_mode.clone(),
-        icon_prompt: request.icon_prompt.clone(),
-        icon_style_preset: request.icon_style_preset.clone(),
-        icon_style_custom: request.icon_style_custom.clone(),
-        icon_revision_image: request.icon_revision_image.clone(),
-        metadata: request.metadata.clone(),
-        icon_override: request.icon_override.clone(),
-        build_profile: request.build_profile.clone(),
-        create_app_env: request.create_app_env,
-        rebuild_app_env: request.rebuild_app_env,
-        generate_lock: request.generate_lock,
-        build_frozen_folder: request.build_frozen_folder,
-        verify_runtime: request.verify_runtime,
-    }
-}
-
 fn parse_semver(value: &str) -> Option<(u64, u64, u64)> {
     let parts = value.trim().split('.').collect::<Vec<_>>();
     if parts.len() != 3 {
@@ -3236,9 +3127,11 @@ fn build_ai_env_plan() -> AiEnvPlan {
     let cli_env_ready =
         settings.ai_enabled && api_key_present && (text_model_set || image_model_set);
     let message = if !settings.ai_enabled {
-        "AI is disabled; CLI will use the ToolHub default icon when no icon is selected.".to_string()
+        "AI is disabled; CLI will use the ToolHub default icon when no icon is selected."
+            .to_string()
     } else if !api_key_present {
-        "API key is missing; CLI will use the ToolHub default icon when no icon is selected.".to_string()
+        "API key is missing; CLI will use the ToolHub default icon when no icon is selected."
+            .to_string()
     } else if !text_model_set && !image_model_set {
         "No AI models are configured; CLI will use the ToolHub default icon when no icon is selected.".to_string()
     } else {
@@ -3393,22 +3286,6 @@ fn safe_file_stem(value: &str) -> String {
         "pending".to_string()
     } else {
         stem
-    }
-}
-
-fn approval_flag(strict: bool) -> &'static str {
-    if strict {
-        "--strict-approval"
-    } else {
-        "--allow-warnings"
-    }
-}
-
-fn approval_mode_name(strict: bool) -> &'static str {
-    if strict {
-        "StrictApproval"
-    } else {
-        "AllowWarnings"
     }
 }
 
