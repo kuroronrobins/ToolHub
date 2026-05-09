@@ -3,6 +3,7 @@ mod admin_auth;
 mod admin_commands;
 mod admin_session;
 mod ai_settings;
+mod app_studio_ai_proposal_reader;
 mod app_studio_commands;
 mod app_studio_result_reader;
 mod commands;

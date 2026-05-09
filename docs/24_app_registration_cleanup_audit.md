@@ -735,3 +735,18 @@ Remaining follow-up:
 - Split AI proposal/icon artifact readers separately after confirming their UI contract and saved proposal compatibility.
 - Split process spawn/env/masking into another module only if command wrapper tests or a narrower interface are added first.
 - Split management/delete helpers separately; do not combine with artifact reader cleanup because they touch different safety rules and filesystem behaviors.
+
+## 2026-05-10 P1 follow-up: Rust AI proposal/icon reader split
+
+Implemented scope:
+
+- Added `launcher/src-tauri/src/app_studio_ai_proposal_reader.rs` as the read-only boundary for AI proposal metadata and icon artifact loading.
+- Moved the `AppStudioAiProposal` / metadata / icon suggestion structs, `read_ai_proposal()`, proposed YAML metadata parsing, `import_plan.json` AI report/release note fallback, `candidate_manifest.json` parsing, `icon_candidate_1.png`, `icon_candidate_1.url.txt`, `icon_final.png`, prompt/report readers, and legacy flat candidate compatibility into the new module.
+- Kept `app_studio_commands.rs` as the command/process boundary and re-exported the moved public structs so Tauri command names, arguments, return JSON shape, and TypeScript API shape remain unchanged.
+- Preserved icon cleanup guardrails: default icon is read only as final/current preview via `icon_final.png`, not as an AI candidate; local fallback image candidates were not reintroduced; legacy fallback candidates remain marked by their existing `fallback`/source metadata for the UI normalizer to hide.
+
+Remaining follow-up:
+
+- Add isolated Rust unit tests for `app_studio_ai_proposal_reader.rs` once `cargo` is not blocked by Windows application control policy.
+- Keep any future fallback/default icon behavior changes in Python `icon_compat.py` and TypeScript `appStudioIconProposal.ts`; do not make Rust reader semantics authoritative for UI filtering.
+- Process spawn/env/masking and management/delete splitting remain separate P1/P2 work.
