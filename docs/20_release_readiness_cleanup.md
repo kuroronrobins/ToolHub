@@ -237,6 +237,26 @@ Formal local release builds can be blocked when this shell cannot find:
 - `cl.exe`
 
 Use Developer PowerShell for Visual Studio, or install Visual Studio Build Tools with the C++ workload and Windows SDK.
+For Codex or normal PowerShell sessions, run the read-only diagnosis first:
+
+```powershell
+.\scripts\diagnose_build_shell.ps1
+```
+
+If `VsDevCmd.bat` exists, run release-build commands through the wrapper so the Visual Studio Developer environment is
+loaded in the same command session:
+
+```powershell
+.\scripts\run_in_vs_dev_shell.ps1 -Command "where.exe cl && where.exe link"
+```
+
+```powershell
+.\scripts\run_in_vs_dev_shell.ps1 -Command "cargo check --manifest-path .\launcher\src-tauri\Cargo.toml"
+```
+
+The wrapper fixes missing MSVC PATH / INCLUDE / LIB setup. It does not bypass Windows Application Control. If
+`rustc.exe` is blocked by policy, choose an allowlisted Rust toolchain path, run manually from an approved Developer
+PowerShell, or use another release build machine.
 
 ## Recommended Next Order
 

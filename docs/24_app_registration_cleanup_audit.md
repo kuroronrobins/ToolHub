@@ -1479,3 +1479,44 @@ ToolHub App Studio の P1 改善として、launcher/src-tauri/src/app_studio_co
 - delete plan / full_delete_apply の destructive behavior は変更しない。
 - apps / release / runtime / data / logs / 生成物は触らない。
 ```
+
+## 2026-05-10 P1 follow-up: Rust management list / enabled toggle split
+
+Implemented scope:
+
+- Added `launcher/src-tauri/src/app_studio_management.rs` as the management list / enabled toggle boundary.
+- Moved registered-app listing helpers used by App Studio management and update preflight: `list_registered_apps_from_root()`, `find_registered_app()`, app.yaml metadata reading, and release manifest overlay.
+- Moved management-list helpers: `list_managed_apps_from_root()`, status classification, package existence check, delete-plan status summary, warning mapping, and recommended-action mapping.
+- Moved `management_set_enabled()` and its result builder while preserving the existing write behavior: only an existing app entry's `enabled` field is updated in `release/app_manifest.json`.
+- Kept `AppStudioManagedApp`, `AppStudioManagementActionResult`, and related DTOs in `app_studio_types.rs` so the JSON shape remains unchanged.
+- Updated `app_studio_commands.rs` command wrappers to call the new module helpers.
+
+Compatibility notes:
+
+- Tauri command names, arguments, and return JSON shape were not changed.
+- React/TypeScript API shape was not changed.
+- `release/app_manifest.json` schema was not changed.
+- Enabled toggle behavior was not changed: enabling still requires `apps/<app_id>/app.yaml`, the manifest entry must already exist, and only the `enabled` field is written.
+- Management status strings, warnings, recommended actions, package existence logic, delete-plan status logic, and post-action result shape were preserved.
+- `app_studio_delete_plan.rs` remains the delete-plan source, and production `full_delete_apply()` remains in `app_studio_commands.rs`.
+- Python, PowerShell scripts, apps, release artifacts, runtime, data, logs, generated files, app.yaml schema, App Pack spec, and release manifest compatibility were not changed.
+
+Remaining follow-up:
+
+- Split full-delete apply only after validating the management boundary in an environment where cargo is not blocked.
+- Consider moving command-internal release-manifest read/write helpers only as part of a full-delete apply boundary; do not mix that with enabled toggle changes.
+- Consider a delete UI normalizer later if backend categories and management statuses remain stable.
+
+Recommended next Codex task after this split:
+
+```text
+AGENTS.md のルールに従って、1 回の作業で実装・セルフレビュー・検証まで実施してください。
+
+目的:
+ToolHub App Studio の P1 改善として、launcher/src-tauri/src/app_studio_commands.rs に残る full delete apply safety unit を再監査し、実装分離する場合の停止条件と検証手順を整理してください。
+
+条件:
+- production full delete の削除順序、fresh plan / snapshot comparison、path safety、manifest entry removal、post-check を変更しない。
+- app_studio_full_delete.rs へ分離する場合は、destructive safety unit 全体を一つの境界として扱う。
+- Tauri command / React API shape、delete categories、App Pack / staging matching rule、PowerShell scripts、apps / release / runtime / data / logs / 生成物を変更しない。
+```

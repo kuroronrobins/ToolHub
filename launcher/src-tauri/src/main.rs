@@ -7,6 +7,7 @@ mod app_studio_ai_proposal_reader;
 mod app_studio_cli_args;
 mod app_studio_commands;
 mod app_studio_delete_plan;
+mod app_studio_management;
 mod app_studio_overrides;
 mod app_studio_preflight;
 mod app_studio_process;

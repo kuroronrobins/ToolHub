@@ -719,6 +719,20 @@ python main.py --check
 .\scripts\build_release.ps1 -RequireRuntime
 ```
 
+Codex や通常 PowerShell で `cl.exe` / `link.exe` が見つからない場合は、release artifact を再生成する前に build shell を診断する。
+
+```powershell
+.\scripts\diagnose_build_shell.ps1
+```
+
+`VsDevCmd.bat` が存在する場合は、Visual Studio Developer environment を読み込む wrapper から build command を実行する。
+
+```powershell
+.\scripts\run_in_vs_dev_shell.ps1 -Command "cargo check --manifest-path .\launcher\src-tauri\Cargo.toml"
+```
+
+Windows Application Control が `rustc.exe` / `cargo.exe` をブロックする場合、wrapper では解消しない。allowlist、trusted path への Rust toolchain 再配置、Developer PowerShell 手動実行、別 release build machine 利用のいずれかを人間判断として扱う。
+
 ```powershell
 .\scripts\verify_release.ps1 -RequireInstaller -RequireAppPacks -RequireRuntime -Strict
 ```
