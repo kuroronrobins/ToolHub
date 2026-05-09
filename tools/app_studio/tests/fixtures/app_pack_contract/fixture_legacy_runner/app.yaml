@@ -1,0 +1,9 @@
+schema_version: 1
+id: fixture_legacy_runner
+name: Fixture Legacy Runner
+version: 0.1.0
+run:
+  runner: python
+  entry: main.py
+display:
+  icon: icon.png

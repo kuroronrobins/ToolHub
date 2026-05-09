@@ -1764,7 +1764,7 @@ Final validation state recorded for this phase:
 - Previous P0/P1 validations are recorded in the individual follow-up sections above; do not claim they were all rerun in this inventory pass.
 - `check_all.ps1` was not rerun for this inventory pass because the change is docs-only and the script can mix unrelated cargo/MSVC/App Pack/installer artifact conditions with cleanup status.
 
-Current recommended next task:
+Previous recommended next task (encoding-corrupted; superseded by the P2 audit below):
 
 ```text
 AGENTS.md のルールに従って、1 回の作業で現状確認・必要最小限の実装・セルフレビュー・検証まで実施してください。
@@ -1778,6 +1778,143 @@ ToolHub App Studio cleanup は P0/P1 の実用上の区切りに到達済みで�
 - 実装変更は行わず、docs/24 または新規 docs に責務重複、source of truth、低リスク統一候補、高リスク停止条件を整理する。
 - apps / release / runtime / generated artifacts は変更しない。
 ```
+
+## 2026-05-10 P2 audit: Python / PowerShell App Pack and release verification duplication
+
+Scope:
+
+- This is an audit-only P2 pass. No Python, PowerShell, Rust, React/TypeScript, app source, release manifest, runtime, data, log, lock file, or generated artifact behavior was changed.
+- The P0/P1 cleanup boundary above is treated as the baseline: App Studio frozen-folder apps require the lock-file contract, legacy Python-runner sample apps do not receive a blanket `requirements.lock` requirement, and `verify_release.ps1` remains an independent release gate.
+- The goal is to map duplicated rules before choosing a low-risk implementation unit. This section does not change the App Pack spec, app.yaml schema, runner public I/F, release manifest compatibility, or release-readiness policy.
+
+Python-side current responsibilities:
+
+| Area | Current responsibility | Notes |
+| --- | --- | --- |
+| `registrar.py` | App Studio registration copy and App Pack creation from `apps/<app_id>/`. | Owns Python helpers for app-relative path normalization, `run.entry`, `display.icon`, `runtime.requirements_lock`, required App Pack entries, zip inspection, package path, and `sha256` update. |
+| `exporter.py` | Produces `final_app/` artifacts before registration. | Writes app metadata, README, requirements, icons, source files, and copies source `requirements.lock` into `final_app/` when available. It is a producer, not the release gate. |
+| `runtime_checker.py` | Validates frozen-folder distribution before approval. | Checks generated exe policy, `run.entry`, required data files, forbidden payloads, build-env separation, and `final_app/requirements.lock` for frozen-folder apps. |
+| `approval.py` | Approval-time targeted verification and release verification gate. | Reuses registrar App Pack helpers for target app checks, regenerates package, verifies `enabled=true`, checks target references and App Pack, and treats unrelated pre-existing `verify_release.ps1` failures as global warnings rather than target rollback causes. |
+| `tools/app_studio/tests/` | Unit coverage for Python contract helpers and approval/runtime behavior. | Existing tests cover required entries, legacy lock optionality, missing `run.entry`, frozen-folder `requirements.lock`, and targeted approval checks. |
+
+PowerShell-side current responsibilities:
+
+| Script | Current responsibility | Notes |
+| --- | --- | --- |
+| `scripts/package_app_pack.ps1` | Release-side App Pack packaging for source apps. | Duplicates YAML scalar reading, app-relative path normalization, frozen-folder lock detection, required file checks, required zip entry checks, package path, `sha256` calculation, and manifest entry update. Unlike Python registrar packaging, it can add a disabled manifest entry for a source app that is not yet listed. |
+| `scripts/verify_release.ps1` | Independent release gate. | Duplicates path normalization, frozen-folder lock detection, app.yaml reference checks, App Pack zip entry checks, package existence, `sha256`, stale enabled/disabled manifest entry handling, runtime/installer checks, and strict-mode escalation. It should not be weakened for App Studio convenience. |
+| `scripts/report_release_readiness.ps1` | Read-only release-readiness classification. | Classifies installer/runtime/update/App Pack/app manifest debt and distinguishes blockers, warnings, delete candidates, rebuild candidates, and future formal-release work. It is not the same authority as `verify_release.ps1`. |
+| `scripts/check_all.ps1` | Developer aggregate check. | Orchestrates script syntax checks, `verify_release.ps1`, `report_release_readiness.ps1`, and other checks. Its failures can include unrelated cargo/MSVC/App Pack/installer artifact conditions. |
+
+Docs-side current explanation:
+
+- `docs/09_app_pack_spec.md` documents App Pack as a generated artifact, lists required App Studio frozen-folder entries, preserves legacy Python-runner lock-file exception, and describes release manifest `package` / `sha256` / `enabled` semantics.
+- `docs/13_app_studio.md` documents the normal App Studio frozen-folder path: generate/refresh `requirements.lock`, build PyInstaller folder output, point `run.entry` at the exe, include the lock in `final_app/`, `apps/<app_id>/`, and App Pack, and approve through target checks plus possible `verify_release.ps1`.
+- `docs/20_release_readiness_cleanup.md` documents release-readiness classification, including App Pack rebuild candidates, stale disabled manifest entries, runtime packaging debt, and the fact that normal App Studio frozen-folder apps do not use `runtime/app_envs/<app_id>` as their source of truth.
+
+Duplicated validation rules:
+
+| Rule | Python location | PowerShell location | Current status / risk |
+| --- | --- | --- | --- |
+| App-relative path normalization for `run.entry`, `display.icon`, `runtime.requirements_lock` | `registrar.normalize_app_relative_entry()` and approval reuse | `Normalize-AppRelativePath` in package/verify scripts | Same intent, separate implementations. Low-risk parity tests would help prevent path traversal or absolute path drift. |
+| Frozen-folder lock-file detection | `app_pack_requirements_lock_entry()` | `Get-RequirementsLockPathForAppPack` | Same contract: declared `runtime.requirements_lock` wins; App Studio frozen-folder defaults to `requirements.lock`; legacy apps may omit it. Good fixture candidate. |
+| App Pack required entries | `app_pack_required_entries()` and zip inspection | `Assert-ZipContainsEntry` calls in package/verify scripts | Same conceptual list, but expressed three times in Python, two scripts, tests, and docs. Good shared example / golden fixture candidate. |
+| `run.entry` existence | registrar package, approval targeted verification, runtime checker final_app policy | package/verify scripts | Different layers intentionally check different artifacts: `final_app`, `apps/<app_id>`, and App Pack zip. Do not collapse into one runtime-only check. |
+| `display.icon` existence | registrar package, approval targeted verification | package/verify scripts | Both validate the app.yaml-referenced icon. Packaging also retains the legacy icon file presence check. Keep default icon behavior unchanged. |
+| `runtime.requirements_lock` existence | runtime checker requires `final_app/requirements.lock`; registrar/approval validate app-relative entry | package/verify scripts validate source and zip entry | Contract is aligned for App Studio frozen-folder apps. Do not make it mandatory for all legacy Python-runner apps. |
+| App Pack `pack_manifest.json`, README, requirements | registrar package and required entries helper | package/verify scripts | Aligned but duplicated. Python and PowerShell package flows differ operationally, so shared code is not realistic; shared examples are safer. |
+| `release/app_manifest.json` `package` and `sha256` | registrar package update and approval targeted verification | package script updates, verify script validates, readiness report classifies | Same data surface, different authorities. Keep verify as gate and readiness report as classifier. |
+| `enabled` semantics | registration starts disabled; approval enables; management module can toggle | verify script handles enabled/missing source; readiness report classifies | Intent is aligned. Do not change disabled stale history handling without separate release policy. |
+| Runtime app env warning | runtime checker does not use app_env for frozen-folder source | verify/release readiness still report missing app_env as warning/strict issue | Known release-readiness policy decision, not an App Studio registration bug. |
+
+Potential wording or classification-name drift:
+
+- Python messages describe `runtime.requirements_lock` as the app.yaml field or required App Pack entry, while `runtime_checker.py` reports `requirements.lock` in `final_app/`. The difference is layer-specific but easy to confuse in operator docs.
+- Python registrar packaging assumes the App Studio registration flow already created a manifest entry; `package_app_pack.ps1` can create a disabled manifest entry for release-side packaging. This should be documented as role-specific behavior, not normalized away.
+- `verify_release.ps1` emits `[NG]` / `[WARN]` gate output, while `report_release_readiness.ps1` emits classified records such as blocker, warning, delete candidate, rebuild candidate, and future formal-only. These should not be renamed into one shared severity model without a release-readiness design pass.
+- App Pack icon checks combine the app.yaml `display.icon` reference with legacy `icon.png` / `icon.svg` file expectations. Current docs are broadly aligned, but future tests should pin the exact expected entries rather than relying on prose alone.
+- Strict release behavior around missing `runtime/app_envs/<app_id>` is intentionally recorded as a release-readiness adjustment candidate for frozen-folder apps, not resolved in this audit.
+
+Low-risk single-source candidates:
+
+- Extract Python App Pack contract helpers from `registrar.py` into a small pure module only if imports stay acyclic and behavior is byte-for-byte equivalent for tests. Candidate scope: path normalization, frozen-folder lock resolution, required entry construction.
+- In PowerShell, move duplicated helper functions between `package_app_pack.ps1` and `verify_release.ps1` into a dot-sourced read-only helper only after a parser check and existing package/verify behavior snapshots are in place.
+- Add a shared contract fixture that both Python tests and a PowerShell parity test can read. The fixture should describe inputs and expected app-relative entries; it should not generate or mutate real `apps/`, `release/`, or App Pack artifacts.
+
+Rules better aligned by golden fixtures / shared examples than shared code:
+
+- Required entries for an App Studio frozen-folder app with explicit `runtime.requirements_lock`.
+- Required entries for an App Studio frozen-folder app that omits `runtime.requirements_lock` and therefore defaults to `requirements.lock`.
+- Legacy Python-runner sample app without `runtime.requirements_lock`, where `requirements.lock` remains optional.
+- Invalid absolute, parent-traversal, and empty values for `run.entry`, `display.icon`, and `runtime.requirements_lock`.
+- Zip missing `run.entry`, `display.icon`, `runtime.requirements_lock`, `README.md`, `requirements.txt`, or `pack_manifest.json`.
+- Manifest package path missing, App Pack `sha256` mismatch, and disabled stale manifest entry classification.
+- Strict-mode app-env warning / failure behavior, kept separate from App Studio frozen-folder source validity.
+
+破壊的判断が必要な候補:
+
+- Requiring `requirements.lock` for every app, including legacy Python-runner samples.
+- Changing app.yaml schema to make `runtime.requirements_lock` mandatory.
+- Weakening `verify_release.ps1` so App Studio-specific convenience overrides the release gate.
+- Merging `verify_release.ps1` and `report_release_readiness.ps1` into one severity model.
+- Changing App Pack required entries, zip layout, `pack_manifest.json` semantics, package path, compression policy, or release manifest compatibility.
+- Changing enabled/stale manifest policy or app-env strict-release behavior without a release policy decision.
+
+Recommended next Codex implementation unit:
+
+```text
+AGENTS.md のルールに従って、1 回の作業で実装・セルフレビュー・検証まで実施してください。
+
+目的:
+ToolHub App Studio P2 として、App Pack / release verification contract の shared golden fixture を追加し、Python registrar helper と PowerShell package/verify helper の判定が同じ入力で同じ required entries / lock-file exception / invalid app-relative path を返すことを read-only test で固定してください。
+
+条件:
+- App Pack spec、app.yaml public schema、runner public I/F、release manifest compatibility は変更しない。
+- Python / PowerShell の実運用挙動は変えず、fixture とテスト追加に限定する。
+- legacy Python runner sample app に requirements.lock を一律必須化しない。
+- verify_release.ps1 を弱めない。
+- apps / release / runtime / generated artifacts は変更しない。
+- PowerShell helper共通化は、fixture test が通ってから別タスクで判断する。
+```
+
+Audit decision:
+
+- The duplicated rules are currently mostly aligned, but they are encoded in too many places to review safely by prose alone.
+- The next safest P2 step is not behavior refactoring. It is a shared fixture / parity-test step that freezes the App Studio frozen-folder contract and the legacy exception before any Python or PowerShell helper extraction.
+- No docs/09, docs/13, or docs/20 change was required in this pass because their current contract descriptions match the audited behavior at the level needed for this audit.
+
+## 2026-05-10 P2 follow-up: shared App Pack contract fixture and parity tests
+
+Implemented scope:
+
+- Added `tools/app_studio/tests/fixtures/app_pack_contract/expected_contract.json` as the shared golden fixture for App Pack contract checks.
+- Added fixture apps for:
+  - `fixture_frozen_explicit`: App Studio frozen-folder app with explicit `runtime.requirements_lock: requirements.lock`.
+  - `fixture_frozen_implicit`: App Studio frozen-folder app that omits `runtime.requirements_lock` and therefore defaults to `requirements.lock`.
+  - `fixture_legacy_runner`: legacy Python-runner app with no `runtime.requirements_lock` and no `requirements.lock` file.
+- Added `tools/app_studio/tests/test_app_pack_contract.py` to validate the fixture against Python registrar helpers.
+- Added `scripts/test_app_pack_contract_parity.ps1` as a read-only PowerShell parity test for the same fixture.
+
+Fixed contract coverage:
+
+- Frozen-folder App Studio required entries include `app.yaml`, `pack_manifest.json`, `README.md`, `requirements.txt`, `runtime.requirements_lock`, `display.icon`, and `run.entry` as app-relative App Pack entries.
+- Explicit `runtime.requirements_lock` and implicit frozen-folder defaulting both resolve to `requirements.lock`.
+- `display.icon: icon.png` is included in required entries.
+- `run.entry: bin/<app_id>/<app_id>.exe` is included in required entries.
+- Legacy Python-runner apps remain allowed to omit `runtime.requirements_lock` and `requirements.lock`.
+- App-relative path normalization remains aligned for dot segments, duplicated separators, backslashes, parent traversal rejection, absolute path rejection, and empty path rejection.
+
+Compatibility notes:
+
+- No App Pack spec, app.yaml schema, runner public I/F, release manifest compatibility, Python production implementation, PowerShell production script behavior, Rust code, React/TypeScript code, apps, release manifests, runtime files, data, logs, generated artifacts, dependencies, or lock files were changed.
+- The PowerShell parity script intentionally does not dot-source `package_app_pack.ps1` or `verify_release.ps1` because those scripts execute their main flows on load. It mirrors their read-only scalar/path/required-entry contract against the same fixture instead.
+- No App Pack zip fixture is stored. Dummy exe/icon files are fixture inputs only and are not executed or packaged as persisted generated artifacts.
+
+Remaining follow-up:
+
+- If this fixture remains stable, the next low-risk step is extracting a Python-only pure contract module from `registrar.py` and updating Python tests to import that module.
+- A later PowerShell task can consider a dot-sourced helper shared by `package_app_pack.ps1` and `verify_release.ps1`, but only after preserving current parser checks and parity tests.
+- Do not change required entries, lock-file mandatory scope, disabled stale manifest policy, strict app-env behavior, or `verify_release.ps1` severity semantics in the same task as helper extraction.
 
 Historical next Codex task queued after the management split, now covered by the audit section above:
 

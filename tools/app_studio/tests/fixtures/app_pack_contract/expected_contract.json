@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "frozen_folder_explicit_lock",
+      "app_id": "fixture_frozen_explicit",
+      "app_dir": "fixture_frozen_explicit",
+      "expected_run_entry": "bin/fixture_frozen_explicit/fixture_frozen_explicit.exe",
+      "expected_display_icon": "icon.png",
+      "expected_requirements_lock": "requirements.lock",
+      "expected_required_entries": [
+        "fixture_frozen_explicit/README.md",
+        "fixture_frozen_explicit/app.yaml",
+        "fixture_frozen_explicit/bin/fixture_frozen_explicit/fixture_frozen_explicit.exe",
+        "fixture_frozen_explicit/icon.png",
+        "fixture_frozen_explicit/pack_manifest.json",
+        "fixture_frozen_explicit/requirements.lock",
+        "fixture_frozen_explicit/requirements.txt"
+      ]
+    },
+    {
+      "id": "frozen_folder_implicit_lock",
+      "app_id": "fixture_frozen_implicit",
+      "app_dir": "fixture_frozen_implicit",
+      "expected_run_entry": "bin/fixture_frozen_implicit/fixture_frozen_implicit.exe",
+      "expected_display_icon": "icon.png",
+      "expected_requirements_lock": "requirements.lock",
+      "expected_required_entries": [
+        "fixture_frozen_implicit/README.md",
+        "fixture_frozen_implicit/app.yaml",
+        "fixture_frozen_implicit/bin/fixture_frozen_implicit/fixture_frozen_implicit.exe",
+        "fixture_frozen_implicit/icon.png",
+        "fixture_frozen_implicit/pack_manifest.json",
+        "fixture_frozen_implicit/requirements.lock",
+        "fixture_frozen_implicit/requirements.txt"
+      ]
+    },
+    {
+      "id": "legacy_python_runner_lock_optional",
+      "app_id": "fixture_legacy_runner",
+      "app_dir": "fixture_legacy_runner",
+      "expected_run_entry": "main.py",
+      "expected_display_icon": "icon.png",
+      "expected_requirements_lock": null,
+      "expected_required_entries": [
+        "fixture_legacy_runner/README.md",
+        "fixture_legacy_runner/app.yaml",
+        "fixture_legacy_runner/icon.png",
+        "fixture_legacy_runner/main.py",
+        "fixture_legacy_runner/pack_manifest.json",
+        "fixture_legacy_runner/requirements.txt"
+      ]
+    }
+  ],
+  "path_normalization_cases": [
+    {
+      "id": "collapses_dot_and_empty_segments",
+      "input": " ./bin//demo.exe ",
+      "expected": "bin/demo.exe"
+    },
+    {
+      "id": "normalizes_backslashes",
+      "input": "assets\\icon.png",
+      "expected": "assets/icon.png"
+    },
+    {
+      "id": "rejects_parent_traversal",
+      "input": "../outside.txt",
+      "error_contains": "must stay inside"
+    },
+    {
+      "id": "rejects_windows_absolute_path",
+      "input": "C:\\temp\\tool.exe",
+      "error_contains": "relative path"
+    },
+    {
+      "id": "rejects_empty_path",
+      "input": "   ",
+      "error_contains": "is missing"
+    }
+  ]
+}

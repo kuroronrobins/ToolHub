@@ -1,0 +1,13 @@
+schema_version: 1
+id: fixture_frozen_implicit
+name: Fixture Frozen Implicit
+version: 0.1.0
+run:
+  runner: exe
+  entry: bin/fixture_frozen_implicit/fixture_frozen_implicit.exe
+display:
+  icon: icon.png
+runtime:
+  distribution_mode: frozen_folder
+build:
+  build_mode: frozen_folder

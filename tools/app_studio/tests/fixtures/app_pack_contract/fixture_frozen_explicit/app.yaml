@@ -1,0 +1,14 @@
+schema_version: 1
+id: fixture_frozen_explicit
+name: Fixture Frozen Explicit
+version: 0.1.0
+run:
+  runner: exe
+  entry: bin/fixture_frozen_explicit/fixture_frozen_explicit.exe
+display:
+  icon: icon.png
+runtime:
+  distribution_mode: frozen-folder
+  requirements_lock: requirements.lock
+build:
+  build_mode: frozen-folder
