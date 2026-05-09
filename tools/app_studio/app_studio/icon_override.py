@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .default_icon import DEFAULT_ICON_SOURCE
+from .icon_compat import is_legacy_fallback_icon_source, legacy_fallback_icon_warning
 
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -33,8 +34,8 @@ def apply_icon_override(default_png: bytes, override: dict[str, Any] | None) -> 
     source = str(override.get("selected_icon_source") or "").strip()
     if source in {"", "default_icon"}:
         return default_png, DEFAULT_ICON_SOURCE, warnings
-    if source == "fallback_png":
-        warnings.append("Legacy fallback_png icon override was treated as default_icon.")
+    if is_legacy_fallback_icon_source(source):
+        warnings.append(legacy_fallback_icon_warning(source))
         return default_png, DEFAULT_ICON_SOURCE, warnings
     if source not in {"candidate_png", "final_png", "ai_candidate_png", "uploaded_png"}:
         warnings.append("Ignored icon override: unsupported selected_icon_source.")

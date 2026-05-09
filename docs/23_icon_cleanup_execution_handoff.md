@@ -1,6 +1,6 @@
 # App Studio icon cleanup execution handoff
 
-Status: implementation handoff plus execution tracker. Phase 0 through Phase 2 have been executed in the cleanup pass that removed local fallback rendering. Phase 3 through Phase 4 are the current cleanup scope.
+Status: implementation handoff plus execution tracker. Phase 0 through Phase 4 are complete. Phase 5 module split and compatibility isolation is implemented without changing current icon behavior; future cleanup should continue from the new module boundaries.
 
 Date: 2026-05-09
 
@@ -55,6 +55,27 @@ compatibility-isolation task.
 | `prompt_concept_only` | legacy manifest fixture / docs history | Keep only for old manifest tolerance. New candidate default is `rule_based_prompt_and_manifest`. |
 | `fallback_rule_based` | legacy manifest status compatibility / docs history | Map old status to `deterministic_png_check` in current summaries. |
 | pseudo quality fields | report/manifest detail only | Normal UI must show these only as "reference information" and must not rank or recommend by pseudo score. |
+
+## Phase 5 implementation result
+
+Implemented on 2026-05-09 as a mechanical module split with behavior preserved:
+
+| Module | Responsibility |
+| --- | --- |
+| `icon_generator.py` | compatibility facade for existing imports only |
+| `icon_pipeline.py` | initial icon generation, icon regeneration, file/report orchestration, and API call flow |
+| `icon_prompt.py` | user-request-first prompt assembly, style settings, deterministic text concepts, and concept prompt parsing |
+| `icon_candidates.py` | candidate path selection, API candidate checks, image result conversion, and legacy manifest fallback entry detection |
+| `icon_diagnostics.py` | image API summary, failure diagnostics, report parsing, and report-friendly diagnosis output |
+| `icon_quality.py` | deterministic PNG checks and rule-based reference score fields for API candidates |
+| `icon_compat.py` | legacy fallback field/source/status normalization only |
+
+Compatibility boundary:
+
+- New output must continue to omit fallback candidate counters/reasons and must not create local fallback image candidates.
+- `fallback_png`, `provisional_fallback_png`, `fallback_candidate_count`, `fallback_created_reason`, `fallback_rule_based`, and `prompt_concept_only` are accepted only through compatibility handling or legacy fixtures/docs.
+- The ToolHub common default icon remains a current icon source for `icon.png`, not a candidate and not a score target.
+- `icon_work/icon_fallback.svg` remains a legacy SVG compatibility artifact and was not renamed in Phase 5.
 
 ## Non-goals
 
