@@ -1423,7 +1423,7 @@ Implementation decisions required before changing behavior:
 - Any automatic stale manifest cleanup outside the full-delete flow.
 - Any app.yaml schema, App Pack spec, release manifest compatibility, or Tauri/TypeScript API shape change.
 
-Recommended next Codex task after this audit:
+Executed next Codex task after this audit (completed below):
 
 ```text
 AGENTS.md のルールに従って、1 回の作業で実装・セルフレビュー・検証まで実施してください。
@@ -1436,5 +1436,46 @@ ToolHub App Studio の P1 改善として、launcher/src-tauri/src/app_studio_co
 - 削除対象カテゴリ、excluded category、App Pack/staging matching rule、normalizedPath/comparisonKey、operator-facing action/note 文言を変更しない。
 - full_delete_apply の destructive behavior、manifest entry removal、enabled toggle、PowerShell scripts は変更しない。
 - 既存 Rust delete/full_delete tests、PowerShell parity/rehearsal の前提を壊さない。
+- apps / release / runtime / data / logs / 生成物は触らない。
+```
+
+## 2026-05-10 P1 follow-up: Rust read-only delete planner split
+
+Implemented scope:
+
+- Added `launcher/src-tauri/src/app_studio_delete_plan.rs` as the read-only delete planner boundary.
+- Moved `build_delete_plan()` and planner-only helpers for target construction, path normalization, App Pack path discovery, strict staging matching, backup discovery, external reference extraction, user-data exclusions, and shared-runtime excluded targets.
+- Kept `AppStudioDeletePlan` and `AppStudioDeletePlanTarget` in `app_studio_types.rs` so the public DTO/JSON shape remains unchanged.
+- Updated `app_studio_commands.rs` to import `build_delete_plan()` and `normalize_plan_path()` from the new module.
+- Left production `full_delete_apply()`, stale snapshot comparison, ordered deletion, path safety checks, manifest entry removal, post-checks, management list, and enabled toggle in `app_studio_commands.rs`.
+
+Compatibility notes:
+
+- Tauri command names, arguments, and return JSON shape were not changed.
+- Delete target categories and excluded categories were not changed.
+- `deleteAllowed`, `normalizedPath`, `comparisonKey`, action strings, and operator-facing notes were preserved.
+- App Pack matching still uses the manifest package plus `release/app_packs/<app_id>-*.zip`.
+- Staging matching still uses strict path-segment rules and keeps substring-only matches as `managed_generated_candidate` exclusions.
+- User data, external references, shared runtime folders, and staging candidates were not promoted to delete targets.
+- React/TypeScript, Python, PowerShell scripts, app.yaml schema, App Pack spec, release manifest compatibility, apps, release artifacts, runtime, data, logs, and generated files were not changed.
+
+Remaining follow-up:
+
+- Split management list / enabled toggle only as a separate non-destructive management pass.
+- Split full-delete apply only after the read-only planner boundary has been validated in an environment where cargo is not blocked.
+- Consider a TypeScript delete UI normalizer later; do not combine UI wording cleanup with backend safety changes.
+
+Recommended next Codex task after this split:
+
+```text
+AGENTS.md のルールに従って、1 回の作業で実装・セルフレビュー・検証まで実施してください。
+
+目的:
+ToolHub App Studio の P1 改善として、launcher/src-tauri/src/app_studio_commands.rs に残る management list / enabled toggle を app_studio_management.rs に低リスクに分離してください。
+
+条件:
+- Tauri command 名、引数、戻り値 JSON shape、React/TypeScript API shape を変更しない。
+- enabled toggle は既存 manifest entry の enabled field だけを変更する現行挙動を維持する。
+- delete plan / full_delete_apply の destructive behavior は変更しない。
 - apps / release / runtime / data / logs / 生成物は触らない。
 ```
