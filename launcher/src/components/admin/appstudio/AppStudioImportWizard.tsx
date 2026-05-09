@@ -12,6 +12,7 @@ import {
   appStudioSuggest,
 } from "../../../lib/appStudioApi";
 import { getAppStudioApprovalDecision } from "../../../lib/appStudioApproval";
+import { getAppStudioRunResultMessage, isAppStudioWarningOnly } from "../../../lib/appStudioRunResult";
 import { suggestAppIdentity } from "../../../lib/appStudioIdentity";
 import {
   apiIconCandidatesForProposal,
@@ -242,13 +243,13 @@ export function AppStudioImportWizard() {
       const rawResult = action === "suggest" ? await appStudioSuggest(cleaned) : await appStudioApply(cleaned);
       const freshResult = await refreshRunResult(rawResult);
       setResult(freshResult);
-      const resultMessage = messageForResult(freshResult, action);
+      const resultMessage = getAppStudioRunResultMessage(freshResult, action);
       setMessage(resultMessage);
-      if (!freshResult.ok && !isWarningOnly(freshResult)) {
+      if (!freshResult.ok && !isAppStudioWarningOnly(freshResult)) {
         setError(resultMessage);
         finishOperation("error", resultMessage);
       } else {
-        finishOperation(isWarningOnly(freshResult) ? "warning" : "success", resultMessage);
+        finishOperation(isAppStudioWarningOnly(freshResult) ? "warning" : "success", resultMessage);
         if (action === "suggest" && operationKind === "aiProposal") {
           setStep("review");
         }
@@ -278,13 +279,13 @@ export function AppStudioImportWizard() {
       const rawResult = await appStudioApprove(appId, approvalMode === "strict");
       const freshResult = await refreshRunResult(rawResult);
       setResult(freshResult);
-      const resultMessage = messageForResult(freshResult, "approve");
+      const resultMessage = getAppStudioRunResultMessage(freshResult, "approve");
       setMessage(resultMessage);
-      if (!freshResult.ok && !isWarningOnly(freshResult)) {
+      if (!freshResult.ok && !isAppStudioWarningOnly(freshResult)) {
         setError(resultMessage);
         finishOperation("error", resultMessage);
       } else {
-        finishOperation(isWarningOnly(freshResult) ? "warning" : "success", resultMessage);
+        finishOperation(isAppStudioWarningOnly(freshResult) ? "warning" : "success", resultMessage);
       }
     } catch (approveError) {
       const fallback = "承認処理に失敗しました。";
@@ -498,6 +499,8 @@ export function AppStudioImportWizard() {
           preflight={preflight}
           result={result}
           aiProposal={aiProposal}
+          approvalMode={approvalMode}
+          lastAction={lastAction}
           message={message}
           error={error}
         />
@@ -993,33 +996,4 @@ function cleanRequest(request: AppStudioImportRequest): AppStudioImportRequest {
     metadata: cleanEditableMetadata(request.metadata),
     iconOverride: cleanIconOverride(request.iconOverride),
   };
-}
-
-function isWarningOnly(result: AppStudioRunResult): boolean {
-  return result.executionStatus === "warn" && result.approvalAllowed === true;
-}
-
-function messageForResult(result: AppStudioRunResult, action: StudioAction): string {
-  if (!result.ok && isWarningOnly(result)) {
-    return "警告がありますが処理は完了しました。ログとレポートを確認してください。";
-  }
-  if (!result.ok) {
-    return "処理に失敗しました。理由と次の操作を確認してください。";
-  }
-  if (action === "approve") {
-    if (result.manifestEnabled === true && result.catalogVisible === true) {
-      return "承認して有効化しました。ホームの更新後にアプリ一覧へ表示されます。";
-    }
-    if (result.manifestEnabled === true) {
-      return `承認は完了しましたが、ホーム表示の確認が未完了です。理由: ${result.catalogDisabledReason || result.catalogLoadError || "catalog_visible=false"}`;
-    }
-    return `承認は完了していません。理由: ${result.approvalFailureSummary || result.verifyReleaseFailureSummary || "manifest enabled=false"}`;
-  }
-  if (result.enabled) {
-    return "承認して有効化しました。通常ランチャーで表示を確認してください。";
-  }
-  if (action === "apply") {
-    return "テスト登録と配布物検証が完了しました。問題なければ承認してください。";
-  }
-  return "登録内容を作成しました。内容を確認して次へ進んでください。";
 }

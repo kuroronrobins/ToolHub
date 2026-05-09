@@ -2,7 +2,7 @@ import { CheckCircle2, CircleAlert, FolderOpen, PackageCheck, ShieldCheck } from
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { appStudioOpenOutputDir } from "../../../lib/appStudioApi";
-import { getAppStudioApprovalDecision, getAppStudioApprovalFailureGuidance } from "../../../lib/appStudioApproval";
+import { formatAppStudioSeconds, normalizeAppStudioRunResult } from "../../../lib/appStudioRunResult";
 import type { AppStudioApprovalMode, AppStudioRunResult } from "../../../lib/appStudioTypes";
 
 interface Props {
@@ -18,12 +18,8 @@ interface Props {
 export function AppStudioResultPanel({ result, lastAction, approvalMode, onApprovalModeChange, busy, onApprove, onRefresh }: Props) {
   const [openMessage, setOpenMessage] = useState("");
   const [openError, setOpenError] = useState("");
-  const warningOnly = Boolean(result && result.executionStatus === "warn" && result.approvalAllowed === true);
-  const secretBlocked = Boolean(result?.applyBlockedBySecretScan || (result?.secretBlockingCount ?? 0) > 0);
-  const approvalDecision = getAppStudioApprovalDecision(result, approvalMode, busy);
-  const approvalFailureGuidance = getAppStudioApprovalFailureGuidance(result);
-  const canApprove = approvalDecision.canApprove;
-  const nextAction = nextActionText(result, lastAction, approvalFailureGuidance?.nextAction ?? approvalDecision.reason);
+  const view = normalizeAppStudioRunResult(result, { approvalMode, busy, lastAction });
+  const { approvalDecision, approvalFailureGuidance, canApprove, warningOnly, secretBlocked } = view;
 
   async function openOutputDir() {
     if (!result?.outputDir) {
@@ -46,9 +42,7 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
           <p className="dialog-kicker">結果</p>
           <h4>生成物と承認状態</h4>
         </div>
-        <span className={`admin-status-pill ${result?.enabled || canApprove ? "ok" : ""}`}>
-          {result?.enabled ? "有効化済み" : canApprove ? "承認可能" : "未承認"}
-        </span>
+        <span className={`admin-status-pill ${view.statusPillOk ? "ok" : ""}`}>{view.statusPillLabel}</span>
       </div>
 
       {warningOnly ? (
@@ -82,44 +76,44 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
         <ResultRow icon={<CheckCircle2 size={18} />} label="現在版" value={result?.currentVersion ?? "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="新しい版" value={result?.newVersion ?? "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="終了コード" value={result ? String(result.exitCode) : "-"} />
-        <ResultRow icon={<CheckCircle2 size={18} />} label="処理結果" value={result ? boolLabel(result.ok) : "-"} />
-        <ResultRow icon={<CheckCircle2 size={18} />} label="最後の操作" value={actionLabel(lastAction)} />
+        <ResultRow icon={<CheckCircle2 size={18} />} label="処理結果" value={view.processResultLabel} />
+        <ResultRow icon={<CheckCircle2 size={18} />} label="最後の操作" value={view.lastActionLabel} />
         <OutputDirRow value={result?.outputDir ?? ""} disabled={busy || !result?.outputDir} onOpen={() => void openOutputDir()} />
-        <ResultRow icon={<CheckCircle2 size={18} />} label="メタデータ上書き" value={metadataOverrideText(result)} />
-        <ResultRow icon={<CheckCircle2 size={18} />} label="アイコン上書き" value={iconOverrideText(result)} />
-        <ResultRow icon={<CircleAlert size={18} />} label="exe化準備" value={executionLabel(result?.exeReadinessStatus)} />
-        <ResultRow icon={<CircleAlert size={18} />} label="配布物検証" value={executionLabel(result?.executionStatus)} />
+        <ResultRow icon={<CheckCircle2 size={18} />} label="メタデータ上書き" value={view.metadataOverrideLabel} />
+        <ResultRow icon={<CheckCircle2 size={18} />} label="アイコン上書き" value={view.iconOverrideLabel} />
+        <ResultRow icon={<CircleAlert size={18} />} label="exe化準備" value={view.exeReadinessLabel} />
+        <ResultRow icon={<CircleAlert size={18} />} label="配布物検証" value={view.executionStatusLabel} />
         <ResultRow icon={<CircleAlert size={18} />} label="システム承認判定" value={approvalDecision.systemDecision} />
         <ResultRow icon={<CircleAlert size={18} />} label="現在モードの判定" value={approvalDecision.modeDecision} />
         <ResultRow icon={<CircleAlert size={18} />} label="配布リスク警告" value={String(result?.approvalBlockingWarningsCount ?? 0)} />
         <ResultRow icon={<CircleAlert size={18} />} label="参考警告" value={String(result?.nonBlockingWarningsCount ?? 0)} />
         <ResultRow icon={<CircleAlert size={18} />} label="未解決リスク" value={String(result?.unresolvedDistributionRisksCount ?? 0)} />
-        <ResultRow icon={<CircleAlert size={18} />} label="runtime検証" value={executionLabel(result?.runtimeStatus)} />
+        <ResultRow icon={<CircleAlert size={18} />} label="runtime検証" value={view.runtimeStatusLabel} />
         <ResultRow icon={<CircleAlert size={18} />} label="秘密情報ブロック" value={String(result?.secretBlockingCount ?? 0)} />
-        <ResultRow icon={<CircleAlert size={18} />} label="処理時間" value={timingSummary(result)} />
-        <ResultRow icon={<ShieldCheck size={18} />} label="App Studio承認記録" value={approvalRecordSummary(result)} />
-        <ResultRow icon={<ShieldCheck size={18} />} label="manifest enabled" value={triStateLabel(result?.manifestEnabled)} />
-        <ResultRow icon={<ShieldCheck size={18} />} label="ホーム表示判定" value={catalogSummary(result)} />
+        <ResultRow icon={<CircleAlert size={18} />} label="処理時間" value={view.timingSummary} />
+        <ResultRow icon={<ShieldCheck size={18} />} label="App Studio承認記録" value={view.approvalRecordSummary} />
+        <ResultRow icon={<ShieldCheck size={18} />} label="manifest enabled" value={view.manifestEnabledLabel} />
+        <ResultRow icon={<ShieldCheck size={18} />} label="ホーム表示判定" value={view.catalogSummary} />
         <ResultRow icon={<ShieldCheck size={18} />} label="catalog root" value={result?.catalogRoot ?? "-"} />
-        <ResultRow icon={<PackageCheck size={18} />} label="App Pack" value={result?.appPack ?? "未作成"} />
-        <ResultRow icon={<ShieldCheck size={18} />} label="次の操作" value={nextAction} />
+        <ResultRow icon={<PackageCheck size={18} />} label="App Pack" value={view.appPackLabel} />
+        <ResultRow icon={<ShieldCheck size={18} />} label="次の操作" value={view.primaryNextAction} />
       </div>
 
-      {result?.approvalBlockingReasons?.length ? (
-        <FindingList title="配布リスクあり" items={result.approvalBlockingReasons} />
+      {view.blockingReasons.length ? (
+        <FindingList title="配布リスクあり" items={view.blockingReasons} />
       ) : null}
-      {result?.nonBlockingWarningSummaries?.length ? (
-        <FindingList title="配布リスクなしの警告" items={result.nonBlockingWarningSummaries} />
+      {view.nonBlockingWarnings.length ? (
+        <FindingList title="配布リスクなしの警告" items={view.nonBlockingWarnings} />
       ) : null}
-      {result?.manualChecks?.length ? <FindingList title="手動確認メモ" items={result.manualChecks} /> : null}
+      {view.manualChecks.length ? <FindingList title="手動確認メモ" items={view.manualChecks} /> : null}
       {result?.timingPhases?.length ? (
         <div className="studio-manual-checks">
           <strong>工程別時間</strong>
-          <p>{timingDetailSummary(result)}</p>
+          <p>{view.timingDetailSummary}</p>
           <ul>
             {result.timingPhases.slice(-10).map((item, index) => (
               <li key={`${item.phase}-${index}`}>
-                {item.label}: {formatSeconds(item.durationSeconds)} ({item.status})
+                {item.label}: {formatAppStudioSeconds(item.durationSeconds)} ({item.status})
               </li>
             ))}
           </ul>
@@ -223,141 +217,4 @@ function OutputDirRow({ value, disabled, onOpen }: { value: string; disabled: bo
       </div>
     </div>
   );
-}
-
-function boolLabel(value: boolean): string {
-  return value ? "成功" : "失敗";
-}
-
-function actionLabel(action: "suggest" | "apply" | "approve" | null): string {
-  if (action === "suggest") {
-    return "登録内容作成";
-  }
-  if (action === "apply") {
-    return "テスト登録";
-  }
-  if (action === "approve") {
-    return "承認";
-  }
-  return "-";
-}
-
-function metadataOverrideText(result: AppStudioRunResult | null): string {
-  if (!result?.metadataOverrideUsed) {
-    return "未使用";
-  }
-  return result.metadataOverrideKeys?.length ? result.metadataOverrideKeys.join(", ") : "使用";
-}
-
-function iconOverrideText(result: AppStudioRunResult | null): string {
-  if (!result?.iconOverrideUsed) {
-    return result?.selectedIconSource ?? "未使用";
-  }
-  return result.selectedIconSource ?? "使用";
-}
-
-function executionLabel(status?: string | null): string {
-  if (status === "pass") {
-    return "問題なし";
-  }
-  if (status === "warn") {
-    return "警告あり";
-  }
-  if (status === "fail") {
-    return "失敗";
-  }
-  return status || "未確認";
-}
-
-function nextActionText(
-  result: AppStudioRunResult | null,
-  lastAction: "suggest" | "apply" | "approve" | null,
-  decisionReason: string,
-): string {
-  if (!result) {
-    return "事前確認後、登録内容を作成してください。";
-  }
-  if (result.enabled) {
-    return "承認済みです。";
-  }
-  if (lastAction === "suggest") {
-    return "テスト登録して配布物検証を実行してください。";
-  }
-  return decisionReason;
-}
-
-function timingSummary(result: AppStudioRunResult | null): string {
-  if (!result?.timingTotalSeconds) {
-    return "-";
-  }
-  const estimate = result.timingEstimatedTotalSeconds ? ` / 目安 ${formatSeconds(result.timingEstimatedTotalSeconds)}` : "";
-  return `${formatSeconds(result.timingTotalSeconds)}${estimate}`;
-}
-
-function timingDetailSummary(result: AppStudioRunResult): string {
-  const actual = result.timingActualTotalSeconds ?? result.timingWallClockTotalSeconds ?? result.timingTotalSeconds;
-  const estimate = result.timingEstimatedTotalSeconds;
-  const error = result.timingPredictionErrorSeconds;
-  const cli = result.timingCliMeasuredTotalSeconds;
-  const overhead = result.timingUnmeasuredOverheadSeconds;
-  const process = result.processWallClockSeconds;
-  const parts = [
-    `実績: ${formatSeconds(actual)}`,
-    estimate != null ? `予測: ${formatSeconds(estimate)}` : "",
-    error != null ? `差分: ${formatSignedSeconds(error)}` : "",
-    process != null ? `Tauri子プロセス: ${formatSeconds(process)}` : "",
-    cli != null ? `工程計: ${formatSeconds(cli)}` : "",
-    overhead != null ? `未計測/待機: ${formatSeconds(overhead)}` : "",
-    result.timingPredictionSource ? `予測根拠: ${result.timingPredictionSource}` : "",
-  ].filter(Boolean);
-  return parts.join(" / ") || "-";
-}
-
-function approvalRecordSummary(result: AppStudioRunResult | null): string {
-  if (!result) {
-    return "-";
-  }
-  const status = result.approvalRecordStatus ?? "missing";
-  const verify = result.verifyReleaseStatus ? ` / verify_release=${result.verifyReleaseStatus}` : "";
-  return `${status}${verify}`;
-}
-
-function catalogSummary(result: AppStudioRunResult | null): string {
-  if (!result) {
-    return "-";
-  }
-  if (result.catalogVisible === true) {
-    return "ホーム表示対象です";
-  }
-  if (result.catalogVisible === false) {
-    return result.catalogDisabledReason || result.catalogLoadError || "ホーム表示対象ではありません";
-  }
-  return "未確認";
-}
-
-function triStateLabel(value: boolean | null | undefined): string {
-  if (value === true) {
-    return "true";
-  }
-  if (value === false) {
-    return "false";
-  }
-  return "unknown";
-}
-
-function formatSeconds(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) {
-    return "-";
-  }
-  if (value < 60) {
-    return `${value.toFixed(1)}秒`;
-  }
-  const minutes = Math.floor(value / 60);
-  const seconds = Math.round(value % 60);
-  return `${minutes}分${seconds}秒`;
-}
-
-function formatSignedSeconds(value: number): string {
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${formatSeconds(Math.abs(value))}`;
 }

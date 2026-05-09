@@ -1,4 +1,5 @@
 import type { AppStudioRunResult } from "../../../lib/appStudioTypes";
+import { isAppStudioWarningOnly } from "../../../lib/appStudioRunResult";
 
 interface Props {
   busy: boolean;
@@ -6,7 +7,7 @@ interface Props {
 }
 
 export function AppStudioRunLog({ busy, result }: Props) {
-  const warningOnly = result?.executionStatus === "warn" && result.approvalAllowed === true;
+  const warningOnly = isAppStudioWarningOnly(result);
   return (
     <section className="studio-side-section studio-run-log-section">
       <div className="admin-section-head">
@@ -33,7 +34,7 @@ function statusText(result: AppStudioRunResult): string {
   if (result.ok) {
     return "成功";
   }
-  if (result.executionStatus === "warn" && result.approvalAllowed === true) {
+  if (isAppStudioWarningOnly(result)) {
     return "警告";
   }
   return "失敗";

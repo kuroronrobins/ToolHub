@@ -687,3 +687,21 @@ docs/15_app_studio_update_gui.md と docs/21_app_registration_improvement_plan.m
 - runtime result の存在必須化、`generated_at` 期限判定、source hash freshness 判定は引き続き未実施。
 - approval record の stale/old result を UI でいつ無視するかは、保存済み old result 互換と Apply 後 refresh の設計判断が必要。
 - Rust command の大規模分割や approval UX の全面再設計は別フェーズに残す。
+
+## 2026-05-10 P1 follow-up: UI result normalizer
+
+実施範囲:
+
+- `launcher/src/lib/appStudioRunResult.ts` を追加し、App Studio run result の表示用 view model を作る境界を設けた。
+- approval decision の authoritative source は Python approval gate と `appStudioApproval.ts` の既存 helper に残し、新 normalizer はその結果を UI 表示向けに整形するだけに留めた。
+- `AppStudioResultPanel.tsx` から、warning-only 判定、secret block 判定、status label、next action、timing summary、approval record summary、catalog summary などの表示組み立てを normalizer 経由にした。
+- `AppStudioImportSidebar.tsx` の next action と result warning は normalizer 経由にし、preflight / AI / icon 固有の注意だけを component 側に残した。
+- `AppStudioImportWizard.tsx` の result message と warning-only 判定を normalizer helper に寄せた。
+- `AppStudioRunLog.tsx` は warning-only 判定だけを shared helper に寄せた。
+- TypeScript unit test で wrong app、stale result、secret scan block、approval-blocking warning、non-blocking warning only、enabled result、missing result の UI 表示契約を固定した。
+
+残した follow-up:
+
+- `AppStudioUpdateWizard.tsx` には update 専用の next action と message helper が残っている。update flow の表示語彙まで normalizer に寄せる場合は、update 用 view model を別途定義してから低リスクに移す。
+- React component test は未追加。今回固定したのは pure helper の Vitest unit test である。
+- UI の全面再設計、approval UX の根本変更、Rust command 分割、Python approval gate 変更は未実施。

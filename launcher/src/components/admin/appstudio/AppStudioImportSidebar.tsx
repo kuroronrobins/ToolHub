@@ -1,6 +1,6 @@
-import type { AppStudioAiProposal, AppStudioImportRequest, AppStudioPreflightResult, AppStudioRunResult } from "../../../lib/appStudioTypes";
-import { getAppStudioApprovalFailureGuidance } from "../../../lib/appStudioApproval";
+import type { AppStudioAiProposal, AppStudioApprovalMode, AppStudioImportRequest, AppStudioPreflightResult, AppStudioRunResult } from "../../../lib/appStudioTypes";
 import { normalizeAppStudioIconProposal } from "../../../lib/appStudioIconProposal";
+import { collectAppStudioRunResultWarnings, getAppStudioImportSidebarNextAction, type AppStudioRunAction } from "../../../lib/appStudioRunResult";
 import { AppStudioOperationBanner, type StudioOperationState } from "./AppStudioOperationBanner";
 import { type AppStudioImportStep, importStepLabel } from "./AppStudioStepNav";
 
@@ -11,12 +11,22 @@ interface Props {
   preflight: AppStudioPreflightResult | null;
   result: AppStudioRunResult | null;
   aiProposal: AppStudioAiProposal | null;
+  approvalMode: AppStudioApprovalMode;
+  lastAction: AppStudioRunAction | null;
   message: string;
   error: string;
 }
 
-export function AppStudioImportSidebar({ step, operation, request, preflight, result, aiProposal, message, error }: Props) {
+export function AppStudioImportSidebar({ step, operation, request, preflight, result, aiProposal, approvalMode, lastAction, message, error }: Props) {
   const warnings = collectWarnings(preflight, result, aiProposal);
+  const nextAction = getAppStudioImportSidebarNextAction({
+    step,
+    hasEntry: Boolean(request.entry),
+    preflightOk: preflight?.ok === true,
+    result,
+    approvalMode,
+    lastAction,
+  });
   return (
     <section className="studio-side-section studio-import-sidebar">
       <div className="admin-section-head">
@@ -31,7 +41,7 @@ export function AppStudioImportSidebar({ step, operation, request, preflight, re
 
       <div className="studio-next-action">
         <strong>次にやること</strong>
-        <p>{nextAction(step, request, preflight, result)}</p>
+        <p>{nextAction}</p>
       </div>
 
       {message ? <p className="admin-success">{message}</p> : null}
@@ -82,44 +92,11 @@ export function AppStudioImportSidebar({ step, operation, request, preflight, re
   );
 }
 
-function nextAction(
-  step: AppStudioImportStep,
-  request: AppStudioImportRequest,
-  preflight: AppStudioPreflightResult | null,
-  result: AppStudioRunResult | null,
-): string {
-  if (step === "selectEntry") {
-    return request.entry ? "アプリIDと表示名を確認し、必要なら事前確認を実行してから次へ進んでください。" : "登録するアプリのメインファイルを選択してください。";
-  }
-  if (step === "aiProposal") {
-    return "保存済み提案を読むか、AIで新しく提案を作成してください。";
-  }
-  if (step === "review") {
-    return "説明文、カテゴリ、アイコンを確認し、必要ならAIアイコンを再生成してください。";
-  }
-  if (!result) {
-    return preflight?.ok ? "登録内容を作成し、続けてテスト登録と配布物検証を行ってください。" : "まず事前確認を実行してください。";
-  }
-  if (result.enabled) {
-    return "承認済みです。通常ランチャーで表示と起動を確認してください。";
-  }
-  const approvalFailureGuidance = getAppStudioApprovalFailureGuidance(result);
-  if (approvalFailureGuidance) {
-    return approvalFailureGuidance.nextAction;
-  }
-  if (result.executionStatus === "fail" || result.approvalAllowed === false) {
-    return "配布物検証の失敗を解消してから承認してください。";
-  }
-  return "テスト登録結果を確認し、問題なければ承認して有効化してください。";
-}
-
 function collectWarnings(preflight: AppStudioPreflightResult | null, result: AppStudioRunResult | null, aiProposal: AppStudioAiProposal | null): string[] {
   const warnings = new Set<string>();
   preflight?.warnings.forEach((warning) => warnings.add(friendlyWarning(warning)));
   aiProposal?.warnings.forEach((warning) => warnings.add(warning));
-  if (result?.executionStatus === "warn") {
-    warnings.add("配布物検証が警告扱いです。ログとレポートを確認してください。");
-  }
+  collectAppStudioRunResultWarnings(result).forEach((warning) => warnings.add(warning));
   const normalizedIcon = aiProposal?.icon ? normalizeAppStudioIconProposal(aiProposal.icon) : null;
   if (normalizedIcon && normalizedIcon.diagnosis.apiCandidateCount === 0 && normalizedIcon.defaultIcon.used) {
     warnings.add("AI画像候補は保存されていません。未採用時のToolHub共通default iconを使用しています。");
