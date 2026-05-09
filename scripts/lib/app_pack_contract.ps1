@@ -1,4 +1,4 @@
-# Read-only App Pack contract helpers used by parity tests and packaging scripts.
+# Read-only App Pack contract helpers used by parity tests, packaging, and verification scripts.
 # This file intentionally defines functions only. It does not read or write
 # apps/, release/, runtime/, fixtures, manifests, or App Pack artifacts on load.
 

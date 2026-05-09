@@ -214,6 +214,8 @@ is unavailable. Keep the Sandbox flow for machines that support it, but use the 
   which collides with the planned user data root. They also showed likely Tauri relative resources under `_up_\_up_`.
   The next installer build maps resources to stable target paths, uses an NSIS hook to set the per-user install dir to
   `%LOCALAPPDATA%\Programs\ToolHub`, and keeps root resolution compatible with both the stable and legacy layouts.
+- Phase 1-B keeps the Beta installer target to NSIS only because the required artifact is `ToolHub_Setup.exe`; MSI
+  generation is deferred outside the Beta blocker path.
 - `scripts/beta_vm/import_vm_test_result.ps1` summarizes a returned `latest_vm_install_result.json`, including
   `discovered_install_dirs`, `discovered_toolhub_exes`, `launched_toolhub_exe`, `payload_layout_summary`, and the
   checklist reflection candidate without requiring the VM to exist on the host.

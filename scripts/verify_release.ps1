@@ -9,6 +9,12 @@ $ErrorActionPreference = "Continue"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
+$AppPackContractHelperPath = Join-Path $PSScriptRoot "lib\app_pack_contract.ps1"
+if (-not (Test-Path -LiteralPath $AppPackContractHelperPath -PathType Leaf)) {
+    throw "App Pack contract helper is missing: $AppPackContractHelperPath"
+}
+. $AppPackContractHelperPath
+
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ReleaseDir = Join-Path $Root "release"
 $ManifestPath = Join-Path $ReleaseDir "manifest.json"
@@ -49,136 +55,6 @@ function Require-Directory($Path) {
 
 function Require-File($Path) {
     if (Test-Path -LiteralPath $Path -PathType Leaf) { Pass "$Path exists" } else { Fail "$Path is missing" }
-}
-
-function Normalize-YamlScalar {
-    param([string]$Value)
-    if ($null -eq $Value) { return $null }
-    $Text = $Value.Trim()
-    $CommentIndex = $Text.IndexOf(" #")
-    if ($CommentIndex -ge 0) {
-        $Text = $Text.Substring(0, $CommentIndex).Trim()
-    }
-    if (($Text.StartsWith('"') -and $Text.EndsWith('"')) -or ($Text.StartsWith("'") -and $Text.EndsWith("'"))) {
-        $Text = $Text.Substring(1, $Text.Length - 2)
-    }
-    if ($Text -eq "" -or $Text -eq "null" -or $Text -eq "~") {
-        return $null
-    }
-    return $Text
-}
-
-function Read-YamlSectionScalar {
-    param(
-        [string]$Text,
-        [string]$Section,
-        [string]$Key
-    )
-    $Lines = $Text -split "`r?`n"
-    $InSection = $false
-    $SectionIndent = -1
-    foreach ($Line in $Lines) {
-        if (-not $InSection) {
-            $SectionPattern = "^(\s*)$([regex]::Escape($Section))\s*:\s*(?:#.*)?$"
-            if ($Line -match $SectionPattern) {
-                $InSection = $true
-                $SectionIndent = $Matches[1].Length
-            }
-            continue
-        }
-
-        if ($Line.Trim() -eq "") { continue }
-        if ($Line -match "^(\s*)\S") {
-            $Indent = $Matches[1].Length
-            if ($Indent -le $SectionIndent) { break }
-        }
-        $KeyPattern = "^\s*$([regex]::Escape($Key))\s*:\s*(.+?)\s*$"
-        if ($Line -match $KeyPattern) {
-            return Normalize-YamlScalar $Matches[1]
-        }
-    }
-    return $null
-}
-
-function Normalize-AppRelativePath {
-    param(
-        [string]$Path,
-        [string]$Label
-    )
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw "$Label is missing."
-    }
-    $Normalized = $Path.Trim().Replace("\", "/")
-    if ([string]::IsNullOrWhiteSpace($Normalized)) {
-        throw "$Label is missing."
-    }
-    if ([System.IO.Path]::IsPathRooted($Normalized) -or $Normalized -match "^[A-Za-z]:/") {
-        throw "$Label must be a relative path inside the app directory: $Path"
-    }
-    $Parts = @()
-    foreach ($Part in ($Normalized -split "/")) {
-        if ($Part -eq "" -or $Part -eq ".") {
-            continue
-        }
-        if ($Part -eq "..") {
-            throw "$Label must stay inside the app directory: $Path"
-        }
-        $Parts += $Part
-    }
-    if ($Parts.Count -eq 0) {
-        throw "$Label is missing."
-    }
-    return ($Parts -join "/")
-}
-
-function Resolve-AppRelativeFile {
-    param(
-        [string]$AppDir,
-        [string]$RelativePath,
-        [string]$Label
-    )
-    $NativeRelative = (($RelativePath -split "/") -join [System.IO.Path]::DirectorySeparatorChar)
-    $Full = [System.IO.Path]::GetFullPath((Join-Path $AppDir $NativeRelative))
-    $AppRoot = [System.IO.Path]::GetFullPath($AppDir).TrimEnd([char[]]@("\", "/")) + [System.IO.Path]::DirectorySeparatorChar
-    if (-not $Full.StartsWith($AppRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "$Label must stay inside the app directory: $RelativePath"
-    }
-    return $Full
-}
-
-function Read-AppRelativeYamlFile {
-    param(
-        [string]$YamlText,
-        [string]$Section,
-        [string]$Key,
-        [string]$Label
-    )
-    $Value = Read-YamlSectionScalar -Text $YamlText -Section $Section -Key $Key
-    return Normalize-AppRelativePath -Path $Value -Label $Label
-}
-
-function Test-AppStudioFrozenFolderYaml {
-    param([string]$YamlText)
-    $DistributionMode = [string](Read-YamlSectionScalar -Text $YamlText -Section "runtime" -Key "distribution_mode")
-    $BuildMode = [string](Read-YamlSectionScalar -Text $YamlText -Section "build" -Key "build_mode")
-    $DistributionMode = $DistributionMode.Trim().ToLowerInvariant()
-    $BuildMode = $BuildMode.Trim().ToLowerInvariant()
-    return $DistributionMode -in @("frozen_folder", "frozen-folder") -or $BuildMode -in @("frozen_folder", "frozen-folder")
-}
-
-function Get-RequirementsLockPathForAppPack {
-    param(
-        [string]$YamlText,
-        [string]$Label
-    )
-    $Value = Read-YamlSectionScalar -Text $YamlText -Section "runtime" -Key "requirements_lock"
-    if (-not [string]::IsNullOrWhiteSpace($Value)) {
-        return Normalize-AppRelativePath -Path $Value -Label $Label
-    }
-    if (Test-AppStudioFrozenFolderYaml -YamlText $YamlText) {
-        return "requirements.lock"
-    }
-    return $null
 }
 
 function Test-AppYamlReferencedFile {

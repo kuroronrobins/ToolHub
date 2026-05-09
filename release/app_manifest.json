@@ -5,7 +5,7 @@
                  "app_20260201_agendasnap":  {
                                                  "version":  "0.1.0",
                                                  "package":  "app_packs/app_20260201_agendasnap-0.1.0.zip",
-                                                 "sha256":  "98fe3a1958590b01bfbd341c5089806cfd2af166f10f3e21e730ff6247502126",
+                                                 "sha256":  "5409ee3943c9d40d3fae67e25d96448ad48dbee1955a4cf44a3ce8477ed081f2",
                                                  "required_core":  "\u003e=0.1.0",
                                                  "required_runner":  "\u003e=0.1.0",
                                                  "required_runtime":  null,
@@ -14,7 +14,7 @@
                  "app_20260215_pdfapplication":  {
                                                      "version":  "0.1.0",
                                                      "package":  "app_packs/app_20260215_pdfapplication-0.1.0.zip",
-                                                     "sha256":  "f11643f749d96088b5c788086e6a8b701c5242729701f5a575c6e11322e3b04b",
+                                                     "sha256":  "0760e476c121f4268076d4dae586038c48e2be061e3806e2a547cb568d4e4393",
                                                      "required_core":  "\u003e=0.1.0",
                                                      "required_runner":  "\u003e=0.1.0",
                                                      "required_runtime":  null,
@@ -23,7 +23,7 @@
                  "run_xcgate_upload":  {
                                            "version":  "0.1.0",
                                            "package":  "app_packs/run_xcgate_upload-0.1.0.zip",
-                                           "sha256":  "0b976725c140b1de9e651c03328e031334b637e6035883e3b92308a1f5781a78",
+                                           "sha256":  "4d74315b5cc7359df1780b41459c02a81a2a78367caeb50aa7f4107d772735b6",
                                            "required_core":  "\u003e=0.1.0",
                                            "required_runner":  "\u003e=0.1.0",
                                            "required_runtime":  null,
@@ -32,7 +32,7 @@
                  "sample_gui_app":  {
                                         "version":  "1.0.0",
                                         "package":  "app_packs/sample_gui_app-1.0.0.zip",
-                                        "sha256":  "924e6c8454e7608868fa7fa7eba27cf328d2133c899209ef3e88ea9526c86f00",
+                                        "sha256":  "be6b7cd4b677e7801864a1410521831a8fc8b345005e9de4ce192e13fef0af8f",
                                         "required_core":  "\u003e=0.1.0",
                                         "required_runner":  "\u003e=0.1.0",
                                         "required_runtime":  null,
@@ -41,7 +41,7 @@
                  "sample_playwright_app":  {
                                                "version":  "1.0.0",
                                                "package":  "app_packs/sample_playwright_app-1.0.0.zip",
-                                               "sha256":  "b915c6bb880a02c7189d218a0946ce5dea4563fdf4f0835d915d9b04fe448bbd",
+                                               "sha256":  "a93db56e5c5e368b95707cd4e4548a781d31805cc937ae223ac1fdd53d815766",
                                                "required_core":  "\u003e=0.1.0",
                                                "required_runner":  "\u003e=0.1.0",
                                                "required_runtime":  "web-runtime-001",

@@ -2152,6 +2152,40 @@ Recommended next implementation unit:
 - Do not change `verify_release.ps1` output wording, severity names, strict-mode behavior, require-flag behavior, package/hash checks, zip-entry labels, or exit codes in that task.
 - Minimum validation for that future implementation should include the App Pack parity test, PowerShell parser check, Python App Pack contract fixture test, and a `verify_release.ps1` run or a documented reason for not running it.
 
+## 2026-05-10 P2 follow-up: `verify_release.ps1` App Pack contract helper adoption
+
+Implemented scope:
+
+- `scripts/verify_release.ps1` now dot-sources `scripts/lib/app_pack_contract.ps1`.
+- Removed duplicated same-name pure/read-only helper definitions from `verify_release.ps1`:
+  - YAML scalar reading / normalization.
+  - app-relative path normalization and containment resolution.
+  - app.yaml app-relative field reading.
+  - frozen-folder detection.
+  - `runtime.requirements_lock` handling, including implicit `requirements.lock` for frozen-folder apps.
+- Updated the helper module header to state that it is shared by parity tests, packaging, and verification scripts.
+
+Release gate behavior kept in `verify_release.ps1`:
+
+- `Pass`, `Warn`, `Fail`, `[OK]`, `[WARN]`, `[NG]`, `-Strict`, `-RequireInstaller`, `-RequireRuntime`, `-RequireAppPacks`, and final exit code handling.
+- `Entry-Enabled`, JSON loading, required directory/file checks, app manifest checks, enabled/disabled stale entry handling, runtime checks, installer checks, package existence checks, `sha256` checks, staging manifest checks, and app_env skeleton warnings.
+- `Test-AppYamlReferencedFile` remains local so app.yaml source-reference failures still route through the existing `Fail` wording.
+- `Test-ZipContainsEntry` remains local so per-entry App Pack zip checks keep their current labels and severity routing.
+
+Compatibility notes:
+
+- App Pack required entry semantics are unchanged. `verify_release.ps1` still checks `app.yaml`, `pack_manifest.json`, README, requirements, `runtime.requirements_lock`, `display.icon`, and `run.entry` with the same release-gate messages.
+- App Studio frozen-folder apps still treat explicit `runtime.requirements_lock` or implicit `requirements.lock` as the lock-file contract.
+- Legacy Python-runner apps still do not receive a blanket `requirements.lock` requirement.
+- `scripts/package_app_pack.ps1`, `scripts/report_release_readiness.ps1`, and `scripts/check_all.ps1` were not changed in this follow-up.
+- App Pack spec, app.yaml schema, runner public I/F, release manifest compatibility, Python production code, Rust code, React/TypeScript code, apps, release manifests, runtime files, data, logs, generated artifacts, dependencies, and lock files were not changed.
+
+Remaining follow-up:
+
+- Keep `report_release_readiness.ps1` separate unless a future readiness-helper audit identifies a concrete shared read-only boundary.
+- Avoid moving release-gate severity, package/hash/runtime/installer/stale-entry checks, or zip-entry labels into `scripts/lib/app_pack_contract.ps1`.
+- If a later task broadens `verify_release.ps1` adoption to `Get-AppPackRequiredEntries` or `Get-AppPackContractSummary`, require before/after output comparison because that is higher risk than same-name helper adoption.
+
 Historical next Codex task queued after the management split, now covered by the audit section above:
 
 ```text
