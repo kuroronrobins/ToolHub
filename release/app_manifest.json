@@ -1,51 +1,51 @@
 {
-  "apps": {
-    "app_20260201_agendasnap": {
-      "enabled": false,
-      "package": "app_packs/app_20260201_agendasnap-0.1.0.zip",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": null,
-      "sha256": "f06564957c516a3567518dfb10c217879c7f64dc5377c4e7137954bd70434157",
-      "version": "0.1.0"
-    },
-    "run_xcgate_upload": {
-      "enabled": true,
-      "package": "app_packs/run_xcgate_upload-0.1.0.zip",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": null,
-      "sha256": "b001040d14e42fef2e057f2ac13aec0943f818facea13182bb1059ec15cb4467",
-      "version": "0.1.0"
-    },
-    "sample_gui_app": {
-      "enabled": true,
-      "package": "app_packs/sample_gui_app-1.0.0.zip",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": null,
-      "sha256": "cd281ec55628dc9f39c63a214023c25654c81159cc76c76e695b85f465b17c17",
-      "version": "1.0.0"
-    },
-    "sample_playwright_app": {
-      "enabled": true,
-      "package": "app_packs/sample_playwright_app-1.0.0.zip",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": "web-runtime-001",
-      "sha256": "1fdca7279e3d325c7bc18af19d2bb7881c9789ebd03d675f43c6081541f03487",
-      "version": "1.0.0"
-    },
-    "app_20260215_pdfapplication": {
-      "version": "0.1.0",
-      "package": "app_packs/app_20260215_pdfapplication-0.1.0.zip",
-      "sha256": "ca4335ac2a890a67781bb438dac8373ca0b06207c5e782112afa82642b29b140",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": null,
-      "enabled": true
-    }
-  },
-  "channel": "stable",
-  "schema_version": 1
+    "schema_version":  1,
+    "channel":  "stable",
+    "apps":  {
+                 "app_20260201_agendasnap":  {
+                                                 "version":  "0.1.0",
+                                                 "package":  "app_packs/app_20260201_agendasnap-0.1.0.zip",
+                                                 "sha256":  "c2fc0ed81644aa5f0bc82990a2bc6774ac1c4f60fc4755997796fe9f4719b2f9",
+                                                 "required_core":  "\u003e=0.1.0",
+                                                 "required_runner":  "\u003e=0.1.0",
+                                                 "required_runtime":  null,
+                                                 "enabled":  false
+                                             },
+                 "app_20260215_pdfapplication":  {
+                                                     "version":  "0.1.0",
+                                                     "package":  "app_packs/app_20260215_pdfapplication-0.1.0.zip",
+                                                     "sha256":  "03f48e6a8f071be98f23e8cdb14812e3f7e9acc8612aa0be01670a4ac930d370",
+                                                     "required_core":  "\u003e=0.1.0",
+                                                     "required_runner":  "\u003e=0.1.0",
+                                                     "required_runtime":  null,
+                                                     "enabled":  true
+                                                 },
+                 "run_xcgate_upload":  {
+                                           "version":  "0.1.0",
+                                           "package":  "app_packs/run_xcgate_upload-0.1.0.zip",
+                                           "sha256":  "fdfc6cdb6e45c115b63f5c28c9e3dffc5b06e67b21dd7384835d6b6cdec84a89",
+                                           "required_core":  "\u003e=0.1.0",
+                                           "required_runner":  "\u003e=0.1.0",
+                                           "required_runtime":  null,
+                                           "enabled":  true
+                                       },
+                 "sample_gui_app":  {
+                                        "version":  "1.0.0",
+                                        "package":  "app_packs/sample_gui_app-1.0.0.zip",
+                                        "sha256":  "80a5780eeb5c9005acb3b775954b6fa1c75dd76203f94de5f03aadf958676aa7",
+                                        "required_core":  "\u003e=0.1.0",
+                                        "required_runner":  "\u003e=0.1.0",
+                                        "required_runtime":  null,
+                                        "enabled":  true
+                                    },
+                 "sample_playwright_app":  {
+                                               "version":  "1.0.0",
+                                               "package":  "app_packs/sample_playwright_app-1.0.0.zip",
+                                               "sha256":  "ede0856642f1ea6dc7650339d6ffe01f451373b554a3f547d8e1654fe34f513e",
+                                               "required_core":  "\u003e=0.1.0",
+                                               "required_runner":  "\u003e=0.1.0",
+                                               "required_runtime":  "web-runtime-001",
+                                               "enabled":  true
+                                           }
+             }
 }
