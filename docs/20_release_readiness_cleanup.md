@@ -202,6 +202,9 @@ is unavailable. Keep the Sandbox flow for machines that support it, but use the 
   `scripts/beta_vm/package/ToolHub_Beta_VM_Test/`. It validates installer sha256 / size against `release/manifest.json`
   before copying and writes package checksum / summary files. VM execution remains manual until a clean Windows VM is
   available.
+- The VM package has been generated on the host. The packaged installer matches `release/manifest.json`
+  (`sha256=57b222c4c8f15ccf755ae55a1cb3abd8d0328a601b97afce857e390319993319`, `size=290362631`). This only proves the
+  package contents and hash consistency; it does not prove VM install / launch yet.
 - `scripts/beta_vm/import_vm_test_result.ps1` summarizes a returned `latest_vm_install_result.json` and shows the
   checklist reflection candidate without requiring the VM to exist on the host.
 

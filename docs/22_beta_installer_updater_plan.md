@@ -480,6 +480,7 @@ Phase 1-A / 1-B 実施状況:
 - Phase 1-B: PATH 隔離テストを DryRun なしで実行済み。`overall_status=pass`、ToolHub は isolated PATH で15秒以上起動し、隔離された `LOCALAPPDATA` 配下に user data dir を作成した。初回起動だけでは `.log` / `.json` file が作成されず `isolated_logs_created=warning` のため、log 生成確認は VM / installed workflow 側に残す。
 - Phase 1-B: VM 検証フローを `scripts/beta_vm/` に作成済み。VirtualBox / VMware / Hyper-V / 手動 VM の共有フォルダから installer を実行し、開発ツールなし環境での install / launch / runtime / uninstall / user data preservation を JSON / Markdown に記録する。
 - Phase 1-B: VM コピー用 package は `scripts/beta_vm/prepare_vm_test_package.ps1` で `scripts/beta_vm/package/ToolHub_Beta_VM_Test/` に作成する。package には `release/manifest.json`、`ToolHub_Setup_0.1.0.exe`、`staging_manifest.json`、`vm_install_test.ps1`、`VM_TEST_PACKAGE_README.md`、checksum、results folder を含める。
+- Phase 1-B: VM package は host で生成済み。package 内 installer の sha256 / size は `release/manifest.json` と一致する。VM 実行は未実施であり、clean Windows VM に package をコピーしてから実施する。
 - Phase 1-B: VM から戻した `latest_vm_install_result.json` は `scripts/beta_vm/import_vm_test_result.ps1` で要約し、`docs/06_acceptance_checklist.md` へ反映する。
 - Phase 1-B: 実 install / launch / sample app / uninstall / user data preservation は clean Windows VM または clean Windows user profile の manual check として残す。installer / uninstaller UI と sample app 起動は人間確認を伴うため、検証結果を確認するまで完了済みとはしない。
 
