@@ -1507,7 +1507,129 @@ Remaining follow-up:
 - Consider moving command-internal release-manifest read/write helpers only as part of a full-delete apply boundary; do not mix that with enabled toggle changes.
 - Consider a delete UI normalizer later if backend categories and management statuses remain stable.
 
-Recommended next Codex task after this split:
+## 2026-05-10 P1 audit: Rust full delete apply destructive safety domain
+
+Audit scope:
+
+- Reviewed production `full_delete_apply()` in `launcher/src-tauri/src/app_studio_commands.rs` without changing behavior.
+- Reviewed the read-only planner boundary in `app_studio_delete_plan.rs`, management boundary in `app_studio_management.rs`, delete DTOs in `app_studio_types.rs`, the delete UI entrypoint, and the PowerShell dry-run / temporary-fixture scripts.
+- Confirmed this pass is a destructive safety audit only. No Rust, TypeScript, Python, PowerShell, app, release, runtime, data, log, or generated artifact behavior was changed.
+
+Current full delete source of truth:
+
+- Production full delete is the authenticated Rust Tauri command `app_studio_full_delete_apply`.
+- `app_studio_delete_plan.rs` is the read-only planner and target classifier, but it does not delete files or mutate manifests.
+- The UI passes the displayed plan as `planSnapshot`, but the backend regenerates the plan and validates the snapshot before deleting.
+- PowerShell remains a dry-run / parity / temporary-fixture safety harness. Production `-Apply` is intentionally not the source of truth.
+
+Full delete apply inputs:
+
+- `app_id` from the Tauri command request.
+- Optional `planSnapshot` from the UI, used only to detect stale or changed plans.
+- Project root resolved by the launcher backend.
+- Current filesystem state and `release/app_manifest.json`.
+
+Full delete apply outputs:
+
+- `AppStudioFullDeleteResult` with `ok`, `message`, `appId`, `deleted`, `alreadyClean`, `skipped`, `excluded`, `failed`, `manifestEntryRemoved`, `postCheckSummary`, and refreshed `apps`.
+- Deleted / already-clean / skipped / excluded / failed entries are operator-facing audit output, not a new source of truth.
+- `postCheckSummary` is the final consistency check after deletion and manifest-entry removal.
+
+Pre-delete gates:
+
+- Tauri command requires the admin session gate before calling the destructive helper.
+- `app_id` is validated before planning.
+- A fresh delete plan is built from current repository state before every apply.
+- `validate_full_delete_plan()` rejects blocking reasons, empty delete targets, source-without-manifest inconsistency, forbidden categories inside delete targets, unsafe manifest targets, unsafe paths, shared runtime targets, and excluded targets that overlap delete targets.
+- When a UI `planSnapshot` is provided, `compare_delete_plan_snapshot()` rejects app id, manifest entry, manifest version, manifest package, delete target, and excluded target drift. Operators must reload the plan before deleting.
+
+Deletable categories:
+
+- `managed_required`: `apps/<app_id>/` and the app entry inside `release/app_manifest.json`.
+- `managed_generated`: App Pack zip, strict staging artifact matches, and `runtime/app_envs/<app_id>`.
+- `managed_history`: App Studio and app lifecycle backup directories for the app.
+
+Excluded categories:
+
+- `external_reference`: app.yaml references that point outside the managed app directory.
+- `user_data`: user-owned app state and data locations.
+- `shared_runtime`: shared runtime folders such as `runtime/python` and `runtime/web_automation_runtime`.
+- `managed_generated_candidate`: generated-looking but unsafe candidates, including staging substring matches.
+
+Never auto-delete:
+
+- The `release/app_manifest.json` file itself.
+- User data, logs, browser profiles, app state, or external source/output mirror locations.
+- Shared runtime folders.
+- Repo root, paths outside the repo, path-traversal targets, excluded targets, and staging substring candidates.
+- A source directory without a matching manifest entry; that inconsistent state is blocking instead of destructive.
+
+Path safety:
+
+- Non-manifest targets must pass strict root containment before deletion.
+- Parent path components are rejected.
+- The normalized target path must be a strict child of the project root, never the root itself.
+- Shared runtime paths are rejected even when they are inside the repo.
+- Excluded targets are cross-checked against delete targets by normalized path so an excluded path cannot be deleted through another category.
+
+Deletion order:
+
+1. App Pack zip.
+2. Staging artifact.
+3. Runtime app env.
+4. App Studio backup.
+5. Lifecycle backup.
+6. `apps/<app_id>/`.
+7. Other non-manifest managed targets.
+8. Manifest entry removal is handled separately after file/directory targets and only if no earlier delete failed.
+
+Manifest entry removal:
+
+- The apply path removes only `apps[app_id]` from `release/app_manifest.json`.
+- The manifest file itself is not a delete target.
+- If any earlier file or directory delete fails, manifest removal is skipped and recorded.
+- If the app entry is already absent, the result records it as already clean rather than treating it as a destructive success.
+
+Post-check:
+
+- After deletion, the backend re-reads `release/app_manifest.json` and rebuilds the delete plan.
+- The result is successful only when there are no failed deletes, the manifest entry is absent, and no existing non-manifest delete targets remain.
+- Remaining excluded targets are expected to stay excluded and are not treated as post-check failures.
+
+UI / Rust / PowerShell responsibility split:
+
+- Rust backend is authoritative for production gates, category enforcement, path safety, ordered deletion, manifest entry removal, and post-check.
+- React UI is a management entrypoint and explanatory surface. It can disable unsafe buttons, but the backend revalidates all destructive conditions.
+- PowerShell scripts provide dry-run planning, parity checks, rehearsal, and temporary-fixture E2E coverage. They do not define production destructive behavior.
+
+Next safe implementation split:
+
+- If split later, move the destructive safety unit as one cohesive `app_studio_full_delete.rs` module: validation, snapshot comparison, ordered target execution, manifest-entry removal, and post-check together.
+- Keep the Tauri command wrapper and admin-session gate visible in `app_studio_commands.rs`.
+- Do not split manifest mutation away from the delete ordering and post-check in a separate pass; that would make the safety contract harder to review.
+
+Tests required before implementation split:
+
+- Existing Rust full-delete tests must cover snapshot drift, forbidden delete categories, excluded target overlap, path traversal / outside-root rejection, shared runtime rejection, manifest-file-not-deleted behavior, earlier-delete-failure skipping manifest removal, and idempotent already-clean behavior.
+- PowerShell parity and temporary-fixture E2E scripts should still pass after any move.
+- UI/API shape should be verified by TypeScript build or equivalent because `AppStudioFullDeleteResult` is operator-visible.
+- In this environment, cargo may be blocked by Windows application control policy, so a later implementation split should be validated where `cargo check` and focused Rust tests can run.
+
+Implementation decisions required before behavior changes:
+
+- Any expansion or renaming of delete categories.
+- Any promotion of `user_data`, `external_reference`, `shared_runtime`, or `managed_generated_candidate` to delete targets.
+- Any change to App Pack or staging matching rules.
+- Any production PowerShell `-Apply` support.
+- Any change to manifest-entry removal semantics or post-check success criteria.
+- Any Tauri command, React/TypeScript API shape, release manifest compatibility, App Pack spec, app.yaml schema, or runner public I/F change.
+
+Decision:
+
+- Full delete apply is safe to split only as an exact behavior-preserving move after the test coverage above is confirmed.
+- No destructive behavior should be changed in the same task as a module split.
+
+Historical next Codex task queued after the management split, now covered by the audit section above:
 
 ```text
 AGENTS.md のルールに従って、1 回の作業で実装・セルフレビュー・検証まで実施してください。
