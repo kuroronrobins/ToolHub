@@ -782,3 +782,21 @@ Remaining follow-up:
 - Split Python executable discovery and process execution only after a narrow command execution adapter is defined and testable without changing env injection timing.
 - Keep management/delete helpers separate because they touch filesystem safety and repo-managed target rules.
 - `cargo check` remains blocked in this environment by Windows application control policy, so the new Rust tests should be run in an environment where `rustc` is allowed.
+
+## 2026-05-10 P1 follow-up: Rust override temp writer split
+
+Implemented scope:
+
+- Added `launcher/src-tauri/src/app_studio_overrides.rs` as the override temp file writer boundary for App Studio registration/update commands.
+- Moved metadata override, icon override, build profile override, and icon revision image temp file creation out of `app_studio_commands.rs`.
+- Kept the existing storage roots under `user_data_root()/data/app_studio/{metadata_overrides,icon_overrides,build_profile_overrides,icon_revision_images}` and kept the existing timestamped `<safe_app_id>_<millis>.json|png` file naming rule.
+- Kept override JSON shapes unchanged: metadata still writes only non-empty snake_case fields, icon adoption still writes `selected_icon_source`, `png_base64`, optional `candidate_id`, and build profile still writes the provided non-empty JSON object/value.
+- Kept icon revision image handling unchanged: only `data:image/png;base64,...` is accepted, base64 decode must succeed, and the decoded bytes must start with the PNG signature.
+- Kept CLI argv construction, Python process spawn, Python discovery, env injection, process masking/logging, Tauri command names, return JSON shape, and React/TypeScript API shape unchanged.
+- Added focused Rust unit tests for metadata payload trimming, icon override source/data URL handling, build profile payload filtering, PNG data URL validation, and safe file stem behavior.
+
+Remaining follow-up:
+
+- Python executable discovery and process execution remain in `app_studio_commands.rs`; split them only after defining a narrow adapter that preserves env injection and logging timing.
+- Management/delete helpers remain separate because they have different filesystem safety constraints.
+- `cargo check` should be rerun in an environment where `rustc` is not blocked by Windows application control policy.

@@ -12,13 +12,16 @@ use crate::app_studio_cli_args::{
     normalize_normal_import_request, AppStudioCliAction, AppStudioIconRegenerateCliOptions,
     AppStudioImportCliOverrides,
 };
+use crate::app_studio_overrides::{
+    write_build_profile_override_file, write_icon_override_file, write_icon_revision_image_file,
+    write_metadata_override_file,
+};
 use crate::app_studio_process::{
     append_app_studio_gui_log, command_line_for_log, mask_sensitive, redact_cli_arg_value,
     result_from_process,
 };
 use crate::app_studio_result_reader::{output_dir_from_app_yaml, read_summary};
 pub use crate::app_studio_result_reader::{AppStudioResultSummary, AppStudioTimingPhase};
-use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::cmp::Ordering;
@@ -2855,170 +2858,6 @@ fn clean_optional(value: &Option<String>) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
-fn write_metadata_override_file(
-    request: &AppStudioImportRequest,
-) -> Result<Option<(PathBuf, Vec<String>)>, String> {
-    let Some((payload, keys)) = metadata_override_payload(&request.metadata) else {
-        return Ok(None);
-    };
-    let dir = crate::setup::user_data_root()
-        .join("data")
-        .join("app_studio")
-        .join("metadata_overrides");
-    std::fs::create_dir_all(&dir)
-        .map_err(|_| "Could not create App Studio metadata override directory.".to_string())?;
-    let app_stem = clean_optional(&request.app_id).unwrap_or("pending");
-    let stamp = chrono::Local::now().timestamp_millis();
-    let path = dir.join(format!("{}_{}.json", safe_file_stem(app_stem), stamp));
-    let text = serde_json::to_string_pretty(&payload)
-        .map_err(|_| "Could not serialize App Studio metadata override.".to_string())?;
-    std::fs::write(&path, text)
-        .map_err(|_| "Could not write App Studio metadata override file.".to_string())?;
-    Ok(Some((path, keys)))
-}
-
-fn write_icon_override_file(
-    request: &AppStudioImportRequest,
-) -> Result<Option<(PathBuf, String)>, String> {
-    let Some((payload, source)) = icon_override_payload(&request.icon_override)? else {
-        return Ok(None);
-    };
-    let dir = crate::setup::user_data_root()
-        .join("data")
-        .join("app_studio")
-        .join("icon_overrides");
-    std::fs::create_dir_all(&dir)
-        .map_err(|_| "Could not create App Studio icon override directory.".to_string())?;
-    let app_stem = clean_optional(&request.app_id).unwrap_or("pending");
-    let stamp = chrono::Local::now().timestamp_millis();
-    let path = dir.join(format!("{}_{}.json", safe_file_stem(app_stem), stamp));
-    let text = serde_json::to_string_pretty(&payload)
-        .map_err(|_| "Could not serialize App Studio icon override.".to_string())?;
-    std::fs::write(&path, text)
-        .map_err(|_| "Could not write App Studio icon override file.".to_string())?;
-    Ok(Some((path, source)))
-}
-
-fn write_icon_revision_image_file(
-    request: &AppStudioImportRequest,
-) -> Result<Option<PathBuf>, String> {
-    let Some(data_url) = request
-        .icon_revision_image
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
-        return Ok(None);
-    };
-    let Some(encoded) = data_url.strip_prefix("data:image/png;base64,") else {
-        return Err("Icon revision image must be a data:image/png;base64 URL.".to_string());
-    };
-    let bytes = general_purpose::STANDARD
-        .decode(encoded)
-        .map_err(|_| "Icon revision image data could not be decoded.".to_string())?;
-    if bytes.len() < 8 || &bytes[0..8] != b"\x89PNG\r\n\x1a\n" {
-        return Err("Icon revision image must be a PNG data URL.".to_string());
-    }
-    let dir = crate::setup::user_data_root()
-        .join("data")
-        .join("app_studio")
-        .join("icon_revision_images");
-    std::fs::create_dir_all(&dir)
-        .map_err(|_| "Could not create App Studio icon revision image directory.".to_string())?;
-    let app_stem = clean_optional(&request.app_id).unwrap_or("pending");
-    let stamp = chrono::Local::now().timestamp_millis();
-    let path = dir.join(format!("{}_{}.png", safe_file_stem(app_stem), stamp));
-    std::fs::write(&path, bytes)
-        .map_err(|_| "Could not write App Studio icon revision image file.".to_string())?;
-    Ok(Some(path))
-}
-
-fn write_build_profile_override_file(
-    request: &AppStudioImportRequest,
-) -> Result<Option<PathBuf>, String> {
-    let Some(payload) = build_profile_payload(&request.build_profile) else {
-        return Ok(None);
-    };
-    let dir = crate::setup::user_data_root()
-        .join("data")
-        .join("app_studio")
-        .join("build_profile_overrides");
-    std::fs::create_dir_all(&dir)
-        .map_err(|_| "Could not create App Studio build profile override directory.".to_string())?;
-    let app_stem = clean_optional(&request.app_id).unwrap_or("pending");
-    let stamp = chrono::Local::now().timestamp_millis();
-    let path = dir.join(format!("{}_{}.json", safe_file_stem(app_stem), stamp));
-    let text = serde_json::to_string_pretty(&payload)
-        .map_err(|_| "Could not serialize App Studio build profile override.".to_string())?;
-    std::fs::write(&path, text)
-        .map_err(|_| "Could not write App Studio build profile override file.".to_string())?;
-    Ok(Some(path))
-}
-
-fn build_profile_payload(build_profile: &Option<Value>) -> Option<Value> {
-    let value = build_profile.as_ref()?;
-    match value {
-        Value::Object(map) if map.is_empty() => None,
-        Value::Null => None,
-        _ => Some(value.clone()),
-    }
-}
-
-fn icon_override_payload(
-    icon_override: &Option<AppStudioIconOverride>,
-) -> Result<Option<(Value, String)>, String> {
-    let Some(icon_override) = icon_override.as_ref() else {
-        return Ok(None);
-    };
-    let source = icon_override
-        .selected_icon_source
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("default_icon");
-    if source == "default_icon" || source == "fallback_png" {
-        return Ok(None);
-    }
-    if source != "candidate_png"
-        && source != "final_png"
-        && source != "ai_candidate_png"
-        && source != "uploaded_png"
-    {
-        return Err("Icon override source is invalid.".to_string());
-    }
-    let png_data_url = icon_override
-        .png_data_url
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| "PNG icon data is required when adopting a PNG candidate.".to_string())?;
-    if !png_data_url.starts_with("data:image/png;base64,") {
-        return Err("PNG icon data must be a data:image/png;base64 URL.".to_string());
-    }
-
-    let mut map = Map::new();
-    map.insert(
-        "selected_icon_source".to_string(),
-        Value::String(source.to_string()),
-    );
-    map.insert(
-        "png_base64".to_string(),
-        Value::String(png_data_url.to_string()),
-    );
-    if let Some(candidate_id) = icon_override
-        .candidate_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        map.insert(
-            "candidate_id".to_string(),
-            Value::String(candidate_id.to_string()),
-        );
-    }
-    Ok(Some((Value::Object(map), source.to_string())))
-}
-
 fn build_ai_env_plan() -> AiEnvPlan {
     let user_data_root = crate::setup::user_data_root();
     let settings = crate::ai_settings::load_settings_at(&user_data_root)
@@ -3095,115 +2934,6 @@ fn apply_ai_environment(command: &mut Command, plan: &AiEnvPlan) {
         if let Some(api_key) = plan.api_key.as_ref() {
             command.env("OPENAI_API_KEY", api_key);
         }
-    }
-}
-
-fn metadata_override_payload(
-    metadata: &Option<AppStudioEditableMetadata>,
-) -> Option<(Value, Vec<String>)> {
-    let metadata = metadata.as_ref()?;
-    let mut map = Map::new();
-    let mut keys = Vec::new();
-
-    insert_string_override(
-        &mut map,
-        &mut keys,
-        "short_description",
-        metadata.short_description.as_deref(),
-    );
-    insert_string_override(
-        &mut map,
-        &mut keys,
-        "description",
-        metadata.description.as_deref(),
-    );
-    insert_string_override(
-        &mut map,
-        &mut keys,
-        "change_summary",
-        metadata.change_summary.as_deref(),
-    );
-    insert_list_override(
-        &mut map,
-        &mut keys,
-        "categories",
-        metadata.categories.as_ref(),
-    );
-    insert_list_override(&mut map, &mut keys, "keywords", metadata.keywords.as_ref());
-    insert_list_override(&mut map, &mut keys, "examples", metadata.examples.as_ref());
-    insert_list_override(
-        &mut map,
-        &mut keys,
-        "use_cases",
-        metadata.use_cases.as_ref(),
-    );
-    insert_list_override(&mut map, &mut keys, "inputs", metadata.inputs.as_ref());
-    insert_list_override(&mut map, &mut keys, "outputs", metadata.outputs.as_ref());
-    insert_list_override(&mut map, &mut keys, "notes", metadata.notes.as_ref());
-    insert_list_override(
-        &mut map,
-        &mut keys,
-        "release_notes",
-        metadata.release_notes.as_ref(),
-    );
-
-    if map.is_empty() {
-        None
-    } else {
-        Some((Value::Object(map), keys))
-    }
-}
-
-fn insert_string_override(
-    map: &mut Map<String, Value>,
-    keys: &mut Vec<String>,
-    key: &str,
-    value: Option<&str>,
-) {
-    let Some(cleaned) = value.map(str::trim).filter(|value| !value.is_empty()) else {
-        return;
-    };
-    map.insert(key.to_string(), Value::String(cleaned.to_string()));
-    keys.push(key.to_string());
-}
-
-fn insert_list_override(
-    map: &mut Map<String, Value>,
-    keys: &mut Vec<String>,
-    key: &str,
-    value: Option<&Vec<String>>,
-) {
-    let Some(value) = value else {
-        return;
-    };
-    let items: Vec<Value> = value
-        .iter()
-        .map(|item| item.trim())
-        .filter(|item| !item.is_empty())
-        .map(|item| Value::String(item.to_string()))
-        .collect();
-    if items.is_empty() {
-        return;
-    }
-    map.insert(key.to_string(), Value::Array(items));
-    keys.push(key.to_string());
-}
-
-fn safe_file_stem(value: &str) -> String {
-    let stem: String = value
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if stem.is_empty() {
-        "pending".to_string()
-    } else {
-        stem
     }
 }
 
@@ -3425,60 +3155,6 @@ mod tests {
             Some("false")
         );
         assert!(!envs.contains_key("OPENAI_API_KEY"));
-    }
-
-    #[test]
-    fn metadata_override_payload_uses_only_non_empty_fields() {
-        let metadata = Some(AppStudioEditableMetadata {
-            short_description: Some("Short".to_string()),
-            description: Some(" ".to_string()),
-            categories: Some(vec!["ops".to_string(), " ".to_string()]),
-            keywords: Some(vec!["tool".to_string()]),
-            ..AppStudioEditableMetadata::default()
-        });
-
-        let (payload, keys) = metadata_override_payload(&metadata).unwrap();
-        let object = payload.as_object().unwrap();
-
-        assert_eq!(
-            object.get("short_description").and_then(Value::as_str),
-            Some("Short")
-        );
-        assert!(object.get("description").is_none());
-        assert_eq!(keys, vec!["short_description", "categories", "keywords"]);
-    }
-
-    #[test]
-    fn icon_override_payload_accepts_png_data_url_only_for_adopted_png() {
-        let icon_override = Some(AppStudioIconOverride {
-            selected_icon_source: Some("candidate_png".to_string()),
-            png_data_url: Some("data:image/png;base64,iVBORw0KGgo=".to_string()),
-            candidate_id: Some("icon_candidate_2".to_string()),
-        });
-
-        let (payload, source) = icon_override_payload(&icon_override).unwrap().unwrap();
-        let object = payload.as_object().unwrap();
-
-        assert_eq!(source, "candidate_png");
-        assert_eq!(
-            object.get("selected_icon_source").and_then(Value::as_str),
-            Some("candidate_png")
-        );
-        assert!(object.get("png_base64").is_some());
-        assert!(icon_override_payload(&Some(AppStudioIconOverride {
-            selected_icon_source: Some("fallback_png".to_string()),
-            png_data_url: None,
-            candidate_id: None,
-        }))
-        .unwrap()
-        .is_none());
-        assert!(icon_override_payload(&Some(AppStudioIconOverride {
-            selected_icon_source: Some("default_icon".to_string()),
-            png_data_url: None,
-            candidate_id: None,
-        }))
-        .unwrap()
-        .is_none());
     }
 
     #[test]
