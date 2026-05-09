@@ -800,3 +800,64 @@ Remaining follow-up:
 - Python executable discovery and process execution remain in `app_studio_commands.rs`; split them only after defining a narrow adapter that preserves env injection and logging timing.
 - Management/delete helpers remain separate because they have different filesystem safety constraints.
 - `cargo check` should be rerun in an environment where `rustc` is not blocked by Windows application control policy.
+
+## 2026-05-10 P1 follow-up: Rust remaining responsibility audit
+
+Current split modules:
+
+- `app_studio_result_reader.rs`: read-only run artifact/result summary loading for import plan, execution/runtime/timing reports, App Pack path, approval record, release manifest enabled/version, and catalog visibility.
+- `app_studio_ai_proposal_reader.rs`: read-only AI proposal and icon artifact loading, including `candidate_manifest.json`, legacy flat icon candidates, and final icon preview compatibility.
+- `app_studio_cli_args.rs`: request normalization and pure CLI argv construction for normal import/update mapping, suggest/apply, approve, icon regenerate, and image-test.
+- `app_studio_process.rs`: process result shaping, stdout/stderr masking, GUI log append, command-line formatting, and CLI arg redaction.
+- `app_studio_overrides.rs`: metadata/icon/build-profile override temp writers and icon revision PNG data URL validation.
+
+Responsibilities still in `app_studio_commands.rs`:
+
+- Tauri command wrappers and admin session checks.
+- Public request/response DTO structs consumed by Tauri serialization and TypeScript.
+- Command execution orchestration: project root lookup, validation, Python discovery, script path checks, override writer calls, argv builder calls, env injection, process execution, result reader calls, and GUI log sequencing.
+- Python executable discovery: `runtime/python/python.exe`, PATH `python.exe`/`python`, and PATH `py` fallback.
+- AI/API environment planning and injection: AI settings load, credential/env API key lookup, `TOOLHUB_APP_STUDIO_*` variables, `OPENAI_API_KEY` removal/injection timing.
+- Preflight and file picker helpers.
+- Management list / visibility toggle helpers that read/write `release/app_manifest.json`.
+- Delete plan and full delete apply helpers, including repo-managed target classification, stale plan comparison, manifest entry removal, path safety checks, staging/App Pack/runtime backup collection, and delete post-checks.
+- Shared local helpers still coupled to the above flows: app id/path validation, YAML/JSON helpers, semver bump/compare, output dir/app id extraction from CLI stdout, registered app list parsing.
+
+Next safe split candidates:
+
+1. **DTO boundary module (`app_studio_types.rs`)**
+   - Move only public request/response structs and small status structs out of `app_studio_commands.rs`.
+   - Risk: medium-low. It touches many imports and Tauri serialization names but should not change behavior if `serde(rename_all = "camelCase")` and re-exports are preserved.
+   - Stop if TypeScript API shape, Tauri command return shape, or struct field names would change.
+
+2. **Preflight/discovery read-only module (`app_studio_preflight.rs`)**
+   - Move `PythonCandidate`, `runtime_python_path()`, `find_python_candidate()`, `find_on_path()`, `python_missing_message()`, and preflight helpers together.
+   - Risk: medium. Python discovery is behavior-sensitive because it affects both preflight and actual execution. Keep it read-only and do not change search order or messages in the same step.
+   - Recommended only after adding focused unit tests for embedded runtime priority and PATH fallback behavior.
+
+3. **Management/delete module (`app_studio_management.rs`)**
+   - Move management list/set-enabled, delete plan, full delete apply, and their private target/path helpers as one safety domain.
+   - Risk: medium-high. This code writes `release/app_manifest.json` and deletes repository-managed paths. It has good existing tests, but any split must keep path safety and stale plan checks unchanged.
+   - Do not mix with process execution cleanup; delete safety deserves a dedicated review and validation pass.
+
+Candidates to avoid for now:
+
+- **Process executor split**: Python discovery, env injection, process spawn, timing, result read, and GUI log ordering are still tightly interleaved. Splitting now risks changing when `OPENAI_API_KEY` is removed/injected, when logs are written, and which output is masked.
+- **AI env planner split alone**: `build_ai_env_plan()` reads AI settings, credential manager, and env API key. Moving it without an execution adapter gives little payoff and risks secret-handling drift.
+- **Python discovery behavior changes**: search order and fallback wording must remain stable until tests cover runtime-vs-PATH priority.
+- **Delete apply behavior changes**: no delete target expansion, user data deletion, shared runtime deletion, or manifest compatibility changes should be combined with a module split.
+
+Recommended next Codex task:
+
+```text
+AGENTS.md のルールに従って、1 回の作業で実装・セルフレビュー・検証まで実施してください。
+
+目的:
+ToolHub App Studio の P1 改善として、launcher/src-tauri/src/app_studio_commands.rs から public DTO structs を app_studio_types.rs へ低リスクに分離してください。
+
+条件:
+- Tauri command 名、引数、戻り値 JSON shape、serde rename、React/TypeScript API shape を変更しない。
+- Python discovery / env injection / process spawn / management / delete の挙動は変更しない。
+- app_studio_commands.rs 側は必要な型を new module から import/re-export するだけにする。
+- 可能なら既存 Rust tests が compile する範囲で import を調整し、docs/24 に境界と残 follow-up を追記する。
+```
