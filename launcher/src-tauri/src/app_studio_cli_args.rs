@@ -1,4 +1,4 @@
-use crate::app_studio_commands::{AppStudioImportRequest, AppStudioUpdateRequest};
+use crate::app_studio_types::{AppStudioImportRequest, AppStudioUpdateRequest};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -257,7 +257,7 @@ fn clean_optional(value: &Option<String>) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_studio_commands::{AppStudioEditableMetadata, AppStudioIconOverride};
+    use crate::app_studio_types::{AppStudioEditableMetadata, AppStudioIconOverride};
     use serde_json::json;
 
     fn base_import_request() -> AppStudioImportRequest {

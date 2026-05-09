@@ -1,5 +1,5 @@
-use crate::app_studio_commands::AppStudioRunResult;
 use crate::app_studio_result_reader::AppStudioResultSummary;
+use crate::app_studio_types::AppStudioRunResult;
 use std::path::Path;
 
 pub(crate) fn result_from_process(

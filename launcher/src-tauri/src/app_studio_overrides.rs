@@ -1,4 +1,4 @@
-use crate::app_studio_commands::{
+use crate::app_studio_types::{
     AppStudioEditableMetadata, AppStudioIconOverride, AppStudioImportRequest,
 };
 use base64::{engine::general_purpose, Engine as _};

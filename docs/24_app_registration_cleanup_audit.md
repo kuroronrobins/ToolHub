@@ -1222,6 +1222,31 @@ Candidates to avoid for now:
 - **Python discovery behavior changes**: search order and fallback wording must remain stable until tests cover runtime-vs-PATH priority.
 - **Delete apply behavior changes**: no delete target expansion, user data deletion, shared runtime deletion, or manifest compatibility changes should be combined with a module split.
 
+## 2026-05-10 P1 follow-up: Rust DTO boundary split
+
+Implemented scope:
+
+- Added `launcher/src-tauri/src/app_studio_types.rs` as the public App Studio Tauri DTO boundary.
+- Moved public request/response DTOs out of `app_studio_commands.rs`: import/update/icon-regenerate requests, editable metadata, icon override, registered/managed app summaries, delete plan/apply DTOs, run result, preflight result, and AI diagnostics.
+- Kept `AppStudioResultSummary`, `AppStudioTimingPhase`, and AI proposal/icon suggestion structs in their existing reader modules.
+- Left `PythonCandidate` and `AiEnvPlan` in `app_studio_commands.rs` because they are command-internal execution helpers, not public API DTOs.
+- Updated `app_studio_cli_args.rs`, `app_studio_overrides.rs`, and `app_studio_process.rs` to import shared DTOs from `app_studio_types.rs`.
+- Kept re-exports in `app_studio_commands.rs` so existing internal references through the command module remain compatible.
+- Added focused Rust tests in `app_studio_types.rs` for import request deserialization, icon override deserialization, and run result camelCase serialization.
+
+Compatibility notes:
+
+- Tauri command names, arguments, and return types are unchanged.
+- `serde(rename_all = "camelCase")`, derives, field names, field ordering, and field types were preserved while moving the structs.
+- React/TypeScript files were not changed because the JSON shape remains the same.
+- Python CLI argv, Python discovery, env injection, process spawn, management, delete, app.yaml schema, App Pack spec, runner I/F, and release manifest compatibility were not changed.
+
+Remaining follow-up:
+
+- `app_studio_commands.rs` still owns Tauri command wrappers, Python discovery, AI env injection, process orchestration, preflight, management, delete, and shared local helpers.
+- The next safe split remains `app_studio_preflight.rs` for read-only preflight/discovery, but only after tests cover runtime Python priority and PATH fallback behavior.
+- Management/delete should still be split as its own safety-focused module, not mixed with process execution cleanup.
+
 Recommended next Codex task:
 
 ```text
