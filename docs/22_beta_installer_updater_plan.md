@@ -75,6 +75,7 @@ ToolHub には App Studio、App Pack、runtime 準備、release manifest、relea
 - ダウンロード済み installer の sha256 検証。
 - sha256 検証後の user confirmation と `launch_verified_update_installer` による installer 起動。
 - check / download / launch の update result 永続記録。
+- `http://` 更新元の拒否、`file://` / 相対パスの local test 扱い、`update_cache` 外 installer 起動拒否、`.exe` / `.msi` かつ `ToolHub_Setup` 名の installer だけを対象にする安全境界。
 
 ### 未実装
 
@@ -181,6 +182,8 @@ Beta MVP では、最新版 installer 再配布型アップデートを第一候
 7. sha256 が一致した場合だけ installer 起動ボタンを有効にする。
 8. installer 起動前に、ToolHub を閉じる必要があることを案内する。
 9. 失敗時は既存インストールと user data を変更しない。
+
+Beta の本番更新経路は `https://` を前提にする。`http://` は更新元として拒否し、`file://` と相対パスは mock manifest / local file による検証専用として扱う。local test source は update result に区別して記録する。
 
 Beta MVP の更新対象:
 
@@ -293,6 +296,9 @@ Beta MVP では user data migration を行わない。保存済み user data 形
 Beta MVP では sha256 を必須とする。
 
 - installer download 後、remote manifest の sha256 と一致しない場合は installer を起動しない。
+- installer 起動直前にも sha256 を再計算し、download 後に差し替えられた file は起動しない。
+- 起動対象は canonicalize 後に `%LOCALAPPDATA%\ToolHub\update_cache\` 配下であることを確認し、`..` などによる cache 外脱出を拒否する。
+- Beta updater が起動できる installer は `.exe` / `.msi` かつ file name に `ToolHub_Setup` を含むものに限定する。別命名が必要な場合は正式な命名規則として判断してから変更する。
 - mismatch は user data に update result として記録する。
 - runtime archive 展開時も `prepare_runtime.ps1` の sha256 検証を必須にする。
 - App Pack zip は `verify_release.ps1` で sha256 を検証する。

@@ -230,17 +230,45 @@ function Add-BetaReadyClassifications {
 
     if (Test-Path -LiteralPath $CommandsPath -PathType Leaf) {
         $CommandsText = Get-Content -Raw -Encoding UTF8 $CommandsPath
-        if ($CommandsText -notmatch "check_updates_remote" -or $CommandsText -notmatch "fetch_manifest_json") {
+        $RemoteFetchImplemented = ($CommandsText -match "check_updates_remote" -and $CommandsText -match "fetch_manifest_json")
+        $InstallerDownloadImplemented = ($CommandsText -match "download_update_installer")
+        $Sha256Implemented = ($CommandsText -match "expected_sha256" -and $CommandsText -match "sha256_file")
+        $ResultLogImplemented = ($CommandsText -match "write_update_result_log" -and $CommandsText -match "latest_update_result.json")
+        $LaunchBoundaryImplemented = ($CommandsText -match "validate_installer_cache_path" -and $CommandsText -match "installer_path_outside_update_cache")
+        $InstallerNameImplemented = ($CommandsText -match "validate_installer_file_name" -and $CommandsText -match "ToolHub_Setup")
+        $HttpBlockedImplemented = ($CommandsText -match "remote_http_blocked" -and $CommandsText -match "http:// update sources are not allowed")
+
+        if (-not $RemoteFetchImplemented) {
             Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "remote_manifest_fetch_not_implemented" -State "not_implemented" -Reason "The current update command is the local manifest MVP; remote manifest fetch is not implemented." -RecommendedAction "Implement remote manifest fetch as Phase 2 without changing manifest schema incompatibly." -Path (To-RelativePath $CommandsPath) -Phase $Phase2)
+        } else {
+            Add-BetaReadyItem "warnings" (New-BetaReadyRecord -Category "beta_ready_warning" -Id "remote_manifest_fetch_implemented_unverified" -State "implemented_unverified" -Reason "Remote manifest fetch is implemented, but this read-only report cannot prove a real Beta endpoint works." -RecommendedAction "Verify no_update, update_available, invalid manifest, and network failure against the chosen endpoint or a local file test." -Path (To-RelativePath $CommandsPath) -Phase $Phase2)
         }
-        if ($CommandsText -notmatch "download_update_installer") {
+        if (-not $InstallerDownloadImplemented) {
             Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "installer_download_not_implemented" -State "not_implemented" -Reason "Installer download is still listed as an unsupported update action." -RecommendedAction "Implement installer download to %LOCALAPPDATA%\ToolHub\update_cache\ in Phase 3." -Path (To-RelativePath $CommandsPath) -Phase $Phase3)
+        } else {
+            Add-BetaReadyItem "warnings" (New-BetaReadyRecord -Category "beta_ready_warning" -Id "installer_download_implemented_unverified" -State "implemented_unverified" -Reason "Installer download is implemented, but this read-only report cannot prove a real installer can be downloaded from the Beta endpoint." -RecommendedAction "Verify successful download, interrupted download, size mismatch, and cache overwrite behavior with a test artifact." -Path (To-RelativePath $CommandsPath) -Phase $Phase3)
         }
-        if ($CommandsText -notmatch "expected_sha256" -or $CommandsText -notmatch "sha256_file") {
+        if (-not $Sha256Implemented) {
             Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "downloaded_installer_sha256_verify_not_implemented" -State "not_implemented" -Reason "Downloaded installer sha256 verification is not implemented; this is mandatory even for Beta." -RecommendedAction "Verify downloaded installer sha256 against remote manifest before enabling installer launch in Phase 3." -Path (To-RelativePath $CommandsPath) -Phase $Phase3)
+        } else {
+            Add-BetaReadyItem "warnings" (New-BetaReadyRecord -Category "beta_ready_warning" -Id "installer_sha256_verify_implemented_unverified" -State "implemented_unverified" -Reason "Downloaded installer sha256 verification is implemented, but real artifact verification has not been proven by this report." -RecommendedAction "Verify exact match and mismatch cases before Beta distribution." -Path (To-RelativePath $CommandsPath) -Phase $Phase3)
         }
-        if ($CommandsText -notmatch "write_update_result_log" -or $CommandsText -notmatch "latest_update_result.json") {
+        if (-not $LaunchBoundaryImplemented) {
+            Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "installer_launch_cache_boundary_not_implemented" -State "not_implemented" -Reason "Verified installer launch does not prove cachePath is constrained to update_cache." -RecommendedAction "Canonicalize update_cache and cachePath, reject path traversal and paths outside update_cache before launching." -Path (To-RelativePath $CommandsPath) -Phase $Phase3)
+        }
+        if (-not $InstallerNameImplemented) {
+            Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "installer_file_name_safety_not_implemented" -State "not_implemented" -Reason "Installer file name and extension safety checks are missing." -RecommendedAction "Allow only ToolHub_Setup .exe/.msi files in update_cache for the Beta updater." -Path (To-RelativePath $CommandsPath) -Phase $Phase3)
+        }
+        if (-not $HttpBlockedImplemented) {
+            Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "http_update_source_not_blocked" -State "not_implemented" -Reason "http:// update sources are not explicitly blocked." -RecommendedAction "Require https:// for Beta remote distribution and keep file:// or relative paths for local tests only." -Path (To-RelativePath $CommandsPath) -Phase $Phase2)
+        }
+        if ($LaunchBoundaryImplemented -and $InstallerNameImplemented -and $HttpBlockedImplemented) {
+            Add-BetaReadyItem "warnings" (New-BetaReadyRecord -Category "beta_ready_warning" -Id "updater_safety_checks_implemented_unverified" -State "implemented_unverified" -Reason "Updater path, file name, extension, and http:// blocking checks are implemented, but malicious path and real endpoint cases still need execution testing." -RecommendedAction "Exercise outside-cache path, path traversal, non-.exe/.msi, non-ToolHub_Setup name, http:// source, file:// test source, and https endpoint cases." -Path (To-RelativePath $CommandsPath) -Phase $Phase3)
+        }
+        if (-not $ResultLogImplemented) {
             Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "updater_result_log_not_implemented" -State "not_implemented" -Reason "Persistent updater result logging is not implemented." -RecommendedAction "Add update check/download/verify/launch result logging in Phase 4." -Path (To-RelativePath $CommandsPath) -Phase $Phase4)
+        } else {
+            Add-BetaReadyItem "warnings" (New-BetaReadyRecord -Category "beta_ready_warning" -Id "updater_result_log_implemented_unverified" -State "implemented_unverified" -Reason "Updater result logging is implemented, but this read-only report cannot prove real check/download/launch logs in an installed environment." -RecommendedAction "Verify latest_update_result.json contains status, ok, checkedAt, operation, source kind, sanitized URLs, cachePath, expected/actual sha256, message, and failure reason." -Path (To-RelativePath $CommandsPath) -Phase $Phase4)
         }
     } else {
         Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "update_command_source_missing" -State "missing" -Reason "The update command source file is missing, so update readiness cannot be checked." -RecommendedAction "Restore launcher/src-tauri/src/commands.rs." -Path (To-RelativePath $CommandsPath) -Phase $Phase2)

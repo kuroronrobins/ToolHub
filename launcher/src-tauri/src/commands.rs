@@ -62,9 +62,12 @@ pub struct UpdateDownloadResult {
     pub ok: bool,
     pub status: String,
     pub message: String,
+    pub failure_reason: Option<String>,
     pub checked_at: String,
     pub manifest_url: Option<String>,
     pub installer_url: String,
+    pub source_kind: String,
+    pub local_test_source: bool,
     pub cache_path: Option<String>,
     pub expected_sha256: String,
     pub actual_sha256: Option<String>,
@@ -86,8 +89,11 @@ pub struct UpdateLaunchResult {
     pub ok: bool,
     pub status: String,
     pub message: String,
+    pub failure_reason: Option<String>,
     pub checked_at: String,
     pub cache_path: String,
+    pub source_kind: String,
+    pub expected_sha256: String,
     pub actual_sha256: Option<String>,
     pub verified: bool,
 }
@@ -283,7 +289,9 @@ pub fn check_updates_remote() -> Result<UpdateSummary, String> {
     let Some(remote_manifest_url) = update_source_url.clone() else {
         return Ok(UpdateSummary {
             title: "Update source is not configured".to_string(),
-            message: "Set updates.manifest_url, updates.source_url, or updates.url before checking a remote manifest.".to_string(),
+            message:
+                "更新元が設定されていません。配布前に updates.manifest_url などを設定してください。"
+                    .to_string(),
             status: "source_not_configured".to_string(),
             current_version,
             local_manifest_version,
@@ -317,19 +325,22 @@ pub fn check_updates_remote() -> Result<UpdateSummary, String> {
         Ok(value) => value,
         Err(error) => {
             let status = "remote_manifest_fetch_failed".to_string();
-            let message = format!("Remote manifest could not be fetched: {error}");
+            let message = format!("更新情報を取得できませんでした: {error}");
             let result = json!({
                 "operation": "check",
                 "status": status,
                 "ok": false,
                 "checkedAt": Utc::now().to_rfc3339(),
-                "manifestUrl": remote_manifest_url.clone(),
+                "manifestUrl": sanitize_url_for_log(&remote_manifest_url),
+                "manifestSourceKind": source_kind(&remote_manifest_url),
+                "localTestSource": is_local_test_source(&remote_manifest_url),
                 "message": message,
+                "failureReason": error,
             });
             let _ = write_update_result_log("check", &result);
             notes.push(message.clone());
             return Ok(UpdateSummary {
-                title: "Remote update check failed".to_string(),
+                title: "更新情報を取得できませんでした".to_string(),
                 message,
                 status,
                 current_version,
@@ -422,23 +433,26 @@ pub fn check_updates_remote() -> Result<UpdateSummary, String> {
         "no_update"
     };
     let title = if has_updates {
-        "Update available"
+        "新しいToolHubがあります"
     } else {
-        "No update found"
+        "ToolHubは最新です"
     };
     let message = if has_updates {
-        "A remote manifest was fetched. Download the latest installer and verify sha256 before launching it."
+        "新しいインストーラーを取得できます。管理画面で取得し、検証後に起動してください。"
     } else {
-        "The remote manifest was fetched, but no newer ToolHub version was found."
+        "配布元の更新情報を確認しましたが、新しいToolHubは見つかりませんでした。"
     };
     let result = json!({
         "operation": "check",
         "status": status,
         "ok": true,
         "checkedAt": Utc::now().to_rfc3339(),
-        "manifestUrl": remote_manifest_url.clone(),
+        "manifestUrl": sanitize_url_for_log(&remote_manifest_url),
+        "manifestSourceKind": source_kind(&remote_manifest_url),
+        "localTestSource": is_local_test_source(&remote_manifest_url),
         "remoteManifestVersion": remote_manifest_version.clone(),
-        "installerUrl": installer_url.clone(),
+        "installerUrl": installer_url.as_deref().map(sanitize_url_for_log),
+        "installerSourceKind": installer_url.as_deref().map(source_kind),
         "installerSha256Present": installer_sha256.is_some(),
     });
     let _ = write_update_result_log("check", &result);
@@ -485,9 +499,12 @@ pub fn download_update_installer(
         ok: false,
         status: "not_started".to_string(),
         message: String::new(),
+        failure_reason: None,
         checked_at,
-        manifest_url: request.manifest_url.clone(),
-        installer_url: request.installer_url.clone(),
+        manifest_url: request.manifest_url.as_deref().map(sanitize_url_for_log),
+        installer_url: sanitize_url_for_log(&request.installer_url),
+        source_kind: source_kind(&request.installer_url).to_string(),
+        local_test_source: is_local_test_source(&request.installer_url),
         cache_path: None,
         expected_sha256: expected_sha256.clone(),
         actual_sha256: None,
@@ -499,35 +516,57 @@ pub fn download_update_installer(
     if expected_sha256.is_empty() {
         result.status = "sha256_missing".to_string();
         result.message = "Remote manifest does not provide installer sha256.".to_string();
+        result.failure_reason = Some("sha256_missing".to_string());
         let _ = write_update_result_log("download", &result);
         return Ok(result);
     }
 
     let cache_dir = update_cache_dir();
     fs::create_dir_all(&cache_dir).map_err(|error| error.to_string())?;
-    let installer_name = safe_installer_file_name(
+    let installer_name = match safe_installer_file_name(
         request.installer_file.as_deref(),
         Some(request.installer_url.as_str()),
-    );
+    ) {
+        Ok(name) => name,
+        Err(error) => {
+            result.status = "unsafe_installer_name".to_string();
+            result.message = error.clone();
+            result.failure_reason = Some(error);
+            let _ = write_update_result_log("download", &result);
+            return Ok(result);
+        }
+    };
     let cache_path = cache_dir.join(installer_name);
     result.cache_path = Some(cache_path.display().to_string());
+    let temp_path = cache_path.with_extension(format!(
+        "{}.download",
+        cache_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or("tmp")
+    ));
+    let _ = fs::remove_file(&temp_path);
 
     if let Err(error) = fetch_source_to_file(
         &crate::manifest::project_root().map_err(|error| error.to_string())?,
         &request.installer_url,
-        &cache_path,
+        &temp_path,
     ) {
         result.status = "download_failed".to_string();
         result.message = format!("Installer download failed: {error}");
+        result.failure_reason = Some(error);
+        let _ = fs::remove_file(&temp_path);
         let _ = write_update_result_log("download", &result);
         return Ok(result);
     }
 
-    let metadata = match fs::metadata(&cache_path) {
+    let metadata = match fs::metadata(&temp_path) {
         Ok(metadata) => metadata,
         Err(error) => {
             result.status = "metadata_failed".to_string();
             result.message = format!("Downloaded installer metadata could not be read: {error}");
+            result.failure_reason = Some(error.to_string());
+            let _ = fs::remove_file(&temp_path);
             let _ = write_update_result_log("download", &result);
             return Ok(result);
         }
@@ -540,17 +579,21 @@ pub fn download_update_installer(
                 "Downloaded installer size mismatch: expected {expected_size}, got {}.",
                 metadata.len()
             );
+            result.failure_reason = Some("size_mismatch".to_string());
+            let _ = fs::remove_file(&temp_path);
             let _ = write_update_result_log("download", &result);
             return Ok(result);
         }
     }
 
-    let actual_sha256 = match sha256_file(&cache_path) {
+    let actual_sha256 = match sha256_file(&temp_path) {
         Ok(hash) => hash,
         Err(error) => {
             result.status = "sha256_failed".to_string();
             result.message =
                 format!("Downloaded installer sha256 could not be calculated: {error}");
+            result.failure_reason = Some(error);
+            let _ = fs::remove_file(&temp_path);
             let _ = write_update_result_log("download", &result);
             return Ok(result);
         }
@@ -560,6 +603,18 @@ pub fn download_update_installer(
         result.status = "sha256_mismatch".to_string();
         result.message =
             "Downloaded installer sha256 does not match the remote manifest.".to_string();
+        result.failure_reason = Some("sha256_mismatch".to_string());
+        let _ = fs::remove_file(&temp_path);
+        let _ = write_update_result_log("download", &result);
+        return Ok(result);
+    }
+
+    if let Err(error) = replace_verified_cache_file(&temp_path, &cache_path) {
+        result.status = "cache_replace_failed".to_string();
+        result.message =
+            format!("Verified installer could not be moved into update_cache: {error}");
+        result.failure_reason = Some(error);
+        let _ = fs::remove_file(&temp_path);
         let _ = write_update_result_log("download", &result);
         return Ok(result);
     }
@@ -567,7 +622,8 @@ pub fn download_update_installer(
     result.ok = true;
     result.verified = true;
     result.status = "verified".to_string();
-    result.message = "Installer downloaded and sha256 verified.".to_string();
+    result.message =
+        "Installer downloaded to update_cache and sha256 verified. Existing cache file was replaced only after verification.".to_string();
     let _ = write_update_result_log("download", &result);
     Ok(result)
 }
@@ -582,8 +638,11 @@ pub fn launch_verified_update_installer(
         ok: false,
         status: "not_started".to_string(),
         message: String::new(),
+        failure_reason: None,
         checked_at,
         cache_path: request.cache_path.clone(),
+        source_kind: "update_cache".to_string(),
+        expected_sha256: expected_sha256.clone(),
         actual_sha256: None,
         verified: false,
     };
@@ -591,14 +650,30 @@ pub fn launch_verified_update_installer(
     if expected_sha256.is_empty() {
         result.status = "sha256_missing".to_string();
         result.message = "Expected sha256 is required before launching an installer.".to_string();
+        result.failure_reason = Some("sha256_missing".to_string());
         let _ = write_update_result_log("launch", &result);
         return Ok(result);
     }
 
-    let cache_path = PathBuf::from(&request.cache_path);
+    let cache_path = match validate_installer_cache_path(Path::new(&request.cache_path)) {
+        Ok(path) => {
+            result.cache_path = path.display().to_string();
+            path
+        }
+        Err(error) => {
+            result.status = error.status;
+            result.message = error.message;
+            result.failure_reason = Some(error.reason);
+            result.cache_path = request.cache_path;
+            result.source_kind = "rejected_path".to_string();
+            let _ = write_update_result_log("launch", &result);
+            return Ok(result);
+        }
+    };
     if !cache_path.is_file() {
         result.status = "installer_missing".to_string();
         result.message = "Verified installer file is missing from update_cache.".to_string();
+        result.failure_reason = Some("installer_missing".to_string());
         let _ = write_update_result_log("launch", &result);
         return Ok(result);
     }
@@ -608,6 +683,7 @@ pub fn launch_verified_update_installer(
         Err(error) => {
             result.status = "sha256_failed".to_string();
             result.message = format!("Installer sha256 could not be calculated: {error}");
+            result.failure_reason = Some(error);
             let _ = write_update_result_log("launch", &result);
             return Ok(result);
         }
@@ -616,6 +692,7 @@ pub fn launch_verified_update_installer(
     if actual_sha256 != expected_sha256 {
         result.status = "sha256_mismatch".to_string();
         result.message = "Installer sha256 no longer matches the remote manifest.".to_string();
+        result.failure_reason = Some("sha256_mismatch".to_string());
         let _ = write_update_result_log("launch", &result);
         return Ok(result);
     }
@@ -632,6 +709,7 @@ pub fn launch_verified_update_installer(
         Err(error) => {
             result.status = "launch_failed".to_string();
             result.message = format!("Verified installer could not be launched: {error}");
+            result.failure_reason = Some(error.to_string());
         }
     }
     let _ = write_update_result_log("launch", &result);
@@ -777,7 +855,10 @@ fn fetch_source_to_file(root: &Path, source: &str, destination: &Path) -> Result
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
 
-    if is_http_url(source) {
+    if is_plain_http_url(source) {
+        return Err("http:// update sources are not allowed. Use https:// for Beta distribution or file:// / relative paths for local tests.".to_string());
+    }
+    if is_https_url(source) {
         let script = "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri $args[0] -OutFile $args[1]";
         let status = Command::new("powershell")
             .args([
@@ -796,6 +877,12 @@ fn fetch_source_to_file(root: &Path, source: &str, destination: &Path) -> Result
         }
         return Err(format!("Invoke-WebRequest exited with status {status}"));
     }
+    if has_url_scheme(source) && !is_file_url(source) {
+        return Err(format!(
+            "unsupported update source scheme: {}",
+            source_kind(source)
+        ));
+    }
 
     let source_path = source_to_local_path(root, source);
     fs::copy(&source_path, destination)
@@ -803,12 +890,57 @@ fn fetch_source_to_file(root: &Path, source: &str, destination: &Path) -> Result
         .map_err(|error| format!("{} ({error})", source_path.display()))
 }
 
+fn is_https_url(source: &str) -> bool {
+    source.starts_with("https://")
+}
+
+fn is_plain_http_url(source: &str) -> bool {
+    source.starts_with("http://")
+}
+
 fn is_http_url(source: &str) -> bool {
-    source.starts_with("https://") || source.starts_with("http://")
+    is_https_url(source) || is_plain_http_url(source)
 }
 
 fn is_file_url(source: &str) -> bool {
     source.starts_with("file://")
+}
+
+fn has_url_scheme(source: &str) -> bool {
+    source.contains("://")
+}
+
+fn source_kind(source: &str) -> &'static str {
+    if is_https_url(source) {
+        "remote_https"
+    } else if is_plain_http_url(source) {
+        "remote_http_blocked"
+    } else if is_file_url(source) {
+        "local_file_url"
+    } else if has_url_scheme(source) {
+        "unsupported_scheme"
+    } else if Path::new(source).is_absolute() {
+        "local_absolute_path"
+    } else {
+        "local_relative_path"
+    }
+}
+
+fn is_local_test_source(source: &str) -> bool {
+    matches!(
+        source_kind(source),
+        "local_file_url" | "local_absolute_path" | "local_relative_path"
+    )
+}
+
+fn sanitize_url_for_log(source: &str) -> String {
+    if let Some((prefix, _)) = source.split_once('#') {
+        return sanitize_url_for_log(prefix);
+    }
+    if let Some((prefix, _)) = source.split_once('?') {
+        return prefix.to_string();
+    }
+    source.to_string()
 }
 
 fn source_to_local_path(root: &Path, source: &str) -> PathBuf {
@@ -856,25 +988,158 @@ fn resolve_installer_url(
     Some(parent.join(file).display().to_string())
 }
 
-fn safe_installer_file_name(installer_file: Option<&str>, installer_url: Option<&str>) -> String {
+#[derive(Debug)]
+struct UpdateSafetyError {
+    status: String,
+    reason: String,
+    message: String,
+}
+
+fn safe_installer_file_name(
+    installer_file: Option<&str>,
+    installer_url: Option<&str>,
+) -> Result<String, String> {
     for candidate in [installer_file, installer_url] {
         if let Some(value) = candidate {
-            let normalized = value.trim_end_matches('/').trim_end_matches('\\');
-            if let Some(name) = Path::new(normalized)
-                .file_name()
-                .and_then(|name| name.to_str())
-            {
-                if !name.trim().is_empty() {
-                    return name.to_string();
+            let stripped = strip_query_and_fragment(value)
+                .trim_end_matches('/')
+                .trim_end_matches('\\')
+                .to_string();
+            let name = stripped
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if !name.is_empty() {
+                if let Err(error) = validate_installer_file_name(&name) {
+                    return Err(error.message);
                 }
+                return Ok(name);
             }
         }
     }
-    "ToolHub_Setup.exe".to_string()
+    Ok("ToolHub_Setup.exe".to_string())
+}
+
+fn strip_query_and_fragment(value: &str) -> &str {
+    value.split(['?', '#']).next().unwrap_or(value).trim()
+}
+
+fn validate_installer_file_name(name: &str) -> Result<(), UpdateSafetyError> {
+    let reason = |reason: &str, message: &str| UpdateSafetyError {
+        status: "unsafe_installer_name".to_string(),
+        reason: reason.to_string(),
+        message: message.to_string(),
+    };
+    if name.is_empty() || name == "." || name == ".." {
+        return Err(reason(
+            "empty_installer_file_name",
+            "Installer file name is empty or reserved.",
+        ));
+    }
+    if name.contains('/') || name.contains('\\') {
+        return Err(reason(
+            "installer_file_name_contains_separator",
+            "Installer file name must not contain path separators.",
+        ));
+    }
+    if name.chars().any(|character| {
+        character.is_control() || matches!(character, ':' | '*' | '?' | '"' | '<' | '>' | '|')
+    }) {
+        return Err(reason(
+            "installer_file_name_contains_unsafe_character",
+            "Installer file name contains characters that are unsafe for Windows paths.",
+        ));
+    }
+    let lower = name.to_ascii_lowercase();
+    if !allowed_installer_file_extension_name(name) {
+        return Err(reason(
+            "installer_extension_not_allowed",
+            "Installer file extension must be .exe or .msi.",
+        ));
+    }
+    if !lower.contains("toolhub_setup") {
+        return Err(reason(
+            "installer_name_not_toolhub_setup",
+            "Installer file name must contain ToolHub_Setup for the Beta updater.",
+        ));
+    }
+    Ok(())
+}
+
+fn allowed_installer_file_extension_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            let extension = extension.to_ascii_lowercase();
+            extension == "exe" || extension == "msi"
+        })
+        .unwrap_or(false)
+}
+
+fn allowed_installer_file_extension_name(name: &str) -> bool {
+    allowed_installer_file_extension_path(Path::new(name))
 }
 
 fn update_cache_dir() -> PathBuf {
     crate::setup::user_data_root().join("update_cache")
+}
+
+fn validate_installer_cache_path(path: &Path) -> Result<PathBuf, UpdateSafetyError> {
+    if !path.is_file() {
+        return Err(UpdateSafetyError {
+            status: "installer_missing".to_string(),
+            reason: "installer_missing".to_string(),
+            message: "Verified installer file is missing from update_cache.".to_string(),
+        });
+    }
+    let canonical_path = fs::canonicalize(path).map_err(|error| UpdateSafetyError {
+        status: "installer_path_invalid".to_string(),
+        reason: "installer_path_canonicalize_failed".to_string(),
+        message: format!("Installer path could not be resolved: {error}"),
+    })?;
+    let cache_dir = update_cache_dir();
+    fs::create_dir_all(&cache_dir).map_err(|error| UpdateSafetyError {
+        status: "update_cache_unavailable".to_string(),
+        reason: "update_cache_create_failed".to_string(),
+        message: format!("update_cache directory could not be prepared: {error}"),
+    })?;
+    let canonical_cache = fs::canonicalize(&cache_dir).map_err(|error| UpdateSafetyError {
+        status: "update_cache_unavailable".to_string(),
+        reason: "update_cache_canonicalize_failed".to_string(),
+        message: format!("update_cache directory could not be resolved: {error}"),
+    })?;
+    if !canonical_path.starts_with(&canonical_cache) {
+        return Err(UpdateSafetyError {
+            status: "installer_path_outside_update_cache".to_string(),
+            reason: "installer_path_outside_update_cache".to_string(),
+            message: "Installer launch is only allowed from ToolHub update_cache.".to_string(),
+        });
+    }
+    let Some(file_name) = canonical_path.file_name().and_then(|name| name.to_str()) else {
+        return Err(UpdateSafetyError {
+            status: "unsafe_installer_name".to_string(),
+            reason: "installer_file_name_missing".to_string(),
+            message: "Installer file name could not be resolved.".to_string(),
+        });
+    };
+    validate_installer_file_name(file_name)?;
+    if !allowed_installer_file_extension_path(&canonical_path) {
+        return Err(UpdateSafetyError {
+            status: "installer_extension_not_allowed".to_string(),
+            reason: "installer_extension_not_allowed".to_string(),
+            message: "Installer launch is allowed only for .exe or .msi files.".to_string(),
+        });
+    }
+    Ok(canonical_path)
+}
+
+fn replace_verified_cache_file(temp_path: &Path, cache_path: &Path) -> Result<(), String> {
+    if cache_path.exists() {
+        fs::remove_file(cache_path).map_err(|error| error.to_string())?;
+    }
+    fs::rename(temp_path, cache_path).map_err(|error| error.to_string())
 }
 
 fn update_result_log_dir() -> PathBuf {
@@ -1046,4 +1311,55 @@ fn parse_version(value: &str) -> Vec<u64> {
         .filter(|part| !part.is_empty())
         .map(|part| part.parse::<u64>().unwrap_or(0))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_installer_file_name_accepts_toolhub_setup_from_url() {
+        let name = safe_installer_file_name(
+            None,
+            Some("https://example.test/releases/ToolHub_Setup_0.1.0.exe?token=secret"),
+        )
+        .expect("ToolHub setup exe should be accepted");
+
+        assert_eq!(name, "ToolHub_Setup_0.1.0.exe");
+    }
+
+    #[test]
+    fn safe_installer_file_name_rejects_non_installer_extension() {
+        let error = safe_installer_file_name(None, Some("https://example.test/ToolHub_Setup.zip"))
+            .expect_err("zip must not be accepted as an installer");
+
+        assert!(error.contains(".exe or .msi"));
+    }
+
+    #[test]
+    fn safe_installer_file_name_rejects_non_toolhub_setup_name() {
+        let error = safe_installer_file_name(None, Some("https://example.test/Other_Setup.exe"))
+            .expect_err("non ToolHub_Setup names must not be accepted");
+
+        assert!(error.contains("ToolHub_Setup"));
+    }
+
+    #[test]
+    fn source_kind_marks_http_as_blocked_and_file_as_local_test() {
+        assert_eq!(
+            source_kind("http://example.test/manifest.json"),
+            "remote_http_blocked"
+        );
+        assert!(!is_local_test_source("https://example.test/manifest.json"));
+        assert!(is_local_test_source("file:///C:/tmp/manifest.json"));
+        assert!(is_local_test_source("release/manifest.json"));
+    }
+
+    #[test]
+    fn sanitize_url_for_log_drops_query_and_fragment() {
+        assert_eq!(
+            sanitize_url_for_log("https://example.test/manifest.json?token=secret#section"),
+            "https://example.test/manifest.json"
+        );
+    }
 }

@@ -49,9 +49,12 @@ export interface UpdateDownloadResult {
   ok: boolean;
   status: string;
   message: string;
+  failureReason?: string | null;
   checkedAt: string;
   manifestUrl?: string | null;
   installerUrl: string;
+  sourceKind: string;
+  localTestSource: boolean;
   cachePath?: string | null;
   expectedSha256: string;
   actualSha256?: string | null;
@@ -69,8 +72,11 @@ export interface UpdateLaunchResult {
   ok: boolean;
   status: string;
   message: string;
+  failureReason?: string | null;
   checkedAt: string;
   cachePath: string;
+  sourceKind: string;
+  expectedSha256: string;
   actualSha256?: string | null;
   verified: boolean;
 }

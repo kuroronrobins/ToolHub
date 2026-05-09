@@ -59,16 +59,8 @@ export function UpdateSummaryDialog({ summary, onClose }: Props) {
               <strong>{summary.currentVersion ?? "-"}</strong>
             </div>
             <div className="version-row">
-              <span>ローカルmanifest</span>
-              <strong>{summary.localManifestVersion ?? "未確認"}</strong>
-            </div>
-            <div className="version-row">
-              <span>remote manifest</span>
-              <strong>{summary.remoteManifestVersion ?? "未確認"}</strong>
-            </div>
-            <div className="version-row">
-              <span>更新元</span>
-              <strong>{summary.updateSourceConfigured ? summary.updateSourceUrl ?? "設定済み" : "未設定"}</strong>
+              <span>配布元のバージョン</span>
+              <strong>{summary.remoteManifestVersion ?? summary.localManifestVersion ?? "未確認"}</strong>
             </div>
           </div>
         </section>

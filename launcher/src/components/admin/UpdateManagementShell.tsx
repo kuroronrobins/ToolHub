@@ -7,7 +7,7 @@ const STATUS_LABELS: Record<string, string> = {
   source_not_configured: "更新元未設定",
   no_update: "更新候補なし",
   update_available: "更新候補あり",
-  remote_manifest_fetch_failed: "remote manifest取得失敗",
+  remote_manifest_fetch_failed: "更新情報の取得失敗",
 };
 
 const CONFIG_SOURCE_LABELS: Record<string, string> = {
@@ -105,18 +105,18 @@ export function UpdateManagementShell() {
       <div className="admin-card-grid">
         <button className="admin-work-card" type="button" onClick={() => void checkUpdates()} disabled={busy}>
           <RefreshCw size={22} aria-hidden="true" />
-          <strong>{busy ? "確認中" : "remote更新確認"}</strong>
-          <span>remote manifestを取得し、現在versionと比較します。</span>
+          <strong>{busy ? "確認中" : "更新確認"}</strong>
+          <span>配布元の更新情報を取得し、現在versionと比較します。</span>
         </button>
         <button className="admin-work-card" type="button" onClick={() => void downloadInstaller()} disabled={!canDownload}>
           <Download size={22} aria-hidden="true" />
           <strong>installer取得</strong>
-          <span>update_cacheへ保存し、remote manifestのsha256で検証します。</span>
+          <span>update_cacheへ保存し、配布元のsha256で検証します。</span>
         </button>
         <button className="admin-work-card danger" type="button" onClick={() => void launchInstaller()} disabled={!canLaunch}>
           <ExternalLink size={22} aria-hidden="true" />
           <strong>installer起動</strong>
-          <span>sha256検証済みのToolHub_Setup.exeだけをユーザー操作で起動します。</span>
+          <span>sha256検証済みのToolHub_Setup.exeだけを起動します。必要に応じてToolHubを閉じてください。</span>
         </button>
       </div>
       {summary ? (
@@ -174,17 +174,21 @@ export function UpdateManagementShell() {
               {downloadResult ? (
                 <>
                   <div className="version-row"><span>download status</span><strong>{downloadResult.status}</strong></div>
+                  <div className="version-row"><span>source kind</span><strong>{downloadResult.sourceKind}</strong></div>
                   <div className="version-row"><span>verified</span><strong>{downloadResult.verified ? "yes" : "no"}</strong></div>
                   <div className="version-row"><span>size</span><strong>{downloadResult.actualSize ?? "-"}</strong></div>
                   <div className="version-row"><span>sha256</span><strong>{downloadResult.actualSha256 ?? "-"}</strong></div>
                   <div className="version-row"><span>cache</span><strong>{downloadResult.cachePath ?? "-"}</strong></div>
+                  <div className="version-row"><span>failure reason</span><strong>{downloadResult.failureReason ?? "-"}</strong></div>
                   <div className="version-row"><span>message</span><strong>{downloadResult.message}</strong></div>
                 </>
               ) : null}
               {launchResult ? (
                 <>
                   <div className="version-row"><span>launch status</span><strong>{launchResult.status}</strong></div>
+                  <div className="version-row"><span>source kind</span><strong>{launchResult.sourceKind}</strong></div>
                   <div className="version-row"><span>verified</span><strong>{launchResult.verified ? "yes" : "no"}</strong></div>
+                  <div className="version-row"><span>failure reason</span><strong>{launchResult.failureReason ?? "-"}</strong></div>
                   <div className="version-row"><span>message</span><strong>{launchResult.message}</strong></div>
                 </>
               ) : null}

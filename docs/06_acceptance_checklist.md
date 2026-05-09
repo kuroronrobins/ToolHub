@@ -165,6 +165,8 @@
 - [x] [blocker] installer download が実装されている。`download_update_installer` で `%LOCALAPPDATA%\ToolHub\update_cache\` へ保存する。
 - [x] [blocker] download 後の installer sha256 verify が実装されている。`download_update_installer` と `launch_verified_update_installer` で sha256 一致を必須にする。
 - [x] [blocker] updater result log が実装されている。`%LOCALAPPDATA%\ToolHub\data\logs\updater\latest_update_result.json` に check / download / launch 結果を記録する。
+- [x] [blocker] updater は `http://` を拒否し、Beta 本番 endpoint は `https://` 前提にする。`file://` / 相対パスは local test 専用。
+- [x] [blocker] installer 起動時に `cachePath` を canonicalize し、`update_cache` 外、`.exe` / `.msi` 以外、`ToolHub_Setup` 以外の file name を拒否する。
 
 ### Manual Check
 
@@ -177,6 +179,7 @@
 - [ ] [manual check] インストール済み環境で `sample_gui_app` が起動できる。
 - [ ] [manual check] インストール済み環境で `sample_playwright_app` が起動できる。
 - [ ] [manual check] Beta 配布用の remote manifest endpoint を決定し、`updates.manifest_url` または同等設定から取得できる。
+- [ ] [manual check] 実 endpoint / 実 installer で remote check、download、sha256 match / mismatch、cache 外 path 拒否、verified launch gating を確認する。
 
 ### Warning / Follow-up
 
