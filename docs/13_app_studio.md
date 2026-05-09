@@ -44,6 +44,12 @@ App Studio の通常新規登録フローは、通常ユーザー向け配布専
 
 通常フローは、Python ソース入力 → 解析 → 内部 `build_env` 作成 → 依存インストール → `requirements.lock` 生成/更新 → PyInstaller frozen-folder build → frozen-folder 配布物検証 → `app.yaml` 生成/仮登録、の一本道です。`requirements.lock` 生成、frozen-folder build、配布物検証は常に ON です。
 
+App Studio frozen-folder app では `requirements.lock` は配布再現性の必須 artifact です。`app.yaml` の
+`runtime.requirements_lock` は通常 `requirements.lock` を指し、`final_app/`、`apps/<app_id>/`、App Pack zip
+のすべてに同じ app-relative entry が存在する必要があります。`scripts/package_app_pack.ps1` と
+`scripts/verify_release.ps1` も同じ条件を確認します。既存の Python runner 直実行サンプルのように
+frozen-folder distribution を宣言していない legacy app は、この条件の互換例外です。
+
 `app.yaml` の `run.entry` は `bin/<app_id>/<app_id>.exe` を指し、通常ユーザー向け配布で `.py` を実行入口にしません。`--onefile` は標準にせず、ToolHub の標準は PyInstaller `--onedir --clean --contents-directory .` の folder-based frozen output です。
 
 `build_env` は exe 作成のためだけに使う内部作業環境です。`runtime/app_envs/<app_id>` には作らず、App Studio 出力ディレクトリ配下に作成します。利用者 PC に要求せず、`final_app`、App Pack、release、runtime には含めません。
@@ -312,6 +318,8 @@ app_id と名称を指定:
 - 通常新規登録では内部 `build_env` の `pip freeze` を使います。
 - それ以外は `requirements.txt` の正規化結果を lock として保存します。
 - 通常新規登録では lock 生成をスキップしません。
+- frozen-folder 配布物検証と App Pack / release 検証では、`runtime.requirements_lock` が指す lock file が
+  `final_app/`、`apps/<app_id>/`、App Pack zip に存在することを確認します。
 
 レポートは `lock_generation_report.md` と `data/logs/app_studio/<app_id>_lock_generation_report.md` に保存されます。`pip freeze` は過剰依存が混ざる可能性があるため、人間レビューを前提にします。
 

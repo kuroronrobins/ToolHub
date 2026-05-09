@@ -12,7 +12,7 @@ The app source of truth is `apps/<app_id>/`:
 - `app.yaml`
 - `README.md`
 - `requirements.txt`
-- `requirements.lock`
+- `requirements.lock` for App Studio frozen-folder apps
 - `icon.png` or `icon.svg`
 - `bin/`
 - bundled assets required by the app
@@ -42,7 +42,7 @@ are not App Pack sources and are not deletion targets.
   app.yaml
   README.md
   requirements.txt
-  requirements.lock
+  requirements.lock       # required for App Studio frozen-folder apps
   icon.png or icon.svg
   bin/
   pack_manifest.json
@@ -50,7 +50,21 @@ are not App Pack sources and are not deletion targets.
 ```
 
 `scripts/package_app_pack.ps1` copies `apps/<app_id>/`, removes cache files, adds `pack_manifest.json`, then creates
-the zip.
+the zip. For App Studio frozen-folder apps, `runtime.requirements_lock` in `app.yaml` is the App Pack lock-file
+contract. If that field is present it must point to an app-relative file, and the same entry must be present in the zip.
+When an App Studio frozen-folder app omits the field for compatibility, packaging and verification require
+`requirements.lock` by convention. Legacy Python-runner sample apps that do not declare frozen-folder distribution keep
+their existing compatibility path and are not upgraded by this check.
+
+The required App Pack entries for App Studio frozen-folder apps are:
+
+- `<app_id>/app.yaml`
+- `<app_id>/pack_manifest.json`
+- `<app_id>/README.md`
+- `<app_id>/requirements.txt`
+- `<app_id>/<runtime.requirements_lock>` usually `<app_id>/requirements.lock`
+- `<app_id>/<display.icon>`
+- `<app_id>/<run.entry>`
 
 ## Manifest Entry
 

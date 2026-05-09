@@ -63,6 +63,7 @@ Do not treat every warning as a deletion request.
 | `enabled=true` and source missing | blocked / hide candidate | Launcher-visible state is unsafe. Restore source or hide first. |
 | `enabled=false` and source missing | delete candidate | Stale release index/history. Remove only after owner confirmation. |
 | source exists but App Pack zip missing | App Pack rebuild | The app source remains valid; regenerate generated artifact. |
+| App Studio frozen-folder source missing `runtime.requirements_lock` target | source repair / App Pack blocker | The source app is not deletion-target material, but packaging and release verification must fail until `requirements.lock` is restored or regenerated. |
 | shared runtime missing | runtime packaging required | Runtime is shared infrastructure, not app-owned cleanup. |
 | installer missing | installer build required | Installer is release output, not app-owned cleanup. |
 | app-specific `runtime/app_envs/<app_id>` missing | intentional warning / check adjustment candidate | Current normal App Studio frozen-folder registration does not use app_env as app source, but `verify_release.ps1 -Strict` currently escalates it to fail. |

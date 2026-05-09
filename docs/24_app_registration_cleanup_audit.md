@@ -606,3 +606,22 @@ docs/15_app_studio_update_gui.md と docs/21_app_registration_improvement_plan.m
 - PowerShell scripts が生成する一時ファイルの完全な差分確認。
 - `check_all.ps1` の現在環境での最新 WARN/FAIL。
 - `.gitup/backups/.../current` の dirty reason。
+
+## 2026-05-10 P0 follow-up: requirements.lock / App Pack / verify_release
+
+実施範囲:
+
+- App Studio frozen-folder app と `runtime.requirements_lock` を明示した app だけを対象に、lock file の必須性を
+  Python packaging、approval targeted verification、frozen-folder distribution check、PowerShell packaging、
+  `verify_release.ps1`、docs で揃える。
+- legacy Python runner 直実行 sample app には一律必須化しない。
+- app.yaml public schema、App Pack manifest schema、runner I/F、release manifest compatibility は変更しない。
+
+残した follow-up:
+
+- PowerShell と Python の App Pack contract helper はまだ完全な single source ではない。今回の変更は低リスクな
+  判定名と必須 entry の整合に留めた。
+- `report_release_readiness.ps1` は App Pack zip/hash/readiness 分類が主目的であり、lock file の詳細検証は
+  `verify_release.ps1` に残した。必要なら次フェーズで read-only report に source repair category を追加する。
+- legacy app の `requirements.lock` 移行方針は未判断。frozen-folder distribution を宣言していない app には
+  互換例外を維持する。
