@@ -12,6 +12,10 @@ use crate::app_studio_cli_args::{
     normalize_normal_import_request, AppStudioCliAction, AppStudioIconRegenerateCliOptions,
     AppStudioImportCliOverrides,
 };
+use crate::app_studio_process::{
+    append_app_studio_gui_log, command_line_for_log, mask_sensitive, redact_cli_arg_value,
+    result_from_process,
+};
 use crate::app_studio_result_reader::{output_dir_from_app_yaml, read_summary};
 pub use crate::app_studio_result_reader::{AppStudioResultSummary, AppStudioTimingPhase};
 use base64::{engine::general_purpose, Engine as _};
@@ -1162,92 +1166,6 @@ fn run_update_approve_action(app_id: String, strict: bool) -> Result<AppStudioRu
             );
             Err(error)
         }
-    }
-}
-
-fn result_from_process(
-    ok: bool,
-    exit_code: i32,
-    stdout: String,
-    stderr: String,
-    summary: AppStudioResultSummary,
-    process_wall_clock_seconds: Option<f64>,
-    success_message: &str,
-) -> AppStudioRunResult {
-    let user_message = if ok {
-        success_message.to_string()
-    } else if summary.apply_blocked_by_secret_scan || summary.secret_blocking_count > 0 {
-        format!(
-            "Secret scan blocked Apply. blocking={}, warnings={}, manual_checks={}. Review secret_scan_report.md.",
-            summary.secret_blocking_count, summary.secret_warning_count, summary.secret_manual_check_count
-        )
-    } else if summary.execution_status.as_deref() == Some("warn")
-        && summary.approval_allowed == Some(true)
-    {
-        "App Studio completed with warnings. execution_test_result.json allows approval; review the logs before approving.".to_string()
-    } else if summary.execution_status.as_deref() == Some("pass") {
-        "App Studio process returned a non-zero exit code, but execution checks passed. Review stdout/stderr before approval.".to_string()
-    } else {
-        "App Studio processing failed. Review stdout/stderr and generated reports.".to_string()
-    };
-    AppStudioRunResult {
-        ok,
-        exit_code,
-        stdout,
-        stderr,
-        user_message,
-        output_dir: summary.output_dir,
-        app_id: summary.app_id,
-        selected_build_mode: summary.selected_build_mode,
-        execution_status: summary.execution_status,
-        approval_allowed: summary.approval_allowed,
-        runtime_status: summary.runtime_status,
-        app_pack: summary.app_pack,
-        enabled: summary.enabled,
-        current_version: None,
-        new_version: summary.version,
-        metadata_override_used: summary.metadata_override_used,
-        metadata_override_keys: summary.metadata_override_keys,
-        icon_override_used: summary.icon_override_used,
-        selected_icon_source: summary.selected_icon_source,
-        exe_readiness_status: summary.exe_readiness_status,
-        manual_checks: summary.manual_checks,
-        secret_blocking_count: summary.secret_blocking_count,
-        secret_warning_count: summary.secret_warning_count,
-        secret_manual_check_count: summary.secret_manual_check_count,
-        secret_scan_report: summary.secret_scan_report,
-        secret_blocking_findings: summary.secret_blocking_findings,
-        ai_blocked_by_secret_scan: summary.ai_blocked_by_secret_scan,
-        apply_blocked_by_secret_scan: summary.apply_blocked_by_secret_scan,
-        approval_blocking_warnings_count: summary.approval_blocking_warnings_count,
-        non_blocking_warnings_count: summary.non_blocking_warnings_count,
-        info_count: summary.info_count,
-        unresolved_distribution_risks_count: summary.unresolved_distribution_risks_count,
-        approval_blocking_reasons: summary.approval_blocking_reasons,
-        non_blocking_warning_summaries: summary.non_blocking_warning_summaries,
-        timing_report: summary.timing_report,
-        timing_total_seconds: summary.timing_total_seconds.or(process_wall_clock_seconds),
-        timing_estimated_total_seconds: summary.timing_estimated_total_seconds,
-        timing_actual_total_seconds: summary.timing_actual_total_seconds,
-        timing_prediction_error_seconds: summary.timing_prediction_error_seconds,
-        timing_prediction_source: summary.timing_prediction_source,
-        timing_wall_clock_total_seconds: summary.timing_wall_clock_total_seconds,
-        timing_cli_measured_total_seconds: summary.timing_cli_measured_total_seconds,
-        timing_unmeasured_overhead_seconds: summary.timing_unmeasured_overhead_seconds,
-        timing_phases: summary.timing_phases,
-        process_wall_clock_seconds,
-        manifest_enabled: summary.manifest_enabled,
-        approval_record_status: summary.approval_record_status,
-        approval_record_path: summary.approval_record_path,
-        approval_failure_summary: summary.approval_failure_summary,
-        verify_release_status: summary.verify_release_status,
-        verify_release_failure_summary: summary.verify_release_failure_summary,
-        catalog_visible: summary.catalog_visible,
-        catalog_enabled: summary.catalog_enabled,
-        catalog_disabled_reason: summary.catalog_disabled_reason,
-        catalog_load_error: summary.catalog_load_error,
-        catalog_root: summary.catalog_root,
-        app_studio_repo_root: summary.app_studio_repo_root,
     }
 }
 
@@ -3330,93 +3248,6 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 #[cfg(not(windows))]
 fn pick_entry_file() -> Result<Option<String>, String> {
     Err("この環境ではファイル選択ダイアログを使用できません。Entryファイルパスを手入力してください。".to_string())
-}
-
-fn mask_sensitive(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut output = String::with_capacity(text.len());
-    let mut index = 0;
-    while index < chars.len() {
-        if chars[index] == 's'
-            && chars.get(index + 1) == Some(&'k')
-            && chars.get(index + 2) == Some(&'-')
-        {
-            let start = index;
-            index += 3;
-            while index < chars.len()
-                && (chars[index].is_ascii_alphanumeric()
-                    || chars[index] == '-'
-                    || chars[index] == '_')
-            {
-                index += 1;
-            }
-            let token: String = chars[start..index].iter().collect();
-            output.push_str(&crate::secret_store::mask_secret(&token));
-        } else {
-            output.push(chars[index]);
-            index += 1;
-        }
-    }
-    output
-}
-
-fn append_app_studio_gui_log(event: &str, attrs: &[(&str, String)]) {
-    let log_dir = crate::setup::user_data_root()
-        .join("data")
-        .join("logs")
-        .join("admin");
-    if std::fs::create_dir_all(&log_dir).is_err() {
-        return;
-    }
-    let path = log_dir.join("app_studio_gui.log");
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-    {
-        use std::io::Write;
-        let mut line = format!("{} {}", chrono::Local::now().to_rfc3339(), event);
-        for (key, value) in attrs {
-            if !value.trim().is_empty() {
-                line.push(' ');
-                line.push_str(key);
-                line.push('=');
-                line.push_str(&mask_sensitive(value));
-            }
-        }
-        let _ = writeln!(file, "{line}");
-    }
-}
-
-fn command_line_for_log(program: &Path, args: &[String]) -> String {
-    let mut parts = vec![quote_log_arg(&program.display().to_string())];
-    parts.extend(args.iter().map(|arg| quote_log_arg(arg)));
-    parts.join(" ")
-}
-
-fn redact_cli_arg_value(args: &[String], key: &str) -> Vec<String> {
-    let mut output = Vec::with_capacity(args.len());
-    let mut redact_next = false;
-    for arg in args {
-        if redact_next {
-            output.push("<redacted>".to_string());
-            redact_next = false;
-            continue;
-        }
-        output.push(arg.clone());
-        if arg == key {
-            redact_next = true;
-        }
-    }
-    output
-}
-
-fn quote_log_arg(value: &str) -> String {
-    if value.chars().any(|ch| ch.is_whitespace()) {
-        format!("\"{}\"", value.replace('"', "\\\""))
-    } else {
-        value.to_string()
-    }
 }
 
 #[cfg(test)]

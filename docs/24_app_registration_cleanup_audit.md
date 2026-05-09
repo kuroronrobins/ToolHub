@@ -766,3 +766,19 @@ Remaining follow-up:
 - Move process spawn/env/masking only after a narrow command execution adapter is defined; do not combine it with CLI argv builder cleanup.
 - Keep management/delete helpers separate because they touch filesystem safety and repo-managed target rules.
 - `cargo check` remains blocked in this environment by Windows application control policy, so the new Rust tests should be run in an environment where `rustc` is allowed.
+
+## 2026-05-10 P1 follow-up: Rust process/log/mask helper split
+
+Implemented scope:
+
+- Added `launcher/src-tauri/src/app_studio_process.rs` as the process output shaping, stdout/stderr mask, command-line-for-log, CLI argument redaction, and App Studio GUI log helper boundary.
+- Moved `result_from_process()`, `mask_sensitive()`, `append_app_studio_gui_log()`, `command_line_for_log()`, and `redact_cli_arg_value()` out of `app_studio_commands.rs`.
+- Kept Python executable discovery, process spawn, current working directory, env injection, AI environment planning, override temp file writing, management, and delete plan/apply in `app_studio_commands.rs`.
+- Kept Tauri command names, arguments, return JSON shape, React/TypeScript API shape, Python CLI argv meaning, env injection behavior, app.yaml schema, App Pack spec, runner I/F, and release manifest compatibility unchanged.
+- Added Rust unit tests around secret masking, non-secret log preservation, CLI log redaction/quoting, and process result shape preservation.
+
+Remaining follow-up:
+
+- Split Python executable discovery and process execution only after a narrow command execution adapter is defined and testable without changing env injection timing.
+- Keep management/delete helpers separate because they touch filesystem safety and repo-managed target rules.
+- `cargo check` remains blocked in this environment by Windows application control policy, so the new Rust tests should be run in an environment where `rustc` is allowed.
