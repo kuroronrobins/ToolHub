@@ -10,11 +10,13 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from .registrar import (
+from .app_pack_contract import (
     app_pack_requirements_lock_entry,
     app_relative_path,
-    load_app_manifest_json,
     normalize_app_relative_entry,
+)
+from .registrar import (
+    load_app_manifest_json,
     package_app_pack,
     require_app_yaml_file,
 )

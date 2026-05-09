@@ -1916,6 +1916,46 @@ Remaining follow-up:
 - A later PowerShell task can consider a dot-sourced helper shared by `package_app_pack.ps1` and `verify_release.ps1`, but only after preserving current parser checks and parity tests.
 - Do not change required entries, lock-file mandatory scope, disabled stale manifest policy, strict app-env behavior, or `verify_release.ps1` severity semantics in the same task as helper extraction.
 
+## 2026-05-10 P2 follow-up: Python App Pack contract helper module
+
+Implemented scope:
+
+- Added `tools/app_studio/app_studio/app_pack_contract.py` as the Python-only App Pack contract boundary.
+- Moved pure/read-only contract helpers out of `registrar.py`:
+  - `APP_PACK_REQUIRED_APP_FILES`
+  - YAML scalar reading / normalization
+  - frozen-folder detection
+  - app-relative path normalization and path containment helper
+  - `run.entry`, `display.icon`, and `runtime.requirements_lock` extraction helpers
+  - App Pack required entry construction
+  - contract summary helper for fixture-based tests
+- Kept compatibility names available from `registrar.py` by importing the moved helpers there.
+- Updated `approval.py` to import read-only App Pack contract helpers directly from `app_pack_contract.py`.
+- Updated `test_app_pack_contract.py` to validate the shared golden fixture through the new pure helper module.
+
+Production behavior left in `registrar.py`:
+
+- Copying `final_app/` into `apps/<app_id>/`.
+- Existing app backup.
+- App Pack zip creation and compression policy.
+- Required source file existence checks.
+- App Pack zip inspection.
+- App Pack SHA256 calculation.
+- `release/app_manifest.json` update.
+- Output mirror copy and registration copy reports.
+
+Compatibility notes:
+
+- App Pack required entries, app-relative normalization error messages, frozen-folder implicit lock behavior, explicit `runtime.requirements_lock`, and legacy runner lock optionality were kept unchanged.
+- App Pack spec, app.yaml schema, runner public I/F, release manifest compatibility, PowerShell production scripts, Rust code, React/TypeScript code, apps, release manifests, runtime files, data, logs, generated artifacts, dependencies, and lock files were not changed.
+- PowerShell parity remains fixture-based and read-only; no PowerShell production helper commonization was attempted in this step.
+
+Remaining follow-up:
+
+- Consider a PowerShell read-only helper extraction only after the parity script remains stable.
+- Consider narrowing registrar's compatibility re-exports only after all imports move to `app_pack_contract.py`.
+- Keep `verify_release.ps1` severity behavior and report-release-readiness classification separate unless a release policy task explicitly changes that boundary.
+
 Historical next Codex task queued after the management split, now covered by the audit section above:
 
 ```text

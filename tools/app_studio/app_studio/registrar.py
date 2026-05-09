@@ -6,9 +6,19 @@ import time
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path
-from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, Iterator
 
+from .app_pack_contract import (
+    APP_PACK_REQUIRED_APP_FILES,
+    app_pack_required_entries,
+    app_pack_requirements_lock_entry,
+    app_relative_path,
+    app_studio_frozen_folder_manifest,
+    normalize_app_relative_entry,
+    normalize_policy_value,
+    normalize_yaml_scalar,
+    yaml_section_scalar,
+)
 from .exporter import copy_pack_to_output
 from .models import BuildPlan, StudioContext
 from .util import assert_within, file_sha256, timestamp, write_json, write_text
@@ -46,7 +56,6 @@ REGISTRATION_TOP_LEVEL_STEPS = {
     "package_app_pack_total",
     "copy_pack_to_output_mirror",
 }
-APP_PACK_REQUIRED_APP_FILES = ("app.yaml", "README.md", "requirements.txt")
 
 
 @contextmanager
@@ -300,38 +309,6 @@ def manifest_entry_from_app_source(app_dir: Path, context: StudioContext, plan: 
     }
 
 
-def yaml_section_scalar(text: str, section: str, key: str) -> str | None:
-    in_section = False
-    section_indent = -1
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        indent = len(line) - len(line.lstrip(" "))
-        if not in_section:
-            if indent == 0 and stripped == f"{section}:":
-                in_section = True
-                section_indent = indent
-            continue
-        if indent <= section_indent:
-            break
-        if stripped.startswith(f"{key}:"):
-            value = stripped.split(":", 1)[1].strip()
-            return normalize_yaml_scalar(value)
-    return None
-
-
-def normalize_yaml_scalar(value: str) -> str | None:
-    text = value.strip()
-    if " #" in text:
-        text = text.split(" #", 1)[0].strip()
-    if len(text) >= 2 and ((text[0] == text[-1] == '"') or (text[0] == text[-1] == "'")):
-        text = text[1:-1]
-    if text in {"", "null", "~"}:
-        return None
-    return text
-
-
 def package_app_pack(
     repo_root: Path,
     app_id: str,
@@ -448,80 +425,6 @@ def require_app_relative_file(app_dir: Path, relative: str, label: str) -> Path:
     path = app_relative_path(app_dir, relative)
     if not path.is_file():
         raise FileNotFoundError(f"Required app {label} file is missing: {path}")
-    return path
-
-
-def app_pack_requirements_lock_entry(app_dir: Path) -> str | None:
-    app_yaml = app_dir / "app.yaml"
-    text = app_yaml.read_text(encoding="utf-8")
-    declared = yaml_section_scalar(text, "runtime", "requirements_lock")
-    if declared:
-        return normalize_app_relative_entry(declared, app_dir, "runtime.requirements_lock")
-    if app_studio_frozen_folder_manifest(text):
-        return "requirements.lock"
-    return None
-
-
-def app_studio_frozen_folder_manifest(text: str) -> bool:
-    distribution_mode = normalize_policy_value(yaml_section_scalar(text, "runtime", "distribution_mode"))
-    build_mode = normalize_policy_value(yaml_section_scalar(text, "build", "build_mode"))
-    return distribution_mode in {"frozen_folder", "frozen-folder"} or build_mode in {"frozen_folder", "frozen-folder"}
-
-
-def normalize_policy_value(value: str | None) -> str:
-    return (value or "").strip().lower()
-
-
-def app_pack_required_entries(
-    app_id: str,
-    *,
-    run_entry: str,
-    display_icon: str,
-    requirements_lock: str | None = None,
-) -> set[str]:
-    entries = {
-        f"{app_id}/app.yaml",
-        f"{app_id}/pack_manifest.json",
-        f"{app_id}/README.md",
-        f"{app_id}/requirements.txt",
-        f"{app_id}/{display_icon}",
-        f"{app_id}/{run_entry}",
-    }
-    if requirements_lock:
-        entries.add(f"{app_id}/{requirements_lock}")
-    return entries
-
-
-def normalize_app_relative_entry(value: str | None, app_dir: Path | None = None, label: str = "app path") -> str:
-    if value is None or not str(value).strip():
-        raise ValueError(f"{label} is missing.")
-    raw = str(value).strip().replace("\\", "/")
-    if PurePosixPath(raw).is_absolute() or PureWindowsPath(raw).is_absolute():
-        raise ValueError(f"{label} must be a relative path inside the app directory: {value}")
-
-    parts: list[str] = []
-    for part in raw.split("/"):
-        if part in {"", "."}:
-            continue
-        if part == "..":
-            raise ValueError(f"{label} must stay inside the app directory: {value}")
-        parts.append(part)
-    if not parts:
-        raise ValueError(f"{label} is missing.")
-
-    relative = "/".join(parts)
-    if app_dir is not None:
-        app_relative_path(app_dir, relative)
-    return relative
-
-
-def app_relative_path(app_dir: Path, relative: str) -> Path:
-    root = app_dir.resolve()
-    path = (app_dir / Path(*relative.split("/"))).resolve()
-    try:
-        path.relative_to(root)
-    except ValueError as exc:
-        raise ValueError(f"app path must stay inside the app directory: {relative}") from exc
     return path
 
 
