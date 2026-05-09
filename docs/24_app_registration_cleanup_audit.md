@@ -1983,6 +1983,76 @@ Remaining follow-up:
 - Any production script adoption must preserve current output, severity, packaging, verification, and manifest update behavior, and should be guarded by the parity test plus script parser checks.
 - Do not combine production PowerShell helper adoption with any App Pack spec, lock-file scope, `verify_release.ps1` severity, or release-readiness classification changes.
 
+## 2026-05-10 P2 audit: PowerShell production App Pack contract helper adoption
+
+Scope:
+
+- This is an audit-only pass. `package_app_pack.ps1`, `verify_release.ps1`, `report_release_readiness.ps1`, `check_all.ps1`, Python production code, Rust code, React/TypeScript code, apps, release manifests, runtime files, data, logs, generated artifacts, dependencies, and lock files were not changed.
+- The App Pack spec, app.yaml public schema, runner public I/F, release manifest compatibility, App Studio frozen-folder lock-file contract, and legacy Python-runner lock exception remain unchanged.
+- `scripts/lib/app_pack_contract.ps1` is treated as a read-only helper candidate only. This pass does not make production scripts dot-source it.
+
+Current `scripts/lib/app_pack_contract.ps1` responsibility:
+
+- Defines side-effect-free functions for YAML scalar reading, app-relative path normalization, app-relative path containment resolution, frozen-folder detection, `runtime.requirements_lock` handling, App Pack required entry construction, and fixture-oriented contract summary generation.
+- Does not run a main flow or touch `apps/`, `release/`, `runtime/`, `data/`, `logs/`, fixtures, manifests, zips, or App Pack artifacts on load.
+- Is currently used by `scripts/test_app_pack_contract_parity.ps1` only.
+
+Production script duplication:
+
+| Script | Duplicated helper / rule | Production-specific behavior that must remain local |
+| --- | --- | --- |
+| `scripts/package_app_pack.ps1` | Inline copies of `Normalize-YamlScalar`, `Read-YamlSectionScalar`, `Normalize-AppRelativePath`, `Resolve-AppRelativeFile`, `Read-AppRelativeYamlFile`, `Test-AppStudioFrozenFolderYaml`, and `Get-RequirementsLockPathForAppPack`; app.yaml `run.entry`, `display.icon`, `runtime.requirements_lock`; required source files; required zip entries. | Creates or updates disabled manifest entries for apps missing from `release/app_manifest.json`, stages app source, removes cache files, writes `pack_manifest.json`, creates the zip, inspects zip entries, calculates `sha256`, updates `package` / `sha256` / version / runtime fields, and preserves `enabled`. |
+| `scripts/verify_release.ps1` | Inline copies of the same YAML/path/frozen-folder/lock helpers; app.yaml `run.entry`, `display.icon`, `runtime.requirements_lock`; source reference checks; App Pack zip entry checks for `app.yaml`, `pack_manifest.json`, README, requirements, lock file, icon, and entry. | Owns release-gate output and exit semantics: `Pass` / `Warn` / `Fail`, `-Strict`, `-RequireInstaller`, `-RequireRuntime`, `-RequireAppPacks`, stale enabled/disabled manifest handling, package existence, `sha256`, runtime/app_env, installer, and manifest validation. |
+| `scripts/report_release_readiness.ps1` | Does not duplicate the app.yaml contract helpers. It mainly duplicates broader release concepts such as `Entry-Enabled`, App Pack target discovery, package existence, and `sha256` mismatch classification. | Produces read-only classifications, not a release gate: blockers, warnings, delete candidates, rebuild candidates, runtime packaging debt, installer build debt, and future formal-release work. It should not inherit `verify_release.ps1` severity or App Pack packaging behavior. |
+| `scripts/check_all.ps1` | Does not implement the contract helpers directly. | Orchestrates syntax checks, `verify_release.ps1`, `report_release_readiness.ps1`, and broader project checks. It should not become an App Pack contract source of truth. |
+
+Adoption risks:
+
+- Function-name collisions are likely if a production script dot-sources the helper before removing local definitions with the same names.
+- `package_app_pack.ps1` currently throws on invalid app.yaml references, while `verify_release.ps1` catches and reports `[NG]`; helper adoption must preserve each script's error handling, wording, severity, and exit behavior.
+- `verify_release.ps1` is the independent release gate. Helper adoption must not weaken strict-mode behavior, App Pack zip checks, runtime/installer checks, stale entry handling, or `sha256` validation.
+- `report_release_readiness.ps1` is a classifier, not a gate. Sharing the contract helper there has limited immediate value and risks mixing readiness categories with verification rules.
+- Production scripts must resolve the helper path reliably when run from the repository root, via relative script paths, or through `check_all.ps1`; missing-helper errors should be explicit if adoption happens.
+- PowerShell 5.1 compatibility must be preserved. No implementation should rely on PowerShell 7-only syntax.
+
+Low-risk adoption candidates:
+
+1. Start with `scripts/package_app_pack.ps1`.
+   - It has the largest exact duplicate of the helper functions.
+   - It already treats invalid `run.entry`, `display.icon`, and `runtime.requirements_lock` as blocking packaging errors, so the read-only helper's throwing behavior matches the current control flow.
+   - Keep `Require-AppYamlReferencedFile`, `Assert-ZipContainsEntry`, staging, zip creation, `pack_manifest.json`, manifest mutation, `sha256`, and `enabled` preservation local.
+   - Suggested minimal implementation: dot-source `scripts/lib/app_pack_contract.ps1`, remove the duplicate pure helper definitions, call the same helper names or `Get-AppPackContractSummary`, then run the parity test, PowerShell parser check, and a packaging-focused dry run or existing release packaging check that does not leave generated artifacts.
+2. Then consider `scripts/verify_release.ps1`.
+   - It can reuse the pure helper names for parsing and path normalization, but must keep `Test-AppYamlReferencedFile`, `Test-ZipContainsEntry`, `Pass` / `Warn` / `Fail`, strict-mode escalation, runtime/installer checks, and stale-entry policy local.
+   - Suggested minimal implementation: adopt only the pure helper definitions first and preserve all output strings and severity routing. Do not change `verify_release.ps1` gate semantics in the same task.
+3. Defer `scripts/report_release_readiness.ps1`.
+   - It currently does not parse app.yaml `run.entry`, `display.icon`, or `runtime.requirements_lock`.
+   - Its useful shared surface is package existence and `sha256` classification, which is not covered by `app_pack_contract.ps1` and should stay in readiness classification until a separate release-readiness helper audit is done.
+
+Candidates to avoid for now:
+
+- Moving `sha256`, `package`, `enabled`, stale manifest, runtime/app_env, installer, or readiness severity logic into `app_pack_contract.ps1`.
+- Making `report_release_readiness.ps1` a consumer of the App Pack contract helper before it actually needs app.yaml contract parsing.
+- Replacing `verify_release.ps1` zip-entry checks with fixture expectations alone. The fixture is parity coverage, not the release gate.
+- Changing required entries, lock-file mandatory scope, App Pack layout, App Pack manifest semantics, or legacy runner behavior while adopting the helper.
+
+Recommended next implementation unit:
+
+```text
+AGENTS.md のルールに従って、1 回の作業で実装・セルフレビュー・検証まで実施してください。
+
+目的:
+ToolHub App Studio cleanup の P2 改善として、scripts/package_app_pack.ps1 の App Pack contract pure helper 重複を scripts/lib/app_pack_contract.ps1 へ寄せてください。
+
+条件:
+- production packaging behavior は変更しない。
+- App Pack spec、app.yaml schema、runner I/F、release manifest compatibility は変更しない。
+- `pack_manifest.json` 作成、zip 作成、zip inspection、sha256 計算、release/app_manifest.json 更新、enabled preservation は package script 側に残す。
+- `verify_release.ps1`、`report_release_readiness.ps1`、`check_all.ps1` は変更しない。
+- 既存 output / error wording / exit behavior を変えない。
+- shared fixture parity test、PowerShell syntax check、必要な Python fixture test を実行する。
+```
+
 Historical next Codex task queued after the management split, now covered by the audit section above:
 
 ```text
