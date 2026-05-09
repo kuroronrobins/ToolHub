@@ -13,22 +13,38 @@ No VM product is required. Use any clean Windows VM, for example:
 - VirtualBox VM
 - another clean Windows machine or clean Windows user profile
 
-Use a shared folder that exposes this repository or a minimal release bundle containing:
+First create the minimal VM package on the host:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\beta_vm\prepare_vm_test_package.ps1 -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\beta_vm\prepare_vm_test_package.ps1
+```
+
+Then copy or share this generated folder with the VM:
+
+```text
+scripts\beta_vm\package\ToolHub_Beta_VM_Test\
+```
+
+The package contains:
 
 - `release\manifest.json`
 - `release\dist_installer\ToolHub_Setup_0.1.0.exe`
-- `scripts\beta_vm\vm_install_test.ps1`
-- a writable `scripts\beta_vm\results\` folder, or another writable results path passed with `-ResultsDir`
+- `release\staging\installer_payload\staging_manifest.json`
+- `vm_install_test.ps1`
+- `VM_TEST_PACKAGE_README.md`
+- checksum and package summary files
+- a writable `results\` folder
 
 ## Run In The VM
 
-From the shared folder inside the VM:
+From the package root inside the VM:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\beta_vm\vm_install_test.ps1 -PauseForManualGuiChecks
+powershell -NoProfile -ExecutionPolicy Bypass -File .\vm_install_test.ps1 -SharedRoot . -ResultsDir .\results -PauseForManualGuiChecks
 ```
 
-If the shared folder path is not the repository root:
+If using the full repository as the shared folder instead of the generated package:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\Shared\scripts\beta_vm\vm_install_test.ps1 -SharedRoot C:\Shared -ResultsDir C:\Shared\scripts\beta_vm\results -PauseForManualGuiChecks
@@ -50,6 +66,8 @@ Do not install Python, Node.js, Rust, npm, cargo, or Tauri CLI in the VM before 
 - `%LOCALAPPDATA%\ToolHub` is created.
 - uninstall can run when an uninstaller is present.
 - `%LOCALAPPDATA%\ToolHub` remains after uninstall.
+- reinstall can run after uninstall.
+- `%LOCALAPPDATA%\ToolHub` remains after reinstall.
 
 ## Manual Checks
 
@@ -77,6 +95,12 @@ Each run creates:
 - `latest_vm_install_result.md`
 
 The results folder is ignored except for `.gitkeep`.
+
+After copying VM results back to the host, summarize them with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\beta_vm\import_vm_test_result.ps1
+```
 
 ## Safety
 

@@ -7,7 +7,8 @@ param(
     [int]$UninstallerTimeoutMinutes = 20,
     [int]$LaunchSeconds = 15,
     [switch]$PauseForManualGuiChecks,
-    [switch]$SkipUninstall
+    [switch]$SkipUninstall,
+    [switch]$SkipReinstall
 )
 
 $ErrorActionPreference = "Continue"
@@ -16,7 +17,11 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 if ([string]::IsNullOrWhiteSpace($SharedRoot)) {
-    $SharedRoot = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
+    if (Test-Path -LiteralPath (Join-Path $ScriptDir "release\manifest.json") -PathType Leaf) {
+        $SharedRoot = (Resolve-Path $ScriptDir).Path
+    } else {
+        $SharedRoot = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
+    }
 } else {
     $SharedRoot = (Resolve-Path $SharedRoot).Path
 }
@@ -161,6 +166,26 @@ function Save-Results {
     }
 }
 
+function Start-InstallerAndRecord {
+    param(
+        [string]$CheckId,
+        [string]$Description
+    )
+
+    Write-Host "Start the ToolHub installer UI. Do not select any option that deletes user data."
+    $StartedInstaller = Start-Process -FilePath $InstallerPath -PassThru -ErrorAction Stop
+    if (-not $StartedInstaller.WaitForExit([Math]::Max(1, $InstallerTimeoutMinutes) * 60 * 1000)) {
+        Add-Check -Id $CheckId -Description $Description -Status "manual_check" -Message "installer did not exit within $InstallerTimeoutMinutes minutes"
+        return $false
+    }
+    if ($StartedInstaller.ExitCode -eq 0) {
+        Add-Check -Id $CheckId -Description $Description -Status "pass" -Message "installer exited with code 0"
+        return $true
+    }
+    Add-Check -Id $CheckId -Description $Description -Status "fail" -Message "installer exited with code $($StartedInstaller.ExitCode)"
+    return $false
+}
+
 try {
     foreach ($ToolName in @("python", "pip", "node", "npm", "rustc", "cargo", "tauri")) {
         $Commands = @(Get-Command $ToolName -ErrorAction SilentlyContinue)
@@ -212,17 +237,10 @@ try {
         Add-Check -Id "installer_sha256_matches_manifest" -Description "installer sha256 matches manifest" -Status "fail" -Message "installer sha256 mismatch. expected=$ExpectedSha256 actual=$ActualSha256"
     }
 
-    Write-Host "Start the ToolHub installer UI. Do not select any option that deletes user data."
-    $InstallerProcess = Start-Process -FilePath $InstallerPath -PassThru -ErrorAction Stop
-    if (-not $InstallerProcess.WaitForExit([Math]::Max(1, $InstallerTimeoutMinutes) * 60 * 1000)) {
-        Add-Check -Id "installer_completed" -Description "installer completes" -Status "manual_check" -Message "installer did not exit within $InstallerTimeoutMinutes minutes"
+    $InstallerCompleted = Start-InstallerAndRecord -CheckId "installer_completed" -Description "installer completes"
+    if (-not $InstallerCompleted) {
         Save-Results
         return
-    }
-    if ($InstallerProcess.ExitCode -eq 0) {
-        Add-Check -Id "installer_completed" -Description "installer completes" -Status "pass" -Message "installer exited with code 0"
-    } else {
-        Add-Check -Id "installer_completed" -Description "installer completes" -Status "fail" -Message "installer exited with code $($InstallerProcess.ExitCode)"
     }
 
     $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\ToolHub"
@@ -292,7 +310,10 @@ try {
     if ($SkipUninstall) {
         Add-Check -Id "uninstall_completed" -Description "ToolHub uninstalls" -Status "not_run" -Message "SkipUninstall was specified"
         Add-Check -Id "user_data_preserved_after_uninstall" -Description "user data remains after uninstall" -Status "not_run" -Message "SkipUninstall was specified"
+        Add-Check -Id "reinstall_completed" -Description "ToolHub reinstalls" -Status "not_run" -Message "SkipUninstall was specified"
+        Add-Check -Id "user_data_preserved_after_reinstall" -Description "user data remains after reinstall" -Status "not_run" -Message "SkipUninstall was specified"
     } else {
+        $UninstallSucceeded = $false
         $UninstallCandidates = @()
         if (Test-Path -LiteralPath $InstallDir -PathType Container) {
             $UninstallCandidates = @(Get-ChildItem -LiteralPath $InstallDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "uninstall" })
@@ -300,6 +321,8 @@ try {
         if ($UninstallCandidates.Count -eq 0) {
             Add-Check -Id "uninstall_completed" -Description "ToolHub uninstalls" -Status "manual_check" -Message "no uninstaller executable was found under $InstallDir"
             Add-Check -Id "user_data_preserved_after_uninstall" -Description "user data remains after uninstall" -Status "not_run" -Message "uninstaller was not found"
+            Add-Check -Id "reinstall_completed" -Description "ToolHub reinstalls" -Status "not_run" -Message "uninstaller was not found"
+            Add-Check -Id "user_data_preserved_after_reinstall" -Description "user data remains after reinstall" -Status "not_run" -Message "uninstaller was not found"
         } else {
             $UninstallerPath = $UninstallCandidates[0].FullName
             $Artifacts["uninstaller_path"] = $UninstallerPath
@@ -309,6 +332,7 @@ try {
                 Add-Check -Id "uninstall_completed" -Description "ToolHub uninstalls" -Status "manual_check" -Message "uninstaller did not exit within $UninstallerTimeoutMinutes minutes"
             } elseif ($UninstallerProcess.ExitCode -eq 0) {
                 Add-Check -Id "uninstall_completed" -Description "ToolHub uninstalls" -Status "pass" -Message "uninstaller exited with code 0"
+                $UninstallSucceeded = $true
             } else {
                 Add-Check -Id "uninstall_completed" -Description "ToolHub uninstalls" -Status "fail" -Message "uninstaller exited with code $($UninstallerProcess.ExitCode)"
             }
@@ -317,6 +341,25 @@ try {
                 Add-Check -Id "user_data_preserved_after_uninstall" -Description "user data remains after uninstall" -Status "pass" -Message "user data dir still exists: $UserDataDir"
             } else {
                 Add-Check -Id "user_data_preserved_after_uninstall" -Description "user data remains after uninstall" -Status "fail" -Message "user data dir was removed after uninstall: $UserDataDir"
+            }
+
+            if ($SkipReinstall) {
+                Add-Check -Id "reinstall_completed" -Description "ToolHub reinstalls" -Status "not_run" -Message "SkipReinstall was specified"
+                Add-Check -Id "user_data_preserved_after_reinstall" -Description "user data remains after reinstall" -Status "not_run" -Message "SkipReinstall was specified"
+            } elseif ($UninstallSucceeded) {
+                $ReinstallSucceeded = Start-InstallerAndRecord -CheckId "reinstall_completed" -Description "ToolHub reinstalls"
+                if ($ReinstallSucceeded) {
+                    if (Test-Path -LiteralPath $UserDataDir -PathType Container) {
+                        Add-Check -Id "user_data_preserved_after_reinstall" -Description "user data remains after reinstall" -Status "pass" -Message "user data dir exists after reinstall: $UserDataDir"
+                    } else {
+                        Add-Check -Id "user_data_preserved_after_reinstall" -Description "user data remains after reinstall" -Status "fail" -Message "user data dir missing after reinstall: $UserDataDir"
+                    }
+                } else {
+                    Add-Check -Id "user_data_preserved_after_reinstall" -Description "user data remains after reinstall" -Status "not_run" -Message "reinstall did not complete"
+                }
+            } else {
+                Add-Check -Id "reinstall_completed" -Description "ToolHub reinstalls" -Status "not_run" -Message "uninstall did not complete successfully"
+                Add-Check -Id "user_data_preserved_after_reinstall" -Description "user data remains after reinstall" -Status "not_run" -Message "uninstall did not complete successfully"
             }
         }
     }

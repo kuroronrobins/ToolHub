@@ -284,6 +284,10 @@ class AppStudioTests(unittest.TestCase):
             self.assertEqual(manifest.run.entry, "bin/demo_app/demo_app.exe")
             self.assertEqual(data["display"]["icon"], "icon.png")
             self.assertEqual(data["display"]["icon_fallback"], "icon.svg")
+            self.assertEqual(data["runtime"]["distribution_mode"], "frozen_folder")
+            self.assertEqual(data["runtime"]["requirements_lock"], "requirements.lock")
+            self.assertEqual(data["build"]["managed_by"], "toolhub_app_studio")
+            self.assertEqual(data["build"]["build_mode"], "frozen-folder")
 
     def test_metadata_override_applies_manifest_fields(self) -> None:
         with workspace_tempdir() as temp:

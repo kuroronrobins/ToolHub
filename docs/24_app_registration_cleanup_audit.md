@@ -625,3 +625,21 @@ docs/15_app_studio_update_gui.md と docs/21_app_registration_improvement_plan.m
   `verify_release.ps1` に残した。必要なら次フェーズで read-only report に source repair category を追加する。
 - legacy app の `requirements.lock` 移行方針は未判断。frozen-folder distribution を宣言していない app には
   互換例外を維持する。
+
+## 2026-05-10 P0 follow-up: contract test 固定
+
+実施範囲:
+
+- generated `app.yaml` が App Studio frozen-folder app として `runtime.requirements_lock: requirements.lock`、
+  `display.icon: icon.png`、`run.entry: bin/<app_id>/<app_id>.exe` を出すことを unit test で固定する。
+- Python の App Pack required entries helper が `pack_manifest.json`、`README.md`、`requirements.txt`、
+  `runtime.requirements_lock`、`display.icon`、`run.entry` を app-relative zip entry として扱うことを固定する。
+- legacy Python runner app 相当では `requirements.lock` を一律必須にしない互換例外を unit test で固定する。
+- `final_app/requirements.lock` が `apps/<app_id>/requirements.lock` と App Pack zip へ伝搬することを temp repo fixture
+  で固定する。
+
+残した follow-up:
+
+- PowerShell helper は parser syntax と `verify_release.ps1` 実行で確認するが、PowerShell 関数単位の isolated
+  unit test はまだない。
+- Python と PowerShell の required entry contract は同じ挙動に揃っているが、single source 化は未実施。

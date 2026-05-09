@@ -32,7 +32,12 @@ from app_studio.lock_generator import generate_lock
 from app_studio.models import BuildPlan, DependencyReport, FileRecord, GeneratedArtifacts, IconCandidateAsset, ImportOptions, RuntimeCheck, RuntimeCheckResult, SecretFinding, SecretScanReport, SourceInventory
 from app_studio.models import AppEnvBuildResult, LockGenerationResult
 from app_studio.openai_client import OpenAIResult, edit_image, error_category_from_reason, generate_image, test_image_generation_connection
-from app_studio.registrar import package_app_pack
+from app_studio.registrar import (
+    app_pack_required_entries,
+    app_pack_requirements_lock_entry,
+    apply_registration,
+    package_app_pack,
+)
 from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import scan_ai_payload_text
@@ -743,6 +748,129 @@ class ExecutionAndApprovalTests(unittest.TestCase):
 
             self.assertEqual(result.overall_status, "fail")
             self.assertFalse(result.approval_allowed)
+
+    def test_app_pack_required_entries_include_lock_icon_and_run_entry(self) -> None:
+        entries = app_pack_required_entries(
+            "demo_app",
+            run_entry="bin/demo_app/demo_app.exe",
+            display_icon="icon.png",
+            requirements_lock="requirements.lock",
+        )
+
+        self.assertEqual(
+            entries,
+            {
+                "demo_app/app.yaml",
+                "demo_app/pack_manifest.json",
+                "demo_app/README.md",
+                "demo_app/requirements.txt",
+                "demo_app/requirements.lock",
+                "demo_app/icon.png",
+                "demo_app/bin/demo_app/demo_app.exe",
+            },
+        )
+
+    def test_app_pack_required_entries_keep_legacy_app_lock_optional(self) -> None:
+        entries = app_pack_required_entries(
+            "sample_gui_app",
+            run_entry="main.py",
+            display_icon="icon.svg",
+            requirements_lock=None,
+        )
+
+        self.assertIn("sample_gui_app/main.py", entries)
+        self.assertIn("sample_gui_app/icon.svg", entries)
+        self.assertNotIn("sample_gui_app/requirements.lock", entries)
+
+    def test_requirements_lock_entry_defaults_for_frozen_folder_without_declared_field(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            app_yaml = repo / "apps" / app_id / "app.yaml"
+            text = app_yaml.read_text(encoding="utf-8").rstrip()
+            write_text(
+                app_yaml,
+                text
+                + """
+
+runtime:
+  distribution_mode: frozen_folder
+  app_env: null
+  required_runtime: null
+
+build:
+  managed_by: toolhub_app_studio
+  build_mode: frozen-folder
+""",
+            )
+
+            self.assertEqual(app_pack_requirements_lock_entry(repo / "apps" / app_id), "requirements.lock")
+
+    def test_requirements_lock_entry_is_optional_for_legacy_python_runner_app(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "sample_gui_app"
+            write_minimal_registered_app(repo, app_id)
+
+            self.assertIsNone(app_pack_requirements_lock_entry(repo / "apps" / app_id))
+
+    def test_requirements_lock_entry_must_stay_app_relative(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            mark_app_studio_frozen_folder_app(repo, app_id, lock_path="../requirements.lock")
+
+            with self.assertRaisesRegex(ValueError, "runtime.requirements_lock must stay inside the app directory"):
+                app_pack_requirements_lock_entry(repo / "apps" / app_id)
+
+    def test_apply_registration_copies_lock_and_app_pack_contains_required_entries(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root, "demo_frozen")
+            final_app = context.output_dir / "final_app"
+            bin_dir = final_app / "bin" / context.app_id
+            bin_dir.mkdir(parents=True)
+            write_text(
+                final_app / "app.yaml",
+                f"""id: {context.app_id}
+name: Demo Frozen
+display:
+  icon: icon.png
+run:
+  runner: exe
+  entry: bin/{context.app_id}/{context.app_id}.exe
+admin:
+  version: 0.1.0
+  requirements: requirements.txt
+runtime:
+  distribution_mode: frozen_folder
+  requirements_lock: requirements.lock
+build:
+  managed_by: toolhub_app_studio
+  build_mode: frozen-folder
+""",
+            )
+            write_text(final_app / "README.md", "# Demo Frozen\n")
+            write_text(final_app / "requirements.txt", "")
+            write_text(final_app / "requirements.lock", "requests==2.31.0\n")
+            (final_app / "icon.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+            write_text(bin_dir / f"{context.app_id}.exe", "fake exe\n")
+
+            package_path = apply_registration(
+                context,
+                BuildPlan("frozen-folder", "exe", f"bin/{context.app_id}/{context.app_id}.exe", None, []),
+                final_app,
+                context.output_dir,
+            )
+
+            registered_lock = context.repo_root / "apps" / context.app_id / "requirements.lock"
+            self.assertEqual(registered_lock.read_text(encoding="utf-8"), "requests==2.31.0\n")
+            with zipfile.ZipFile(package_path) as archive:
+                names = {name.replace("\\", "/") for name in archive.namelist()}
+            self.assertIn(f"{context.app_id}/requirements.lock", names)
+            self.assertIn(f"{context.app_id}/icon.png", names)
+            self.assertIn(f"{context.app_id}/bin/{context.app_id}/{context.app_id}.exe", names)
 
     def test_package_app_pack_rejects_missing_run_entry(self) -> None:
         with workspace_tempdir() as root:

@@ -23,6 +23,8 @@ scripts/beta_isolated_path/results/*
 !scripts/beta_isolated_path/results/.gitkeep
 scripts/beta_vm/results/*
 !scripts/beta_vm/results/.gitkeep
+scripts/beta_vm/package/*
+!scripts/beta_vm/package/.gitkeep
 runtime/python/*
 !runtime/python/.gitkeep
 runtime/app_envs/*

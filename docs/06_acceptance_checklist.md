@@ -205,6 +205,8 @@
 - [x] `scripts/beta_vm/vm_install_test.ps1` を作成し、VirtualBox / VMware / Hyper-V / 手動 VM の共有フォルダから installer 実行、sha256 / size、install dir、user data、runtime、first launch、uninstall、user data 保持を JSON / Markdown に記録できるようにした。
 - [x] PATH 隔離テスト実行結果: `scripts/beta_isolated_path/results/latest_isolated_path_result.json` で `overall_status=pass`。Python / pip / Node.js / npm / Rust / cargo / Tauri CLI は isolated PATH から見えず、ToolHub は15秒以上起動し、隔離された `LOCALAPPDATA` 配下に `%LOCALAPPDATA%\ToolHub\` 相当の user data dir を作成した。
 - [ ] PATH 隔離テストの log / json 作成結果: warning。隔離 user data dir と `data/logs/` dir は作成されたが、初回起動だけでは `.log` / `.json` file は作成されなかった。
+- [x] VM 検証パッケージ作成フロー: `scripts/beta_vm/prepare_vm_test_package.ps1` で `scripts/beta_vm/package/ToolHub_Beta_VM_Test/` に clean VM コピー用 package を作成できる。package / results は `.gitkeep` 以外 Git 管理しない。
+- [x] VM 結果取り込み補助: `scripts/beta_vm/import_vm_test_result.ps1` で VM から戻した `latest_vm_install_result.json` の主要 check を表示できる。
 - [ ] VM 本検証結果: 未実施。clean Windows VM で `scripts/beta_vm/results/latest_vm_install_result.*` を確認してから Phase 1-B 完了判定する。
 
 現在 PC の read-only 事前確認:
