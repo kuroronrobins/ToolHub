@@ -19,6 +19,10 @@ release/staging/*
 !release/staging/.gitkeep
 scripts/beta_sandbox/results/*
 !scripts/beta_sandbox/results/.gitkeep
+scripts/beta_isolated_path/results/*
+!scripts/beta_isolated_path/results/.gitkeep
+scripts/beta_vm/results/*
+!scripts/beta_vm/results/.gitkeep
 runtime/python/*
 !runtime/python/.gitkeep
 runtime/app_envs/*

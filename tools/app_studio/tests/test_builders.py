@@ -140,6 +140,27 @@ admin:
     )
 
 
+def mark_app_studio_frozen_folder_app(repo: Path, app_id: str, lock_path: str = "requirements.lock") -> None:
+    app_yaml = repo / "apps" / app_id / "app.yaml"
+    text = app_yaml.read_text(encoding="utf-8").rstrip()
+    write_text(
+        app_yaml,
+        text
+        + f"""
+
+runtime:
+  distribution_mode: frozen_folder
+  app_env: null
+  required_runtime: null
+  requirements_lock: {lock_path}
+
+build:
+  managed_by: toolhub_app_studio
+  build_mode: frozen-folder
+""",
+    )
+
+
 def write_execution_result(repo: Path, app_id: str, status: str, approval_allowed: bool, approval_blocking: bool = False) -> None:
     category = "approval_blocking_warning" if approval_blocking else "non_blocking_warning" if status == "warn" else status
     write_json(
@@ -745,6 +766,30 @@ class ExecutionAndApprovalTests(unittest.TestCase):
                 names = {name.replace("\\", "/") for name in archive.namelist()}
             self.assertIn(f"{app_id}/main.py", names)
 
+    def test_package_app_pack_requires_lock_for_app_studio_frozen_folder_app(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            mark_app_studio_frozen_folder_app(repo, app_id)
+
+            with self.assertRaisesRegex(FileNotFoundError, "runtime.requirements_lock"):
+                package_app_pack(repo, app_id)
+
+    def test_package_app_pack_includes_lock_for_app_studio_frozen_folder_app(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            mark_app_studio_frozen_folder_app(repo, app_id)
+            write_text(repo / "apps" / app_id / "requirements.lock", "")
+
+            package_path = package_app_pack(repo, app_id)
+
+            with zipfile.ZipFile(package_path) as archive:
+                names = {name.replace("\\", "/") for name in archive.namelist()}
+            self.assertIn(f"{app_id}/requirements.lock", names)
+
     def test_targeted_approval_rejects_app_pack_missing_run_entry(self) -> None:
         with workspace_tempdir() as root:
             repo = make_repo(root)
@@ -763,6 +808,31 @@ class ExecutionAndApprovalTests(unittest.TestCase):
 
             self.assertEqual(result["status"], "failed")
             self.assertTrue(any("run.entry" in failure for failure in result["failures"]))
+
+    def test_targeted_approval_rejects_app_pack_missing_requirements_lock(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "demo_app"
+            write_minimal_registered_app(repo, app_id)
+            mark_app_studio_frozen_folder_app(repo, app_id)
+            write_text(repo / "apps" / app_id / "requirements.lock", "")
+            package_path = repo / "release" / "app_packs" / f"{app_id}-0.1.0.zip"
+            package_path.parent.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(package_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.write(repo / "apps" / app_id / "app.yaml", f"{app_id}/app.yaml")
+                archive.write(repo / "apps" / app_id / "README.md", f"{app_id}/README.md")
+                archive.write(repo / "apps" / app_id / "requirements.txt", f"{app_id}/requirements.txt")
+                archive.write(repo / "apps" / app_id / "icon.svg", f"{app_id}/icon.svg")
+                archive.write(repo / "apps" / app_id / "main.py", f"{app_id}/main.py")
+                archive.writestr(f"{app_id}/pack_manifest.json", "{}")
+            manifest = json.loads((repo / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+            entry = dict(manifest["apps"][app_id])
+            entry["enabled"] = True
+
+            result = targeted_approval_verification(repo, app_id, entry, package_path)
+
+            self.assertEqual(result["status"], "failed")
+            self.assertTrue(any("runtime.requirements_lock" in failure for failure in result["failures"]))
 
     def test_warn_result_can_be_approved_when_warnings_allowed(self) -> None:
         with workspace_tempdir() as root:
@@ -1816,6 +1886,7 @@ class RuntimeCheckerTests(unittest.TestCase):
             final_app = context.output_dir / "final_app"
             final_app.mkdir(parents=True)
             write_text(final_app / "app.yaml", f"run:\n  runner: exe\n  entry: {plan.entry}\n")
+            write_text(final_app / "requirements.lock", "")
 
             result = verify_runtime(context, context.output_dir, plan, {"add_data": []})
 
@@ -1823,6 +1894,22 @@ class RuntimeCheckerTests(unittest.TestCase):
             self.assertTrue((context.output_dir / "runtime_check_report.md").is_file())
             self.assertTrue((context.output_dir / "runtime_check_result.json").is_file())
             self.assertTrue((context.repo_root / "data" / "logs" / "app_studio" / "demo_app_runtime_check_result.json").is_file())
+
+    def test_frozen_distribution_check_requires_requirements_lock(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            plan = BuildPlan("frozen-folder", "exe", f"bin/{context.app_id}/{context.app_id}.exe", None, [])
+            final_app = context.output_dir / "final_app"
+            bin_root = final_app / "bin" / context.app_id
+            bin_root.mkdir(parents=True)
+            write_text(final_app / "app.yaml", f"run:\n  runner: exe\n  entry: {plan.entry}\n")
+            write_text(bin_root / f"{context.app_id}.exe", "fake exe")
+
+            result = verify_runtime(context, context.output_dir, plan, {"add_data": []})
+
+            lock_check = next(check for check in result.checks if check.name == "requirements.lock exists")
+            self.assertEqual(lock_check.status, "fail")
+            self.assertEqual(result.overall_status, "fail")
 
     def test_frozen_distribution_check_detects_packaged_data_and_size(self) -> None:
         with workspace_tempdir() as root:
@@ -1832,6 +1919,7 @@ class RuntimeCheckerTests(unittest.TestCase):
             bin_root = final_app / "bin" / context.app_id
             bin_root.mkdir(parents=True)
             write_text(final_app / "app.yaml", f"run:\n  runner: exe\n  entry: {plan.entry}\n")
+            write_text(final_app / "requirements.lock", "")
             write_text(bin_root / f"{context.app_id}.exe", "fake exe")
             write_text(bin_root / "config.yaml", "ok: true\n")
             (context.output_dir / "build_env").mkdir()
@@ -1853,6 +1941,7 @@ class RuntimeCheckerTests(unittest.TestCase):
             internal_root = bin_root / "_internal"
             internal_root.mkdir(parents=True)
             write_text(final_app / "app.yaml", f"run:\n  runner: exe\n  entry: {plan.entry}\n")
+            write_text(final_app / "requirements.lock", "")
             write_text(bin_root / f"{context.app_id}.exe", "fake exe")
             write_text(internal_root / "config.yaml", "ok: true\n")
             write_text(context.output_dir / "frozen_folder_build_report.md", "- command: python -m PyInstaller --onedir --contents-directory . main.py\n")
@@ -1875,6 +1964,7 @@ class RuntimeCheckerTests(unittest.TestCase):
             bin_root = final_app / "bin" / context.app_id
             bin_root.mkdir(parents=True)
             write_text(final_app / "app.yaml", f"run:\n  runner: exe\n  entry: {plan.entry}\n")
+            write_text(final_app / "requirements.lock", "")
             write_text(bin_root / f"{context.app_id}.exe", "fake exe")
             (bin_root / "xcgate_flows").mkdir()
             write_text(bin_root / "xcgate_flows" / "config.yaml", "ok: true\n")
@@ -1905,6 +1995,7 @@ class RuntimeCheckerTests(unittest.TestCase):
             (playwright_root / "_impl").mkdir(parents=True)
             (playwright_root / "driver" / "package" / "lib" / "server").mkdir(parents=True)
             write_text(final_app / "app.yaml", f"run:\n  runner: exe\n  entry: {plan.entry}\n")
+            write_text(final_app / "requirements.lock", "")
             write_text(bin_root / f"{context.app_id}.exe", "fake exe")
             write_text(playwright_root / "_impl" / "_cdp_session.py", "ok")
             write_text(playwright_root / "driver" / "package" / "lib" / "server" / "cookieStore.js", "ok")

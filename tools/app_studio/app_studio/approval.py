@@ -9,7 +9,14 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from .registrar import app_relative_path, load_app_manifest_json, normalize_app_relative_entry, package_app_pack
+from .registrar import (
+    app_pack_requirements_lock_entry,
+    app_relative_path,
+    load_app_manifest_json,
+    normalize_app_relative_entry,
+    package_app_pack,
+    require_app_yaml_file,
+)
 from .util import find_repo_root, now_iso, write_json, write_text
 
 
@@ -273,6 +280,25 @@ def targeted_approval_verification(repo_root: Path, app_id: str, manifest_entry:
         else:
             failures.append(f"run.entry is missing: {entry_path}")
 
+    display_icon = ""
+    requirements_lock = ""
+    if app_yaml.is_file():
+        try:
+            display_icon = require_app_yaml_file(app_dir, "display", "icon", "display.icon")
+            checks.append(f"display.icon exists: {display_icon}")
+        except Exception as exc:
+            failures.append(f"display.icon validation failed: {exc}")
+        try:
+            requirements_lock = app_pack_requirements_lock_entry(app_dir) or ""
+            if requirements_lock:
+                lock_path = app_relative_path(app_dir, requirements_lock)
+                if lock_path.is_file():
+                    checks.append(f"runtime.requirements_lock exists: {requirements_lock}")
+                else:
+                    failures.append(f"runtime.requirements_lock is missing: {lock_path}")
+        except Exception as exc:
+            failures.append(f"runtime.requirements_lock validation failed: {exc}")
+
     marker = app_dir / "bin" / "BUILD_REQUIRED.txt"
     if marker.exists():
         failures.append(f"BUILD_REQUIRED.txt remains: {marker}")
@@ -294,6 +320,18 @@ def targeted_approval_verification(repo_root: Path, app_id: str, manifest_entry:
                     checks.append("app pack contains run.entry")
                 else:
                     failures.append(f"app pack does not contain run.entry: {expected_run_entry}")
+            if display_icon:
+                expected_icon = f"{app_id}/{display_icon}"
+                if expected_icon in names:
+                    checks.append("app pack contains display.icon")
+                else:
+                    failures.append(f"app pack does not contain display.icon: {expected_icon}")
+            if requirements_lock:
+                expected_lock = f"{app_id}/{requirements_lock}"
+                if expected_lock in names:
+                    checks.append("app pack contains runtime.requirements_lock")
+                else:
+                    failures.append(f"app pack does not contain runtime.requirements_lock: {expected_lock}")
         except Exception as exc:
             failures.append(f"app pack could not be inspected: {exc}")
     else:

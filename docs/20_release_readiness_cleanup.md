@@ -184,6 +184,16 @@ Windows Sandbox support for Phase 1-B now exists under `scripts/beta_sandbox/`:
 - GUI observations, including app cards and sample app launch, remain `manual_check` items until reviewed from the
   Sandbox session and result files.
 
+The current PC is Windows Home / Core, so Windows Sandbox cannot be used here because `Containers-DisposableClientVM`
+is unavailable. Keep the Sandbox flow for machines that support it, but use the fallback Phase 1-B flow on this PC:
+
+- `scripts/beta_isolated_path/run_isolated_path_test.ps1` hides Python / pip / Node.js / npm / Rust / cargo / Tauri CLI
+  from PATH only inside the script process and can launch ToolHub with `LOCALAPPDATA` redirected to ignored results.
+  This is a useful dependency-smoke test, not proof of a clean user PC.
+- `scripts/beta_vm/vm_install_test.ps1` is the clean-environment proof path. Run it inside a clean Windows VM via a
+  shared folder. It records developer-tool absence, installer sha256 / size, installer execution, install directory,
+  user data directory, bundled runtime, ToolHub launch, manual app checks, uninstall, and user data preservation.
+
 ## Intentional Warnings
 Normal verification can warn for:
 
@@ -221,9 +231,9 @@ Use Developer PowerShell for Visual Studio, or install Visual Studio Build Tools
    `.\scripts\prepare_runtime.ps1` with SHA256 values if the runtime source changes.
 3. Run `.\scripts\verify_runtime.ps1 -RequireRuntime` on the release build machine.
 4. Preserve the current installer artifact set or rebuild it if source/runtime/app packs change.
-5. Run `.\scripts\beta_sandbox\run_sandbox_test.ps1 -DryRun`, then run Phase 1-B in Windows Sandbox, a clean Windows
-   user profile, or VM: install, launch, app cards, `sample_gui_app`, `sample_playwright_app`, uninstall, and user data
-   preservation.
+5. If Windows Sandbox is available, run `.\scripts\beta_sandbox\run_sandbox_test.ps1 -DryRun`, then run the Sandbox
+   install flow. On Windows Home / Core, run `.\scripts\beta_isolated_path\run_isolated_path_test.ps1 -DryRun` as a
+   smoke test, then run the clean VM flow in `scripts/beta_vm/`.
 6. Decide and implement the strict `runtime/app_envs/<app_id>` policy for frozen-folder apps.
 7. Move to endpoint validation for the Beta updater.
 8. Move to strict/formal verification after generated artifacts, install validation, and strict policy are handled.

@@ -98,6 +98,7 @@ def verify_frozen_folder_distribution(
     checks: list[RuntimeCheck] = [
         file_check("frozen-folder executable exists", exe_path),
         app_yaml_entry_check(final_app / "app.yaml", plan.entry),
+        requirements_lock_check(final_app),
         run_entry_policy_check(plan.entry),
         build_required_removed_check(final_app),
         pyinstaller_layout_check(output_dir),
@@ -157,6 +158,13 @@ def run_entry_policy_check(entry: str) -> RuntimeCheck:
     if entry.lower().endswith(".exe") or "." not in Path(entry).name:
         return RuntimeCheck("distribution run.entry policy", "pass", entry)
     return RuntimeCheck("distribution run.entry policy", "warn", f"Entry is not a .py file, but review unusual executable name: {entry}")
+
+
+def requirements_lock_check(final_app: Path) -> RuntimeCheck:
+    path = final_app / "requirements.lock"
+    if path.is_file():
+        return RuntimeCheck("requirements.lock exists", "pass", str(path))
+    return RuntimeCheck("requirements.lock exists", "fail", f"Missing: {path}")
 
 
 def build_required_removed_check(final_app: Path) -> RuntimeCheck:

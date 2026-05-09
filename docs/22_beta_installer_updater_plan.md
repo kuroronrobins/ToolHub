@@ -475,7 +475,10 @@ Phase 1-A / 1-B 実施状況:
 - Phase 1-B: 現在 PC で read-only 事前確認を実施。`%LOCALAPPDATA%\Programs\ToolHub\` は存在せず、`%LOCALAPPDATA%\ToolHub\` は既存 user data として存在する。
 - Phase 1-B: 現在 PC は clean profile ではなく、既存 user data を壊すリスクを避けるため installer 実行、起動、uninstall、reinstall は未実施。
 - Phase 1-B: Windows Sandbox 検証フローを `scripts/beta_sandbox/` に作成済み。host repo は read-only、結果 folder は writeable で mount し、Sandbox 内で preflight / install / launch / uninstall 結果を JSON / Markdown に記録する。
-- Phase 1-B: 実 install / launch / sample app / uninstall / user data preservation は Windows Sandbox、clean Windows user profile、または VM の manual check として残す。Sandbox の installer / uninstaller UI と sample app 起動は人間確認を伴うため、検証結果を確認するまで完了済みとはしない。
+- Phase 1-B: 現在 PC は Windows Home / Core のため Windows Sandbox が使えない。Sandbox 方式は残すが、この PC では代替として `scripts/beta_isolated_path/` と `scripts/beta_vm/` を使う。
+- Phase 1-B: PATH 隔離テストは現在プロセスだけ PATH を最小化し、host の開発ツールを消さずに ToolHub 起動の補助確認を行う。ただしこれは clean PC の完全証明ではない。
+- Phase 1-B: VM 検証フローを `scripts/beta_vm/` に作成済み。VirtualBox / VMware / Hyper-V / 手動 VM の共有フォルダから installer を実行し、開発ツールなし環境での install / launch / runtime / uninstall / user data preservation を JSON / Markdown に記録する。
+- Phase 1-B: 実 install / launch / sample app / uninstall / user data preservation は clean Windows VM または clean Windows user profile の manual check として残す。installer / uninstaller UI と sample app 起動は人間確認を伴うため、検証結果を確認するまで完了済みとはしない。
 
 ### Phase 2: remote manifest による更新検知
 
@@ -793,8 +796,9 @@ python main.py --check
 
 実装開始時は、まず [24_beta_installer_updater_execution_handoff.md](24_beta_installer_updater_execution_handoff.md) を読む。ユーザー不在でも停止条件に当たらない限り、同 handoff の順番で実装、検証、報告まで進める。
 
-1. Phase 1-B 検証: `scripts/beta_sandbox/README.md` に従い、Windows Sandbox、clean Windows user profile、または VM で `ToolHub_Setup_0.1.0.exe` の install / first launch / sample app / uninstall / reinstall / user data preservation を記録してください。
-2. Phase 2 検証: 実 endpoint または mock manifest で `check_updates_remote` の `no_update` / `update_available` / fetch failure を確認してください。
-3. Phase 3 検証: 実 installer または mock file で `download_update_installer` の download / size mismatch / sha256 mismatch / verified launch gating を確認してください。
-4. Phase 4 実装: 再起動後 version 確認と failure diagnosis 表示を追加してください。check / download / launch result log と release readiness report 連携は実装済みです。
-5. Phase 5 設計: signature、backup、rollback、App Pack 単位更新、runtime 単位更新、CI / GitHub Releases 連携の正式版設計を分割してください。
+1. Phase 1-B 補助検証: `scripts/beta_isolated_path/README.md` に従い、PATH 隔離テストを実行して ToolHub が host の開発ツール PATH に依存していないことを補助確認してください。これは完全証明ではありません。
+2. Phase 1-B 本検証: `scripts/beta_vm/README.md` に従い、clean Windows VM または clean Windows user profile で `ToolHub_Setup_0.1.0.exe` の install / first launch / sample app / uninstall / reinstall / user data preservation を記録してください。
+3. Phase 2 検証: 実 endpoint または mock manifest で `check_updates_remote` の `no_update` / `update_available` / fetch failure を確認してください。
+4. Phase 3 検証: 実 installer または mock file で `download_update_installer` の download / size mismatch / sha256 mismatch / verified launch gating を確認してください。
+5. Phase 4 実装: 再起動後 version 確認と failure diagnosis 表示を追加してください。check / download / launch result log と release readiness report 連携は実装済みです。
+6. Phase 5 設計: signature、backup、rollback、App Pack 単位更新、runtime 単位更新、CI / GitHub Releases 連携の正式版設計を分割してください。

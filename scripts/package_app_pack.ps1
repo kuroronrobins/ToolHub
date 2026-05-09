@@ -170,6 +170,30 @@ function Read-AppRelativeYamlFile {
     return Normalize-AppRelativePath -Path $Value -Label $Label
 }
 
+function Test-AppStudioFrozenFolderYaml {
+    param([string]$YamlText)
+    $DistributionMode = [string](Read-YamlSectionScalar -Text $YamlText -Section "runtime" -Key "distribution_mode")
+    $BuildMode = [string](Read-YamlSectionScalar -Text $YamlText -Section "build" -Key "build_mode")
+    $DistributionMode = $DistributionMode.Trim().ToLowerInvariant()
+    $BuildMode = $BuildMode.Trim().ToLowerInvariant()
+    return $DistributionMode -in @("frozen_folder", "frozen-folder") -or $BuildMode -in @("frozen_folder", "frozen-folder")
+}
+
+function Get-RequirementsLockPathForAppPack {
+    param(
+        [string]$YamlText,
+        [string]$Label
+    )
+    $Value = Read-YamlSectionScalar -Text $YamlText -Section "runtime" -Key "requirements_lock"
+    if (-not [string]::IsNullOrWhiteSpace($Value)) {
+        return Normalize-AppRelativePath -Path $Value -Label $Label
+    }
+    if (Test-AppStudioFrozenFolderYaml -YamlText $YamlText) {
+        return "requirements.lock"
+    }
+    return $null
+}
+
 function Require-AppYamlReferencedFile {
     param(
         [string]$AppDir,
@@ -259,6 +283,7 @@ foreach ($Id in $TargetAppIds) {
     $YamlRequiredRuntime = Read-YamlSectionScalar -Text $YamlText -Section "runtime" -Key "required_runtime"
     $YamlRunEntry = Read-AppRelativeYamlFile -YamlText $YamlText -Section "run" -Key "entry" -Label "$Id run.entry"
     $YamlDisplayIcon = Read-AppRelativeYamlFile -YamlText $YamlText -Section "display" -Key "icon" -Label "$Id display.icon"
+    $YamlRequirementsLock = Get-RequirementsLockPathForAppPack -YamlText $YamlText -Label "$Id runtime.requirements_lock"
 
     if ($KnownAppIds -contains $Id) {
         $Entry = $AppManifest.apps.$Id
@@ -274,6 +299,9 @@ foreach ($Id in $TargetAppIds) {
     Require-File (Join-Path $AppDir "requirements.txt")
     Require-AppYamlReferencedFile -AppDir $AppDir -RelativePath $YamlRunEntry -Label "$Id run.entry" | Out-Null
     Require-AppYamlReferencedFile -AppDir $AppDir -RelativePath $YamlDisplayIcon -Label "$Id display.icon" | Out-Null
+    if (-not [string]::IsNullOrWhiteSpace($YamlRequirementsLock)) {
+        Require-AppYamlReferencedFile -AppDir $AppDir -RelativePath $YamlRequirementsLock -Label "$Id runtime.requirements_lock" | Out-Null
+    }
     if (-not (Test-Path -LiteralPath (Join-Path $AppDir "icon.svg") -PathType Leaf) -and
         -not (Test-Path -LiteralPath (Join-Path $AppDir "icon.png") -PathType Leaf)) {
         throw "Required app icon is missing: $AppDir\icon.svg or $AppDir\icon.png"
@@ -319,6 +347,9 @@ foreach ($Id in $TargetAppIds) {
     Assert-ZipContainsEntry -ZipPath $PackagePath -EntryName "$Id/pack_manifest.json" -Label "$Id app pack pack_manifest.json"
     Assert-ZipContainsEntry -ZipPath $PackagePath -EntryName "$Id/README.md" -Label "$Id app pack README"
     Assert-ZipContainsEntry -ZipPath $PackagePath -EntryName "$Id/requirements.txt" -Label "$Id app pack requirements.txt"
+    if (-not [string]::IsNullOrWhiteSpace($YamlRequirementsLock)) {
+        Assert-ZipContainsEntry -ZipPath $PackagePath -EntryName "$Id/$YamlRequirementsLock" -Label "$Id app pack runtime.requirements_lock"
+    }
     Assert-ZipContainsEntry -ZipPath $PackagePath -EntryName "$Id/$YamlDisplayIcon" -Label "$Id app pack display.icon"
     Assert-ZipContainsEntry -ZipPath $PackagePath -EntryName "$Id/$YamlRunEntry" -Label "$Id app pack run.entry"
 

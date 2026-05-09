@@ -195,8 +195,16 @@
 - [x] `scripts/beta_sandbox/ToolHub_Beta_Install_Test.wsb` を作成し、host repo を read-only、`scripts/beta_sandbox/results/` を writeable で Sandbox に mount する。
 - [x] `scripts/beta_sandbox/sandbox_install_test.ps1` を作成し、Sandbox 内で installer preflight、開発ツール不在、install dir、payload、runtime、first launch、user data、log、uninstall 結果を JSON / Markdown に記録する。
 - [x] `scripts/beta_sandbox/run_sandbox_test.ps1 -DryRun` で host 側 artifact / manifest / mount 設定を事前確認できる。
-- [ ] Windows Sandbox 実行結果: 未実施。Sandbox 起動と installer GUI 操作は人間確認を伴うため、`scripts/beta_sandbox/results/latest_sandbox_install_result.*` を確認してから完了判定する。
+- [ ] Windows Sandbox 実行結果: 現在 PC は Windows Home / Core で `Containers-DisposableClientVM` が存在しないため未実施。Sandbox 起動と installer GUI 操作は人間確認を伴うため、`scripts/beta_sandbox/results/latest_sandbox_install_result.*` を確認してから完了判定する。
 - [ ] GUI manual check: app card 表示、`sample_gui_app`、`sample_playwright_app` 起動確認は Sandbox 結果内の `manual_check` として記録する。
+
+2026-05-10 時点の Windows Sandbox 不可時の代替検証フロー:
+
+- [x] `scripts/beta_isolated_path/run_isolated_path_test.ps1` を作成し、現在プロセスだけ PATH を最小化して Python / pip / Node.js / npm / Rust / cargo / Tauri CLI を見えなくする補助検証を用意した。host の環境変数は恒久変更しない。
+- [x] PATH 隔離テストは `LOCALAPPDATA` / `APPDATA` を ignored results 配下へ向けて ToolHub を起動できる。ただし host 上の補助検証であり、開発ツールなし PC の完全証明ではない。
+- [x] `scripts/beta_vm/vm_install_test.ps1` を作成し、VirtualBox / VMware / Hyper-V / 手動 VM の共有フォルダから installer 実行、sha256 / size、install dir、user data、runtime、first launch、uninstall、user data 保持を JSON / Markdown に記録できるようにした。
+- [ ] PATH 隔離テスト実行結果: 未実施。まず `-DryRun` で discovery と PATH 隔離だけ確認する。
+- [ ] VM 本検証結果: 未実施。clean Windows VM で `scripts/beta_vm/results/latest_vm_install_result.*` を確認してから Phase 1-B 完了判定する。
 
 現在 PC の read-only 事前確認:
 

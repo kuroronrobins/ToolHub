@@ -46,6 +46,7 @@ REGISTRATION_TOP_LEVEL_STEPS = {
     "package_app_pack_total",
     "copy_pack_to_output_mirror",
 }
+APP_PACK_REQUIRED_APP_FILES = ("app.yaml", "README.md", "requirements.txt")
 
 
 @contextmanager
@@ -348,13 +349,16 @@ def package_app_pack(
     with _registration_step(breakdown, "validate_app_pack_inputs", f"path={app_dir}"):
         if not app_dir.is_dir():
             raise FileNotFoundError(f"App directory is missing: {app_dir}")
-        for required in ("app.yaml", "README.md", "requirements.txt"):
+        for required in APP_PACK_REQUIRED_APP_FILES:
             if not (app_dir / required).is_file():
                 raise FileNotFoundError(f"Required app file is missing: {app_dir / required}")
         if not (app_dir / "icon.png").is_file() and not (app_dir / "icon.svg").is_file():
             raise FileNotFoundError(f"Required app icon is missing: {app_dir / 'icon.png'} or {app_dir / 'icon.svg'}")
         run_entry = require_app_yaml_file(app_dir, "run", "entry", "run.entry")
         display_icon = require_app_yaml_file(app_dir, "display", "icon", "display.icon")
+        requirements_lock = app_pack_requirements_lock_entry(app_dir)
+        if requirements_lock:
+            require_app_relative_file(app_dir, requirements_lock, "runtime.requirements_lock")
 
     pack_manifest = {
         "schema_version": 1,
@@ -405,14 +409,12 @@ def package_app_pack(
             f"size_bytes={package_size} ({_format_bytes(package_size)}); path={package_path}"
         )
 
-    required_entries = {
-        f"{app_id}/app.yaml",
-        f"{app_id}/pack_manifest.json",
-        f"{app_id}/README.md",
-        f"{app_id}/requirements.txt",
-        f"{app_id}/{display_icon}",
-        f"{app_id}/{run_entry}",
-    }
+    required_entries = app_pack_required_entries(
+        app_id,
+        run_entry=run_entry,
+        display_icon=display_icon,
+        requirements_lock=requirements_lock,
+    )
     with _registration_step(breakdown, "inspect_app_pack_required_entries", f"path={package_path}") as record:
         with zipfile.ZipFile(package_path) as archive:
             names = {name.replace("\\", "/") for name in archive.namelist()}
@@ -438,10 +440,56 @@ def require_app_yaml_file(app_dir: Path, section: str, key: str, label: str) -> 
     text = app_yaml.read_text(encoding="utf-8")
     value = yaml_section_scalar(text, section, key)
     relative = normalize_app_relative_entry(value, app_dir, label)
+    require_app_relative_file(app_dir, relative, label)
+    return relative
+
+
+def require_app_relative_file(app_dir: Path, relative: str, label: str) -> Path:
     path = app_relative_path(app_dir, relative)
     if not path.is_file():
         raise FileNotFoundError(f"Required app {label} file is missing: {path}")
-    return relative
+    return path
+
+
+def app_pack_requirements_lock_entry(app_dir: Path) -> str | None:
+    app_yaml = app_dir / "app.yaml"
+    text = app_yaml.read_text(encoding="utf-8")
+    declared = yaml_section_scalar(text, "runtime", "requirements_lock")
+    if declared:
+        return normalize_app_relative_entry(declared, app_dir, "runtime.requirements_lock")
+    if app_studio_frozen_folder_manifest(text):
+        return "requirements.lock"
+    return None
+
+
+def app_studio_frozen_folder_manifest(text: str) -> bool:
+    distribution_mode = normalize_policy_value(yaml_section_scalar(text, "runtime", "distribution_mode"))
+    build_mode = normalize_policy_value(yaml_section_scalar(text, "build", "build_mode"))
+    return distribution_mode in {"frozen_folder", "frozen-folder"} or build_mode in {"frozen_folder", "frozen-folder"}
+
+
+def normalize_policy_value(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def app_pack_required_entries(
+    app_id: str,
+    *,
+    run_entry: str,
+    display_icon: str,
+    requirements_lock: str | None = None,
+) -> set[str]:
+    entries = {
+        f"{app_id}/app.yaml",
+        f"{app_id}/pack_manifest.json",
+        f"{app_id}/README.md",
+        f"{app_id}/requirements.txt",
+        f"{app_id}/{display_icon}",
+        f"{app_id}/{run_entry}",
+    }
+    if requirements_lock:
+        entries.add(f"{app_id}/{requirements_lock}")
+    return entries
 
 
 def normalize_app_relative_entry(value: str | None, app_dir: Path | None = None, label: str = "app path") -> str:

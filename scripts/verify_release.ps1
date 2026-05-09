@@ -157,6 +157,30 @@ function Read-AppRelativeYamlFile {
     return Normalize-AppRelativePath -Path $Value -Label $Label
 }
 
+function Test-AppStudioFrozenFolderYaml {
+    param([string]$YamlText)
+    $DistributionMode = [string](Read-YamlSectionScalar -Text $YamlText -Section "runtime" -Key "distribution_mode")
+    $BuildMode = [string](Read-YamlSectionScalar -Text $YamlText -Section "build" -Key "build_mode")
+    $DistributionMode = $DistributionMode.Trim().ToLowerInvariant()
+    $BuildMode = $BuildMode.Trim().ToLowerInvariant()
+    return $DistributionMode -in @("frozen_folder", "frozen-folder") -or $BuildMode -in @("frozen_folder", "frozen-folder")
+}
+
+function Get-RequirementsLockPathForAppPack {
+    param(
+        [string]$YamlText,
+        [string]$Label
+    )
+    $Value = Read-YamlSectionScalar -Text $YamlText -Section "runtime" -Key "requirements_lock"
+    if (-not [string]::IsNullOrWhiteSpace($Value)) {
+        return Normalize-AppRelativePath -Path $Value -Label $Label
+    }
+    if (Test-AppStudioFrozenFolderYaml -YamlText $YamlText) {
+        return "requirements.lock"
+    }
+    return $null
+}
+
 function Test-AppYamlReferencedFile {
     param(
         [string]$AppDir,
@@ -284,6 +308,7 @@ if ($AppManifest) {
         $HasAppYaml = Test-Path -LiteralPath $AppYaml -PathType Leaf
         $RunEntry = $null
         $DisplayIcon = $null
+        $RequirementsLock = $null
 
         if ($HasAppYaml) {
             Pass "$Id app.yaml exists"
@@ -291,10 +316,14 @@ if ($AppManifest) {
                 $YamlText = Get-Content -Raw -Encoding UTF8 $AppYaml
                 $RunEntry = Read-AppRelativeYamlFile -YamlText $YamlText -Section "run" -Key "entry" -Label "$Id run.entry"
                 $DisplayIcon = Read-AppRelativeYamlFile -YamlText $YamlText -Section "display" -Key "icon" -Label "$Id display.icon"
+                $RequirementsLock = Get-RequirementsLockPathForAppPack -YamlText $YamlText -Label "$Id runtime.requirements_lock"
                 Pass "$Id run.entry is set"
                 Pass "$Id display.icon is set"
                 Test-AppYamlReferencedFile -AppDir $AppDir -RelativePath $RunEntry -Label "$Id run.entry"
                 Test-AppYamlReferencedFile -AppDir $AppDir -RelativePath $DisplayIcon -Label "$Id display.icon"
+                if (-not [string]::IsNullOrWhiteSpace($RequirementsLock)) {
+                    Test-AppYamlReferencedFile -AppDir $AppDir -RelativePath $RequirementsLock -Label "$Id runtime.requirements_lock"
+                }
             } catch {
                 Fail $_.Exception.Message
             }
@@ -347,6 +376,9 @@ if ($AppManifest) {
                     Test-ZipContainsEntry -EntryNames $EntryNames -EntryName "$Id/pack_manifest.json" -Label "$Id app pack contains pack_manifest.json"
                     Test-ZipContainsEntry -EntryNames $EntryNames -EntryName "$Id/README.md" -Label "$Id app pack contains README.md"
                     Test-ZipContainsEntry -EntryNames $EntryNames -EntryName "$Id/requirements.txt" -Label "$Id app pack contains requirements.txt"
+                    if ($RequirementsLock) {
+                        Test-ZipContainsEntry -EntryNames $EntryNames -EntryName "$Id/$RequirementsLock" -Label "$Id app pack contains runtime.requirements_lock"
+                    }
                     if ($DisplayIcon) {
                         Test-ZipContainsEntry -EntryNames $EntryNames -EntryName "$Id/$DisplayIcon" -Label "$Id app pack contains display.icon"
                     }
