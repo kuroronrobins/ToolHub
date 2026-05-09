@@ -4,6 +4,7 @@ mod admin_commands;
 mod admin_session;
 mod ai_settings;
 mod app_studio_commands;
+mod app_studio_result_reader;
 mod commands;
 mod logging;
 mod manifest;

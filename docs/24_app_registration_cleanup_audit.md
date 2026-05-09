@@ -720,3 +720,18 @@ docs/15_app_studio_update_gui.md と docs/21_app_registration_improvement_plan.m
 - UpdateWizard 全体の step 構成や英語見出しの UI 整理は未実施。今回は result / next action / warning 表示ロジックの重複削減に限定した。
 - React component test は未追加。今回固定したのは shared helper の Vitest unit test である。
 - Rust command 分割、Python update gate 変更、release manifest / App Pack / runner I/F の変更は未実施。
+
+## 2026-05-10 P1 follow-up: Rust artifact reader split
+
+Implemented scope:
+
+- Added `launcher/src-tauri/src/app_studio_result_reader.rs` as the read-only boundary for App Studio run artifacts and result summary construction.
+- Moved `AppStudioResultSummary`, `AppStudioTimingPhase`, `read_summary()`, `output_dir_from_app_yaml()`, and the private artifact readers for `import_plan.json`, `execution_test_result.json`, `runtime_check_result.json`, `timing_report.json`, App Pack zip discovery, approval record preview, release manifest enabled/version, and catalog visibility.
+- Kept Tauri command names, arguments, return JSON shape, Python CLI behavior, React/TypeScript API shape, app.yaml schema, App Pack spec, runner I/F, and release manifest compatibility unchanged.
+- Left process spawn, environment injection, request normalization, management, delete planning/apply, AI proposal/icon artifact reading, and Python command orchestration in `app_studio_commands.rs`.
+
+Remaining follow-up:
+
+- Split AI proposal/icon artifact readers separately after confirming their UI contract and saved proposal compatibility.
+- Split process spawn/env/masking into another module only if command wrapper tests or a narrower interface are added first.
+- Split management/delete helpers separately; do not combine with artifact reader cleanup because they touch different safety rules and filesystem behaviors.
