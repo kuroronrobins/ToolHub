@@ -3,6 +3,8 @@ import {
   collectAppStudioRunResultWarnings,
   getAppStudioImportSidebarNextAction,
   getAppStudioRunResultMessage,
+  getAppStudioUpdateNextAction,
+  getAppStudioUpdateRunResultMessage,
   isAppStudioWarningOnly,
   normalizeAppStudioRunResult,
 } from "./appStudioRunResult";
@@ -138,5 +140,64 @@ describe("normalizeAppStudioRunResult", () => {
         lastAction: "suggest",
       }),
     ).toContain("テスト登録");
+  });
+
+  it("treats update apply warning-only results as completed", () => {
+    const warningOnly = result({
+      ok: false,
+      executionStatus: "warn",
+      approvalAllowed: true,
+      nonBlockingWarningsCount: 1,
+    });
+
+    expect(getAppStudioUpdateRunResultMessage(warningOnly, "apply")).toContain("更新処理は完了");
+  });
+
+  it("uses update-specific approved messages for enabled approve results", () => {
+    const approved = result({ enabled: true, manifestEnabled: true, catalogVisible: true });
+
+    expect(getAppStudioUpdateRunResultMessage(approved, "approve")).toContain("更新を承認して有効化");
+  });
+
+  it("keeps update wrong-app and stale failures on the shared approval next action", () => {
+    const wrongApp = result({
+      ok: false,
+      approvalAllowed: false,
+      approvalFailureSummary: "Execution test result app_id mismatch.; expected_app_id=demo_app; result_app_id=other_app",
+    });
+    const stale = result({
+      ok: false,
+      approvalAllowed: false,
+      approvalFailureSummary: "Runtime check result is stale.; stale_against=final_app/app.yaml is newer than runtime_check_result.json",
+    });
+
+    expect(getAppStudioUpdateNextAction({ result: wrongApp, lastAction: "apply", approvalMode: "strict", versionCompare: 0 })).toContain(
+      "テスト登録を再実行",
+    );
+    expect(getAppStudioUpdateNextAction({ result: stale, lastAction: "apply", approvalMode: "strict", versionCompare: 0 })).toContain(
+      "テスト登録を再実行",
+    );
+  });
+
+  it("keeps update suggest results pointed at apply/test update", () => {
+    expect(
+      getAppStudioUpdateNextAction({
+        result: result({ approvalAllowed: false }),
+        lastAction: "suggest",
+        approvalMode: "strict",
+        versionCompare: 0,
+      }),
+    ).toContain("テスト更新");
+  });
+
+  it("keeps missing update results in an update content creation state", () => {
+    expect(
+      getAppStudioUpdateNextAction({
+        result: null,
+        lastAction: null,
+        approvalMode: "strict",
+        versionCompare: 0,
+      }),
+    ).toContain("更新内容を作成");
   });
 });

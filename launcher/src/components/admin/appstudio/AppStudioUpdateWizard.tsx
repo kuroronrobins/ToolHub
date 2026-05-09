@@ -10,8 +10,13 @@ import {
   appStudioUpdatePreflight,
   appStudioUpdateSuggest,
 } from "../../../lib/appStudioApi";
-import { getAppStudioApprovalDecision } from "../../../lib/appStudioApproval";
 import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
+import {
+  getAppStudioUpdateNextAction,
+  getAppStudioUpdateRunResultMessage,
+  isAppStudioWarningOnly,
+  type AppStudioRunAction,
+} from "../../../lib/appStudioRunResult";
 import type {
   AppStudioAiProposal,
   AppStudioApprovalMode,
@@ -35,7 +40,7 @@ import { AppStudioResultPanel } from "./AppStudioResultPanel";
 import { AppStudioRunLog } from "./AppStudioRunLog";
 import { AppStudioVersionBump } from "./AppStudioVersionBump";
 
-type StudioAction = "suggest" | "apply" | "approve";
+type StudioAction = AppStudioRunAction;
 
 const INITIAL_REQUEST: AppStudioUpdateRequest = {
   appId: "",
@@ -166,9 +171,10 @@ export function AppStudioUpdateWizard() {
         newVersion,
       });
       setResult(runResult);
-      setMessage(messageForResult(runResult));
-      if (!runResult.ok && !isWarningOnly(runResult)) {
-        setError(runResult.userMessage);
+      const resultMessage = getAppStudioUpdateRunResultMessage(runResult, action);
+      setMessage(resultMessage);
+      if (!runResult.ok && !isAppStudioWarningOnly(runResult)) {
+        setError(resultMessage);
       }
       return runResult;
     } catch (runError) {
@@ -264,9 +270,10 @@ export function AppStudioUpdateWizard() {
         newVersion,
       });
       setResult(freshResult);
-      setMessage(messageForResult(freshResult));
-      if (!freshResult.ok && !isWarningOnly(freshResult)) {
-        setError(freshResult.userMessage);
+      const resultMessage = getAppStudioUpdateRunResultMessage(freshResult, "approve");
+      setMessage(resultMessage);
+      if (!freshResult.ok && !isAppStudioWarningOnly(freshResult)) {
+        setError(resultMessage);
       }
     } catch (approveError) {
       setError(formatAdminError(approveError, "Update approval could not run."));
@@ -451,7 +458,7 @@ export function AppStudioUpdateWizard() {
 
         {bumped.warning ? <p className="admin-muted">{bumped.warning}</p> : null}
         {versionCompare === 1 ? <p className="admin-error">New version is older than current version.</p> : null}
-        {message ? <p className={result && !result.ok && isWarningOnly(result) ? "admin-muted" : "admin-success"}>{message}</p> : null}
+        {message ? <p className={result && !result.ok && isAppStudioWarningOnly(result) ? "admin-muted" : "admin-success"}>{message}</p> : null}
         {error ? <p className="admin-error" role="alert">{error}</p> : null}
       </section>
 
@@ -469,7 +476,7 @@ export function AppStudioUpdateWizard() {
             <SummaryRow label="current_version" value={request.currentVersion || "-"} />
             <SummaryRow label="new_version" value={newVersion || "-"} />
             <SummaryRow label="build_mode" value={request.buildMode} />
-            <SummaryRow label="next" value={updateNextAction(result, lastAction, approvalMode, versionCompare)} />
+            <SummaryRow label="next" value={getAppStudioUpdateNextAction({ result, lastAction, approvalMode, versionCompare })} />
           </div>
         </section>
         <AppStudioRunLog busy={busy} result={result} />
@@ -516,43 +523,4 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
       <p>{value}</p>
     </div>
   );
-}
-
-function updateNextAction(
-  result: AppStudioRunResult | null,
-  lastAction: StudioAction | null,
-  approvalMode: AppStudioApprovalMode,
-  versionCompare: number | null,
-): string {
-  if (versionCompare === 1) {
-    return "Fix the new version.";
-  }
-  if (!result) {
-    return "Run Preflight, then Suggest update.";
-  }
-  if (!result.ok && !isWarningOnly(result)) {
-    return "Review stdout/stderr and generated reports.";
-  }
-  if (result.enabled) {
-    return "Update approved.";
-  }
-  if (lastAction === "suggest") {
-    return "Run Apply update.";
-  }
-  if (lastAction === "apply") {
-    const decision = getAppStudioApprovalDecision(result, approvalMode, false);
-    return decision.canApprove ? "Run Approve update." : decision.reason;
-  }
-  return "Review the result.";
-}
-
-function isWarningOnly(result: AppStudioRunResult): boolean {
-  return result.executionStatus === "warn" && result.approvalAllowed === true;
-}
-
-function messageForResult(result: AppStudioRunResult): string {
-  if (!result.ok && isWarningOnly(result)) {
-    return "App Studio completed with warnings. execution_test_result.json allows approval; review logs before approving.";
-  }
-  return result.userMessage;
 }

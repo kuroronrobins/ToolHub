@@ -50,6 +50,13 @@ export interface AppStudioImportSidebarNextActionInput {
   lastAction?: AppStudioRunAction | null;
 }
 
+export interface AppStudioUpdateNextActionInput {
+  result: AppStudioRunResult | null;
+  lastAction: AppStudioRunAction | null;
+  approvalMode: AppStudioApprovalMode;
+  versionCompare: number | null;
+}
+
 export function normalizeAppStudioRunResult(
   result: AppStudioRunResult | null,
   options: AppStudioRunResultViewOptions,
@@ -148,6 +155,57 @@ export function getAppStudioRunResultMessage(result: AppStudioRunResult, action:
     return "テスト登録と配布物検証が完了しました。問題なければ承認してください。";
   }
   return "登録内容を作成しました。内容を確認して次へ進んでください。";
+}
+
+export function getAppStudioUpdateNextAction(input: AppStudioUpdateNextActionInput): string {
+  if (input.versionCompare === 1) {
+    return "新しいバージョンが現在版より古いです。Version Bump を見直してください。";
+  }
+  if (!input.result) {
+    return "Preflight 後に更新内容を作成してください。";
+  }
+  const view = normalizeAppStudioRunResult(input.result, {
+    approvalMode: input.approvalMode,
+    lastAction: input.lastAction,
+  });
+  if (!input.result.ok && !view.warningOnly) {
+    return view.approvalFailureGuidance?.nextAction ?? view.approvalDecision.reason;
+  }
+  if (input.result.enabled) {
+    return "更新は承認済みです。通常ランチャーで表示と起動を確認してください。";
+  }
+  if (input.lastAction === "suggest") {
+    return "Apply update でテスト更新と配布物検証を実行してください。";
+  }
+  if (input.lastAction === "apply") {
+    return view.canApprove ? "テスト更新結果を確認し、問題なければ承認して有効化してください。" : view.primaryNextAction;
+  }
+  return view.primaryNextAction;
+}
+
+export function getAppStudioUpdateRunResultMessage(result: AppStudioRunResult, action: AppStudioRunAction): string {
+  if (!result.ok && isAppStudioWarningOnly(result)) {
+    return "警告がありますが更新処理は完了しました。ログとレポートを確認してください。";
+  }
+  if (!result.ok) {
+    return "更新処理に失敗しました。理由と次の操作を確認してください。";
+  }
+  if (action === "approve") {
+    if (result.manifestEnabled === true && result.catalogVisible === true) {
+      return "更新を承認して有効化しました。ホームの更新後にアプリ一覧へ反映されます。";
+    }
+    if (result.manifestEnabled === true) {
+      return `更新承認は完了しましたが、ホーム表示の確認が未完了です。理由: ${result.catalogDisabledReason || result.catalogLoadError || "catalog_visible=false"}`;
+    }
+    return `更新承認は完了していません。理由: ${result.approvalFailureSummary || result.verifyReleaseFailureSummary || "manifest enabled=false"}`;
+  }
+  if (result.enabled) {
+    return "更新を承認して有効化しました。通常ランチャーで表示を確認してください。";
+  }
+  if (action === "apply") {
+    return "テスト更新と配布物検証が完了しました。問題なければ承認してください。";
+  }
+  return "更新内容を作成しました。内容を確認して次へ進んでください。";
 }
 
 export function isAppStudioWarningOnly(result: AppStudioRunResult | null | undefined): boolean {

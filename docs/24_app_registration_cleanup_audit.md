@@ -705,3 +705,18 @@ docs/15_app_studio_update_gui.md と docs/21_app_registration_improvement_plan.m
 - `AppStudioUpdateWizard.tsx` には update 専用の next action と message helper が残っている。update flow の表示語彙まで normalizer に寄せる場合は、update 用 view model を別途定義してから低リスクに移す。
 - React component test は未追加。今回固定したのは pure helper の Vitest unit test である。
 - UI の全面再設計、approval UX の根本変更、Rust command 分割、Python approval gate 変更は未実施。
+
+## 2026-05-10 P1 follow-up: Update UI result normalizer
+
+実施範囲:
+
+- `AppStudioUpdateWizard.tsx` に残っていた warning-only 判定、result message、next action のローカル helper を削除し、`appStudioRunResult.ts` の update 用 helper 経由にした。
+- update 用 helper は既存の `normalizeAppStudioRunResult()` と `appStudioApproval.ts` の approval decision / guidance を利用し、Python update apply / approve の仕様は変更していない。
+- version bump、update proposal、release notes、change summary、metadata/icon 採用、update API 呼び出しは update 固有処理として component 側に残した。
+- TypeScript unit test で update apply warning-only、update approve enabled、wrong app / stale next action、suggest 後の test update 誘導、missing result の表示契約を固定した。
+
+残した follow-up:
+
+- UpdateWizard 全体の step 構成や英語見出しの UI 整理は未実施。今回は result / next action / warning 表示ロジックの重複削減に限定した。
+- React component test は未追加。今回固定したのは shared helper の Vitest unit test である。
+- Rust command 分割、Python update gate 変更、release manifest / App Pack / runner I/F の変更は未実施。
