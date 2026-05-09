@@ -64,7 +64,8 @@ Do not install Python, Node.js, Rust, npm, cargo, or Tauri CLI in the VM before 
 - install location discovery checks `%LOCALAPPDATA%\Programs\ToolHub`, `%LOCALAPPDATA%\ToolHub`, `%ProgramFiles%\ToolHub`, `%ProgramFiles(x86)%\ToolHub`, `%LOCALAPPDATA%\Programs\com.toolhub.launcher`, `%LOCALAPPDATA%\Programs\ToolHub*`, Start Menu shortcut targets, uninstall registry entries, and running ToolHub processes.
 - every discovered `ToolHub*.exe` is recorded with path, size, and modified time.
 - the ToolHub exe actually launched by the script, or already running after the installer, is recorded.
-- installed payload discovery checks each discovered install dir and `resources` child for `runner`, `apps`, `runtime`, `config.default`, and `release`.
+- installed payload discovery checks each discovered install dir, `resources`, and legacy Tauri `_up_\_up_` resource roots for `runner`, `apps`, `runtime`, `config.default`, and `release`.
+- install dir and user data dir separation is checked so `%LOCALAPPDATA%\ToolHub` is not accepted as the install root.
 - installed payload includes `runtime\python\python.exe`.
 - installed payload includes `runtime\web_automation_runtime`.
 - installed payload includes `release\manifest.json` and `release\app_manifest.json`.

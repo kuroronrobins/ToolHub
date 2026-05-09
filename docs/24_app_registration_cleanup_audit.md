@@ -2053,6 +2053,44 @@ ToolHub App Studio cleanup の P2 改善として、scripts/package_app_pack.ps1
 - shared fixture parity test、PowerShell syntax check、必要な Python fixture test を実行する。
 ```
 
+## 2026-05-10 P2 follow-up: `package_app_pack.ps1` App Pack contract helper adoption
+
+Implemented scope:
+
+- `scripts/package_app_pack.ps1` now dot-sources `scripts/lib/app_pack_contract.ps1`.
+- Removed duplicated pure/read-only helper definitions from `package_app_pack.ps1`:
+  - YAML scalar reading / normalization.
+  - app-relative path normalization and containment resolution.
+  - app.yaml app-relative field reading.
+  - frozen-folder detection.
+  - `runtime.requirements_lock` handling, including implicit `requirements.lock` for frozen-folder apps.
+- Updated `scripts/lib/app_pack_contract.ps1` header to reflect that the helper is used by parity tests and packaging scripts.
+
+Production behavior kept in `package_app_pack.ps1`:
+
+- Command parameters and main flow.
+- App source discovery and manifest entry creation for source apps missing from `release/app_manifest.json`.
+- Required source file checks via `Require-File` / `Require-AppYamlReferencedFile`.
+- App staging and cache-file cleanup.
+- `pack_manifest.json` generation and shape.
+- Zip creation and zip-entry inspection.
+- `sha256` calculation.
+- `release/app_manifest.json` `package` / `sha256` / version / runtime updates and `enabled` preservation.
+- Output messages and exit behavior.
+
+Compatibility notes:
+
+- App Pack required entry semantics are unchanged. The same helper names now come from `scripts/lib/app_pack_contract.ps1`, while zip-entry inspection remains local to preserve package script labels and failure behavior.
+- `scripts/lib/app_pack_contract.ps1` still defines functions only and has no load-time side effects.
+- `verify_release.ps1`, `report_release_readiness.ps1`, and `check_all.ps1` were not changed.
+- App Pack spec, app.yaml schema, runner public I/F, release manifest compatibility, Python production code, Rust code, React/TypeScript code, apps, release manifests, runtime files, data, logs, generated artifacts, dependencies, and lock files were not changed.
+
+Remaining follow-up:
+
+- Consider adopting `scripts/lib/app_pack_contract.ps1` in `verify_release.ps1` as a separate task, preserving `[OK]` / `[WARN]` / `[NG]`, `-Strict`, `-Require*`, stale-entry policy, runtime/installer checks, and exit semantics.
+- Keep `report_release_readiness.ps1` separate unless a future readiness-helper audit identifies a concrete read-only helper boundary.
+- If direct `package_app_pack.ps1` execution is needed for confidence, use a temporary repo/fixture copy; do not run it against production `apps/` / `release/` unless artifact changes are explicitly in scope.
+
 Historical next Codex task queued after the management split, now covered by the audit section above:
 
 ```text

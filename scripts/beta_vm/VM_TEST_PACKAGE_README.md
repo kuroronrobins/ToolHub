@@ -43,7 +43,8 @@ The script records these checks automatically where possible:
 - actual install location is discovered from known directories, Start Menu shortcuts, uninstall registry entries, and running ToolHub processes.
 - all discovered `ToolHub*.exe` candidates are recorded with path, size, and modified time.
 - the ToolHub exe actually launched by the test, or already running after the installer, is recorded.
-- installed payload discovery checks discovered install dirs and `resources` children for `runner`, `apps`, `runtime`, `config.default`, and `release`.
+- installed payload discovery checks discovered install dirs, `resources`, and legacy Tauri `_up_\_up_` resource roots for `runner`, `apps`, `runtime`, `config.default`, and `release`.
+- install dir and user data dir separation is checked so `%LOCALAPPDATA%\ToolHub` is not accepted as the install root.
 - installed payload includes `runtime\python\python.exe`.
 - installed payload includes `runtime\web_automation_runtime`.
 - installed payload includes `release\manifest.json` and `release\app_manifest.json`.
@@ -82,7 +83,7 @@ If the test fails, also report:
 - screenshots of installer / uninstaller errors
 - `%LOCALAPPDATA%\ToolHub` path existence
 - `%LOCALAPPDATA%\Programs\ToolHub` path existence
-- actual fields from `latest_vm_install_result.json`: `discovered_install_dirs`, `discovered_toolhub_exes`, `launched_toolhub_exe`, `payload_layout_summary`, and `likely_failure_category`
+- actual fields from `latest_vm_install_result.json`: `discovered_install_dirs`, `discovered_toolhub_exes`, `launched_toolhub_exe`, `install_dir_user_data_collision`, `payload_layout_summary`, and `likely_failure_category`
 
 ## Notes
 

@@ -31,20 +31,21 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
-    "resources": [
-      "../../runner",
-      "../../apps",
-      "../../runtime",
-      "../../config.default",
-      "../../release/manifest.json",
-      "../../release/app_manifest.json",
-      "../../updater",
-      "../../README.md"
-    ],
+    "resources": {
+      "../../runner": "runner",
+      "../../apps": "apps",
+      "../../runtime": "runtime",
+      "../../config.default": "config.default",
+      "../../release/manifest.json": "release/manifest.json",
+      "../../release/app_manifest.json": "release/app_manifest.json",
+      "../../updater": "updater",
+      "../../README.md": "README.md"
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "installerHooks": "nsis/toolhub_install_dir.nsh"
       }
     }
   }

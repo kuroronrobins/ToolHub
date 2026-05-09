@@ -115,30 +115,72 @@ struct RawAppReleaseEntry {
 }
 
 pub fn project_root() -> Result<PathBuf, Box<dyn Error>> {
+    let mut candidates = Vec::new();
+
     if let Ok(value) = env::var("TOOLHUB_ROOT") {
-        let path = PathBuf::from(value);
-        if looks_like_root(&path) {
-            return Ok(path);
+        add_root_candidate_variants(&mut candidates, PathBuf::from(value));
+    }
+
+    if let Ok(exe) = env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            add_root_candidate_variants(&mut candidates, exe_dir.to_path_buf());
         }
     }
 
-    let mut candidates = Vec::new();
-    candidates.push(env::current_dir()?);
-    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    add_root_candidate_variants(&mut candidates, env::current_dir()?);
+    add_root_candidate_variants(&mut candidates, PathBuf::from(env!("CARGO_MANIFEST_DIR")));
 
-    for candidate in candidates {
-        for ancestor in candidate.ancestors() {
-            if looks_like_root(ancestor) {
-                return Ok(ancestor.to_path_buf());
+    for candidate in &candidates {
+        if let Some(root) = find_root_from_candidate(candidate) {
+            return Ok(root);
+        }
+    }
+
+    let searched = candidates
+        .iter()
+        .map(|candidate| candidate.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!("ToolHub project root was not found. searched candidates: {searched}").into())
+}
+
+fn add_root_candidate_variants(candidates: &mut Vec<PathBuf>, base: PathBuf) {
+    add_unique_candidate(candidates, base.clone());
+    add_unique_candidate(candidates, base.join("resources"));
+    add_unique_candidate(candidates, base.join("_up_").join("_up_"));
+}
+
+fn add_unique_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
+    if !candidates.iter().any(|existing| existing == &candidate) {
+        candidates.push(candidate);
+    }
+}
+
+fn find_root_from_candidate(candidate: &Path) -> Option<PathBuf> {
+    for ancestor in candidate.ancestors() {
+        if looks_like_root(ancestor) {
+            return Some(ancestor.to_path_buf());
+        }
+        for child_candidate in [
+            ancestor.join("resources"),
+            ancestor.join("_up_").join("_up_"),
+        ] {
+            if looks_like_root(&child_candidate) {
+                return Some(child_candidate);
             }
         }
     }
-
-    Err("ToolHub project root was not found".into())
+    None
 }
 
 fn looks_like_root(path: &Path) -> bool {
-    path.join("apps").is_dir() && path.join("runner").is_dir() && path.join("launcher").is_dir()
+    if !path.join("apps").is_dir() || !path.join("runner").is_dir() {
+        return false;
+    }
+
+    path.join("launcher").is_dir()
+        || path.join("release").join("app_manifest.json").is_file()
+        || path.join("release").join("manifest.json").is_file()
 }
 
 pub fn load_apps(root: &Path) -> Result<Vec<AppInfo>, Box<dyn Error>> {
@@ -416,12 +458,60 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    #[test]
+    fn project_root_accepts_installed_resource_root_without_launcher_dir() {
+        let root = temp_root_dir("installed");
+        std::fs::create_dir_all(root.join("apps")).unwrap();
+        std::fs::create_dir_all(root.join("runner")).unwrap();
+        std::fs::create_dir_all(root.join("release")).unwrap();
+        std::fs::write(root.join("release").join("app_manifest.json"), "{}").unwrap();
+
+        assert!(looks_like_root(&root));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn project_root_accepts_tauri_relative_resource_layout() {
+        let install_dir = temp_root_dir("install");
+        let resource_root = install_dir.join("_up_").join("_up_");
+        std::fs::create_dir_all(resource_root.join("apps")).unwrap();
+        std::fs::create_dir_all(resource_root.join("runner")).unwrap();
+        std::fs::create_dir_all(resource_root.join("release")).unwrap();
+        std::fs::write(
+            resource_root.join("release").join("app_manifest.json"),
+            "{}",
+        )
+        .unwrap();
+
+        let resolved = find_root_from_candidate(&install_dir).unwrap();
+
+        assert_eq!(resolved, resource_root);
+        let _ = std::fs::remove_dir_all(install_dir);
+    }
+
+    #[test]
+    fn project_root_keeps_dev_root_marker_support() {
+        let root = temp_root_dir("dev");
+        std::fs::create_dir_all(root.join("apps")).unwrap();
+        std::fs::create_dir_all(root.join("runner")).unwrap();
+        std::fs::create_dir_all(root.join("launcher")).unwrap();
+
+        assert!(looks_like_root(&root));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     fn temp_app_dir() -> PathBuf {
+        temp_root_dir("icon")
+    }
+
+    fn temp_root_dir(label: &str) -> PathBuf {
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let root = std::env::temp_dir().join(format!("toolhub_manifest_icon_{stamp}"));
+        let root = std::env::temp_dir().join(format!("toolhub_manifest_{label}_{stamp}"));
         std::fs::create_dir_all(&root).unwrap();
         root
     }

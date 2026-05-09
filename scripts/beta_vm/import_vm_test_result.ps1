@@ -62,6 +62,7 @@ $KeyIds = @(
     "installer_completed",
     "expected_install_dir_exists",
     "install_location_discovery",
+    "install_dir_user_data_separated",
     "toolhub_exe_discovery",
     "toolhub_exe_exists",
     "payload_apps_exists",
@@ -96,6 +97,7 @@ $Summary = [ordered]@{
     counts = $Result.counts
     expected_install_dir = (Get-JsonProperty -Object $Result -Name "expected_install_dir")
     expected_install_dir_exists = (Get-JsonProperty -Object $Result -Name "expected_install_dir_exists")
+    install_dir_user_data_collision = (Get-JsonProperty -Object $Result -Name "install_dir_user_data_collision")
     discovered_install_dirs = @(Get-JsonArrayProperty -Object $Result -Name "discovered_install_dirs")
     discovered_toolhub_exes = @(Get-JsonArrayProperty -Object $Result -Name "discovered_toolhub_exes" | Select-Object path,size,last_write_time_utc)
     launched_toolhub_exe = (Get-JsonProperty -Object $Result -Name "launched_toolhub_exe")

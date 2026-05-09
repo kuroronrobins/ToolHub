@@ -53,6 +53,7 @@ $LogSummary = [ordered]@{
 $LaunchedToolHubExe = ""
 $ResourceRootCandidate = ""
 $LikelyFailureCategory = "unknown"
+$InstallDirUserDataCollision = $false
 $EnvironmentSnapshot = [ordered]@{
     local_app_data = $env:LOCALAPPDATA
     app_data = $env:APPDATA
@@ -357,6 +358,17 @@ function Add-PayloadRootSummary {
     $PayloadLayoutSummary.Add((Test-PayloadRoot -Root $FullRoot)) | Out-Null
 }
 
+function Add-PayloadRootVariants {
+    param([string]$Root)
+    if ([string]::IsNullOrWhiteSpace($Root)) {
+        return
+    }
+    Add-PayloadRootSummary -Root $Root
+    Add-PayloadRootSummary -Root (Join-Path $Root "resources")
+    Add-PayloadRootSummary -Root (Join-Path (Join-Path $Root "_up_") "_up_")
+    Add-PayloadRootSummary -Root (Join-Path (Join-Path (Join-Path $Root "resources") "_up_") "_up_")
+}
+
 function Update-InstallDiscovery {
     Add-UniquePath -List $CandidateInstallDirs -Path $ExpectedInstallDir
     Add-UniquePath -List $CandidateInstallDirs -Path (Join-Path $env:LOCALAPPDATA "ToolHub")
@@ -432,12 +444,24 @@ function Update-InstallDiscovery {
     }
 
     foreach ($InstallDir in $DiscoveredInstallDirs.ToArray()) {
-        Add-PayloadRootSummary -Root $InstallDir
-        Add-PayloadRootSummary -Root (Join-Path $InstallDir "resources")
+        Add-PayloadRootVariants -Root $InstallDir
     }
     foreach ($Exe in $DiscoveredToolHubExes) {
-        Add-PayloadRootSummary -Root $Exe.directory
-        Add-PayloadRootSummary -Root (Join-Path $Exe.directory "resources")
+        Add-PayloadRootVariants -Root $Exe.directory
+    }
+
+    $script:InstallDirUserDataCollision = $false
+    try {
+        $UserDataFull = [System.IO.Path]::GetFullPath($UserDataDir).TrimEnd("\")
+        foreach ($InstallDir in $DiscoveredInstallDirs.ToArray()) {
+            $InstallDirFull = [System.IO.Path]::GetFullPath($InstallDir).TrimEnd("\")
+            if ($InstallDirFull.Equals($UserDataFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $script:InstallDirUserDataCollision = $true
+                break
+            }
+        }
+    } catch {
+        $script:InstallDirUserDataCollision = $false
     }
 }
 
@@ -524,6 +548,10 @@ function Set-LikelyFailureCategory {
         $script:LikelyFailureCategory = "install_dir_unexpected"
         return
     }
+    if ($InstallDirUserDataCollision -or -not (Test-Path -LiteralPath $ExpectedInstallDir -PathType Container)) {
+        $script:LikelyFailureCategory = "install_dir_unexpected"
+        return
+    }
     if ($DiscoveredToolHubExes.Count -gt 0 -and -not (Get-PayloadFlag "runner") -and -not (Get-PayloadFlag "apps") -and -not (Get-PayloadFlag "release")) {
         $script:LikelyFailureCategory = "installed_payload_missing"
         return
@@ -589,6 +617,7 @@ function Save-Results {
         local_app_data = $env:LOCALAPPDATA
         expected_install_dir = $ExpectedInstallDir
         expected_install_dir_exists = (Test-Path -LiteralPath $ExpectedInstallDir -PathType Container)
+        install_dir_user_data_collision = $InstallDirUserDataCollision
         candidate_install_dirs = @($CandidateInstallDirs.ToArray())
         discovered_install_dirs = @($DiscoveredInstallDirs.ToArray())
         discovered_toolhub_exes = @($DiscoveredToolHubExes.ToArray())
@@ -632,6 +661,7 @@ function Save-Results {
     $Lines.Add(("- likely_failure_category: {0}" -f $LikelyFailureCategory)) | Out-Null
     $Lines.Add(("- expected_install_dir: {0}" -f $ExpectedInstallDir)) | Out-Null
     $Lines.Add(("- expected_install_dir_exists: {0}" -f (Test-Path -LiteralPath $ExpectedInstallDir -PathType Container))) | Out-Null
+    $Lines.Add(("- install_dir_user_data_collision: {0}" -f $InstallDirUserDataCollision)) | Out-Null
     $Lines.Add(("- launched_toolhub_exe: {0}" -f $LaunchedToolHubExe)) | Out-Null
     $Lines.Add(("- resource_root_candidate: {0}" -f $ResourceRootCandidate)) | Out-Null
     $Lines.Add("") | Out-Null
@@ -870,6 +900,13 @@ try {
         Add-Check -Id "install_location_discovery" -Description "install location discovery finds candidates" -Status "pass" -Message "discovered $($DiscoveredInstallDirs.Count) install dir candidate(s)" -Data @{ discovered_install_dirs = @($DiscoveredInstallDirs.ToArray()); shortcuts = @($ShortcutRecords); registry = @($UninstallRegistryRecords) }
     } else {
         Add-Check -Id "install_location_discovery" -Description "install location discovery finds candidates" -Status "fail" -Message "no install dir candidates were discovered" -Data @{ candidate_install_dirs = @($CandidateInstallDirs.ToArray()); shortcuts = @($ShortcutRecords); registry = @($UninstallRegistryRecords) }
+    }
+    if ($DiscoveredInstallDirs.Count -eq 0) {
+        Add-Check -Id "install_dir_user_data_separated" -Description "install dir and user data dir are separated" -Status "not_run" -Message "install dir was not discovered"
+    } elseif ($InstallDirUserDataCollision) {
+        Add-Check -Id "install_dir_user_data_separated" -Description "install dir and user data dir are separated" -Status "fail" -Message "install dir collides with user data dir: $UserDataDir" -Data @{ discovered_install_dirs = @($DiscoveredInstallDirs.ToArray()); user_data_dir = $UserDataDir }
+    } else {
+        Add-Check -Id "install_dir_user_data_separated" -Description "install dir and user data dir are separated" -Status "pass" -Message "no discovered install dir equals user data dir" -Data @{ discovered_install_dirs = @($DiscoveredInstallDirs.ToArray()); user_data_dir = $UserDataDir }
     }
     if ($DiscoveredToolHubExes.Count -gt 0) {
         Add-Check -Id "toolhub_exe_discovery" -Description "ToolHub.exe discovery finds candidates" -Status "pass" -Message "discovered $($DiscoveredToolHubExes.Count) ToolHub exe candidate(s)" -Data @{ discovered_toolhub_exes = @($DiscoveredToolHubExes.ToArray()) }
