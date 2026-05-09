@@ -150,7 +150,7 @@
 
 ## Beta Ready Checklist
 
-この section は [docs/22_beta_installer_updater_plan.md](22_beta_installer_updater_plan.md) の Phase 0 で固定した Beta Ready 判定です。`[x]` は現在確認済み、`[ ]` は Beta Ready までに必要な未完了または未検証項目です。`manual check` は read-only script では確認できないため、clean Windows user profile または VM で確認します。
+この section は [docs/22_beta_installer_updater_plan.md](22_beta_installer_updater_plan.md) の Phase 0 で固定した Beta Ready 判定です。`[x]` は現在確認済み、`[ ]` は Beta Ready までに必要な未完了または未検証項目です。`manual check` は read-only script では確認できないため、Windows Sandbox、clean Windows user profile、または VM で確認します。
 
 ### Beta Blocker
 
@@ -189,6 +189,14 @@
 - [x] staging manifest preflight: `release/staging/installer_payload/staging_manifest.json` は存在する。
 - [ ] current PC install / uninstall: 未実施。現在の Windows profile には既存の `%LOCALAPPDATA%\ToolHub\` user data が存在するため、clean install 検証としては使わない。
 - [ ] clean Windows user profile または VM での install / launch / uninstall / reinstall 検証: 未実施。
+
+2026-05-10 時点の Windows Sandbox 検証フロー:
+
+- [x] `scripts/beta_sandbox/ToolHub_Beta_Install_Test.wsb` を作成し、host repo を read-only、`scripts/beta_sandbox/results/` を writeable で Sandbox に mount する。
+- [x] `scripts/beta_sandbox/sandbox_install_test.ps1` を作成し、Sandbox 内で installer preflight、開発ツール不在、install dir、payload、runtime、first launch、user data、log、uninstall 結果を JSON / Markdown に記録する。
+- [x] `scripts/beta_sandbox/run_sandbox_test.ps1 -DryRun` で host 側 artifact / manifest / mount 設定を事前確認できる。
+- [ ] Windows Sandbox 実行結果: 未実施。Sandbox 起動と installer GUI 操作は人間確認を伴うため、`scripts/beta_sandbox/results/latest_sandbox_install_result.*` を確認してから完了判定する。
+- [ ] GUI manual check: app card 表示、`sample_gui_app`、`sample_playwright_app` 起動確認は Sandbox 結果内の `manual_check` として記録する。
 
 現在 PC の read-only 事前確認:
 

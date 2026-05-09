@@ -173,6 +173,17 @@ Because existing user data is present, this current profile is not a clean insta
 this profile as a destructive validation unless the data is backed up and a human explicitly approves current-profile
 testing. Use a clean Windows user profile or VM for Phase 1-B.
 
+Windows Sandbox support for Phase 1-B now exists under `scripts/beta_sandbox/`:
+
+- `ToolHub_Beta_Install_Test.wsb` maps the host checkout read-only and maps only `scripts/beta_sandbox/results/`
+  as writable.
+- `run_sandbox_test.ps1 -DryRun` checks the installer artifact, release manifest, staging manifest, WSB mount
+  boundaries, and Windows Sandbox availability without launching Sandbox.
+- `sandbox_install_test.ps1` runs inside Sandbox, records developer-tool absence, installer preflight, install
+  placement, bundled runtime, first launch, user data/log creation, and possible uninstall results to JSON / Markdown.
+- GUI observations, including app cards and sample app launch, remain `manual_check` items until reviewed from the
+  Sandbox session and result files.
+
 ## Intentional Warnings
 Normal verification can warn for:
 
@@ -210,8 +221,9 @@ Use Developer PowerShell for Visual Studio, or install Visual Studio Build Tools
    `.\scripts\prepare_runtime.ps1` with SHA256 values if the runtime source changes.
 3. Run `.\scripts\verify_runtime.ps1 -RequireRuntime` on the release build machine.
 4. Preserve the current installer artifact set or rebuild it if source/runtime/app packs change.
-5. Run Phase 1-B in a clean Windows user profile or VM: install, launch, app cards, `sample_gui_app`,
-   `sample_playwright_app`, uninstall, and user data preservation.
+5. Run `.\scripts\beta_sandbox\run_sandbox_test.ps1 -DryRun`, then run Phase 1-B in Windows Sandbox, a clean Windows
+   user profile, or VM: install, launch, app cards, `sample_gui_app`, `sample_playwright_app`, uninstall, and user data
+   preservation.
 6. Decide and implement the strict `runtime/app_envs/<app_id>` policy for frozen-folder apps.
 7. Move to endpoint validation for the Beta updater.
 8. Move to strict/formal verification after generated artifacts, install validation, and strict policy are handled.

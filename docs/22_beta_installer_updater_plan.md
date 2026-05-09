@@ -474,7 +474,8 @@ Phase 1-A / 1-B 実施状況:
 - Phase 1-A: `release/staging/installer_payload/staging_manifest.json` を生成済み。payload に `runner/`, `apps/`, `runtime/`, `config.default/`, `release/manifest.json`, `release/app_manifest.json`, `updater/`, `README.md` が含まれる。
 - Phase 1-B: 現在 PC で read-only 事前確認を実施。`%LOCALAPPDATA%\Programs\ToolHub\` は存在せず、`%LOCALAPPDATA%\ToolHub\` は既存 user data として存在する。
 - Phase 1-B: 現在 PC は clean profile ではなく、既存 user data を壊すリスクを避けるため installer 実行、起動、uninstall、reinstall は未実施。
-- Phase 1-B: 実 install / launch / sample app / uninstall / user data preservation は clean Windows user profile または VM の manual check として残す。
+- Phase 1-B: Windows Sandbox 検証フローを `scripts/beta_sandbox/` に作成済み。host repo は read-only、結果 folder は writeable で mount し、Sandbox 内で preflight / install / launch / uninstall 結果を JSON / Markdown に記録する。
+- Phase 1-B: 実 install / launch / sample app / uninstall / user data preservation は Windows Sandbox、clean Windows user profile、または VM の manual check として残す。Sandbox の installer / uninstaller UI と sample app 起動は人間確認を伴うため、検証結果を確認するまで完了済みとはしない。
 
 ### Phase 2: remote manifest による更新検知
 
@@ -792,7 +793,7 @@ python main.py --check
 
 実装開始時は、まず [24_beta_installer_updater_execution_handoff.md](24_beta_installer_updater_execution_handoff.md) を読む。ユーザー不在でも停止条件に当たらない限り、同 handoff の順番で実装、検証、報告まで進める。
 
-1. Phase 1-B 検証: clean Windows user profile または VM で `ToolHub_Setup_0.1.0.exe` の install / first launch / sample app / uninstall / reinstall / user data preservation を記録してください。
+1. Phase 1-B 検証: `scripts/beta_sandbox/README.md` に従い、Windows Sandbox、clean Windows user profile、または VM で `ToolHub_Setup_0.1.0.exe` の install / first launch / sample app / uninstall / reinstall / user data preservation を記録してください。
 2. Phase 2 検証: 実 endpoint または mock manifest で `check_updates_remote` の `no_update` / `update_available` / fetch failure を確認してください。
 3. Phase 3 検証: 実 installer または mock file で `download_update_installer` の download / size mismatch / sha256 mismatch / verified launch gating を確認してください。
 4. Phase 4 実装: 再起動後 version 確認と failure diagnosis 表示を追加してください。check / download / launch result log と release readiness report 連携は実装済みです。

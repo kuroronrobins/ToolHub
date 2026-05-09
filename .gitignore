@@ -17,6 +17,8 @@ release/dist_installer/*
 !release/dist_installer/.gitkeep
 release/staging/*
 !release/staging/.gitkeep
+scripts/beta_sandbox/results/*
+!scripts/beta_sandbox/results/.gitkeep
 runtime/python/*
 !runtime/python/.gitkeep
 runtime/app_envs/*

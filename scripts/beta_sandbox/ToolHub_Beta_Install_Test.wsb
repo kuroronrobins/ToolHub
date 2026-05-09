@@ -1,0 +1,19 @@
+<Configuration>
+  <VGpu>Enable</VGpu>
+  <Networking>Enable</Networking>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>C:\Users\kuroron\Documents\RD\20260426_Toolhub</HostFolder>
+      <SandboxFolder>C:\ToolHubRepo</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+    <MappedFolder>
+      <HostFolder>C:\Users\kuroron\Documents\RD\20260426_Toolhub\scripts\beta_sandbox\results</HostFolder>
+      <SandboxFolder>C:\ToolHubBetaResults</SandboxFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\ToolHubRepo\scripts\beta_sandbox\sandbox_install_test.ps1 -RepoRoot C:\ToolHubRepo -ResultsDir C:\ToolHubBetaResults -InstallerTimeoutMinutes 30 -LaunchSeconds 15 -PauseForManualGuiChecks</Command>
+  </LogonCommand>
+</Configuration>
