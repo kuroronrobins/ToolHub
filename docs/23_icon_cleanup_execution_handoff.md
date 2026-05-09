@@ -38,6 +38,24 @@ Current Phase 3 through Phase 4 residuals to keep under control:
 - Pseudo quality fields may remain on candidate detail records, but normal UI must not rank or present them as a visual quality guarantee.
 - `test/ToolHub_AppStudio_Output/...` contains old generated outputs. Treat these as legacy/generated artifacts unless a test explicitly references them.
 
+## Phase 3-4 residual classification
+
+Checked after Phase 3-4 cleanup on 2026-05-09. No residual requires returning
+local fallback image candidates, and Phase 5 can start as a module split /
+compatibility-isolation task.
+
+| Residual term | Classification | Action before Phase 5 |
+| --- | --- | --- |
+| `fallback_icon_concepts` | docs history / search checklist only | No code action. Current code uses `deterministic_icon_concepts`. |
+| `local-deterministic-fallback` | legacy input/read/display compatibility | Keep tolerant reads and UI display normalization. Do not emit as the new image model label. |
+| `fallback_candidate_count` | legacy manifest/type compatibility, tests that assert new output omits it, generated legacy output | Keep reads optional. Do not emit in new `image_api_summary`. |
+| `fallback_created_reason` / `fallbackCreatedReason` | legacy TypeScript summary compatibility / docs history | Keep optional fields only. Use `failure_class`, `failure_message`, and `admin_next_action` for current diagnosis. |
+| `icon_provisional_fallback_used` | docs history only | No code action. Current `import_plan.json` output does not write it. |
+| `icon_fallback.svg` | app.yaml/display fallback compatibility and legacy proposal artifact | Keep as legacy SVG compatibility artifact; do not show as an AI candidate. |
+| `prompt_concept_only` | legacy manifest fixture / docs history | Keep only for old manifest tolerance. New candidate default is `rule_based_prompt_and_manifest`. |
+| `fallback_rule_based` | legacy manifest status compatibility / docs history | Map old status to `deterministic_png_check` in current summaries. |
+| pseudo quality fields | report/manifest detail only | Normal UI must show these only as "reference information" and must not rank or recommend by pseudo score. |
+
 ## Non-goals
 
 Do not use the cleanup as an excuse to redesign unrelated App Studio flows.
