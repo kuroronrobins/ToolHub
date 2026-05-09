@@ -214,6 +214,13 @@ is unavailable. Keep the Sandbox flow for machines that support it, but use the 
   which collides with the planned user data root. They also showed likely Tauri relative resources under `_up_\_up_`.
   The next installer build maps resources to stable target paths, uses an NSIS hook to set the per-user install dir to
   `%LOCALAPPDATA%\Programs\ToolHub`, and keeps root resolution compatible with both the stable and legacy layouts.
+- A later dirty VM rerun confirmed the new installer hash, but the installer still attempted to write under
+  `%LOCALAPPDATA%\ToolHub\apps\...`. Generated NSIS showed Tauri inserts `NSIS_HOOK_PREINSTALL` after its initial
+  `SetOutPath $INSTDIR`, so the hook now resets `SetOutPath $INSTDIR` after forcing `$INSTDIR` to
+  `%LOCALAPPDATA%\Programs\ToolHub`.
+- VM diagnostics now record pre-install old/new ToolHub path residue, tester-recorded installer write error paths, and
+  `dirty_vm_previous_install_residue`. Old `%LOCALAPPDATA%\ToolHub` is treated as user data / previous residue and must
+  not be deleted by the validation flow.
 - Phase 1-B keeps the Beta installer target to NSIS only because the required artifact is `ToolHub_Setup.exe`; MSI
   generation is deferred outside the Beta blocker path.
 - `scripts/beta_vm/import_vm_test_result.ps1` summarizes a returned `latest_vm_install_result.json`, including

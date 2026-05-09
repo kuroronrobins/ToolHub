@@ -59,7 +59,9 @@ Do not install Python, Node.js, Rust, npm, cargo, or Tauri CLI in the VM before 
 - installer `sha256` and `size` match `release\manifest.json`.
 - installer can run.
 - environment paths are recorded: `LOCALAPPDATA`, `APPDATA`, `ProgramFiles`, `ProgramFiles(x86)`, `USERPROFILE`, and user name.
+- pre-install ToolHub residue is recorded for `%LOCALAPPDATA%\Programs\ToolHub`, `%LOCALAPPDATA%\ToolHub`, Program Files candidates, shortcuts, uninstall registry entries, and running processes.
 - installer process start / finish, exit code, timeout state, and ToolHub processes before / after installer are recorded.
+- if the installer shows an "Error opening file for writing" path, rerun or report the path with `-InstallerWriteErrorPath "<path>"` so the JSON records it.
 - expected install dir `%LOCALAPPDATA%\Programs\ToolHub` is checked, but the script also searches for the actual install location.
 - install location discovery checks `%LOCALAPPDATA%\Programs\ToolHub`, `%LOCALAPPDATA%\ToolHub`, `%ProgramFiles%\ToolHub`, `%ProgramFiles(x86)%\ToolHub`, `%LOCALAPPDATA%\Programs\com.toolhub.launcher`, `%LOCALAPPDATA%\Programs\ToolHub*`, Start Menu shortcut targets, uninstall registry entries, and running ToolHub processes.
 - every discovered `ToolHub*.exe` is recorded with path, size, and modified time.
@@ -70,7 +72,7 @@ Do not install Python, Node.js, Rust, npm, cargo, or Tauri CLI in the VM before 
 - installed payload includes `runtime\web_automation_runtime`.
 - installed payload includes `release\manifest.json` and `release\app_manifest.json`.
 - `%LOCALAPPDATA%\ToolHub` logs are scanned for launcher/backend errors where possible.
-- `likely_failure_category` is recorded as one of `installer_not_completed`, `install_dir_unexpected`, `installed_payload_missing`, `apps_not_in_payload`, `root_resolution_failed`, `app_manifest_load_failed`, `app_yaml_load_failed`, `user_data_or_config_issue`, or `unknown`.
+- `likely_failure_category` is recorded as one of `installer_not_completed`, `dirty_vm_previous_install_residue`, `install_dir_unexpected`, `installed_payload_missing`, `apps_not_in_payload`, `root_resolution_failed`, `app_manifest_load_failed`, `app_yaml_load_failed`, `user_data_or_config_issue`, or `unknown`.
 - ToolHub launches.
 - `%LOCALAPPDATA%\ToolHub` is created.
 - uninstall can run when an uninstaller is present.

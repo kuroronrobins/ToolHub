@@ -3,6 +3,7 @@ param(
     [string]$InstallerPath = "",
     [string]$ManifestPath = "",
     [string]$ResultsDir = "",
+    [string]$InstallerWriteErrorPath = "",
     [int]$InstallerTimeoutMinutes = 30,
     [int]$UninstallerTimeoutMinutes = 20,
     [int]$LaunchSeconds = 15,
@@ -54,6 +55,8 @@ $LaunchedToolHubExe = ""
 $ResourceRootCandidate = ""
 $LikelyFailureCategory = "unknown"
 $InstallDirUserDataCollision = $false
+$DirtyVmPreviousInstallResidue = $false
+$PreInstallState = [ordered]@{}
 $EnvironmentSnapshot = [ordered]@{
     local_app_data = $env:LOCALAPPDATA
     app_data = $env:APPDATA
@@ -150,6 +153,88 @@ function Add-UniquePath {
     }
     if (-not $List.Contains($FullPath)) {
         $List.Add($FullPath) | Out-Null
+    }
+}
+
+function Test-PathUnderRoot {
+    param([string]$Path, [string]$Root)
+    if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Root)) {
+        return $false
+    }
+    try {
+        $FullPath = [System.IO.Path]::GetFullPath($Path).TrimEnd("\")
+        $FullRoot = [System.IO.Path]::GetFullPath($Root).TrimEnd("\")
+        return ($FullPath.Equals($FullRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+            $FullPath.StartsWith("$FullRoot\", [System.StringComparison]::OrdinalIgnoreCase))
+    } catch {
+        return $false
+    }
+}
+
+function Get-PathState {
+    param([string]$Path)
+    $Exists = Test-Path -LiteralPath $Path
+    $Type = "missing"
+    $ChildCount = 0
+    $ToolHubExeCount = 0
+    if ($Exists) {
+        if (Test-Path -LiteralPath $Path -PathType Container) {
+            $Type = "directory"
+            $ChildCount = @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue).Count
+            $ToolHubExeCount = @(Get-ChildItem -LiteralPath $Path -File -Filter "ToolHub*.exe" -Recurse -ErrorAction SilentlyContinue).Count
+        } elseif (Test-Path -LiteralPath $Path -PathType Leaf) {
+            $Type = "file"
+        }
+    }
+    return [ordered]@{
+        path = $Path
+        exists = $Exists
+        type = $Type
+        child_count = $ChildCount
+        toolhub_exe_count = $ToolHubExeCount
+    }
+}
+
+function Record-PreInstallState {
+    $LocalToolHubDir = Join-Path $env:LOCALAPPDATA "ToolHub"
+    $ProgramFilesToolHubDir = Join-Path $env:ProgramFiles "ToolHub"
+    $ProgramFilesX86ToolHubDir = ""
+    if (-not [string]::IsNullOrWhiteSpace(${env:ProgramFiles(x86)})) {
+        $ProgramFilesX86ToolHubDir = Join-Path ${env:ProgramFiles(x86)} "ToolHub"
+    }
+
+    $ExistingShortcuts = @(Get-ShortcutRecords)
+    $ExistingRegistry = @(Get-UninstallRegistryRecords)
+    $ExistingProcesses = @(Get-ToolHubProcessRecords)
+    $PathStates = @(
+        (Get-PathState -Path $ExpectedInstallDir),
+        (Get-PathState -Path $LocalToolHubDir),
+        (Get-PathState -Path $ProgramFilesToolHubDir)
+    )
+    if (-not [string]::IsNullOrWhiteSpace($ProgramFilesX86ToolHubDir)) {
+        $PathStates += (Get-PathState -Path $ProgramFilesX86ToolHubDir)
+    }
+
+    $script:DirtyVmPreviousInstallResidue = $false
+    foreach ($State in $PathStates) {
+        if ([bool]$State.exists) {
+            $script:DirtyVmPreviousInstallResidue = $true
+            break
+        }
+    }
+    if ($ExistingShortcuts.Count -gt 0 -or $ExistingRegistry.Count -gt 0 -or $ExistingProcesses.Count -gt 0) {
+        $script:DirtyVmPreviousInstallResidue = $true
+    }
+
+    $script:PreInstallState = [ordered]@{
+        captured_at = (Get-Date).ToString("o")
+        expected_install_dir = $ExpectedInstallDir
+        user_data_or_legacy_install_dir = $LocalToolHubDir
+        path_states = @($PathStates)
+        existing_shortcuts = @($ExistingShortcuts)
+        existing_uninstall_registry = @($ExistingRegistry)
+        existing_toolhub_processes = @($ExistingProcesses)
+        dirty_vm_previous_install_residue = $script:DirtyVmPreviousInstallResidue
     }
 }
 
@@ -541,6 +626,10 @@ function Get-LogSummary {
 
 function Set-LikelyFailureCategory {
     if ((Get-CheckStatus "installer_completed") -ne "pass") {
+        if ($DirtyVmPreviousInstallResidue -or (Test-PathUnderRoot -Path $InstallerWriteErrorPath -Root $UserDataDir)) {
+            $script:LikelyFailureCategory = "dirty_vm_previous_install_residue"
+            return
+        }
         $script:LikelyFailureCategory = "installer_not_completed"
         return
     }
@@ -615,8 +704,12 @@ function Save-Results {
         results_dir = $ResultsDir
         environment = $EnvironmentSnapshot
         local_app_data = $env:LOCALAPPDATA
+        user_data_dir = $UserDataDir
         expected_install_dir = $ExpectedInstallDir
         expected_install_dir_exists = (Test-Path -LiteralPath $ExpectedInstallDir -PathType Container)
+        pre_install_state = $PreInstallState
+        dirty_vm_previous_install_residue = $DirtyVmPreviousInstallResidue
+        installer_write_error_path = $InstallerWriteErrorPath
         install_dir_user_data_collision = $InstallDirUserDataCollision
         candidate_install_dirs = @($CandidateInstallDirs.ToArray())
         discovered_install_dirs = @($DiscoveredInstallDirs.ToArray())
@@ -661,6 +754,11 @@ function Save-Results {
     $Lines.Add(("- likely_failure_category: {0}" -f $LikelyFailureCategory)) | Out-Null
     $Lines.Add(("- expected_install_dir: {0}" -f $ExpectedInstallDir)) | Out-Null
     $Lines.Add(("- expected_install_dir_exists: {0}" -f (Test-Path -LiteralPath $ExpectedInstallDir -PathType Container))) | Out-Null
+    $Lines.Add(("- user_data_dir: {0}" -f $UserDataDir)) | Out-Null
+    $Lines.Add(("- dirty_vm_previous_install_residue: {0}" -f $DirtyVmPreviousInstallResidue)) | Out-Null
+    if (-not [string]::IsNullOrWhiteSpace($InstallerWriteErrorPath)) {
+        $Lines.Add(("- installer_write_error_path: {0}" -f $InstallerWriteErrorPath)) | Out-Null
+    }
     $Lines.Add(("- install_dir_user_data_collision: {0}" -f $InstallDirUserDataCollision)) | Out-Null
     $Lines.Add(("- launched_toolhub_exe: {0}" -f $LaunchedToolHubExe)) | Out-Null
     $Lines.Add(("- resource_root_candidate: {0}" -f $ResourceRootCandidate)) | Out-Null
@@ -717,6 +815,7 @@ function Start-InstallerAndRecord {
     $BeforeProcesses = @(Get-ToolHubProcessRecords)
     $InstallerExecution = [ordered]@{
         installer_path = $InstallerPath
+        installer_write_error_path = $InstallerWriteErrorPath
         started_at = (Get-Date).ToString("o")
         process_id = $null
         exit_code = $null
@@ -834,6 +933,17 @@ function Find-UninstallCandidates {
 
 try {
     Add-Check -Id "environment_snapshot_recorded" -Description "VM environment paths are recorded" -Status "pass" -Message "environment snapshot recorded" -Data $EnvironmentSnapshot
+
+    Record-PreInstallState
+    if ($DirtyVmPreviousInstallResidue) {
+        Add-Check -Id "dirty_vm_previous_install_residue" -Description "previous ToolHub install residue is absent before install" -Status "warning" -Message "ToolHub-related paths, shortcuts, registry entries, or processes existed before installer execution. Treat this as a dirty VM rerun, not a clean proof." -Data $PreInstallState
+    } else {
+        Add-Check -Id "dirty_vm_previous_install_residue" -Description "previous ToolHub install residue is absent before install" -Status "pass" -Message "no ToolHub-related pre-install residue was detected" -Data $PreInstallState
+    }
+    if (-not [string]::IsNullOrWhiteSpace($InstallerWriteErrorPath)) {
+        $WriteErrorStatus = if (Test-PathUnderRoot -Path $InstallerWriteErrorPath -Root $UserDataDir) { "warning" } else { "manual_check" }
+        Add-Check -Id "installer_write_error_path_recorded" -Description "installer write error path was recorded by tester" -Status $WriteErrorStatus -Message "tester-recorded installer write error path: $InstallerWriteErrorPath" -Data @{ installer_write_error_path = $InstallerWriteErrorPath; user_data_dir = $UserDataDir }
+    }
 
     foreach ($ToolName in @("python", "pip", "node", "npm", "rustc", "cargo", "tauri")) {
         $Commands = @(Get-Command $ToolName -ErrorAction SilentlyContinue)

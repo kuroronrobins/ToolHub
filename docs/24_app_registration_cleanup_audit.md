@@ -2248,6 +2248,70 @@ Recommended next implementation unit:
 - If a concrete gap needs implementation, add only a read-only "App Studio source contract repair" classification that consumes `scripts/lib/app_pack_contract.ps1` for app.yaml contract parsing and leaves existing readiness categories, output shape, and exit behavior intact.
 - Validate that future task with the App Pack parity test, PowerShell parser check, Python App Pack fixture test, `report_release_readiness.ps1 -Json`, and a before/after diff of summary counts.
 
+## 2026-05-10 P2 final inventory: App Pack / release verification contract cleanup
+
+Scope:
+
+- This is a docs-only final inventory for the P2 App Pack / release verification contract cleanup phase.
+- Python production code, PowerShell production behavior, Rust code, React/TypeScript code, apps, release manifests, runtime files, data, logs, generated artifacts, dependencies, and lock files were not changed in this pass.
+- App Pack spec, app.yaml public schema, runner public I/F, release manifest compatibility, App Studio frozen-folder lock-file contract, and the legacy Python-runner lock exception remain unchanged.
+
+Completion summary:
+
+- P2 App Pack / release verification contract duplication cleanup can be treated as practically complete for the current phase.
+- The shared contract is now pinned by golden fixtures and checked from both Python and PowerShell.
+- Python and PowerShell each have pure/read-only App Pack contract helpers.
+- `package_app_pack.ps1` and `verify_release.ps1` now consume the PowerShell helper for pure contract parsing only, while retaining their production-specific responsibilities.
+- `report_release_readiness.ps1` remains a read-only classifier, not a release gate, and does not need helper adoption unless a future source-contract classification is added.
+
+Python-side helper completion:
+
+- `tools/app_studio/app_studio/app_pack_contract.py` owns YAML scalar parsing, app-relative path normalization, frozen-folder detection, `run.entry`, `display.icon`, `runtime.requirements_lock`, required entries, and contract summary construction.
+- `tools/app_studio/tests/test_app_pack_contract.py` fixes the helper behavior against `tools/app_studio/tests/fixtures/app_pack_contract/expected_contract.json`.
+- Coverage includes explicit frozen-folder `runtime.requirements_lock`, implicit frozen-folder `requirements.lock`, legacy Python-runner lock optionality, required App Pack entries, and invalid app-relative path rejection.
+
+PowerShell-side helper completion:
+
+- `scripts/lib/app_pack_contract.ps1` owns the side-effect-free mirror helpers: YAML scalar parsing, app-relative path normalization, app-relative file resolution, app.yaml field reading, frozen-folder detection, lock resolution, required entries, and contract summary construction.
+- The helper defines functions only and is safe to dot-source from tests and production scripts.
+- `scripts/test_app_pack_contract_parity.ps1` uses the helper and the same golden fixture to keep PowerShell expectations aligned with Python.
+
+Production script helper adoption:
+
+- `scripts/package_app_pack.ps1` dot-sources `scripts/lib/app_pack_contract.ps1` for pure contract parsing while keeping zip staging, `pack_manifest.json` generation, zip inspection, SHA256 calculation, `release/app_manifest.json` update, enabled semantics, output wording, and exit behavior local.
+- `scripts/verify_release.ps1` dot-sources `scripts/lib/app_pack_contract.ps1` for same-name pure helpers while keeping `[OK]` / `[WARN]` / `[NG]`, `-Strict`, `-RequireInstaller`, `-RequireRuntime`, `-RequireAppPacks`, exit behavior, runtime/installer/stale manifest checks, `sha256`, and zip-entry labels local.
+- `scripts/report_release_readiness.ps1` remains separate because its job is readiness classification, cleanup triage, Beta Ready grouping, and recommended-action reporting. It should not inherit release-gate semantics from `verify_release.ps1`.
+
+Guardrails kept:
+
+- App Studio frozen-folder apps treat explicit `runtime.requirements_lock` or implicit `requirements.lock` as the lock-file contract.
+- Legacy Python-runner apps do not receive a blanket `requirements.lock` requirement.
+- App Pack required entries still include `app.yaml`, `pack_manifest.json`, `README.md`, `requirements.txt`, `display.icon`, `run.entry`, and `runtime.requirements_lock` only when resolved by the contract.
+- `verify_release.ps1` remains the independent release gate; `report_release_readiness.ps1` remains a classifier.
+- The helper adoption did not change App Pack zip layout, `pack_manifest.json` shape, manifest `package` / `sha256` / `enabled` semantics, or release verification severity/exit semantics.
+
+P2 phase close judgment:
+
+- Practical close: yes. The duplication that was risky for App Pack contract drift is now guarded by shared fixtures, Python tests, a PowerShell parity test, and shared pure helpers used by package/verify scripts.
+- Remaining items are policy or release-readiness decisions rather than blockers for this P2 contract-cleanup phase.
+
+Remaining P2 candidates:
+
+- Add a read-only `report_release_readiness.ps1` source-contract repair classification only if operators need it. It should consume `scripts/lib/app_pack_contract.ps1` and keep the script as a classifier.
+- If `verify_release.ps1` later adopts `Get-AppPackRequiredEntries` / `Get-AppPackContractSummary` for zip-entry loops, require before/after output comparison because that is broader than same-name helper adoption.
+- Keep documenting existing release-readiness WARN/FAIL causes separately from App Studio registration failures.
+
+P3 / higher-risk candidates:
+
+- Generate Python and PowerShell contract helpers from one source, or make one language call the other. This is higher risk than the current mirrored-helper plus fixture approach.
+- Rework `report_release_readiness.ps1` into smaller modules across installer/runtime/signing/updater/readiness domains.
+- Decide strict release policy for `runtime/app_envs/<app_id>` and frozen-folder apps.
+- Clean up historical docs sections and old next-task blocks across this audit file once no active handoff depends on them.
+
+Recommended next task:
+
+- Move to the next P2/P3 area only after this phase is accepted. The lowest-risk candidate is a docs/test pass around release-readiness classification and strict `runtime/app_envs/<app_id>` policy; the next implementation candidate is the optional read-only source-contract classification in `report_release_readiness.ps1`.
+
 Historical next Codex task queued after the management split, now covered by the audit section above:
 
 ```text

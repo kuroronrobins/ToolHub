@@ -59,6 +59,8 @@ $KeyIds = @(
     "installer_exists",
     "installer_sha256_matches_manifest",
     "installer_size_matches_manifest",
+    "dirty_vm_previous_install_residue",
+    "installer_write_error_path_recorded",
     "installer_completed",
     "expected_install_dir_exists",
     "install_location_discovery",
@@ -97,6 +99,10 @@ $Summary = [ordered]@{
     counts = $Result.counts
     expected_install_dir = (Get-JsonProperty -Object $Result -Name "expected_install_dir")
     expected_install_dir_exists = (Get-JsonProperty -Object $Result -Name "expected_install_dir_exists")
+    user_data_dir = (Get-JsonProperty -Object $Result -Name "user_data_dir")
+    dirty_vm_previous_install_residue = (Get-JsonProperty -Object $Result -Name "dirty_vm_previous_install_residue")
+    installer_write_error_path = (Get-JsonProperty -Object $Result -Name "installer_write_error_path")
+    pre_install_state = (Get-JsonProperty -Object $Result -Name "pre_install_state")
     install_dir_user_data_collision = (Get-JsonProperty -Object $Result -Name "install_dir_user_data_collision")
     discovered_install_dirs = @(Get-JsonArrayProperty -Object $Result -Name "discovered_install_dirs")
     discovered_toolhub_exes = @(Get-JsonArrayProperty -Object $Result -Name "discovered_toolhub_exes" | Select-Object path,size,last_write_time_utc)

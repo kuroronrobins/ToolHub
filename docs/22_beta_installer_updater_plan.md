@@ -486,6 +486,8 @@ Phase 1-A / 1-B 実施状況:
 - Phase 1-B: 初回 VM 診断結果から、実 install location / 起動 exe は `%LOCALAPPDATA%\ToolHub\toolhub.exe` であり、予定していた user data root と衝突していた。また payload は Tauri の相対 resources layout により `_up_\_up_` 配下に存在する可能性が高い。
 - Phase 1-B: 修正方針として、Tauri resources を map 指定へ変更して `apps/`, `runner/`, `runtime/`, `config.default/`, `release/`, `updater/` を resource root 直下に置く。さらに NSIS hook で current-user install dir を `%LOCALAPPDATA%\Programs\ToolHub` に固定し、Rust root resolution は installed root と legacy `_up_\_up_` root の両方を認識する。
 - Phase 1-B: Beta 配布物は `ToolHub_Setup.exe` を優先するため、Tauri bundle target は NSIS のみに絞る。MSI 生成は正式版候補として残し、Phase 1-B の完了条件には含めない。
+- Phase 1-B: dirty VM 再実行では新 installer hash が正しいにもかかわらず `%LOCALAPPDATA%\ToolHub\apps\...` への write error が発生した。生成 NSIS では `NSIS_HOOK_PREINSTALL` が Tauri の初回 `SetOutPath $INSTDIR` の後に挿入されるため、hook 内で `$INSTDIR` 固定後に `SetOutPath $INSTDIR` も再設定する方針へ補強した。
+- Phase 1-B: VM 診断は install 前の旧/new dir 残存、tester-recorded installer write error path、`dirty_vm_previous_install_residue` を記録する。旧 `%LOCALAPPDATA%\ToolHub` は user data として削除せず、clean proof とは分けて扱う。
 - Phase 1-B: 修正後 installer / VM package を再生成したうえで、clean Windows VM で `%LOCALAPPDATA%\Programs\ToolHub` 配置、`install_dir_user_data_collision=false`、app card 表示、sample app 起動、uninstall 後 user data 保持を再確認する。
 - Phase 1-B: 実 install / launch / sample app / uninstall / user data preservation は clean Windows VM または clean Windows user profile の manual check として残す。installer / uninstaller UI と sample app 起動は人間確認を伴うため、検証結果を確認するまで完了済みとはしない。
 

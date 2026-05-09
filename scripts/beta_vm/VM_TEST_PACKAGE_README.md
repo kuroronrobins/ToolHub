@@ -38,7 +38,9 @@ The script records these checks automatically where possible:
 - `ToolHub_Setup_0.1.0.exe` exists.
 - installer sha256 / size match `release\manifest.json`.
 - installer can be executed.
+- pre-install ToolHub residue is recorded so dirty VM reruns are separated from clean proof.
 - environment paths and installer process result are recorded.
+- if the installer shows an "Error opening file for writing" path, report it and rerun with `-InstallerWriteErrorPath "<path>"` when possible.
 - expected install dir `%LOCALAPPDATA%\Programs\ToolHub` is checked.
 - actual install location is discovered from known directories, Start Menu shortcuts, uninstall registry entries, and running ToolHub processes.
 - all discovered `ToolHub*.exe` candidates are recorded with path, size, and modified time.
@@ -81,6 +83,7 @@ If the test fails, also report:
 
 - the PowerShell console output
 - screenshots of installer / uninstaller errors
+- the exact installer write error path, if Windows shows "Error opening file for writing"
 - `%LOCALAPPDATA%\ToolHub` path existence
 - `%LOCALAPPDATA%\Programs\ToolHub` path existence
 - actual fields from `latest_vm_install_result.json`: `discovered_install_dirs`, `discovered_toolhub_exes`, `launched_toolhub_exe`, `install_dir_user_data_collision`, `payload_layout_summary`, and `likely_failure_category`

@@ -111,6 +111,48 @@ foreach ($Path in @(
 }
 Require-File (Join-Path $Root "runtime\README.md")
 
+$TauriConfigPath = Join-Path $Root "launcher\src-tauri\tauri.conf.json"
+$NsisHookPath = Join-Path $Root "launcher\src-tauri\nsis\toolhub_install_dir.nsh"
+Require-File $TauriConfigPath
+Require-File $NsisHookPath
+if (Test-Path -LiteralPath $TauriConfigPath -PathType Leaf) {
+    $TauriConfig = Read-Json $TauriConfigPath
+    if ($TauriConfig -and $TauriConfig.bundle.windows.nsis.installerHooks -eq "nsis/toolhub_install_dir.nsh") {
+        Pass "NSIS install-dir hook is configured"
+    } else {
+        Fail "NSIS install-dir hook is not configured in tauri.conf.json"
+    }
+}
+if (Test-Path -LiteralPath $NsisHookPath -PathType Leaf) {
+    $NsisHook = Get-Content -Raw -Encoding UTF8 -LiteralPath $NsisHookPath
+    if ($NsisHook -like '*StrCpy $INSTDIR "$LOCALAPPDATA\Programs\ToolHub"*') {
+        Pass "NSIS hook sets install dir to LOCALAPPDATA Programs ToolHub"
+    } else {
+        Fail "NSIS hook does not set install dir to LOCALAPPDATA Programs ToolHub"
+    }
+    if ($NsisHook -like '*SetOutPath $INSTDIR*') {
+        Pass "NSIS hook resets SetOutPath after changing INSTDIR"
+    } else {
+        Fail "NSIS hook must reset SetOutPath after changing INSTDIR"
+    }
+}
+$GeneratedNsisPath = Join-Path $Root "launcher\src-tauri\target\release\nsis\x64\installer.nsi"
+if (Test-Path -LiteralPath $GeneratedNsisPath -PathType Leaf) {
+    $GeneratedNsis = Get-Content -Raw -Encoding UTF8 -LiteralPath $GeneratedNsisPath
+    if ($GeneratedNsis -like '*!insertmacro NSIS_HOOK_PREINSTALL*') {
+        Pass "generated NSIS script inserts the preinstall hook"
+    } else {
+        Fail "generated NSIS script does not insert the preinstall hook"
+    }
+    if ($GeneratedNsis -like '*Call RestorePreviousInstallLocation*') {
+        Pass "generated NSIS script can restore previous install location before hook"
+    } else {
+        Warn "generated NSIS script previous install location behavior was not found"
+    }
+} else {
+    Warn "generated NSIS script is not present; run a Tauri release build to inspect final hook insertion"
+}
+
 $PythonExe = Join-Path $Root "runtime\python\python.exe"
 $WebRuntimeDir = Join-Path $Root "runtime\web_automation_runtime"
 $WebRuntimeFiles = @()

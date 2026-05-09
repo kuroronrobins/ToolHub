@@ -212,6 +212,8 @@
 - [x] VM 診断強化: `vm_install_test.ps1` は期待 install dir 固定ではなく、Start Menu shortcut、uninstall registry、running process、known install dirs から実 install location / 起動 exe / payload layout / launcher logs / `likely_failure_category` を記録する。
 - [x] VM 原因調査結果: 初回 VM 結果から、実 install dir / 起動 exe は `%LOCALAPPDATA%\ToolHub\toolhub.exe` であり、予定していた user data root `%LOCALAPPDATA%\ToolHub\` と衝突していた。Tauri resources は `_up_\_up_` 配下に展開されていた可能性が高い。
 - [x] VM 向け修正: Tauri resources を map 指定に変更し、NSIS hook で per-user install dir を `%LOCALAPPDATA%\Programs\ToolHub` に固定する。Rust root resolution は installed root と legacy `_up_\_up_` root を認識する。
+- [x] dirty VM 追加診断: 新 installer hash は正しかったが、installer が `%LOCALAPPDATA%\ToolHub\apps\...` へ書き込もうとして失敗した。生成 NSIS では hook が初回 `SetOutPath $INSTDIR` の後に挿入されるため、hook 内で `$INSTDIR` を固定した後に `SetOutPath $INSTDIR` も再設定する。
+- [x] VM 診断補強: `vm_install_test.ps1` は install 前の旧/new dir 残存、tester-recorded write error path、`dirty_vm_previous_install_residue` を JSON / Markdown に記録する。
 - [ ] VM 再実行結果: 修正後に再生成した package を clean Windows VM にコピーし、`latest_vm_install_result.json` の `discovered_install_dirs`, `install_dir_user_data_collision`, `discovered_toolhub_exes`, `launched_toolhub_exe`, `payload_layout_summary`, `resource_root_candidate`, `likely_failure_category` を確認する。
 
 現在 PC の read-only 事前確認:
