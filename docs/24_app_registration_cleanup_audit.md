@@ -1267,6 +1267,27 @@ Remaining follow-up:
 
 - `AppStudioResultSummary` can be revisited later only if the artifact reader is split from its response DTO, but that is not required for the current boundary and should not be mixed with behavior changes.
 
+## 2026-05-10 P1 follow-up: Rust preflight/discovery boundary
+
+Implemented scope:
+
+- Added `launcher/src-tauri/src/app_studio_preflight.rs` as the read-only Python discovery boundary for App Studio commands.
+- Moved `PythonCandidate`, `runtime_python_path()`, `find_python_candidate()`, and PATH lookup into the new module without changing the existing search order: embedded `runtime/python/python.exe` or `runtime/python/python`, then PATH `python.exe`/`python`, then PATH `py`.
+- Updated `app_studio_commands.rs` to import the discovery helper while leaving Tauri command wrappers, env injection, process spawn, management, and delete behavior unchanged.
+- Added focused Rust tests for runtime Python path layout and embedded runtime priority.
+
+Compatibility notes:
+
+- Tauri command names, arguments, and return JSON shape were not changed.
+- `AppStudioPreflightResult` fields and serde shape were not changed.
+- Python executable discovery order and source labels (`runtime`, `python`, `py`, `missing`) were preserved.
+- React/TypeScript, Python CLI argv, env injection, process spawn, management/delete behavior, app.yaml schema, App Pack spec, runner I/F, and release manifest compatibility were not changed.
+
+Remaining follow-up:
+
+- `preflight_for_request()` and `preflight_for_update_request()` still live in `app_studio_commands.rs` because they currently share validation messages, app registration lookup, and version comparison helpers with command orchestration.
+- A later split can move the preflight result builder only after isolating app-id/path/version validation helpers without changing operator-facing messages.
+
 Recommended next Codex task:
 
 ```text

@@ -16,6 +16,7 @@ use crate::app_studio_overrides::{
     write_build_profile_override_file, write_icon_override_file, write_icon_revision_image_file,
     write_metadata_override_file,
 };
+use crate::app_studio_preflight::{find_python_candidate, runtime_python_path, PythonCandidate};
 use crate::app_studio_process::{
     append_app_studio_gui_log, command_line_for_log, mask_sensitive, redact_cli_arg_value,
     result_from_process,
@@ -39,12 +40,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 use tauri::State;
-
-#[derive(Debug, Clone)]
-struct PythonCandidate {
-    source: String,
-    path: PathBuf,
-}
 
 #[derive(Debug, Clone)]
 struct AiEnvPlan {
@@ -983,57 +978,6 @@ fn validate_app_id(app_id: &str) -> Result<(), String> {
         );
     }
     Ok(())
-}
-
-fn runtime_python_path(root: &Path) -> PathBuf {
-    root.join("runtime").join("python").join(if cfg!(windows) {
-        "python.exe"
-    } else {
-        "python"
-    })
-}
-
-fn find_python_candidate(root: &Path) -> Option<PythonCandidate> {
-    let embedded = runtime_python_path(root);
-    if embedded.is_file() {
-        return Some(PythonCandidate {
-            source: "runtime".to_string(),
-            path: embedded,
-        });
-    }
-    find_on_path(if cfg!(windows) {
-        "python.exe"
-    } else {
-        "python"
-    })
-    .or_else(|| find_on_path("python"))
-    .map(|path| PythonCandidate {
-        source: "python".to_string(),
-        path,
-    })
-    .or_else(|| {
-        find_on_path("py").map(|path| PythonCandidate {
-            source: "py".to_string(),
-            path,
-        })
-    })
-}
-
-fn find_on_path(command: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
-        let candidate = dir.join(command);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-        if cfg!(windows) {
-            let exe_candidate = dir.join(format!("{command}.exe"));
-            if exe_candidate.is_file() {
-                return Some(exe_candidate);
-            }
-        }
-    }
-    None
 }
 
 fn python_missing_message() -> String {
