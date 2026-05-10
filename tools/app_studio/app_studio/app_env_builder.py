@@ -147,6 +147,39 @@ def create_build_env(
             )
             if cache_hit:
                 env_python = app_env_python(build_env_path)
+                notes = [
+                    "Existing build_env cache was reused.",
+                    f"cache_key: {cache_key}",
+                    f"cache_metadata: {metadata_path}",
+                    f"pip_cache_dir: {pip_cache}",
+                ]
+                framework_error = ensure_framework_runtime_packages(context, env_python, install_path, temp_dir, pip_cache, notes)
+                if framework_error:
+                    result = AppEnvBuildResult(
+                        ok=False,
+                        skipped=False,
+                        app_env_path=build_env_path,
+                        python_path=env_python,
+                        python_source="cached_build_env",
+                        report=build_report(
+                            context,
+                            build_env_path,
+                            env_python,
+                            "cached_build_env",
+                            notes,
+                            framework_error,
+                            title="Build Env Report",
+                        ),
+                        error=framework_error,
+                        cache_hit=True,
+                        cache_miss_reason="",
+                        cache_key=cache_key,
+                        metadata_path=metadata_path,
+                        pip_cache_dir=pip_cache,
+                    )
+                    write_build_env_report(context, result)
+                    return result
+                update_build_env_cache_metadata(build_env_path, {"framework_runtime_packages_checked_at": now_iso()})
                 result = AppEnvBuildResult(
                     ok=True,
                     skipped=True,
@@ -158,12 +191,7 @@ def create_build_env(
                         build_env_path,
                         env_python,
                         "cached_build_env",
-                        [
-                            "Existing build_env cache was reused.",
-                            f"cache_key: {cache_key}",
-                            f"cache_metadata: {metadata_path}",
-                            f"pip_cache_dir: {pip_cache}",
-                        ],
+                        notes,
                         "",
                         title="Build Env Report",
                     ),
@@ -246,6 +274,13 @@ def create_build_env(
     else:
         notes.append("No installable app requirements were found. App dependency install was skipped.")
 
+    framework_error = ensure_framework_runtime_packages(context, env_python, install_path, temp_dir, pip_cache, notes)
+    if framework_error:
+        cleanup_cache(build_env_path)
+        result = AppEnvBuildResult(False, False, build_env_path, env_python, source, build_report(context, build_env_path, env_python, source, notes, framework_error, title="Build Env Report"), framework_error, False, cache_miss_reason, cache_key, metadata_path, pip_cache)
+        write_build_env_report(context, result)
+        return result
+
     cleanup_cache(build_env_path)
     metadata = {
         "schema_version": BUILD_ENV_CACHE_SCHEMA_VERSION,
@@ -254,6 +289,7 @@ def create_build_env(
         "cache_key": cache_key,
         "key_parts": key_parts,
         "pip_cache_dir": str(pip_cache),
+        "framework_runtime_packages_checked_at": now_iso(),
     }
     write_json(metadata_path, metadata)
     result = AppEnvBuildResult(True, False, build_env_path, env_python, source, build_report(context, build_env_path, env_python, source, notes, "", title="Build Env Report"), "", False, cache_miss_reason, cache_key, metadata_path, pip_cache)
@@ -497,6 +533,88 @@ def compare_versions(left: str, right: str) -> int:
 def version_parts(value: str) -> list[int]:
     parts = [int(part) for part in re.findall(r"\d+", value)]
     return parts or [0]
+
+
+def ensure_framework_runtime_packages(
+    context: StudioContext,
+    env_python: Path,
+    requirements_path: Path | None,
+    temp_dir: Path,
+    pip_cache: Path,
+    notes: list[str],
+) -> str:
+    if not env_python.is_file():
+        return "build_env python missing before framework runtime package check"
+    if not flet_dependency_declared(requirements_path):
+        notes.append("Framework runtime package check: no Flet dependency was declared.")
+        return ""
+
+    versions = installed_package_versions(context, env_python, ["flet", "flet-desktop"], temp_dir, pip_cache)
+    flet_version = versions.get("flet") or ""
+    flet_desktop_version = versions.get("flet-desktop") or ""
+    notes.append(
+        "Framework runtime package check: "
+        + json.dumps(
+            {"flet": flet_version, "flet-desktop": flet_desktop_version},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+    if not flet_version:
+        return "Flet dependency was declared but flet is not installed in build_env"
+    if flet_desktop_version == flet_version:
+        notes.append(f"Flet desktop runtime already matches flet=={flet_version}.")
+        return ""
+
+    package = f"flet-desktop=={flet_version}"
+    install_command = [str(env_python), "-m", "pip", "install", "--disable-pip-version-check", package]
+    install = run_command(install_command, context.repo_root, temp_dir, pip_cache_dir=pip_cache)
+    notes.append(command_summary("pip install framework runtime packages", install_command, install))
+    if install.returncode != 0:
+        return f"framework runtime package install failed: {package}"
+    notes.append(f"Installed framework runtime package: {package}")
+    return ""
+
+
+def installed_package_versions(
+    context: StudioContext,
+    env_python: Path,
+    packages: list[str],
+    temp_dir: Path,
+    pip_cache: Path,
+) -> dict[str, str | None]:
+    script = "\n".join(
+        [
+            "import importlib.metadata as metadata",
+            "import json",
+            "import sys",
+            "result = {}",
+            "for name in sys.argv[1:]:",
+            "    try:",
+            "        result[name] = metadata.version(name)",
+            "    except metadata.PackageNotFoundError:",
+            "        result[name] = None",
+            "print(json.dumps(result, sort_keys=True))",
+        ]
+    )
+    probe = run_command([str(env_python), "-c", script, *packages], context.repo_root, temp_dir, pip_cache_dir=pip_cache)
+    if probe.returncode != 0:
+        return {}
+    try:
+        data = json.loads(probe.stdout.strip() or "{}")
+    except Exception:
+        return {}
+    return {str(key): str(value) if value is not None else None for key, value in data.items()}
+
+
+def flet_dependency_declared(requirements_path: Path | None) -> bool:
+    if not requirements_path or not requirements_path.is_file():
+        return False
+    for line in requirements_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        name = package_name_from_spec(line.strip().lstrip("\ufeff")).lower().replace("_", "-")
+        if name == "flet":
+            return True
+    return False
 
 
 def select_base_python(context: StudioContext) -> tuple[Path, str]:

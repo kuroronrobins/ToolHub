@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -11,6 +12,9 @@ from .manifest import AppManifest
 
 
 USER_FAILURE_MESSAGE = "アプリの起動に失敗しました。時間をおいて再実行するか、管理者に連絡してください。"
+STARTUP_EXIT_MESSAGE = "アプリは起動直後に終了しました。管理者にログ確認を依頼してください。"
+STARTUP_PROBE_SECONDS = 2.0
+DETACHED_OUTPUT_TAIL_CHARS = 12000
 
 
 @dataclass
@@ -51,13 +55,13 @@ class BaseRunner:
             events=events,
         )
 
-    def failure_result(self, events: list[RunnerEvent], log_path: Optional[Path]) -> RunnerResult:
+    def failure_result(self, events: list[RunnerEvent], log_path: Optional[Path], message: str = USER_FAILURE_MESSAGE) -> RunnerResult:
         if not events or events[-1].type != "error":
-            events.append(RunnerEvent(type="error", message=USER_FAILURE_MESSAGE))
+            events.append(RunnerEvent(type="error", message=message))
         return RunnerResult(
             ok=False,
             app_id=self.manifest.id,
-            user_message=USER_FAILURE_MESSAGE,
+            user_message=message,
             log_path=str(log_path) if log_path else None,
             events=events,
         )
@@ -126,33 +130,48 @@ class BaseRunner:
         stderr = ""
         admin_error = ""
         pid: int | None = None
+        exit_code: Optional[int] = None
         ok = False
 
         try:
-            process = subprocess.Popen(
-                command,
-                cwd=str(self.manifest.app_dir),
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                close_fds=True,
-            )
+            stdout_file = paths.stdout_log.open("wb")
+            stderr_file = paths.stderr_log.open("wb")
+            try:
+                process = subprocess.Popen(
+                    command,
+                    cwd=str(self.manifest.app_dir),
+                    env=env,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    close_fds=True,
+                )
+            finally:
+                stdout_file.close()
+                stderr_file.close()
             pid = process.pid
-            ok = True
-            events.append(RunnerEvent(type="success", message="起動しました", progress=100))
+            exit_code = wait_for_startup_exit(process, STARTUP_PROBE_SECONDS)
+            if exit_code is None:
+                ok = True
+                release_detached_process(process)
+                events.append(RunnerEvent(type="success", message="起動しました", progress=100))
+            else:
+                stdout = read_text_tail(paths.stdout_log)
+                stderr = read_text_tail(paths.stderr_log)
+                admin_error = f"process exited during startup probe with exit_code={exit_code}"
+                events.append(RunnerEvent(type="error", message=STARTUP_EXIT_MESSAGE, progress=100))
         except Exception as exc:
             admin_error = repr(exc)
             events.append(RunnerEvent(type="error", message=USER_FAILURE_MESSAGE))
 
         end = now_iso()
-        user_message = "起動しました。" if ok else USER_FAILURE_MESSAGE
+        user_message = "起動しました。" if ok else STARTUP_EXIT_MESSAGE if exit_code is not None else USER_FAILURE_MESSAGE
         save_run_log(
             paths,
             app_id=self.manifest.id,
             app_name=self.manifest.name,
             start_time=start,
             end_time=end,
-            exit_code=None,
+            exit_code=exit_code,
             stdout=stdout,
             stderr=stderr,
             events=events,
@@ -160,9 +179,39 @@ class BaseRunner:
             admin_error=admin_error,
             command=command,
             pid=pid,
+            stdout_log_path=str(paths.stdout_log) if paths.stdout_log.exists() else None,
+            stderr_log_path=str(paths.stderr_log) if paths.stderr_log.exists() else None,
         )
 
         if ok:
             return self.success_result(user_message, events, paths.json_log)
-        return self.failure_result(events, paths.json_log)
+        return self.failure_result(events, paths.json_log, user_message)
+
+
+def wait_for_startup_exit(process: subprocess.Popen[bytes], seconds: float) -> Optional[int]:
+    deadline = time.monotonic() + max(0.0, seconds)
+    while True:
+        exit_code = process.poll()
+        if exit_code is not None:
+            return exit_code
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.05)
+
+
+def release_detached_process(process: subprocess.Popen[bytes]) -> None:
+    handle = getattr(process, "_handle", None)
+    if handle is not None and hasattr(handle, "Close"):
+        handle.Close()
+        if hasattr(process, "_child_created"):
+            process._child_created = False
+
+
+def read_text_tail(path: Path, limit: int = DETACHED_OUTPUT_TAIL_CHARS) -> str:
+    if not path.is_file():
+        return ""
+    data = path.read_bytes()
+    if len(data) > limit:
+        data = data[-limit:]
+    return data.decode("utf-8", errors="replace")
 

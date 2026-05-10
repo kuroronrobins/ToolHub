@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import os
 from pathlib import Path
+import subprocess
 from typing import Any
 
 from .models import BuildPlan, RuntimeCheck, RuntimeCheckResult, StudioContext
@@ -107,12 +109,7 @@ def verify_frozen_folder_distribution(
         build_env_separation_check(context, final_app),
         size_check("frozen-folder size", bin_root),
         add_data_size_check(context, build_profile),
-        RuntimeCheck(
-            "frozen smoke execution",
-            "warn",
-            "Skipped automatically for exe/frozen-folder mode. GUI, browser, login, and file-picker flows require manual launch verification.",
-            NON_BLOCKING_WARNING,
-        ),
+        frozen_smoke_execution_check(final_app, exe_path),
     ]
     if uses_playwright(build_profile):
         checks.append(
@@ -410,6 +407,71 @@ def add_data_size_check(context: StudioContext, build_profile: dict[str, Any]) -
     if large:
         detail += "; large add-data candidates: " + ", ".join(large[:5])
     return RuntimeCheck("add-data source size", status, detail, APPROVAL_BLOCKING_WARNING if status == "warn" else INFO, status == "warn")
+
+
+def frozen_smoke_execution_check(final_app: Path, exe_path: Path, timeout_seconds: float = 4.0) -> RuntimeCheck:
+    if not exe_path.is_file():
+        return RuntimeCheck("frozen smoke execution", "fail", f"Executable is missing: {exe_path}")
+    if not looks_like_native_executable(exe_path):
+        return RuntimeCheck(
+            "frozen smoke execution",
+            "warn",
+            "Skipped because the run.entry file does not look like a native executable. This is usually a test fixture or placeholder.",
+            NON_BLOCKING_WARNING,
+        )
+    try:
+        process = subprocess.Popen(
+            [str(exe_path)],
+            cwd=str(final_app),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=os.environ.copy(),
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            terminate_process(process)
+            return RuntimeCheck("frozen smoke execution", "pass", f"Process stayed alive for {timeout_seconds:.1f}s; no immediate crash was detected.")
+    except Exception as exc:
+        return RuntimeCheck("frozen smoke execution", "fail", f"Executable could not be started: {exc!r}")
+
+    output_tail = text_tail("\n".join(part for part in [stdout, stderr] if part))
+    detail = f"Process exited during startup smoke check with exit_code={process.returncode}."
+    if output_tail:
+        detail += f" Output tail: {output_tail}"
+    if process.returncode == 0:
+        return RuntimeCheck("frozen smoke execution", "warn", detail, NON_BLOCKING_WARNING)
+    return RuntimeCheck("frozen smoke execution", "fail", detail)
+
+
+def looks_like_native_executable(path: Path) -> bool:
+    if os.name == "nt" and path.suffix.lower() == ".exe":
+        try:
+            return path.read_bytes()[:2] == b"MZ"
+        except Exception:
+            return False
+    return os.access(path, os.X_OK)
+
+
+def terminate_process(process: subprocess.Popen[str]) -> None:
+    try:
+        process.terminate()
+        process.wait(timeout=2)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
+
+
+def text_tail(value: str, limit: int = 2000) -> str:
+    text = value.strip()
+    if len(text) <= limit:
+        return text
+    return text[-limit:]
 
 
 def directory_size(path: Path) -> int:

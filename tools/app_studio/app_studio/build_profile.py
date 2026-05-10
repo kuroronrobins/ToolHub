@@ -37,10 +37,15 @@ def default_build_profile(context: StudioContext, inventory: SourceInventory, de
 
     profile["paths"] = [path.relative_to(context.source_root).as_posix() for path in pyinstaller_search_paths(context, inventory)]
     profile["hidden_imports"] = pyinstaller_hidden_imports(context, inventory)
-    profile["add_data"] = [
+    data_entries = [
         {"source": source.relative_to(context.source_root).as_posix(), "destination": destination}
         for source, destination in pyinstaller_data_files(context, inventory)
     ]
+    data_entries.extend(
+        {"source": source.relative_to(context.source_root).as_posix(), "destination": source.relative_to(context.source_root).as_posix()}
+        for source in pyinstaller_python_source_data_dirs(context, inventory)
+    )
+    profile["add_data"] = unique_mappings(data_entries)
     profile["required_files"] = [item["source"] for item in profile["add_data"]]
     profile["manual_checks"].extend(
         f"{item.get('source_file', '-')}: {item.get('pattern', '-')} - {item.get('reason', '-')}"
@@ -56,6 +61,12 @@ def default_build_profile(context: StudioContext, inventory: SourceInventory, de
                 "認証済み storage state は自動同梱しません。初回ログインまたは手動認証の流れを確認してください。",
                 "ブラウザ画面、ファイル選択、待機型の操作は自動完了確認の対象外です。人間による起動確認を行ってください。",
             ]
+        )
+    if "flet" in dependencies:
+        profile["hidden_imports"] = unique_strings([*profile["hidden_imports"], "flet_desktop"])
+        profile["collect_all"] = unique_strings([*profile["collect_all"], "flet", "flet_desktop"])
+        profile["manual_checks"].append(
+            "Flet desktop runtime を検出しました。build_env で flet-desktop を同一バージョンに補完し、frozen-folder 起動確認を行ってください。"
         )
 
     if profile["add_data"]:
@@ -239,6 +250,20 @@ def pyinstaller_data_files(context: StudioContext, inventory: SourceInventory) -
             destination = "."
         data_files.append((record.path, destination))
     return sorted(data_files, key=lambda item: item[0].as_posix().lower())
+
+
+def pyinstaller_python_source_data_dirs(context: StudioContext, inventory: SourceInventory) -> list[Path]:
+    dirs: set[Path] = set()
+    for record in inventory.records:
+        if not record.include or record.path.suffix.lower() != ".py":
+            continue
+        relative = Path(record.relative_path)
+        if len(relative.parts) < 3:
+            continue
+        source_dir = context.source_root / relative.parts[0] / relative.parts[1]
+        if source_dir.is_dir():
+            dirs.add(source_dir.resolve())
+    return sorted(dirs, key=lambda path: path.as_posix().lower())
 
 
 def build_profile_markdown(profile: dict[str, Any], readiness: dict[str, Any]) -> str:

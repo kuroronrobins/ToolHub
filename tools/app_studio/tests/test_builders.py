@@ -403,6 +403,39 @@ class AppEnvBuilderTests(unittest.TestCase):
             self.assertEqual(captured_env.get("PIP_CACHE_DIR"), str(pip_cache))
             self.assertNotIn("PIP_NO_CACHE_DIR", captured_env)
 
+    def test_build_env_installs_matching_flet_desktop_runtime_package(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            requirements = context.source_root / "requirements.txt"
+            requirements.write_text("flet>=0.23.2\n", encoding="utf-8")
+            install_commands: list[list[str]] = []
+
+            def fake_create_venv(base_python, env_path, cwd, temp_dir, notes):
+                python = env_path / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
+                write_text(python, "fake python\n")
+                return ""
+
+            def fake_run_command(command, cwd, temp_dir=None, pip_cache_dir=None, disable_pip_cache=True):
+                if command[-1] == "--version" and "-m" not in command:
+                    return types.SimpleNamespace(returncode=0, stdout="Python 3.13.2\n", stderr="")
+                if len(command) >= 4 and command[-3:] == ["-m", "pip", "--version"]:
+                    return types.SimpleNamespace(returncode=0, stdout="pip 24.0\n", stderr="")
+                if "-r" in command:
+                    return types.SimpleNamespace(returncode=0, stdout="installed flet\n", stderr="")
+                if "-c" in command:
+                    return types.SimpleNamespace(returncode=0, stdout='{"flet": "0.85.0", "flet-desktop": null}\n', stderr="")
+                if "flet-desktop==0.85.0" in command:
+                    install_commands.append(command)
+                    return types.SimpleNamespace(returncode=0, stdout="installed flet-desktop\n", stderr="")
+                return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            with patch("app_studio.app_env_builder.create_venv_with_pip", side_effect=fake_create_venv), patch("app_studio.app_env_builder.run_command", side_effect=fake_run_command):
+                result = create_build_env(context, requirements)
+
+            self.assertTrue(result.ok)
+            self.assertTrue(any("flet-desktop==0.85.0" in command for command in install_commands))
+            self.assertIn("Installed framework runtime package: flet-desktop==0.85.0", result.report)
+
 
 class LockGeneratorTests(unittest.TestCase):
     def test_existing_requirements_lock_is_copied_first(self) -> None:
@@ -582,6 +615,42 @@ class FrozenFolderTests(unittest.TestCase):
             self.assertIn(f"{flow_file}{os.pathsep}xcgate_flows/flows", command)
             self.assertIn("--collect-all", command)
             self.assertIn("playwright", command)
+
+    def test_pyinstaller_profile_collects_flet_desktop_runtime(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            inventory = SourceInventory([FileRecord(context.entry, "main.py", 12, True, "entry", "source")], import_roots=["flet"])
+            profile = default_build_profile(context, inventory, DependencyReport("requirements.txt", ["flet>=0.23.2"], ["flet"], []))
+
+            command = pyinstaller_command(Path("python"), context, Path("dist"), Path("build"), Path("spec"), profile)
+
+            self.assertIn("--hidden-import", command)
+            self.assertIn("flet_desktop", command)
+            self.assertIn("--collect-all", command)
+            self.assertIn("flet", command)
+            self.assertIn("flet_desktop", command)
+
+    def test_pyinstaller_profile_adds_nested_python_source_dir_as_data(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            nested = context.source_root / "xcgate_flows" / "src"
+            nested.mkdir(parents=True)
+            module = nested / "main.py"
+            write_text(module, "def main(): pass\n")
+            inventory = SourceInventory(
+                [
+                    FileRecord(context.entry, "run_xcgate_upload.py", 12, True, "entry", "source"),
+                    FileRecord(module, "xcgate_flows/src/main.py", 16, True, "python", "source"),
+                ]
+            )
+
+            profile = default_build_profile(context, inventory, DependencyReport("", [], [], []))
+
+            self.assertIn(
+                {"source": "xcgate_flows/src", "destination": "xcgate_flows/src"},
+                profile["add_data"],
+            )
+            self.assertIn("xcgate_flows/src", profile["required_files"])
 
     def test_exe_readiness_reports_profile_and_manual_checks(self) -> None:
         with workspace_tempdir() as root:
@@ -773,11 +842,19 @@ class NormalRegistrationFlowTests(unittest.TestCase):
                         continue
                     source_text, destination = command[index + 1].split(os.pathsep, 1)
                     source_path = Path(source_text)
-                    target = built_dir / destination / source_path.name
-                    if target.parent.exists() and target.parent.is_file():
-                        target.parent.unlink()
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text(source_path.read_text(encoding="utf-8"), encoding="utf-8")
+                    if source_path.is_dir():
+                        for source_file in source_path.rglob("*"):
+                            if not source_file.is_file():
+                                continue
+                            target = built_dir / destination / source_file.relative_to(source_path)
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            target.write_text(source_file.read_text(encoding="utf-8"), encoding="utf-8")
+                    else:
+                        target = built_dir / destination / source_path.name
+                        if target.parent.exists() and target.parent.is_file():
+                            target.parent.unlink()
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_text(source_path.read_text(encoding="utf-8"), encoding="utf-8")
                 return types.SimpleNamespace(returncode=0, stdout="build ok\n", stderr="")
 
             with patch("main.create_build_env", side_effect=fake_create_build_env), patch("main.generate_lock", side_effect=fake_generate_lock), patch("main.install_build_tools", side_effect=fake_install_build_tools), patch("app_studio.frozen_folder_builder.run_pyinstaller_command", side_effect=fake_pyinstaller):
@@ -2337,6 +2414,7 @@ class RuntimeCheckerTests(unittest.TestCase):
             self.assertEqual(checks["required add-data files"], "pass")
             self.assertEqual(checks["forbidden payload files"], "pass")
             self.assertEqual(checks["frozen-folder size"], "pass")
+            self.assertEqual(checks["frozen smoke execution"], "warn")
 
     def test_frozen_distribution_check_accepts_internal_add_data_with_warning(self) -> None:
         with workspace_tempdir() as root:
@@ -2416,6 +2494,30 @@ class RuntimeCheckerTests(unittest.TestCase):
             self.assertNotIn("certifi/cacert.pem", forbidden.detail)
             self.assertNotIn("cookieStore.js", forbidden.detail)
             self.assertNotIn("_cdp_session.py", forbidden.detail)
+
+    def test_frozen_smoke_execution_fails_on_immediate_nonzero_exit(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            plan = BuildPlan("frozen-folder", "exe", f"bin/{context.app_id}/{context.app_id}.exe", None, [])
+            final_app = context.output_dir / "final_app"
+            bin_root = final_app / "bin" / context.app_id
+            bin_root.mkdir(parents=True)
+            write_text(final_app / "app.yaml", f"run:\n  runner: exe\n  entry: {plan.entry}\n")
+            write_text(final_app / "requirements.lock", "")
+            (bin_root / f"{context.app_id}.exe").write_bytes(b"MZfake")
+
+            class FakeProcess:
+                returncode = 1
+
+                def communicate(self, timeout=None):
+                    return "", "ModuleNotFoundError: No module named 'flet_desktop'\n"
+
+            with patch("app_studio.runtime_checker.subprocess.Popen", return_value=FakeProcess()):
+                result = verify_runtime(context, context.output_dir, plan, {"add_data": []})
+
+            smoke = next(check for check in result.checks if check.name == "frozen smoke execution")
+            self.assertEqual(smoke.status, "fail")
+            self.assertIn("flet_desktop", smoke.detail)
 
 
 class DocsTests(unittest.TestCase):

@@ -4,9 +4,28 @@ Created: 2026-05-10
 
 ## Implementation Status
 
-未実装。
+実装済み。
+この文書は、ホーム画面で「起動しました」と表示されるのにアプリ画面が立ち上がらない問題について、調査結果、修正方針、実装内容を整理するものです。
 
-この文書は、ホーム画面で「起動しました」と表示されるのにアプリ画面が立ち上がらない問題について、調査結果と修正方針を次回実装用に整理するものです。
+今回の実装で対応した範囲:
+
+- runner が detached 起動直後の異常終了を検知し、成功扱いにしない。
+- detached 起動時の stdout / stderr をアプリ別ログへ保存し、起動直後クラッシュの原因を追跡できるようにする。
+- App Studio の frozen-folder ビルドで Flet アプリを検出した場合、`flet-desktop` を同一バージョンで build_env に補完する。
+- PyInstaller profile に `flet_desktop` hidden import と `flet` / `flet_desktop` collect-all を追加する。
+- App Studio の配布物検証で frozen exe の短時間 smoke check を行い、即時クラッシュを承認前に fail として検出する。
+
+注意:
+
+- 既存登録済みアプリの古い frozen exe は、修正済み App Studio で再登録または再ビルドするまで中身は更新されない。
+- すでに起動失敗していた Flet 系アプリは、再ビルド後に `flet-desktop` 同梱済みの配布物へ置き換える必要がある。
+
+運用補修結果:
+
+- `legacy_flet_system_20260510` は修正済み App Studio で再ビルド、承認、有効化済み。
+- `app_20260201_agendasnap` は修正済み App Studio で再ビルド、承認、有効化済み。
+- `run_xcgate_upload` は `xcgate_flows/src` を data 同梱する profile 補正後に再ビルド、承認、有効化済み。
+- `app_20260215_pdfapplication` は登録元 `source_entry` の `app.py` が存在しないため再ビルド不可。既存 frozen-folder に `flet_desktop==0.84.0` を補修同梱し、App Pack と manifest hash を更新済み。
 
 ## Purpose
 

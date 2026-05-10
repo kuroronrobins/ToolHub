@@ -16,6 +16,8 @@ class RunLogPaths:
     json_log: Path
     text_log: Path
     latest_log: Path
+    stdout_log: Path
+    stderr_log: Path
 
 
 def create_run_log_paths(project_root: Path, app_id: str) -> RunLogPaths:
@@ -27,6 +29,8 @@ def create_run_log_paths(project_root: Path, app_id: str) -> RunLogPaths:
         json_log=log_dir / f"run_{timestamp}.json",
         text_log=log_dir / f"run_{timestamp}.log",
         latest_log=log_dir / "latest.log",
+        stdout_log=log_dir / f"run_{timestamp}.stdout.log",
+        stderr_log=log_dir / f"run_{timestamp}.stderr.log",
     )
 
 
@@ -52,6 +56,8 @@ def save_run_log(
     admin_error: str = "",
     command: list[str] | None = None,
     pid: int | None = None,
+    stdout_log_path: str | None = None,
+    stderr_log_path: str | None = None,
 ) -> None:
     payload: dict[str, Any] = {
         "app_id": app_id,
@@ -67,6 +73,10 @@ def save_run_log(
         "user_message": user_message,
         "admin_error": admin_error,
     }
+    if stdout_log_path:
+        payload["stdout_log_path"] = stdout_log_path
+    if stderr_log_path:
+        payload["stderr_log_path"] = stderr_log_path
     text = json.dumps(payload, ensure_ascii=False, indent=2)
     paths.json_log.write_text(text, encoding="utf-8")
 
@@ -80,6 +90,8 @@ def save_run_log(
             f"pid: {pid}",
             f"user_message: {user_message}",
             f"admin_error: {admin_error}",
+            f"stdout_log_path: {stdout_log_path or ''}",
+            f"stderr_log_path: {stderr_log_path or ''}",
             "",
             "[stdout]",
             stdout,
