@@ -190,6 +190,12 @@ fn read_execution_result(output_dir: &Path, summary: &mut AppStudioResultSummary
     summary.approval_blocking_reasons = string_array(json.get("approval_blocking_reasons"));
     summary.non_blocking_warning_summaries =
         string_array(json.get("non_blocking_warning_summaries"));
+    if summary.approval_failure_summary.is_none()
+        && (summary.approval_allowed == Some(false)
+            || summary.execution_status.as_deref() == Some("fail"))
+    {
+        summary.approval_failure_summary = execution_failure_summary(&json);
+    }
 }
 
 fn read_timing_result(output_dir: &Path, summary: &mut AppStudioResultSummary) {
@@ -271,6 +277,48 @@ fn string_array(value: Option<&Value>) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn execution_failure_summary(json: &Value) -> Option<String> {
+    let mut failures = Vec::new();
+    if let Some(checks) = json.get("checks").and_then(Value::as_array) {
+        for item in checks {
+            let status = item.get("status").and_then(Value::as_str).unwrap_or("");
+            let category = item
+                .get("approval_category")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let blocking = item
+                .get("approval_blocking")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if status != "fail"
+                && !(status == "warn" && (blocking || category == "approval_blocking_warning"))
+            {
+                continue;
+            }
+            let name = item
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("execution check");
+            let detail = item.get("detail").and_then(Value::as_str).unwrap_or("");
+            failures.push(if detail.is_empty() {
+                name.to_string()
+            } else {
+                format!("{name}: {detail}")
+            });
+        }
+    }
+    if !failures.is_empty() {
+        return Some(format!(
+            "Execution test result contains fail checks: {}",
+            failures.join(" | ")
+        ));
+    }
+    if json.get("overall_status").and_then(Value::as_str) == Some("fail") {
+        return Some("Execution test result overall_status=fail.".to_string());
+    }
+    None
 }
 
 fn read_app_pack(output_dir: &Path, summary: &mut AppStudioResultSummary) {

@@ -1558,6 +1558,47 @@ mod tests {
     }
 
     #[test]
+    fn read_summary_promotes_execution_fail_check_details() {
+        let root = temp_project_root();
+        let output = root
+            .join("source")
+            .join("ToolHub_AppStudio_Output")
+            .join("exe_app");
+        std::fs::create_dir_all(&output).unwrap();
+        std::fs::write(
+            output.join("execution_test_result.json"),
+            r#"{
+                "overall_status": "fail",
+                "approval_allowed": false,
+                "checks": [
+                    {
+                        "name": "frozen-folder build",
+                        "status": "fail",
+                        "detail": "Source entry file is missing before PyInstaller build. entry=C:\\work\\app.py",
+                        "approval_category": "fail",
+                        "approval_blocking": true
+                    }
+                ]
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            output.join("import_plan.json"),
+            "{\"app_id\":\"exe_app\",\"selected_build_mode\":\"frozen-folder\"}",
+        )
+        .unwrap();
+
+        let summary = read_summary(&root, Some("exe_app"), Some(&output));
+
+        assert_eq!(summary.execution_status.as_deref(), Some("fail"));
+        assert_eq!(summary.approval_allowed, Some(false));
+        let failure = summary.approval_failure_summary.unwrap();
+        assert!(failure.contains("frozen-folder build"));
+        assert!(failure.contains("Source entry file is missing"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn read_summary_reports_catalog_visibility_for_enabled_app() {
         let root = temp_project_root();
         write_catalog_app(&root, "visible_app");

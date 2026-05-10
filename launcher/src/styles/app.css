@@ -271,6 +271,14 @@ button {
   background: #0d665f;
 }
 
+.primary-button:disabled,
+.primary-button:disabled:hover {
+  cursor: not-allowed;
+  border-color: #cbd5e1;
+  background: #e5eaf0;
+  color: #6b7280;
+}
+
 .secondary-button {
   border: 1px solid #cfd7e3;
   background: #ffffff;
@@ -2207,7 +2215,17 @@ button {
 .studio-ai-action-card:disabled,
 .studio-register-action:disabled {
   cursor: not-allowed;
-  opacity: 0.68;
+  border-color: #d7dee8;
+  background: #f3f6fa;
+  color: #6b7280;
+  opacity: 1;
+}
+
+.studio-ai-action-card:disabled strong,
+.studio-register-action:disabled strong,
+.studio-ai-action-card:disabled small,
+.studio-register-action:disabled small {
+  color: #6b7280;
 }
 
 .studio-ai-action-card span,

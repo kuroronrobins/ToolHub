@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import BuildPlan, RuntimeCheck, RuntimeCheckResult, StudioContext
-from .trace import trace_with_import_plan
+from .trace import planned_build_env_path, trace_with_import_plan
 from .util import write_json, write_text
 
 
@@ -370,7 +370,7 @@ def is_allowed_runtime_certificate(relative_parts: list[str], name: str) -> bool
 
 
 def build_env_separation_check(context: StudioContext, final_app: Path) -> RuntimeCheck:
-    build_env = context.output_dir / "build_env"
+    build_env = planned_build_env_path(context)
     if build_env.exists() and not build_env.is_relative_to(final_app):
         return RuntimeCheck("build_env separation", "pass", f"build_env is outside final_app: {build_env}")
     if not build_env.exists():

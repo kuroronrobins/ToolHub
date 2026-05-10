@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import AppEnvBuildResult, StudioContext
+from .trace import planned_build_env_path, planned_build_tmp_path, planned_pip_cache_dir
 from .util import assert_within, file_sha256, now_iso, timestamp, write_json, write_text
 
 
@@ -114,8 +115,8 @@ def create_build_env(
     build_profile_hash: str = "",
     build_tools_packages: list[str] | None = None,
 ) -> AppEnvBuildResult:
-    build_env_path = context.output_dir / "build_env"
-    temp_dir = context.output_dir / "build_tmp"
+    build_env_path = planned_build_env_path(context)
+    temp_dir = planned_build_tmp_path(context)
     pip_cache = pip_cache_dir(context)
     assert_within(build_env_path, context.output_dir, "build_env target")
 
@@ -262,7 +263,7 @@ def create_build_env(
 
 def install_build_tools(context: StudioContext, build_env_path: Path, packages: list[str]) -> AppEnvBuildResult:
     assert_within(build_env_path, context.output_dir, "build_env target")
-    temp_dir = context.output_dir / "build_tmp"
+    temp_dir = planned_build_tmp_path(context)
     pip_cache = pip_cache_dir(context)
     env_python = app_env_python(build_env_path)
     notes = [
@@ -319,7 +320,7 @@ def install_build_tools(context: StudioContext, build_env_path: Path, packages: 
 
 
 def pip_cache_dir(context: StudioContext) -> Path:
-    return context.output_dir / "build_tmp" / "pip_cache"
+    return planned_pip_cache_dir(context)
 
 
 def build_env_cache_metadata_path(build_env_path: Path) -> Path:

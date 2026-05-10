@@ -10,7 +10,9 @@ from typing import Any
 from .models import NORMAL_REGISTRATION_POLICY, StudioContext
 
 
-APP_STUDIO_POLICY_ID = "normal_python_source_to_frozen_folder_build_env_v2"
+APP_STUDIO_POLICY_ID = "normal_python_source_to_frozen_folder_build_env_v3"
+BUILD_ENV_DIRNAME = "be"
+BUILD_TMP_DIRNAME = "bt"
 TRACE_KEYS = {
     "app_studio_cli_path",
     "app_studio_policy_id",
@@ -34,7 +36,15 @@ TRACE_KEYS = {
 
 
 def planned_build_env_path(context: StudioContext) -> Path:
-    return context.output_dir / "build_env"
+    return context.output_dir / BUILD_ENV_DIRNAME
+
+
+def planned_build_tmp_path(context: StudioContext) -> Path:
+    return context.output_dir / BUILD_TMP_DIRNAME
+
+
+def planned_pip_cache_dir(context: StudioContext) -> Path:
+    return planned_build_tmp_path(context) / "pip"
 
 
 def planned_build_env_python(context: StudioContext) -> Path:

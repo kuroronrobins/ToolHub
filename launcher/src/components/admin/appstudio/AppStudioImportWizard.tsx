@@ -113,7 +113,7 @@ export function AppStudioImportWizard() {
     }),
     [],
   );
-  const approvalDecision = useMemo(() => getAppStudioApprovalDecision(result, approvalMode, busy), [approvalMode, busy, result]);
+  const approvalDecision = useMemo(() => getAppStudioApprovalDecision(result, approvalMode, busy, lastAction), [approvalMode, busy, lastAction, result]);
   const canApprove = approvalDecision.canApprove;
 
   useEffect(() => {

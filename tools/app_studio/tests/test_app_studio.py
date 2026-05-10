@@ -667,7 +667,7 @@ class AppStudioTests(unittest.TestCase):
 
         artifacts, dist, work, spec = pyinstaller_artifact_paths(output_dir)
 
-        self.assertEqual(artifacts.as_posix(), "C:/tmp/source/ToolHub_AppStudio_Output/run_xcgate_upload_phase1b_check/build_tmp/pyi")
+        self.assertEqual(artifacts.as_posix(), "C:/tmp/source/ToolHub_AppStudio_Output/run_xcgate_upload_phase1b_check/bt/pyi")
         self.assertEqual(dist.name, "d")
         self.assertEqual(work.name, "b")
         self.assertEqual(spec.name, "s")

@@ -1,0 +1,56 @@
+id: legacy_flet_system_20260510
+name: Legacy Flet System 20260510
+
+display:
+  icon: icon.png
+  icon_fallback: icon.svg
+  short_description: "Legacy Flet System 20260510 をToolHubから起動するアプリです。"
+  categories:
+    - "業務ツール"
+
+detail:
+  description: >
+    Legacy Flet System 20260510 は、指定されたメインファイルをもとにToolHubへ取り込むためのアプリ定義です。
+  use_cases:
+    - "Legacy Flet System 20260510 をToolHubからすばやく起動する"
+  inputs:
+    - "アプリ設定に依存"
+  outputs:
+    - "アプリ実行結果"
+  notes:
+    - "正式登録前に実行確認と人間承認が必要です。"
+
+search:
+  keywords:
+    - Legacy Flet System 20260510
+    - legacy_flet_system_20260510
+    - ToolHub
+  examples:
+    - "Legacy Flet System 20260510 を起動したい"
+
+run:
+  runner: exe
+  entry: bin/legacy_flet_system_20260510/legacy_flet_system_20260510.exe
+  mode: gui
+
+admin:
+  version: 0.1.0
+  owner: admin
+  requirements: requirements.txt
+  log_dir: logs
+
+runtime:
+  distribution_mode: frozen_folder
+  app_env: null
+  required_runtime: null
+  requirements_lock: requirements.lock
+
+build:
+  managed_by: toolhub_app_studio
+  build_mode: frozen-folder
+  source_entry: C:\Users\kuroron\Documents\RD\20260215_PDFApplication\archive\legacy_flet_system_20260510\app.py
+  output_mirror: C:\Users\kuroron\Documents\RD\20260215_PDFApplication\archive\legacy_flet_system_20260510\ToolHub_AppStudio_Output\legacy_flet_system_20260510
+
+quality:
+  approval_required: true
+  execution_test_required: true

@@ -61,7 +61,7 @@ export function normalizeAppStudioRunResult(
   result: AppStudioRunResult | null,
   options: AppStudioRunResultViewOptions,
 ): AppStudioRunResultView {
-  const approvalDecision = getAppStudioApprovalDecision(result, options.approvalMode, options.busy ?? false);
+  const approvalDecision = getAppStudioApprovalDecision(result, options.approvalMode, options.busy ?? false, options.lastAction ?? null);
   const approvalFailureGuidance = getAppStudioApprovalFailureGuidance(result);
   const canApprove = approvalDecision.canApprove;
   const warningOnly = isAppStudioWarningOnly(result);

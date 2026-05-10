@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getAppStudioApprovalFailureGuidance } from "./appStudioApproval";
+import { getAppStudioApprovalDecision, getAppStudioApprovalFailureGuidance } from "./appStudioApproval";
 import type { AppStudioRunResult } from "./appStudioTypes";
 
 function result(approvalFailureSummary: string): AppStudioRunResult {
@@ -41,5 +41,51 @@ describe("getAppStudioApprovalFailureGuidance", () => {
 
     expect(guidance?.reason).toContain("runtime 検証");
     expect(guidance?.nextAction).toContain("runtime_check_result.json");
+  });
+
+  it("explains missing source entry failures", () => {
+    const guidance = getAppStudioApprovalFailureGuidance(
+      result("Execution test result contains fail checks: frozen-folder build: Source entry file is missing before PyInstaller build. entry=C:\\work\\app.py"),
+    );
+
+    expect(guidance?.reason).toContain("ソースファイル");
+    expect(guidance?.nextAction).toContain("選び直す");
+  });
+
+  it("uses failure guidance when execution status failed", () => {
+    const decision = getAppStudioApprovalDecision(
+      {
+        ...result("Execution test result contains fail checks: frozen-folder build: Source entry file is missing before PyInstaller build. entry=C:\\work\\app.py"),
+        executionStatus: "fail",
+        approvalAllowed: false,
+      },
+      "strict",
+    );
+
+    expect(decision.canApprove).toBe(false);
+    expect(decision.reason).toContain("ソースファイル");
+  });
+
+  it("points suggest-only results at test registration before approval", () => {
+    const decision = getAppStudioApprovalDecision(
+      {
+        ok: true,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        userMessage: "",
+        appId: "demo_app",
+        selectedBuildMode: "frozen-folder",
+        catalogVisible: false,
+        catalogDisabledReason: "app_yaml_missing",
+      },
+      "strict",
+      false,
+      "suggest",
+    );
+
+    expect(decision.canApprove).toBe(false);
+    expect(decision.reason).toContain("テスト登録");
+    expect(decision.systemDecision).toBe("テスト未実行");
   });
 });

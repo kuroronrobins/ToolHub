@@ -142,6 +142,24 @@ describe("normalizeAppStudioRunResult", () => {
     ).toContain("テスト登録");
   });
 
+  it("shows refreshed suggest-only results as waiting for test registration", () => {
+    const view = normalizeAppStudioRunResult(
+      result({
+        executionStatus: undefined,
+        approvalAllowed: undefined,
+        appPack: undefined,
+        manifestEnabled: undefined,
+        catalogVisible: false,
+        catalogDisabledReason: "app_yaml_missing",
+      }),
+      { approvalMode: "strict", lastAction: null },
+    );
+
+    expect(view.canApprove).toBe(false);
+    expect(view.approvalDecision.systemDecision).toBe("テスト未実行");
+    expect(view.primaryNextAction).toContain("テスト登録");
+  });
+
   it("treats update apply warning-only results as completed", () => {
     const warningOnly = result({
       ok: false,

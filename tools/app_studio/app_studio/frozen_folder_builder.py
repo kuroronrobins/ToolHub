@@ -7,11 +7,11 @@ from pathlib import Path
 
 from .build_profile import managed_build_python, pyinstaller_profile_args
 from .models import BuildPlan, FrozenBuildResult, StudioContext
-from .trace import app_studio_trace, is_runtime_app_env_path, planned_build_env_python
+from .trace import BUILD_TMP_DIRNAME, app_studio_trace, is_runtime_app_env_path, planned_build_env_python
 from .util import assert_within, reset_directory, write_text
 
 
-PYINSTALLER_ARTIFACT_ROOT = Path("build_tmp") / "pyi"
+PYINSTALLER_ARTIFACT_ROOT = Path(BUILD_TMP_DIRNAME) / "pyi"
 PYINSTALLER_DIST_DIR = "d"
 PYINSTALLER_WORK_DIR = "b"
 PYINSTALLER_SPEC_DIR = "s"
@@ -37,10 +37,25 @@ def build_frozen_folder(
         write_frozen_report(context, result)
         return result
 
+    input_error = validate_frozen_build_inputs(context)
+    if input_error:
+        result = FrozenBuildResult(False, False, None, build_report(context, plan, [], input_error, None), [], input_error)
+        write_frozen_report(context, result)
+        return result
+
     python = select_python(context)
     if python is None:
-        error = "Managed build Python is not available. Apply must create output_dir/build_env before the frozen-folder build."
+        error = "Managed build Python is not available. Apply must create the internal build_env before the frozen-folder build."
         result = FrozenBuildResult(False, False, None, build_report(context, plan, [], error, None), [], error)
+        write_frozen_report(context, result)
+        return result
+    if not python.is_file():
+        error = (
+            "Managed build Python was selected but the executable is missing before PyInstaller build. "
+            f"selected_python={python}; output_dir={context.output_dir}. "
+            "The App Studio internal build_env may have been moved or deleted. Rerun Apply after restoring the source and output folder."
+        )
+        result = FrozenBuildResult(False, False, None, build_report(context, plan, [[str(python), "-m", "PyInstaller", "--version"]], error, None), [], error)
         write_frozen_report(context, result)
         return result
     expected_python = planned_build_env_python(context)
@@ -106,6 +121,25 @@ def select_python(context: StudioContext) -> Path | None:
     return managed_build_python(context)
 
 
+def validate_frozen_build_inputs(context: StudioContext) -> str:
+    if not context.source_root.is_dir():
+        return (
+            "Source root directory is missing before PyInstaller build. "
+            f"source_root={context.source_root}. Restore the app source or select the current source folder, then rerun Apply."
+        )
+    if not context.entry.is_file():
+        return (
+            "Source entry file is missing before PyInstaller build. "
+            f"entry={context.entry}; source_root={context.source_root}. Restore the app source or select the current entry file, then rerun Apply."
+        )
+    if not context.entry.resolve().is_relative_to(context.source_root.resolve()):
+        return (
+            "Source entry is outside source_root before PyInstaller build. "
+            f"entry={context.entry}; source_root={context.source_root}. Select a source_root that contains the entry file."
+        )
+    return ""
+
+
 def pyinstaller_artifact_paths(output_dir: Path) -> tuple[Path, Path, Path, Path]:
     artifacts = output_dir / PYINSTALLER_ARTIFACT_ROOT
     return (
@@ -143,7 +177,17 @@ def run_pyinstaller_command(command: list[str], cwd: Path, no_user_site: bool = 
     env = os.environ.copy()
     if no_user_site:
         env["PYTHONNOUSERSITE"] = "1"
-    return subprocess.run(command, cwd=str(cwd), text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, env=env)
+    try:
+        return subprocess.run(command, cwd=str(cwd), text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, env=env)
+    except OSError as exc:
+        stderr = "\n".join(
+            [
+                f"{exc.__class__.__name__}: {exc}",
+                f"executable: {command[0] if command else ''}",
+                f"working_directory: {cwd}",
+            ]
+        )
+        return subprocess.CompletedProcess(command, 127, "", stderr)
 
 
 def pyinstaller_command(python: Path, context: StudioContext, dist: Path, work: Path, spec: Path, build_profile: dict | None = None) -> list[str]:
@@ -293,6 +337,14 @@ def classify_pyinstaller_failure(stdout: str, stderr: str, commands: list[list[s
                 "cause: PyInstaller reached COLLECT but failed while copying Playwright package data.",
                 "source_scope_related: false",
                 "next_action: review Playwright collect_all/add-data handling or PyInstaller hooks-contrib behavior; do not add `.auth` or storage state to the package as a workaround.",
+            ]
+        )
+    elif "filenotfounderror" in lower or "winerror 2" in lower or "no such file or directory" in lower or "cannot find the file" in lower:
+        hints.extend(
+            [
+                "category: pyinstaller_input_path_missing",
+                "cause: PyInstaller could not start because an executable, working directory, entry file, or input path was missing.",
+                "next_action: confirm the app source entry and App Studio internal build_env still exist, then rerun Apply.",
             ]
         )
     elif "hook" in lower and "failed" in lower:

@@ -1,5 +1,7 @@
 import type { AppStudioApprovalMode, AppStudioRunResult } from "./appStudioTypes";
 
+type AppStudioApprovalContextAction = "suggest" | "apply" | "approve" | null;
+
 export type AppStudioApprovalBlockingKind =
   | "none"
   | "busy"
@@ -28,6 +30,7 @@ export function getAppStudioApprovalDecision(
   result: AppStudioRunResult | null,
   approvalMode: AppStudioApprovalMode,
   busy = false,
+  lastAction: AppStudioApprovalContextAction = null,
 ): AppStudioApprovalDecision {
   if (busy) {
     return blocked("busy", "処理中のため、完了後に承認できます。", "処理中", "処理中");
@@ -38,8 +41,22 @@ export function getAppStudioApprovalDecision(
   if (result.enabled) {
     return blocked("not_apply_result", "このアプリはすでに有効化されています。", "承認済み", "承認済み");
   }
+  if (isWaitingForTestRegistration(result, lastAction)) {
+    return blocked(
+      "approval_disallowed",
+      "テスト登録と配布物検証がまだ完了していません。先に「テスト登録して配布物検証」を実行してください。",
+      "テスト未実行",
+      "承認不可",
+    );
+  }
   if (result.executionStatus === "fail") {
-    return blocked("execution_fail", "配布物検証が失敗しています。fail check を解消してください。", "approval_allowed=false", "承認不可");
+    const guidance = getAppStudioApprovalFailureGuidance(result);
+    return blocked(
+      "execution_fail",
+      guidance?.reason ?? "配布物検証が失敗しています。fail check を解消してください。",
+      "approval_allowed=false",
+      "承認不可",
+    );
   }
   if (result.approvalAllowed !== true) {
     return blocked("approval_disallowed", approvalDisallowedReason(result), "approval_allowed=false", "承認不可");
@@ -92,6 +109,21 @@ function approvalDisallowedReason(result: AppStudioRunResult): string {
   return "execution_test_result.json が承認不可を示しています。再度テスト登録するか、fail check を確認してください。";
 }
 
+function isWaitingForTestRegistration(result: AppStudioRunResult, lastAction: AppStudioApprovalContextAction): boolean {
+  if (result.executionStatus || result.approvalAllowed === true || result.enabled) {
+    return false;
+  }
+  if (lastAction === "suggest") {
+    return true;
+  }
+  return Boolean(
+    result.appId &&
+      !result.appPack &&
+      result.manifestEnabled !== true &&
+      (result.catalogDisabledReason === "app_yaml_missing" || result.catalogVisible === false),
+  );
+}
+
 export function getAppStudioApprovalFailureGuidance(result: AppStudioRunResult | null): AppStudioApprovalFailureGuidance | null {
   const summary = result?.approvalFailureSummary?.trim();
   if (!summary) {
@@ -121,6 +153,17 @@ export function getAppStudioApprovalFailureGuidance(result: AppStudioRunResult |
     return {
       reason: `runtime 検証が承認を止めています。${compactSummary(summary)}`,
       nextAction: "runtime_check_result.json の fail または配布リスク警告を解消し、テスト登録を再実行してください。",
+    };
+  }
+  if (
+    lower.includes("source entry file is missing") ||
+    lower.includes("source root directory is missing") ||
+    lower.includes("pyinstaller_input_path_missing") ||
+    lower.includes("winerror 2")
+  ) {
+    return {
+      reason: `アプリのソースファイルが見つからないため、配布用exeを作成できません。${compactSummary(summary)}`,
+      nextAction: "アプリ選択で現在存在する entry/app.py を選び直すか、移動したソースフォルダを元の場所に戻してからテスト登録を再実行してください。",
     };
   }
   if (lower.includes("execution test result does not allow approval") || lower.includes("execution test result contains fail checks") || lower.includes("overall_status=fail")) {

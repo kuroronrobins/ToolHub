@@ -26,8 +26,10 @@ from app_studio.build_planner import make_build_plan
 from app_studio.execution_tester import build_execution_result, record_blocked_execution, run_execution_checks
 from app_studio.exporter import export_suggestion
 from app_studio.frozen_folder_builder import build_report as frozen_build_report
+from app_studio.frozen_folder_builder import build_frozen_folder
 from app_studio.frozen_folder_builder import detect_pyinstaller_environment_issue, pyinstaller_command
 from app_studio.frozen_folder_builder import probe_pyinstaller
+from app_studio.frozen_folder_builder import run_pyinstaller_command
 from app_studio.lock_generator import generate_lock
 from app_studio.models import BuildPlan, DependencyReport, FileRecord, GeneratedArtifacts, IconCandidateAsset, ImportOptions, RuntimeCheck, RuntimeCheckResult, SecretFinding, SecretScanReport, SourceInventory
 from app_studio.models import AppEnvBuildResult, LockGenerationResult
@@ -42,6 +44,7 @@ from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import scan_ai_payload_text
 from app_studio.timing import TimingRecorder
+from app_studio.trace import planned_build_env_path, planned_build_env_python
 from app_studio.util import write_json, write_text
 from main import parse_args as parse_app_studio_args, run_icon_regenerate, run_import
 
@@ -360,8 +363,8 @@ class AppEnvBuilderTests(unittest.TestCase):
     def test_build_tools_install_skips_when_versions_satisfy_specs(self) -> None:
         with workspace_tempdir() as root:
             context = make_context(root)
-            build_env = context.output_dir / "build_env"
-            python = build_env / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
+            build_env = planned_build_env_path(context)
+            python = planned_build_env_python(context)
             python.parent.mkdir(parents=True)
             python.write_text("fake", encoding="utf-8")
             calls: list[list[str]] = []
@@ -425,7 +428,7 @@ class LockGeneratorTests(unittest.TestCase):
             final.mkdir()
             requirements = final / "requirements.txt"
             requirements.write_text("requests>=2\n", encoding="utf-8")
-            fake_python = context.output_dir / "build_env" / "Scripts" / "python.exe"
+            fake_python = planned_build_env_python(context)
             fake_python.parent.mkdir(parents=True)
             fake_python.write_text("fake", encoding="utf-8")
 
@@ -526,6 +529,30 @@ class FrozenFolderTests(unittest.TestCase):
         self.assertTrue(no_user_site)
         self.assertEqual(calls[1]["PYTHONNOUSERSITE"], "1")
         self.assertIn("PYTHONNOUSERSITE=1", stderr)
+
+    def test_pyinstaller_command_failure_is_reported_when_entry_disappears(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            context.entry.unlink()
+            plan = BuildPlan("frozen-folder", "exe", "bin/demo_app/demo_app.exe", None, [])
+
+            result = build_frozen_folder(context, plan, context.output_dir, rebuild=True, build_profile={})
+
+            self.assertFalse(result.ok)
+            self.assertIn("Source entry file is missing", result.error)
+            report = context.output_dir / "frozen_folder_build_report.md"
+            self.assertTrue(report.is_file())
+            self.assertIn("Source entry file is missing", report.read_text(encoding="utf-8"))
+
+    def test_run_pyinstaller_command_returns_failure_for_missing_executable(self) -> None:
+        with workspace_tempdir() as root:
+            missing_python = root / "missing-python.exe"
+
+            result = run_pyinstaller_command([str(missing_python), "-m", "PyInstaller", "--version"], root)
+
+            self.assertEqual(result.returncode, 127)
+            self.assertIn("FileNotFoundError", result.stderr)
+            self.assertIn(str(missing_python), result.stderr)
 
     def test_pyinstaller_command_adds_nested_paths_hidden_imports_and_data(self) -> None:
         with workspace_tempdir() as root:
@@ -709,15 +736,18 @@ class NormalRegistrationFlowTests(unittest.TestCase):
             args = parse_app_studio_args(argv)
             args._raw_argv = argv
             pyinstaller_commands: list[list[str]] = []
+            expected_build_env_python: Path | None = None
 
             def fake_create_build_env(context, requirements_path, rebuild=True, **kwargs):
-                build_env = context.output_dir / "build_env"
-                python = build_env / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
+                nonlocal expected_build_env_python
+                build_env = planned_build_env_path(context)
+                python = planned_build_env_python(context)
+                expected_build_env_python = python
                 write_text(python, "fake python\n")
                 return AppEnvBuildResult(True, False, build_env, python, "test_build_env", "ok\n", "")
 
             def fake_generate_lock(context, requirements_path, app_env_python=None, skip=False):
-                self.assertTrue(str(app_env_python).startswith(str(context.output_dir / "build_env")))
+                self.assertTrue(str(app_env_python).startswith(str(planned_build_env_path(context))))
                 lock = requirements_path.parent / "requirements.lock"
                 write_text(lock, "")
                 return LockGenerationResult(True, False, lock, "test", "ok\n", "")
@@ -729,7 +759,7 @@ class NormalRegistrationFlowTests(unittest.TestCase):
 
             def fake_pyinstaller(command, cwd, no_user_site=False):
                 pyinstaller_commands.append(command)
-                self.assertIn("build_env", command[0])
+                self.assertEqual(Path(command[0]), expected_build_env_python)
                 self.assertNotIn("runtime\\app_envs", command[0].replace("/", "\\"))
                 if "--version" in command:
                     return types.SimpleNamespace(returncode=0, stdout="6.10.0\n", stderr="")
@@ -768,11 +798,11 @@ class NormalRegistrationFlowTests(unittest.TestCase):
             self.assertEqual(build_command[build_command.index("--contents-directory") + 1], ".")
 
             import_plan = json.loads((output_dir / "import_plan.json").read_text(encoding="utf-8"))
-            self.assertEqual(import_plan["app_studio_policy_id"], "normal_python_source_to_frozen_folder_build_env_v2")
+            self.assertEqual(import_plan["app_studio_policy_id"], "normal_python_source_to_frozen_folder_build_env_v3")
             self.assertFalse(import_plan["create_app_env"])
-            self.assertIn("build_env", import_plan["build_env_python"])
-            self.assertIn("build_env", import_plan["pyinstaller_probe_python"])
-            self.assertIn("build_env", import_plan["pyinstaller_build_python"])
+            self.assertEqual(Path(import_plan["build_env_python"]), expected_build_env_python)
+            self.assertEqual(Path(import_plan["pyinstaller_probe_python"]), expected_build_env_python)
+            self.assertEqual(Path(import_plan["pyinstaller_build_python"]), expected_build_env_python)
             self.assertNotIn("runtime\\app_envs", json.dumps(import_plan).replace("/", "\\"))
 
             app_yaml = (repo / "apps" / app_id / "app.yaml").read_text(encoding="utf-8")
@@ -2298,7 +2328,7 @@ class RuntimeCheckerTests(unittest.TestCase):
             write_text(final_app / "requirements.lock", "")
             write_text(bin_root / f"{context.app_id}.exe", "fake exe")
             write_text(bin_root / "config.yaml", "ok: true\n")
-            (context.output_dir / "build_env").mkdir()
+            planned_build_env_path(context).mkdir()
 
             result = verify_runtime(context, context.output_dir, plan, {"add_data": [{"source": "config.yaml", "destination": "."}]})
 
@@ -2321,7 +2351,7 @@ class RuntimeCheckerTests(unittest.TestCase):
             write_text(bin_root / f"{context.app_id}.exe", "fake exe")
             write_text(internal_root / "config.yaml", "ok: true\n")
             write_text(context.output_dir / "frozen_folder_build_report.md", "- command: python -m PyInstaller --onedir --contents-directory . main.py\n")
-            (context.output_dir / "build_env").mkdir()
+            planned_build_env_path(context).mkdir()
 
             result = verify_runtime(context, context.output_dir, plan, {"add_data": [{"source": "config.yaml", "destination": "."}]})
 
@@ -2345,7 +2375,7 @@ class RuntimeCheckerTests(unittest.TestCase):
             (bin_root / "xcgate_flows").mkdir()
             write_text(bin_root / "xcgate_flows" / "config.yaml", "ok: true\n")
             write_text(context.output_dir / "frozen_folder_build_report.md", "- command: python -m PyInstaller --onedir --contents-directory . main.py\n")
-            (context.output_dir / "build_env").mkdir()
+            planned_build_env_path(context).mkdir()
 
             result = verify_runtime(
                 context,

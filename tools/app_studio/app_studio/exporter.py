@@ -8,6 +8,7 @@ from .file_classifier import inventory_markdown, toolhubignore_suggestion_markdo
 from .icon_generator import image_api_summary
 from .models import BuildPlan, DependencyReport, GeneratedArtifacts, IconCandidateAsset, SecretScanReport, SourceInventory, StudioContext
 from .secret_scanner import secret_report_markdown
+from .trace import BUILD_ENV_DIRNAME, BUILD_TMP_DIRNAME
 from .util import copy_file_preserving_root, reset_output_dir, write_bytes, write_json, write_text
 
 
@@ -19,7 +20,11 @@ def export_suggestion(
     plan: BuildPlan,
     artifacts: GeneratedArtifacts,
 ) -> Path:
-    output_dir = reset_output_dir(context.entry, context.app_id, preserve_relative_paths=["build_env", "build_tmp/pip_cache"])
+    output_dir = reset_output_dir(
+        context.entry,
+        context.app_id,
+        preserve_relative_paths=[BUILD_ENV_DIRNAME, f"{BUILD_TMP_DIRNAME}/pip"],
+    )
     write_json(output_dir / "import_plan.json", artifacts.import_plan)
     if artifacts.build_profile:
         write_json(output_dir / "build_profile.json", artifacts.build_profile)

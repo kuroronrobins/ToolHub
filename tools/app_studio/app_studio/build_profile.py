@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import BuildPlan, DependencyReport, SecretScanReport, SourceInventory, StudioContext
+from .trace import planned_build_env_python
 from .util import write_json, write_text
 
 
@@ -297,7 +298,7 @@ def readiness_check(name: str, status: str, detail: str) -> dict[str, str]:
 
 
 def managed_build_python(context: StudioContext) -> Path | None:
-    build_env = context.output_dir / "build_env" / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
+    build_env = planned_build_env_python(context)
     return build_env if build_env.is_file() else None
 
 
