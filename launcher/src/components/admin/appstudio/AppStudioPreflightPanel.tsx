@@ -44,6 +44,8 @@ export function AppStudioPreflightPanel({ result, busy, onRun }: Props) {
 
       <p className="admin-muted">
         Python: {result ? pythonLabel(result) : "未確認"}。Apply時に内部build_envを作成し、配布用exeのビルドと配布物検証を行います。
+        <br />
+        App Studio CLI: {result ? appStudioCliLabel(result) : "未確認"}
       </p>
 
       {result?.warnings.length ? (
@@ -98,7 +100,7 @@ function preflightSummary(result: AppStudioPreflightResult | null): { severity: 
   if (!result) {
     return { severity: "pending", title: "未確認", message: "登録前に一度実行してください。" };
   }
-  if (result.errors.length || !result.entryExists || !result.appIdValid || !result.buildModeValid) {
+  if (result.errors.length || !result.entryExists || !result.appIdValid || !result.buildModeValid || !result.appStudioCliExists) {
     return { severity: "fail", title: "進行不可", message: "修正が必要です。このまま登録処理には進めません。" };
   }
   if (result.warnings.length) {
@@ -129,6 +131,13 @@ function preflightItems(result: AppStudioPreflightResult | null): PreflightDispl
       judgement: judgementFor(result?.buildModeValid, "問題なし", "進行不可"),
       reason: result?.buildModeValid === false ? "通常新規登録で扱えない方式が指定されています。" : "配布用exeを作成する固定方式です。",
       next: result?.buildModeValid === false ? "Pythonソースからの通常登録に戻してください。" : "このまま進めます。",
+    },
+    {
+      label: "App Studio CLI",
+      severity: severityFor(result?.appStudioCliExists),
+      judgement: judgementFor(result?.appStudioCliExists, "問題なし", "進行不可"),
+      reason: result?.appStudioCliExists === false ? result.appStudioCliMessage : "登録処理の実行ファイルを確認します。",
+      next: result?.appStudioCliExists === false ? "ToolHubを再ビルドまたは再インストールしてください。" : "AI提案と登録処理を実行できます。",
     },
     {
       label: "ビルド用Python",
@@ -167,4 +176,11 @@ function pythonLabel(result: AppStudioPreflightResult): string {
   }
   const source = result.pythonSource === "runtime" ? "runtime/python/python.exe" : `開発環境fallback (${result.pythonSource})`;
   return result.pythonPath ? `${source} - ${result.pythonPath}` : source;
+}
+
+function appStudioCliLabel(result: AppStudioPreflightResult): string {
+  if (!result.appStudioCliExists) {
+    return `なし - ${result.appStudioCliPath}`;
+  }
+  return result.appStudioCliPath;
 }

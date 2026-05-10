@@ -108,7 +108,7 @@ function preflightStatus(preflight: AppStudioPreflightResult | null): string {
   if (!preflight) {
     return "未実行";
   }
-  if (!preflight.entryExists || !preflight.appIdValid || !preflight.buildModeValid || preflight.errors.length) {
+  if (!preflight.entryExists || !preflight.appIdValid || !preflight.buildModeValid || !preflight.appStudioCliExists || preflight.errors.length) {
     return "進行不可";
   }
   if (preflight.warnings.length) {

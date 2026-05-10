@@ -205,6 +205,9 @@ stagingに含める対象:
 - `config.default/`
 - `release/manifest.json`
 - `release/app_manifest.json`
+- `tools/app_studio/main.py`
+- `tools/app_studio/app_studio/`
+- `tools/app_studio/assets/`
 - `updater/`
 - `installer/`
 - `README.md`

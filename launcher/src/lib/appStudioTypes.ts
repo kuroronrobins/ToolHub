@@ -217,6 +217,10 @@ export interface AppStudioPreflightResult {
   entryExists: boolean;
   appIdValid: boolean;
   buildModeValid: boolean;
+  appStudioCliExists: boolean;
+  appStudioCliPath: string;
+  appStudioRepoRoot: string;
+  appStudioCliMessage: string;
   pythonSource: "runtime" | "python" | "py" | "missing" | string;
   pythonPath?: string | null;
   runtimePythonExists: boolean;
@@ -572,6 +576,10 @@ export interface AppStudioAiDiagnostics {
   imageModel: string;
   imageModelSet: boolean;
   cliEnvReady: boolean;
+  appStudioCliExists: boolean;
+  appStudioCliPath: string;
+  appStudioRepoRoot: string;
+  appStudioCliMessage: string;
   credentialSupported: boolean;
   message: string;
 }

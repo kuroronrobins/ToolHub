@@ -97,6 +97,9 @@ $StageItems = @(
     @{ Source = "config.default"; Destination = "config.default" },
     @{ Source = "updater"; Destination = "updater" },
     @{ Source = "installer"; Destination = "installer" },
+    @{ Source = "tools\app_studio\main.py"; Destination = "tools\app_studio\main.py" },
+    @{ Source = "tools\app_studio\app_studio"; Destination = "tools\app_studio\app_studio" },
+    @{ Source = "tools\app_studio\assets"; Destination = "tools\app_studio\assets" },
     @{ Source = "README.md"; Destination = "README.md" },
     @{ Source = "release\manifest.json"; Destination = "release\manifest.json" },
     @{ Source = "release\app_manifest.json"; Destination = "release\app_manifest.json" }

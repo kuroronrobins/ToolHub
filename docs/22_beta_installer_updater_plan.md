@@ -36,7 +36,7 @@ ToolHub には App Studio、App Pack、runtime 準備、release manifest、relea
 | per-user user data 初期化 | Tauri 起動時に `%LOCALAPPDATA%\ToolHub\` 配下の `config/`, `data/logs/`, `data/browser_profiles/`, `data/search_index/`, `data/app_state/`, `backups/`, `update_cache/` を作成する。既存 `config/launcher.yaml` は上書きしない。 | `launcher/src-tauri/src/setup.rs` |
 | runner への user data 伝搬 | Rust backend が runner 起動時に `TOOLHUB_USER_DATA_ROOT` を渡し、Python runner はその配下へ logs / browser profiles を保存する。 | `launcher/src-tauri/src/runner.rs`, `runner/toolhub_runner/log_manager.py` |
 | 同梱 Python の優先探索 | `runtime/python/python.exe` がある場合は Rust backend がそれを優先し、ない場合だけ PATH の `python` / `py` へ fallback する。 | `launcher/src-tauri/src/runner.rs` |
-| Tauri bundle resources | `runner/`, `apps/`, `runtime/`, `config.default/`, `release/manifest.json`, `release/app_manifest.json`, `updater/`, `README.md` を bundle resources に含める設定がある。NSIS は `currentUser` install。 | `launcher/src-tauri/tauri.conf.json` |
+| Tauri bundle resources | `runner/`, `apps/`, `runtime/`, `config.default/`, `release/manifest.json`, `release/app_manifest.json`, `tools/app_studio/main.py`, `tools/app_studio/app_studio/`, `tools/app_studio/assets/`, `updater/`, `README.md` を bundle resources に含める設定がある。NSIS は `currentUser` install。 | `launcher/src-tauri/tauri.conf.json` |
 | App Pack 生成 / 検証 | `release/app_manifest.json` の schema 1、App Pack zip、sha256、`run.entry` / `display.icon` 検証の仕組みがある。 | `docs/09_app_pack_spec.md`, `scripts/package_app_pack.ps1`, `scripts/verify_release.ps1` |
 
 ### MVP実装済み

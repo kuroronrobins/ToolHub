@@ -155,6 +155,9 @@ function Add-BetaReadyClassifications {
         "config.default",
         "release\manifest.json",
         "release\app_manifest.json",
+        "tools\app_studio\main.py",
+        "tools\app_studio\app_studio",
+        "tools\app_studio\assets",
         "updater",
         "README.md"
     )) {
@@ -166,7 +169,7 @@ function Add-BetaReadyClassifications {
 
     if (Test-Path -LiteralPath $TauriConfigPath -PathType Leaf) {
         $TauriConfigText = Get-Content -Raw -Encoding UTF8 $TauriConfigPath
-        foreach ($Resource in @("../../runner", "../../apps", "../../runtime", "../../config.default", "../../release/manifest.json", "../../release/app_manifest.json", "../../updater", "../../README.md")) {
+        foreach ($Resource in @("../../runner", "../../apps", "../../runtime", "../../config.default", "../../release/manifest.json", "../../release/app_manifest.json", "../../tools/app_studio/main.py", "../../tools/app_studio/app_studio", "../../tools/app_studio/assets", "../../updater", "../../README.md")) {
             if ($TauriConfigText -notmatch [regex]::Escape($Resource)) {
                 Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "tauri_resource_missing:$Resource" -State "missing" -Reason "Tauri bundle.resources does not list a required Beta payload resource." -RecommendedAction "Add the resource before building a Beta installer." -Path (To-RelativePath $TauriConfigPath) -Phase $Phase1)
             }

@@ -1,5 +1,6 @@
 use crate::admin_session::AdminSessionState;
 use crate::app_studio_ai_proposal_reader::{read_ai_proposal, AppStudioAiProposal};
+use crate::app_studio_cli::{resolve_app_studio_script, AppStudioCliStatus};
 #[cfg(test)]
 use crate::app_studio_cli_args::approval_flag;
 use crate::app_studio_cli_args::{
@@ -257,7 +258,56 @@ pub fn app_studio_ai_diagnostics(
     session: State<AdminSessionState>,
 ) -> Result<AppStudioAiDiagnostics, String> {
     session.require_authenticated()?;
-    Ok(build_ai_env_plan().diagnostics)
+    let mut diagnostics = build_ai_env_plan().diagnostics;
+    match crate::manifest::project_root() {
+        Ok(root) => {
+            let status = crate::app_studio_cli::app_studio_cli_status(&root);
+            apply_cli_status_to_diagnostics(&mut diagnostics, status);
+        }
+        Err(error) => {
+            diagnostics.app_studio_cli_exists = false;
+            diagnostics.app_studio_cli_message =
+                format!("ToolHub root を解決できませんでした: {error}");
+        }
+    }
+    Ok(diagnostics)
+}
+
+fn apply_cli_status_to_diagnostics(
+    diagnostics: &mut AppStudioAiDiagnostics,
+    status: AppStudioCliStatus,
+) {
+    diagnostics.app_studio_cli_exists = status.cli_exists;
+    diagnostics.app_studio_cli_path = status.cli_path;
+    diagnostics.app_studio_repo_root = status.repo_root;
+    diagnostics.app_studio_cli_message = status.message;
+}
+
+fn resolve_app_studio_script_for_action(root: &Path, action: &str) -> Result<PathBuf, String> {
+    match resolve_app_studio_script(root) {
+        Ok(script) => Ok(script),
+        Err(status) => {
+            log_app_studio_cli_missing(action, &status);
+            Err(status.message)
+        }
+    }
+}
+
+fn log_app_studio_cli_missing(action: &str, status: &AppStudioCliStatus) {
+    append_app_studio_gui_log(
+        &format!("{action} blocked"),
+        &[
+            ("reason", "app_studio_cli_missing".to_string()),
+            ("repo_root", status.repo_root.clone()),
+            ("cli_path", status.cli_path.clone()),
+            ("tools_dir_exists", status.tools_dir_exists.to_string()),
+            (
+                "app_studio_dir_exists",
+                status.app_studio_dir_exists.to_string(),
+            ),
+            ("user_message", status.message.clone()),
+        ],
+    );
 }
 
 pub(crate) fn run_image_generation_test(
@@ -316,10 +366,7 @@ fn run_image_generation_test_for_model(
 ) -> Result<crate::ai_settings::AiImageGenerationTestResult, String> {
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
     let python_candidate = find_python_candidate(&root).ok_or_else(python_missing_message)?;
-    let script = root.join("tools").join("app_studio").join("main.py");
-    if !script.is_file() {
-        return Err("tools/app_studio/main.py was not found.".to_string());
-    }
+    let script = resolve_app_studio_script_for_action(&root, "image-test")?;
     let ai_env = build_ai_env_plan();
     let cli_args = build_image_test_cli_args(&script, model_override);
     let mut command = Command::new(&python_candidate.path);
@@ -543,10 +590,7 @@ fn run_icon_regenerate_action(
     };
     let python_candidate = find_python_candidate(&root).ok_or_else(python_missing_message)?;
     let python = python_candidate.path.clone();
-    let script = root.join("tools").join("app_studio").join("main.py");
-    if !script.is_file() {
-        return Err("tools/app_studio/main.py が見つかりません。".to_string());
-    }
+    let script = resolve_app_studio_script_for_action(&root, "icon-regenerate")?;
     let ai_env = build_ai_env_plan();
     let cli_args = build_icon_regenerate_cli_args(
         &script,
@@ -652,10 +696,7 @@ fn run_import_action(
     validate_request(&request)?;
     let python_candidate = find_python_candidate(&root).ok_or_else(python_missing_message)?;
     let python = python_candidate.path.clone();
-    let script = root.join("tools").join("app_studio").join("main.py");
-    if !script.is_file() {
-        return Err("tools/app_studio/main.py が見つかりません。".to_string());
-    }
+    let script = resolve_app_studio_script_for_action(&root, action)?;
 
     let metadata_override = write_metadata_override_file(&request)?;
     let metadata_override_keys = metadata_override
@@ -795,7 +836,7 @@ fn run_approve_action(app_id: String, strict: bool) -> Result<AppStudioRunResult
     validate_app_id(&app_id)?;
     let python_candidate = find_python_candidate(&root).ok_or_else(python_missing_message)?;
     let python = python_candidate.path.clone();
-    let script = root.join("tools").join("app_studio").join("main.py");
+    let script = resolve_app_studio_script_for_action(&root, "approve")?;
     let approval_mode = approval_mode_name(strict);
     append_app_studio_gui_log(
         "approve started",
@@ -1152,6 +1193,10 @@ fn build_ai_env_plan() -> AiEnvPlan {
             image_model,
             image_model_set,
             cli_env_ready,
+            app_studio_cli_exists: false,
+            app_studio_cli_path: String::new(),
+            app_studio_repo_root: String::new(),
+            app_studio_cli_message: String::new(),
             credential_supported,
             message,
         },
@@ -1347,6 +1392,10 @@ mod tests {
                 image_model: "gpt-image-2".to_string(),
                 image_model_set: true,
                 cli_env_ready: true,
+                app_studio_cli_exists: true,
+                app_studio_cli_path: "tools/app_studio/main.py".to_string(),
+                app_studio_repo_root: "C:/ToolHub".to_string(),
+                app_studio_cli_message: "ready".to_string(),
                 credential_supported: true,
                 message: "ready".to_string(),
             },
@@ -1386,6 +1435,10 @@ mod tests {
                 image_model: "gpt-image-2".to_string(),
                 image_model_set: true,
                 cli_env_ready: false,
+                app_studio_cli_exists: true,
+                app_studio_cli_path: "tools/app_studio/main.py".to_string(),
+                app_studio_repo_root: "C:/ToolHub".to_string(),
+                app_studio_cli_message: "ready".to_string(),
                 credential_supported: true,
                 message: "disabled".to_string(),
             },
@@ -1925,6 +1978,9 @@ mod tests {
         let root = std::env::temp_dir().join(format!("toolhub_app_studio_project_{stamp}"));
         std::fs::create_dir_all(root.join("apps")).unwrap();
         std::fs::create_dir_all(root.join("release")).unwrap();
+        let script = root.join("tools").join("app_studio").join("main.py");
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(script, b"print('app studio')").unwrap();
         root
     }
 

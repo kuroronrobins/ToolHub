@@ -460,6 +460,9 @@ function DiagnosticsPanel({ diagnostics }: { diagnostics: AppStudioAiDiagnostics
       <StatusItem label="テキストモデル" value={diagnostics.textModel || "未設定"} />
       <StatusItem label="画像モデル" value={diagnostics.imageModel || "未設定"} />
       <StatusItem label="CLI環境" value={diagnostics.cliEnvReady ? "AI利用の準備ができています" : "AI利用の準備が未完了です"} />
+      <StatusItem label="App Studio CLI" value={diagnostics.appStudioCliExists ? "利用可能" : "見つかりません"} />
+      <StatusItem label="CLIパス" value={diagnostics.appStudioCliPath || "未確認"} />
+      <StatusItem label="CLI診断" value={diagnosticMessage(diagnostics.appStudioCliMessage)} />
       <StatusItem label="診断メッセージ" value={diagnosticMessage(diagnostics.message)} />
     </div>
   );

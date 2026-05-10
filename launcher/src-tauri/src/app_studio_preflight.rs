@@ -95,6 +95,11 @@ pub(crate) fn build_import_preflight_result(
         }
     };
 
+    let cli_status = crate::app_studio_cli::app_studio_cli_status(root);
+    if !cli_status.cli_exists {
+        errors.push(cli_status.message.clone());
+    }
+
     let runtime_python_exists = runtime_python_path(root).is_file();
 
     let (python_source, python_path) = match python_candidate {
@@ -110,6 +115,10 @@ pub(crate) fn build_import_preflight_result(
         entry_exists,
         app_id_valid,
         build_mode_valid,
+        app_studio_cli_exists: cli_status.cli_exists,
+        app_studio_cli_path: cli_status.cli_path,
+        app_studio_repo_root: cli_status.repo_root,
+        app_studio_cli_message: cli_status.message,
         python_source,
         python_path,
         runtime_python_exists,
@@ -252,6 +261,12 @@ mod tests {
         }
     }
 
+    fn write_app_studio_cli(root: &Path) {
+        let script = root.join("tools").join("app_studio").join("main.py");
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(script, b"print('app studio')").unwrap();
+    }
+
     #[test]
     fn runtime_python_path_uses_existing_layout() {
         let root = PathBuf::from("C:/repo");
@@ -289,6 +304,7 @@ mod tests {
         let entry = source.join("main.py");
         std::fs::create_dir_all(&source).unwrap();
         std::fs::write(&entry, b"print('ok')").unwrap();
+        write_app_studio_cli(&root);
         let request = base_request(&entry);
 
         let result = build_import_preflight_result(&request, &root, Some(python_candidate()));
@@ -297,6 +313,15 @@ mod tests {
         assert!(result.entry_exists);
         assert!(result.app_id_valid);
         assert!(result.build_mode_valid);
+        assert!(result.app_studio_cli_exists);
+        assert!(
+            result
+                .app_studio_cli_path
+                .ends_with("tools\\app_studio\\main.py")
+                || result
+                    .app_studio_cli_path
+                    .ends_with("tools/app_studio/main.py")
+        );
         assert_eq!(result.python_source, "python");
         assert!(!result.runtime_python_exists);
 
@@ -304,6 +329,7 @@ mod tests {
         assert_eq!(value["entryExists"], Value::Bool(true));
         assert_eq!(value["appIdValid"], Value::Bool(true));
         assert_eq!(value["buildModeValid"], Value::Bool(true));
+        assert_eq!(value["appStudioCliExists"], Value::Bool(true));
         assert_eq!(value["pythonSource"], Value::String("python".to_string()));
         assert!(value.get("entry_exists").is_none());
 
@@ -323,6 +349,7 @@ mod tests {
         let entry = source.join("app.exe");
         std::fs::create_dir_all(&source).unwrap();
         std::fs::write(&entry, b"not really an exe").unwrap();
+        write_app_studio_cli(&root);
         let mut request = base_request(&entry);
         request.app_id = Some("BadId".to_string());
 
@@ -337,6 +364,27 @@ mod tests {
             .iter()
             .any(|item| item.contains("Existing exe registration is not available")));
         assert!(result.errors.iter().any(|item| item.contains("AppId")));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn build_import_preflight_result_blocks_when_app_studio_cli_is_missing() {
+        let root = temp_root("missing_cli");
+        let source = root.join("source");
+        let entry = source.join("main.py");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(&entry, b"print('ok')").unwrap();
+        let request = base_request(&entry);
+
+        let result = build_import_preflight_result(&request, &root, Some(python_candidate()));
+
+        assert!(!result.ok);
+        assert!(!result.app_studio_cli_exists);
+        assert!(result
+            .errors
+            .iter()
+            .any(|item| item.contains("App Studio CLI")));
 
         let _ = std::fs::remove_dir_all(root);
     }

@@ -88,6 +88,76 @@ function Test-ZipContainsEntry {
     }
 }
 
+function Test-TauriResourceMapping {
+    param(
+        [object]$Resources,
+        [string]$Source,
+        [string]$Target
+    )
+    if ($null -eq $Resources) {
+        Fail "Tauri bundle.resources is missing"
+        return
+    }
+    $Property = $Resources.PSObject.Properties | Where-Object { $_.Name -eq $Source } | Select-Object -First 1
+    if ($null -eq $Property) {
+        Fail "Tauri bundle.resources is missing source: $Source"
+        return
+    }
+    if ([string]$Property.Value -eq $Target) {
+        Pass "Tauri resource maps $Source to $Target"
+    } else {
+        Fail "Tauri resource $Source maps to '$($Property.Value)', expected '$Target'"
+    }
+}
+
+function Test-BuiltTauriAppStudioResources {
+    $ResourceRootGroups = @(
+        @{
+            Mode = "release"
+            Primary = Join-Path $Root "launcher\src-tauri\target\release"
+            Legacy = Join-Path $Root "launcher\src-tauri\target\release\_up_\_up_"
+        },
+        @{
+            Mode = "debug"
+            Primary = Join-Path $Root "launcher\src-tauri\target\debug"
+            Legacy = Join-Path $Root "launcher\src-tauri\target\debug\_up_\_up_"
+        }
+    )
+    $ExistingGroups = @($ResourceRootGroups | Where-Object {
+        (Test-Path -LiteralPath $_.Primary -PathType Container) -or
+        (Test-Path -LiteralPath $_.Legacy -PathType Container)
+    })
+    if ($ExistingGroups.Count -eq 0) {
+        Warn "Tauri resource output is not present; run a Tauri build to inspect App Studio resources"
+        return
+    }
+    foreach ($Group in $ExistingGroups) {
+        $PrimaryHasResources =
+            (Test-Path -LiteralPath (Join-Path $Group.Primary "tools\app_studio\main.py") -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $Group.Primary "tools\app_studio\app_studio") -PathType Container) -and
+            (Test-Path -LiteralPath (Join-Path $Group.Primary "tools\app_studio\assets") -PathType Container)
+        if ($PrimaryHasResources) {
+            Pass "$($Group.Mode) Tauri resource root includes App Studio CLI"
+        } elseif (Test-Path -LiteralPath $Group.Primary -PathType Container) {
+            Fail "$($Group.Mode) Tauri resource root is missing App Studio CLI: $($Group.Primary)"
+        }
+
+        if (Test-Path -LiteralPath $Group.Legacy -PathType Container) {
+            $LegacyHasResources =
+                (Test-Path -LiteralPath (Join-Path $Group.Legacy "tools\app_studio\main.py") -PathType Leaf) -and
+                (Test-Path -LiteralPath (Join-Path $Group.Legacy "tools\app_studio\app_studio") -PathType Container) -and
+                (Test-Path -LiteralPath (Join-Path $Group.Legacy "tools\app_studio\assets") -PathType Container)
+            if ($LegacyHasResources) {
+                Pass "$($Group.Mode) legacy Tauri resource root includes App Studio CLI"
+            } elseif ($PrimaryHasResources) {
+                Warn "$($Group.Mode) legacy _up_ resource root is stale; primary resource root includes App Studio CLI"
+            } else {
+                Fail "$($Group.Mode) legacy Tauri resource root is missing App Studio CLI: $($Group.Legacy)"
+            }
+        }
+    }
+}
+
 Require-File $ManifestPath
 Require-File $AppManifestPath
 
@@ -110,6 +180,9 @@ foreach ($Path in @(
     Require-Directory (Join-Path $Root $Path)
 }
 Require-File (Join-Path $Root "runtime\README.md")
+Require-File (Join-Path $Root "tools\app_studio\main.py")
+Require-Directory (Join-Path $Root "tools\app_studio\app_studio")
+Require-Directory (Join-Path $Root "tools\app_studio\assets")
 
 $TauriConfigPath = Join-Path $Root "launcher\src-tauri\tauri.conf.json"
 $NsisHookPath = Join-Path $Root "launcher\src-tauri\nsis\toolhub_install_dir.nsh"
@@ -121,6 +194,11 @@ if (Test-Path -LiteralPath $TauriConfigPath -PathType Leaf) {
         Pass "NSIS install-dir hook is configured"
     } else {
         Fail "NSIS install-dir hook is not configured in tauri.conf.json"
+    }
+    if ($TauriConfig) {
+        Test-TauriResourceMapping $TauriConfig.bundle.resources "../../tools/app_studio/main.py" "tools/app_studio/main.py"
+        Test-TauriResourceMapping $TauriConfig.bundle.resources "../../tools/app_studio/app_studio" "tools/app_studio/app_studio"
+        Test-TauriResourceMapping $TauriConfig.bundle.resources "../../tools/app_studio/assets" "tools/app_studio/assets"
     }
 }
 if (Test-Path -LiteralPath $NsisHookPath -PathType Leaf) {
@@ -152,6 +230,7 @@ if (Test-Path -LiteralPath $GeneratedNsisPath -PathType Leaf) {
 } else {
     Warn "generated NSIS script is not present; run a Tauri release build to inspect final hook insertion"
 }
+Test-BuiltTauriAppStudioResources
 
 $PythonExe = Join-Path $Root "runtime\python\python.exe"
 $WebRuntimeDir = Join-Path $Root "runtime\web_automation_runtime"
