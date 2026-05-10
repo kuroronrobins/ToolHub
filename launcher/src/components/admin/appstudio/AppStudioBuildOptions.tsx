@@ -16,27 +16,27 @@ interface FixedPolicyInfo {
 
 const FIXED_POLICIES: FixedPolicyInfo[] = [
   {
-    label: "requirements.lock生成",
-    summary: "常にON",
-    detail: "依存関係を固定し、ビルド再現性を高めます。依存がない場合も空または最小lockとして扱います。",
+    label: "requirements.lock",
+    summary: "常に作成",
+    detail: "登録元で動作している依存バージョンを優先して固定し、同じ lock のアプリは共通環境を再利用します。",
     icon: LockKeyhole,
   },
   {
-    label: "frozen-folder build",
-    summary: "常にON",
-    detail: "Python不要で配布できるPyInstaller --onedir形式の実行フォルダを作成します。--onefileは標準にしません。",
+    label: "共有ランタイム",
+    summary: "常に使用",
+    detail: "アプリごとに環境を複製せず、Python と依存バージョン単位の runtime/envs を作成または再利用します。",
     icon: PackageCheck,
   },
   {
-    label: "配布物検証",
-    summary: "常にON",
-    detail: "exe、run.entry、同梱ファイル、禁止ファイル混入、build_env分離、サイズを確認します。",
+    label: "起動検証",
+    summary: "常に実行",
+    detail: "run.entry、app.yaml、requirements.lock、共有環境、短時間起動時の致命的エラーを確認します。",
     icon: ShieldCheck,
   },
   {
-    label: "ビルド用環境",
-    summary: "内部処理",
-    detail: "exe作成のために一時的なbuild_envを使用します。利用者PCやruntime/app_envsには要求しません。",
+    label: "配布サイズ",
+    summary: "重複を抑制",
+    detail: "Playwright や Flet など重い依存はバージョン別の共通環境へ集約し、アプリ本体にはソースと設定を登録します。",
     icon: Hammer,
   },
 ];
@@ -44,11 +44,11 @@ const FIXED_POLICIES: FixedPolicyInfo[] = [
 export function AppStudioBuildOptions({ request, onChange }: Props) {
   const fixedRequest: AppStudioImportRequest = {
     ...request,
-    buildMode: "frozen-folder",
+    buildMode: "shared-env",
     createAppEnv: false,
     rebuildAppEnv: false,
     generateLock: true,
-    buildFrozenFolder: true,
+    buildFrozenFolder: false,
     verifyRuntime: true,
   };
 
@@ -57,7 +57,7 @@ export function AppStudioBuildOptions({ request, onChange }: Props) {
     request.createAppEnv ||
     request.rebuildAppEnv ||
     !request.generateLock ||
-    !request.buildFrozenFolder ||
+    request.buildFrozenFolder ||
     !request.verifyRuntime;
 
   useEffect(() => {
@@ -70,12 +70,12 @@ export function AppStudioBuildOptions({ request, onChange }: Props) {
     <section className="studio-step studio-build-options">
       <div>
         <span className="studio-step-index">B</span>
-        <h4>配布用exeを作成して登録</h4>
+        <h4>共有ランタイムで登録</h4>
       </div>
 
       <div className="studio-build-help">
-        <strong>通常ユーザー向け配布に固定</strong>
-        <p>Pythonソースを解析し、必要ファイルだけを同梱したfrozen-folderを作成して登録します。既存exe登録、Python直接実行、app_env実行方式は通常新規登録では選べません。</p>
+        <strong>通常登録は共有ランタイム方式に固定</strong>
+        <p>Pythonソースを解析し、動作済みの依存バージョンを lock して共通環境へ登録します。既存exe登録、Python直接実行、app_env実行方式は通常新規登録では選べません。</p>
       </div>
 
       <div className="studio-option-grid fixed-policy-grid">

@@ -49,14 +49,14 @@ const INITIAL_REQUEST: AppStudioImportRequest = {
   sourceRoot: "",
   appId: "",
   name: "",
-  buildMode: "frozen-folder",
+  buildMode: "shared-env",
   iconPrompt: "",
   iconStyleCustom: "",
   metadata: createEmptyAppStudioMetadata(),
   createAppEnv: false,
   rebuildAppEnv: false,
   generateLock: true,
-  buildFrozenFolder: true,
+  buildFrozenFolder: false,
   verifyRuntime: true,
 };
 
@@ -108,8 +108,8 @@ export function AppStudioImportWizard() {
   const imageApiBlocked = imageApiHealth?.ok === false;
   const recommendation = useMemo(
     () => ({
-      mode: "frozen-folder",
-      reason: "通常ユーザー向け配布として、Pythonソースからfrozen-folder exeを作成して登録します。",
+      mode: "shared-env",
+      reason: "通常ユーザー向け配布として、Pythonソースを共通のバージョン別ランタイムで登録します。",
     }),
     [],
   );
@@ -547,11 +547,11 @@ export function AppStudioImportWizard() {
         </div>
 
         <div className="studio-build-summary">
-          <strong>登録方式: 配布用exe固定</strong>
+          <strong>登録方式: 共有ランタイム固定</strong>
           <p>{recommendation.reason}</p>
         </div>
 
-        <AppStudioCollapsibleSection title="実行予定" summary="requirements.lock、build_env、frozen-folder build、配布物検証を固定で実行します。">
+        <AppStudioCollapsibleSection title="実行予定" summary="requirements.lock、共有ランタイム作成または再利用、起動検証を固定で実行します。">
           <AppStudioBuildOptions
             request={request}
             onChange={(next) => {
@@ -815,8 +815,8 @@ export function AppStudioImportWizard() {
         </div>
 
         <div className="studio-build-summary">
-          <strong>配布用exeを作成して登録します</strong>
-          <p>Pythonソースを解析し、内部build_envでPyInstaller frozen-folderを作成してから配布物を検証します。</p>
+          <strong>共有ランタイムで登録します</strong>
+          <p>Pythonソースを解析し、動作済み依存バージョンを lock して共有ランタイムを作成または再利用します。</p>
         </div>
 
         <AppStudioCollapsibleSection title="実行予定" summary="固定ポリシーを確認できます。通常新規登録では旧オプションを変更できません。">
@@ -983,11 +983,11 @@ function cleanRequest(request: AppStudioImportRequest): AppStudioImportRequest {
     sourceRoot: request.sourceRoot?.trim() || undefined,
     appId: request.appId?.trim() || undefined,
     name: request.name?.trim() || undefined,
-    buildMode: "frozen-folder",
+    buildMode: "shared-env",
     createAppEnv: false,
     rebuildAppEnv: false,
     generateLock: true,
-    buildFrozenFolder: true,
+    buildFrozenFolder: false,
     verifyRuntime: true,
     iconPrompt: request.iconPrompt?.trim() || undefined,
     iconStylePreset: styleInstruction ? "custom" : undefined,

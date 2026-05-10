@@ -942,7 +942,14 @@ fn validate_request(request: &AppStudioImportRequest) -> Result<(), String> {
     }
     validate_entry_path(&entry)?;
     validate_source_root_path(&entry, request.source_root.as_deref())?;
-    if !["auto", "app-env", "frozen-folder", "existing-exe"].contains(&request.build_mode.as_str())
+    if ![
+        "auto",
+        "app-env",
+        "shared-env",
+        "frozen-folder",
+        "existing-exe",
+    ]
+    .contains(&request.build_mode.as_str())
     {
         return Err("BuildModeが不正です。".to_string());
     }
@@ -1309,7 +1316,7 @@ mod tests {
             app_id: Some("my_tool".to_string()),
             name: Some("My Tool".to_string()),
             version: None,
-            build_mode: "frozen-folder".to_string(),
+            build_mode: "shared-env".to_string(),
             icon_prompt: None,
             icon_style_preset: None,
             icon_style_custom: None,
@@ -1343,7 +1350,7 @@ mod tests {
             app_id: Some("my_tool".to_string()),
             name: Some("My Tool".to_string()),
             version: None,
-            build_mode: "app-env".to_string(),
+            build_mode: "shared-env".to_string(),
             icon_prompt: None,
             icon_style_preset: None,
             icon_style_custom: None,
@@ -1975,7 +1982,7 @@ mod tests {
             name: Some("Sample App".to_string()),
             current_version: Some("1.2.3".to_string()),
             new_version: "1.2.2".to_string(),
-            build_mode: "frozen-folder".to_string(),
+            build_mode: "shared-env".to_string(),
             icon_prompt: None,
             icon_style_preset: None,
             icon_style_custom: None,

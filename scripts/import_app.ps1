@@ -4,8 +4,8 @@ param(
     [string]$AppId,
     [string]$Name,
     [string]$Version,
-    [ValidateSet("auto", "app-env", "frozen-folder", "existing-exe")]
-    [string]$BuildMode = "frozen-folder",
+    [ValidateSet("auto", "app-env", "frozen-folder", "existing-exe", "shared-env")]
+    [string]$BuildMode = "shared-env",
     [string]$IconPrompt,
     [switch]$CreateAppEnv,
     [switch]$RebuildAppEnv,
@@ -52,7 +52,7 @@ try {
         throw "Normal App Studio registration uses an internal build_env, not runtime/app_envs options."
     }
     if ($SkipLock -or $SkipFrozenBuild) {
-        throw "Normal App Studio registration always generates requirements.lock and builds the frozen-folder."
+        throw "Normal App Studio registration always generates requirements.lock and manages a shared runtime."
     }
 
     $Python = Find-Python
@@ -60,16 +60,15 @@ try {
         throw "python or py was not found. App Studio requires a development Python to run."
     }
 
-    if ($BuildMode -ne "auto" -and $BuildMode -ne "frozen-folder") {
-        Write-Host "BuildMode '$BuildMode' is a legacy option and will be ignored. Using frozen-folder."
+    if ($BuildMode -ne "auto" -and $BuildMode -ne "shared-env") {
+        Write-Host "BuildMode '$BuildMode' is a legacy option and will be ignored. Using shared-env."
     }
 
-    $ArgsList = @($StudioMain, "import", "--entry", $Entry, "--build-mode", "frozen-folder", "--generate-lock", "--build-frozen-folder", "--verify-runtime")
+    $ArgsList = @($StudioMain, "import", "--entry", $Entry, "--build-mode", "shared-env", "--generate-lock", "--verify-runtime")
     if ($AppId) { $ArgsList += @("--app-id", $AppId) }
     if ($Name) { $ArgsList += @("--name", $Name) }
     if ($Version) { $ArgsList += @("--version", $Version) }
     if ($IconPrompt) { $ArgsList += @("--icon-prompt", $IconPrompt) }
-    if ($RebuildFrozenFolder) { $ArgsList += "--rebuild-frozen-folder" }
     if ($DryRun) { $ArgsList += "--dry-run" }
     if ($Suggest) { $ArgsList += "--suggest" }
     if ($Apply) { $ArgsList += "--apply" }

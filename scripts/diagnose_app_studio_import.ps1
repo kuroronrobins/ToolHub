@@ -1008,13 +1008,13 @@ if ($RuntimeItem -and $FinalAppYamlPath) {
 }
 if ($ImportPlanState.status -eq "ok") {
     $SelectedBuildMode = [string](Get-Prop -Object $ImportPlanState.data -Name "selected_build_mode")
-    $BuildEnvValue = [string](Get-Prop -Object $ImportPlanState.data -Name "build_env")
+    $SharedRuntimeValue = [string](Get-Prop -Object $ImportPlanState.data -Name "shared_runtime")
     $RegistrationPolicy = [string](Get-Prop -Object $ImportPlanState.data -Name "registration_policy")
-    if ($SelectedBuildMode -and $SelectedBuildMode -ne "frozen-folder") {
-        $OldSignals += "import_plan selected_build_mode is not frozen-folder: $SelectedBuildMode"
+    if ($SelectedBuildMode -and $SelectedBuildMode -ne "shared-env") {
+        $OldSignals += "import_plan selected_build_mode is not shared-env: $SelectedBuildMode"
     }
-    if ([string]::IsNullOrWhiteSpace($BuildEnvValue)) {
-        $OldSignals += "import_plan build_env is missing"
+    if ([string]::IsNullOrWhiteSpace($SharedRuntimeValue)) {
+        $OldSignals += "import_plan shared_runtime is missing"
     }
     if ([string]::IsNullOrWhiteSpace($RegistrationPolicy)) {
         $OldSignals += "import_plan registration_policy is missing"

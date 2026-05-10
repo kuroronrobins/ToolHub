@@ -43,7 +43,7 @@ export function AppStudioPreflightPanel({ result, busy, onRun }: Props) {
       </div>
 
       <p className="admin-muted">
-        Python: {result ? pythonLabel(result) : "未確認"}。Apply時に内部build_envを作成し、配布用exeのビルドと配布物検証を行います。
+        Python: {result ? pythonLabel(result) : "未確認"}。Apply時に requirements.lock を作成し、共有ランタイムの作成または再利用と起動検証を行います。
         <br />
         App Studio CLI: {result ? appStudioCliLabel(result) : "未確認"}
       </p>
@@ -104,7 +104,7 @@ function preflightSummary(result: AppStudioPreflightResult | null): { severity: 
     return { severity: "fail", title: "進行不可", message: "修正が必要です。このまま登録処理には進めません。" };
   }
   if (result.warnings.length) {
-    return { severity: "fix", title: "配布前に要確認", message: "登録作業は続行できますが、正式配布前に警告内容を確認してください。" };
+    return { severity: "fix", title: "登録前に要確認", message: "登録作業は継続できますが、正式配布前に警告内容を確認してください。" };
   }
   return { severity: "ok", title: "問題なし", message: "このまま次へ進めます。" };
 }
@@ -129,7 +129,7 @@ function preflightItems(result: AppStudioPreflightResult | null): PreflightDispl
       label: "登録方式",
       severity: severityFor(result?.buildModeValid),
       judgement: judgementFor(result?.buildModeValid, "問題なし", "進行不可"),
-      reason: result?.buildModeValid === false ? "通常新規登録で扱えない方式が指定されています。" : "配布用exeを作成する固定方式です。",
+      reason: result?.buildModeValid === false ? "通常新規登録で扱えない方式が指定されています。" : "共有ランタイムを作成または再利用する固定方式です。",
       next: result?.buildModeValid === false ? "Pythonソースからの通常登録に戻してください。" : "このまま進めます。",
     },
     {
@@ -140,11 +140,11 @@ function preflightItems(result: AppStudioPreflightResult | null): PreflightDispl
       next: result?.appStudioCliExists === false ? "ToolHubを再ビルドまたは再インストールしてください。" : "AI提案と登録処理を実行できます。",
     },
     {
-      label: "ビルド用Python",
+      label: "実行用Python",
       severity: result ? (result.pythonSource === "missing" ? "fail" : "ok") : "pending",
       judgement: result ? (result.pythonSource === "missing" ? "進行不可" : "問題なし") : "未確認",
-      reason: result?.pythonSource === "missing" ? "App Studioを実行できるPythonが見つかりません。" : "内部build_env作成に使うPythonを確認します。",
-      next: result?.pythonSource === "missing" ? "Pythonを導入するか、ToolHub同梱runtimeを配置してください。" : "Apply時にbuild_envを作成します。",
+      reason: result?.pythonSource === "missing" ? "App Studioを実行できるPythonが見つかりません。" : "共有ランタイム作成に使うPythonを確認します。",
+      next: result?.pythonSource === "missing" ? "Pythonを導入するか、ToolHub同梱runtimeを配置してください。" : "Apply時に共有ランタイムを作成または再利用します。",
     },
   ];
 }
@@ -165,7 +165,7 @@ function judgementFor(ok: boolean | undefined, okLabel: string, failLabel: strin
 
 function friendlyWarning(warning: string): string {
   if (warning.includes("runtime/python/python.exe") || warning.toLowerCase().includes("runtime")) {
-    return "通常新規登録では内部build_envで配布用exeを作成します。";
+    return "通常新規登録では共有ランタイムを作成または再利用します。";
   }
   return warning;
 }

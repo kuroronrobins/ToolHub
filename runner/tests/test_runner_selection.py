@@ -13,6 +13,7 @@ from toolhub_runner.manifest import Admin, AppManifest, Detail, Display, Run, Se
 from toolhub_runner.playwright_runner import PlaywrightPythonRunner
 from toolhub_runner.python_app_env_runner import PythonAppEnvRunner
 from toolhub_runner.python_runner import PythonRunner
+from toolhub_runner.python_shared_env_runner import PythonSharedEnvRunner
 
 
 def make_manifest(runner: str) -> AppManifest:
@@ -43,6 +44,9 @@ class RunnerSelectionTests(unittest.TestCase):
 
     def test_select_python_app_env_runner(self) -> None:
         self.assertIsInstance(select_runner(Path("."), make_manifest("python_app_env")), PythonAppEnvRunner)
+
+    def test_select_python_shared_env_runner(self) -> None:
+        self.assertIsInstance(select_runner(Path("."), make_manifest("python_shared_env")), PythonSharedEnvRunner)
 
 
 if __name__ == "__main__":

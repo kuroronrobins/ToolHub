@@ -325,7 +325,7 @@ mod tests {
             "appId": "demo_app",
             "name": "Demo App",
             "version": "0.1.0",
-            "buildMode": "frozen-folder",
+            "buildMode": "shared-env",
             "iconPrompt": "blue document",
             "iconStylePreset": "modern",
             "iconStyleCustom": null,
@@ -339,7 +339,7 @@ mod tests {
             "createAppEnv": false,
             "rebuildAppEnv": false,
             "generateLock": true,
-            "buildFrozenFolder": true,
+            "buildFrozenFolder": false,
             "verifyRuntime": true
         }))
         .expect("camelCase import request should deserialize");
@@ -355,7 +355,7 @@ mod tests {
             Some("Short")
         );
         assert!(request.generate_lock);
-        assert!(request.build_frozen_folder);
+        assert!(!request.build_frozen_folder);
     }
 
     #[test]
@@ -388,7 +388,7 @@ mod tests {
             user_message: "done".to_string(),
             output_dir: Some("C:/out".to_string()),
             app_id: Some("demo_app".to_string()),
-            selected_build_mode: Some("frozen-folder".to_string()),
+            selected_build_mode: Some("shared-env".to_string()),
             execution_status: Some("warn".to_string()),
             approval_allowed: Some(true),
             runtime_status: Some("warn".to_string()),
@@ -447,7 +447,7 @@ mod tests {
 
         let value = serde_json::to_value(result).expect("run result should serialize");
         assert_eq!(value["exitCode"], Value::from(0));
-        assert_eq!(value["selectedBuildMode"], Value::from("frozen-folder"));
+        assert_eq!(value["selectedBuildMode"], Value::from("shared-env"));
         assert_eq!(value["approvalAllowed"], Value::from(true));
         assert_eq!(value["approvalBlockingWarningsCount"], Value::from(0));
         assert_eq!(value["timingPhases"].as_array().map(Vec::len), Some(1));

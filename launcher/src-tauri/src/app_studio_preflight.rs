@@ -72,13 +72,13 @@ pub(crate) fn build_import_preflight_result(
         errors.push("Normal App Studio registration accepts Python source only. Existing exe registration is not available in this flow.".to_string());
     }
 
-    let build_mode_valid = ["auto", "frozen-folder"].contains(&request.build_mode.as_str());
+    let build_mode_valid = ["auto", "shared-env"].contains(&request.build_mode.as_str());
     if !build_mode_valid {
         errors.push("BuildModeが不正です。".to_string());
     }
 
     if request.create_app_env || request.rebuild_app_env {
-        errors.push("Normal App Studio registration uses an internal build_env, not runtime/app_envs options.".to_string());
+        errors.push("Normal App Studio registration uses shared versioned runtime environments, not runtime/app_envs options.".to_string());
     }
 
     let app_id_valid = match clean_optional(&request.app_id) {
@@ -333,11 +333,11 @@ mod tests {
         assert_eq!(value["pythonSource"], Value::String("python".to_string()));
         assert!(value.get("entry_exists").is_none());
 
-        let mut frozen_request = request.clone();
-        frozen_request.build_mode = "frozen-folder".to_string();
-        let frozen_result =
-            build_import_preflight_result(&frozen_request, &root, Some(python_candidate()));
-        assert!(frozen_result.build_mode_valid);
+        let mut shared_env_request = request.clone();
+        shared_env_request.build_mode = "shared-env".to_string();
+        let shared_env_result =
+            build_import_preflight_result(&shared_env_request, &root, Some(python_candidate()));
+        assert!(shared_env_result.build_mode_valid);
 
         let _ = std::fs::remove_dir_all(root);
     }

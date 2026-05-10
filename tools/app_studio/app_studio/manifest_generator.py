@@ -21,6 +21,9 @@ def generate_app_yaml(context: StudioContext, plan: BuildPlan, metadata: dict[st
     mode = infer_run_mode(context)
     required_runtime = plan.required_runtime
     distribution_mode = plan.mode.replace("-", "_")
+    shared_env_id = plan.env_id if plan.mode == "shared-env" else ""
+    if shared_env_id:
+        required_runtime = f"python-shared-env:{shared_env_id}"
 
     lines = [
         f"id: {yaml_scalar(context.app_id)}",
@@ -55,6 +58,7 @@ def generate_app_yaml(context: StudioContext, plan: BuildPlan, metadata: dict[st
         f"  runner: {plan.runner}",
         f"  entry: {plan.entry}",
         f"  mode: {mode}",
+        *([f"  env_id: {yaml_scalar(shared_env_id)}"] if shared_env_id else []),
         "",
         "admin:",
         f"  version: {context.version}",
@@ -67,6 +71,15 @@ def generate_app_yaml(context: StudioContext, plan: BuildPlan, metadata: dict[st
         f"  app_env: {yaml_scalar(context.app_id if plan.mode == 'app-env' else None)}",
         f"  required_runtime: {yaml_scalar(required_runtime)}",
         "  requirements_lock: requirements.lock",
+        *(
+            [
+                "  shared_env:",
+                f"    env_id: {yaml_scalar(shared_env_id)}",
+                "    scope: versioned",
+            ]
+            if shared_env_id
+            else []
+        ),
         "",
         "build:",
         "  managed_by: toolhub_app_studio",

@@ -13,6 +13,7 @@ $PythonDir = Join-Path $RuntimeDir "python"
 $PythonExe = Join-Path $PythonDir "python.exe"
 $WebRuntimeDir = Join-Path $RuntimeDir "web_automation_runtime"
 $AppEnvsDir = Join-Path $RuntimeDir "app_envs"
+$SharedEnvsDir = Join-Path $RuntimeDir "envs"
 $AppsDir = Join-Path $Root "apps"
 
 $Items = New-Object System.Collections.ArrayList
@@ -92,6 +93,13 @@ if ($WebRuntimeFiles.Count -gt 0) {
     Add-Item "web_automation_runtime" "web-automation-runtime" "missing" $Severity "Web automation runtime files are not bundled. Use prepare_runtime.ps1 -WebRuntimeArchive <zip> -WebRuntimeSha256 <sha256> with an approved archive." $WebRuntimeDir
 }
 
+$SharedEnvFiles = Get-NonPlaceholderItems $SharedEnvsDir
+if ($SharedEnvFiles.Count -gt 0) {
+    Add-Item "shared_env_runtime" "runtime-envs" "present" "ok" "Versioned shared runtime envs have $($SharedEnvFiles.Count) item(s)." $SharedEnvsDir
+} else {
+    Add-Item "shared_env_runtime" "runtime-envs" "empty" "info" "No versioned shared runtime env has been created yet. App Studio creates runtime/envs/<env_id> when a new dependency lock is registered." $SharedEnvsDir
+}
+
 $SourceApps = @()
 if (Test-Path -LiteralPath $AppsDir -PathType Container) {
     $SourceApps = @(Get-ChildItem -LiteralPath $AppsDir -Directory |
@@ -107,16 +115,16 @@ foreach ($App in $SourceApps) {
         $RuntimeItems = Get-NonPlaceholderItems $EnvPath
         $State = if ($RuntimeItems.Count -gt 0) { "present_with_files" } else { "skeleton_only" }
         $PresentAppEnv += $App.Name
-        Add-Item "app_env" $App.Name $State "info" "App env is optional for normal frozen-folder apps; this directory is compatibility-only unless the app explicitly uses app-env mode." $EnvPath
+        Add-Item "app_env" $App.Name $State "info" "App env is optional for normal shared-env apps; this directory is compatibility-only unless the app explicitly uses app-env mode." $EnvPath
     } else {
         $MissingAppEnv += $App.Name
     }
 }
 
 if ($MissingAppEnv.Count -gt 0) {
-    Add-Item "app_env_policy" "frozen-folder-app-env" "missing_for_source_apps" "info" "runtime/app_envs/<app_id> is missing for $($MissingAppEnv.Count) source app(s). This is acceptable for normal App Studio frozen-folder apps and should not be treated as runtime packaging failure." $AppEnvsDir
+    Add-Item "app_env_policy" "shared-env-app-env" "missing_for_source_apps" "info" "runtime/app_envs/<app_id> is missing for $($MissingAppEnv.Count) source app(s). This is acceptable for normal App Studio shared-env apps and should not be treated as runtime packaging failure." $AppEnvsDir
 } else {
-    Add-Item "app_env_policy" "frozen-folder-app-env" "all_source_apps_have_app_env_dirs" "info" "All source apps have app_env directories, but normal frozen-folder apps still do not require them at runtime." $AppEnvsDir
+    Add-Item "app_env_policy" "shared-env-app-env" "all_source_apps_have_app_env_dirs" "info" "All source apps have app_env directories, but normal shared-env apps still do not require them at runtime." $AppEnvsDir
 }
 
 $Report = [pscustomobject]@{
@@ -129,6 +137,8 @@ $Report = [pscustomobject]@{
         python_version = $PythonVersion
         web_runtime_files_found = ($WebRuntimeFiles.Count -gt 0)
         web_runtime_file_count = $WebRuntimeFiles.Count
+        shared_env_items_found = ($SharedEnvFiles.Count -gt 0)
+        shared_env_item_count = $SharedEnvFiles.Count
         source_app_count = $SourceApps.Count
         app_env_dirs_present = $PresentAppEnv.Count
         app_env_dirs_missing = $MissingAppEnv.Count

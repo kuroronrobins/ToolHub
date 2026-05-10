@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any
 
 
-BUILD_MODES = {"auto", "app-env", "frozen-folder", "existing-exe"}
-NORMAL_REGISTRATION_BUILD_MODE = "frozen-folder"
+BUILD_MODES = {"auto", "app-env", "frozen-folder", "existing-exe", "shared-env"}
+NORMAL_REGISTRATION_BUILD_MODE = "shared-env"
 NORMAL_REGISTRATION_POLICY = "user-distribution"
 
 
@@ -465,6 +465,7 @@ class BuildPlan:
     required_runtime: str | None
     reasons: list[str]
     warnings: list[str] = field(default_factory=list)
+    env_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -474,6 +475,7 @@ class BuildPlan:
             "required_runtime": self.required_runtime,
             "reasons": self.reasons,
             "warnings": self.warnings,
+            "env_id": self.env_id,
         }
 
 
@@ -570,6 +572,22 @@ class LockGenerationResult:
     source: str
     report: str
     error: str = ""
+
+
+@dataclass
+class SharedRuntimeBuildResult:
+    ok: bool
+    skipped: bool
+    env_id: str
+    env_path: Path
+    python_path: Path | None
+    lock_path: Path
+    report: str
+    error: str = ""
+    created: bool = False
+    reused: bool = False
+    requirements_lock_sha256: str = ""
+    package_versions: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass

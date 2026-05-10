@@ -66,7 +66,7 @@ class BaseRunner:
             events=events,
         )
 
-    def run_blocking(self, command: list[str], env: dict[str, str]) -> RunnerResult:
+    def run_blocking(self, command: list[str], env: dict[str, str], cwd: Path | None = None) -> RunnerResult:
         paths = create_run_log_paths(self.project_root, self.manifest.id)
         start = now_iso()
         stdout = ""
@@ -78,7 +78,7 @@ class BaseRunner:
         try:
             completed = subprocess.run(
                 command,
-                cwd=str(self.manifest.app_dir),
+                cwd=str(cwd or self.manifest.app_dir),
                 env=env,
                 text=True,
                 encoding="utf-8",
@@ -122,7 +122,7 @@ class BaseRunner:
             return self.success_result(user_message, events, paths.json_log)
         return self.failure_result(events, paths.json_log)
 
-    def start_detached(self, command: list[str], env: dict[str, str]) -> RunnerResult:
+    def start_detached(self, command: list[str], env: dict[str, str], cwd: Path | None = None) -> RunnerResult:
         paths = create_run_log_paths(self.project_root, self.manifest.id)
         start = now_iso()
         events = [RunnerEvent(type="status", message="起動準備をしています", progress=10)]
@@ -139,7 +139,7 @@ class BaseRunner:
             try:
                 process = subprocess.Popen(
                     command,
-                    cwd=str(self.manifest.app_dir),
+                    cwd=str(cwd or self.manifest.app_dir),
                     env=env,
                     stdout=stdout_file,
                     stderr=stderr_file,
@@ -151,9 +151,17 @@ class BaseRunner:
             pid = process.pid
             exit_code = wait_for_startup_exit(process, STARTUP_PROBE_SECONDS)
             if exit_code is None:
-                ok = True
-                release_detached_process(process)
-                events.append(RunnerEvent(type="success", message="起動しました", progress=100))
+                stdout = read_text_tail(paths.stdout_log)
+                stderr = read_text_tail(paths.stderr_log)
+                fatal = fatal_startup_output("\n".join(part for part in [stdout, stderr] if part))
+                if fatal:
+                    exit_code = terminate_running_process(process)
+                    admin_error = f"fatal startup output detected: {fatal}"
+                    events.append(RunnerEvent(type="error", message=USER_FAILURE_MESSAGE, progress=100))
+                else:
+                    ok = True
+                    release_detached_process(process)
+                    events.append(RunnerEvent(type="success", message="起動しました", progress=100))
             else:
                 stdout = read_text_tail(paths.stdout_log)
                 stderr = read_text_tail(paths.stderr_log)
@@ -205,6 +213,34 @@ def release_detached_process(process: subprocess.Popen[bytes]) -> None:
         handle.Close()
         if hasattr(process, "_child_created"):
             process._child_created = False
+
+
+def terminate_running_process(process: subprocess.Popen[bytes]) -> Optional[int]:
+    try:
+        process.terminate()
+        return process.wait(timeout=2)
+    except Exception:
+        try:
+            process.kill()
+            return process.wait(timeout=2)
+        except Exception:
+            return process.poll()
+
+
+def fatal_startup_output(output: str) -> str:
+    patterns = [
+        "Traceback (most recent call last)",
+        "Unhandled error in main",
+        "ModuleNotFoundError",
+        "ImportError:",
+        "TypeError:",
+        "AttributeError:",
+        "unexpected keyword argument",
+    ]
+    for pattern in patterns:
+        if pattern in output:
+            return pattern
+    return ""
 
 
 def read_text_tail(path: Path, limit: int = DETACHED_OUTPUT_TAIL_CHARS) -> str:

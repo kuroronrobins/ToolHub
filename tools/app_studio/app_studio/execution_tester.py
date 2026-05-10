@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime
@@ -18,7 +19,7 @@ INFO = "info"
 FAIL = "fail"
 
 
-SUPPORTED_RUNNERS = {"python", "cli", "exe", "playwright_python", "python_app_env"}
+SUPPORTED_RUNNERS = {"python", "cli", "exe", "playwright_python", "python_app_env", "python_shared_env"}
 
 
 def run_execution_checks(
@@ -78,6 +79,11 @@ def build_execution_result(
         checks.append(check(".py run.entry blocked", "fail" if plan.entry.lower().endswith(".py") else "pass", plan.entry))
         checks.append(registered_build_required_check(context))
         checks.extend(frozen_profile_checks(context))
+        checks.append(forbidden_registered_payload_check(context))
+    elif plan.mode == "shared-env":
+        checks.append(check("shared-env run.entry", "pass" if app_entry.is_file() else "fail", str(app_entry)))
+        checks.append(shared_env_check(context, plan))
+        checks.append(requirements_lock_registered_check(context))
         checks.append(forbidden_registered_payload_check(context))
     else:
         checks.append(check("run.entry exists", "pass" if app_entry.is_file() else "fail", str(app_entry)))
@@ -184,6 +190,22 @@ def python_runtime_check(context: StudioContext) -> ExecutionCheck:
     return check("python runtime", "warn", f"Missing {app_env_python} and {runtime_python}. StrictApproval will reject this.")
 
 
+def shared_env_check(context: StudioContext, plan: BuildPlan) -> ExecutionCheck:
+    if not plan.env_id:
+        return check("shared-env runtime", "fail", "No env_id was selected for python_shared_env.")
+    env_python = context.repo_root / "runtime" / "envs" / plan.env_id / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    if env_python.is_file():
+        return check("shared-env runtime", "pass", str(env_python))
+    return check("shared-env runtime", "fail", f"Missing shared env Python: {env_python}")
+
+
+def requirements_lock_registered_check(context: StudioContext) -> ExecutionCheck:
+    lock = context.repo_root / "apps" / context.app_id / "requirements.lock"
+    if lock.is_file():
+        return check("requirements.lock registered", "pass", str(lock))
+    return check("requirements.lock registered", "fail", f"Missing: {lock}")
+
+
 def attempt_runner(context: StudioContext, plan: BuildPlan, app_entry: Path) -> ExecutionCheck | None:
     if not app_entry.is_file():
         return check("runner dry execution", "fail", "Skipped because entry file is not present.")
@@ -199,6 +221,13 @@ def attempt_runner(context: StudioContext, plan: BuildPlan, app_entry: Path) -> 
         runtime_python = context.repo_root / "runtime" / "python" / "python.exe"
         if not app_env_python.is_file() and not runtime_python.is_file():
             return check("runner dry execution", "warn", "Skipped because ToolHub Python runtime/app_env is not present.", approval_category=NON_BLOCKING_WARNING)
+    if plan.runner == "python_shared_env" and plan.entry.endswith(".py"):
+        return check(
+            "runner dry execution",
+            "warn",
+            "Skipped for python_shared_env GUI mode because registration startup smoke already checked the selected env.",
+            approval_category=NON_BLOCKING_WARNING,
+        )
     if plan.runner not in {"python_app_env", "cli"}:
         return check("runner dry execution", "warn", "Skipped because automatic GUI execution could be disruptive.", approval_category=NON_BLOCKING_WARNING)
 

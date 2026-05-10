@@ -20,6 +20,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $RuntimeDir = Join-Path $Root "runtime"
 $PythonDir = Join-Path $RuntimeDir "python"
+$SharedEnvsDir = Join-Path $RuntimeDir "envs"
 $AppEnvsDir = Join-Path $RuntimeDir "app_envs"
 $WebRuntimeDir = Join-Path $RuntimeDir "web_automation_runtime"
 $AppsDir = Join-Path $Root "apps"
@@ -203,9 +204,11 @@ function Get-NonPlaceholderItems {
 
 Ensure-Directory $RuntimeDir | Out-Null
 Ensure-Directory $PythonDir | Out-Null
+Ensure-Directory $SharedEnvsDir | Out-Null
 Ensure-Directory $AppEnvsDir | Out-Null
 Ensure-Directory $WebRuntimeDir | Out-Null
 Touch-GitKeep $PythonDir
+Touch-GitKeep $SharedEnvsDir
 Touch-GitKeep $AppEnvsDir
 Touch-GitKeep $WebRuntimeDir
 
@@ -219,6 +222,7 @@ Planned release layout:
 ```text
 runtime/
 |- python/
+|- envs/
 |- app_envs/
 `- web_automation_runtime/
 ```
@@ -231,7 +235,8 @@ Large runtime artifacts are intentionally not tracked in Git. Place approved loc
 .\scripts\prepare_runtime.ps1 -WebRuntimeArchive <web-runtime.zip> -WebRuntimeSha256 <sha256>
 ```
 
-Default behavior does not download anything from the internet. Normal frozen-folder apps do not require
+Default behavior does not download anything from the internet. Normal shared-env apps store versioned
+runtime environments under `runtime/envs/<env_id>` and do not require
 `runtime/app_envs/<app_id>`; create compatibility skeletons only with `-CreateAppEnvSkeletons`.
 '@
 Set-TextFile -Path (Join-Path $RuntimeDir "README.md") -Content $RuntimeReadme
@@ -271,7 +276,7 @@ if ($CreateAppEnvSkeletons) {
 
 This folder is reserved for a legacy per-app runtime environment.
 
-Normal App Studio registration builds frozen-folder apps and does not use this directory at runtime.
+Normal App Studio registration uses runtime/envs/<env_id> and does not use this directory at runtime.
 "@
                 Set-TextFile -Path (Join-Path $EnvDir "README.md") -Content $EnvReadme
                 Write-Host "[OK] Prepared app env skeleton: runtime/app_envs/$AppId"
@@ -279,7 +284,7 @@ Normal App Studio registration builds frozen-folder apps and does not use this d
         }
     }
 } else {
-    Write-Host "[INFO] App env skeleton creation skipped. Normal frozen-folder apps do not require runtime/app_envs/<app_id>."
+    Write-Host "[INFO] App env skeleton creation skipped. Normal shared-env apps do not require runtime/app_envs/<app_id>."
 }
 
 if (-not $SkipWebRuntime) {

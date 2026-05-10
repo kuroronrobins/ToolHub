@@ -1,26 +1,26 @@
 # Runtime Packaging
 
-This document describes how ToolHub prepares shared runtime files for release. Runtime packaging is a release-readiness
-task, not app cleanup. Runtime binaries are intentionally not committed to Git and are never downloaded automatically by
-ToolHub scripts.
+This document describes how ToolHub prepares shared runtime files for local execution and release checks. Runtime binaries and created virtual environments are local artifacts; they are not committed to Git and are never downloaded automatically by ToolHub scripts.
 
 ## Current App Studio Policy
 
-Normal App Studio registration creates frozen-folder apps under `apps/<app_id>/`.
+Normal App Studio registration uses a shared versioned runtime:
 
 ```text
-Python source -> build_env -> PyInstaller frozen-folder -> apps/<app_id>/
+Python source -> requirements.lock -> runtime/envs/<env_id> -> apps/<app_id>/
 ```
 
-For these normal apps:
+For normal shared-env apps:
 
-- `apps/<app_id>/` is the app source of truth.
-- `run.runner` is normally `exe`.
-- `run.entry` points at `bin/<app_id>/<app_id>.exe`.
+- `apps/<app_id>/` remains the app source of truth.
+- `run.runner` is `python_shared_env`.
+- `run.entry` points at the copied source under `src/`.
+- `run.env_id` selects `runtime/envs/<env_id>`.
+- `runtime.required_runtime` is `python-shared-env:<env_id>`.
+- `requirements.lock` is required and included in `apps/<app_id>/` and App Pack zip.
 - `runtime/app_envs/<app_id>` is not required at runtime.
-- `build_env` is a build-only environment and must not be copied into `runtime/`, App Packs, or `final_app`.
 
-The `runtime/app_envs/` folder remains only for legacy compatibility and possible future app-env execution modes.
+The old `runtime/app_envs/` folder remains only for legacy compatibility and explicit app-env execution modes. Existing `run.runner: exe` frozen-folder apps remain supported for compatibility, but they are no longer the normal new-registration path.
 
 ## Runtime Layout
 
@@ -29,12 +29,12 @@ runtime/
 |- README.md
 |- runtime_manifest.example.json
 |- python/
+|- envs/
 |- app_envs/
 `- web_automation_runtime/
 ```
 
-Tracked files are limited to docs, scripts, `.gitkeep`, and manifest examples. Large runtime artifacts are local release
-inputs and remain ignored by Git.
+Tracked files are limited to docs, scripts, `.gitkeep`, and manifest examples. Large runtime artifacts are local release inputs and remain ignored by Git.
 
 ## Preparing Runtime
 
@@ -44,31 +44,7 @@ Prepare placeholder folders and warnings when no approved archive is available:
 .\scripts\prepare_runtime.ps1 -AllowMissingRuntime
 ```
 
-Prepare Python runtime from an internally approved archive:
-
-```powershell
-.\scripts\prepare_runtime.ps1 `
-  -PythonArchive .\vendor\runtime\python-runtime.zip `
-  -PythonSha256 <sha256>
-```
-
-Prepare Web automation runtime from an internally approved archive:
-
-```powershell
-.\scripts\prepare_runtime.ps1 `
-  -WebRuntimeArchive .\vendor\runtime\web-automation-runtime.zip `
-  -WebRuntimeSha256 <sha256>
-```
-
-Prepare both in one run:
-
-```powershell
-.\scripts\prepare_runtime.ps1 `
-  -PythonArchive .\vendor\runtime\python-runtime.zip `
-  -PythonSha256 <sha256> `
-  -WebRuntimeArchive .\vendor\runtime\web-automation-runtime.zip `
-  -WebRuntimeSha256 <sha256>
-```
+App Studio creates `runtime/envs/<env_id>` during registration when it encounters a dependency lock that does not already have a shared environment. `prepare_runtime.ps1` only prepares the runtime folder structure and optional base runtime archives.
 
 Operational flags:
 
@@ -79,21 +55,6 @@ Operational flags:
 - `-DryRun`: preview writes/extraction without changing files.
 - `-CreateAppEnvSkeletons`: create compatibility-only `runtime/app_envs/<app_id>/` skeletons.
 
-`-SourceArchive` and `-SourceSha256` are retained as aliases for `-PythonArchive` and `-PythonSha256`.
-
-## Safety Rules
-
-`prepare_runtime.ps1` follows these safety rules:
-
-- It never downloads runtime files from the internet.
-- It expands only explicitly provided local archives.
-- It verifies SHA256 before extraction when a hash is provided.
-- A SHA256 mismatch stops extraction.
-- Python archives extract only to `runtime/python/`.
-- Web runtime archives extract only to `runtime/web_automation_runtime/`.
-- Archive path traversal is rejected before files are written.
-- Runtime binaries remain ignored by Git.
-
 ## Runtime Verification
 
 Use read-only verification:
@@ -103,46 +64,28 @@ Use read-only verification:
 .\scripts\verify_runtime.ps1 -Json
 ```
 
-Normal mode reports missing runtime as warnings so local development can continue. Strict runtime verification fails
-until shared runtime files are present:
-
-```powershell
-.\scripts\verify_runtime.ps1 -RequireRuntime
-```
-
 The verifier checks:
 
-- `runtime/python/python.exe`
-- `python.exe --version`
-- a minimal Python stdlib import check when Python exists
-- non-placeholder files in `runtime/web_automation_runtime/`
-- whether app_env directories are missing, skeleton-only, or present with files
+- `runtime/python/python.exe`, when a bundled Python runtime is expected.
+- `python.exe --version` and a minimal stdlib import check when Python exists.
+- non-placeholder files in `runtime/web_automation_runtime/`.
+- whether any versioned shared environments exist under `runtime/envs/`.
+- whether legacy `runtime/app_envs/<app_id>` directories are present or missing.
 
-Missing `runtime/app_envs/<app_id>` is informational for normal frozen-folder apps and is not a runtime packaging
-failure.
+Missing `runtime/app_envs/<app_id>` is informational for normal shared-env apps and is not a runtime packaging failure.
 
-## Runtime Manifest Example
+## Release Checks
 
-`runtime/runtime_manifest.example.json` documents the intended local runtime state. It is an example, not a generated
-authoritative manifest. Runtime binaries and local runtime archive manifests remain outside Git unless a separate
-release policy explicitly approves them.
+`verify_release.ps1` checks `python-shared-env:<env_id>` apps against `runtime/envs/<env_id>/Scripts/python.exe` instead of requiring `runtime/app_envs/<app_id>`. App Pack validation still checks `app.yaml`, `README.md`, `requirements.txt`, `requirements.lock`, `display.icon`, and `run.entry`.
 
-## Release Readiness Relation
-
-Runtime warnings are tracked by:
+These commands are relevant:
 
 ```powershell
 .\scripts\report_release_readiness.ps1
 .\scripts\verify_release.ps1
 ```
 
-Current warning categories:
-
-- `runtime_packaging_required`: shared Python or Web runtime is missing.
-- `docs_check_adjustment_candidates`: strict app_env policy still needs a decision for frozen-folder apps.
-- `intentional_warnings`: hidden apps with source or missing app_env folders that are not deletion candidates.
-
-These warnings must not be resolved by deleting apps.
+Warnings about missing runtime files must not be resolved by deleting apps. Fix the runtime artifact, App Pack, or manifest contract that the warning identifies.
 
 ## Git Policy
 
@@ -157,9 +100,5 @@ Commit:
 Do not commit:
 
 - `runtime/python/*` runtime binaries
+- `runtime/envs/*` virtual environment contents
 - `runtime/app_envs/*` runtime environment contents
-- `runtime/web_automation_runtime/*` runtime binaries
-- `vendor/runtime/`
-- `tools/runtime_sources/`
-
-This policy is enforced by `.gitignore`.

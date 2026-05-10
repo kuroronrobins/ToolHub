@@ -509,7 +509,7 @@ function cleanRequest(request: AppStudioUpdateRequest, newVersion: string): AppS
 }
 
 function normalizeBuildMode(value: string | null | undefined): AppStudioBuildMode | null {
-  if (value === "auto" || value === "app-env" || value === "frozen-folder" || value === "existing-exe") {
+  if (value === "auto" || value === "app-env" || value === "shared-env" || value === "frozen-folder" || value === "existing-exe") {
     return value;
   }
   return null;

@@ -39,9 +39,10 @@ from app_studio.registrar import apply_registration
 from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import ai_submission_block_reason, scan_secrets, secret_scan_status
+from app_studio.shared_runtime import prepare_shared_runtime
 from app_studio.timing import TimingRecorder, write_timing_reports
 from app_studio.trace import app_studio_trace, merge_trace_into_import_plan, planned_build_env_path
-from app_studio.util import find_repo_root
+from app_studio.util import find_repo_root, write_json, write_text
 
 
 BUILD_TOOL_PACKAGES = ["PyInstaller>=6,<7", "pyinstaller-hooks-contrib>=2024.0"]
@@ -319,6 +320,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "generate_lock": options.generate_lock,
         "build_frozen_folder": options.build_frozen_folder,
         "verify_runtime": options.verify_runtime,
+        "shared_runtime": "",
         "build_env": str(planned_build_env_path(context)),
         "registration_copy_breakdown": str(context.output_dir / "registration_copy_breakdown.json"),
         "registration_copy_report": str(context.output_dir / "registration_copy_report.md"),
@@ -395,6 +397,61 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         record_blocked_execution(context, output_dir, "registration policy", f"Normal registration requires {NORMAL_REGISTRATION_BUILD_MODE}, got {plan.mode}.", plan)
         write_timing_reports(context, output_dir, timings)
         return 1
+
+    if plan.mode == "shared-env":
+        with timings.phase("requirements_lock_generation"):
+            shared_runtime_result = prepare_shared_runtime(context, requirements_path)
+        print(
+            "shared runtime status: "
+            f"ok={shared_runtime_result.ok}, "
+            f"created={shared_runtime_result.created}, "
+            f"reused={shared_runtime_result.reused}, "
+            f"env_id={shared_runtime_result.env_id}"
+        )
+        if not shared_runtime_result.ok:
+            record_blocked_execution(context, output_dir, "shared runtime", shared_runtime_result.error or "Shared runtime creation failed.", plan)
+            write_timing_reports(context, output_dir, timings)
+            return 1
+
+        plan.env_id = shared_runtime_result.env_id
+        plan.required_runtime = f"python-shared-env:{shared_runtime_result.env_id}"
+        update_import_plan_with_shared_runtime(output_dir, shared_runtime_result)
+        app_yaml = generate_app_yaml(context, plan, metadata)
+        write_text(final_app / "app.yaml", app_yaml)
+        write_text(output_dir / "proposed_app.yaml", app_yaml)
+        timings.mark(
+            "shared_runtime",
+            "created" if shared_runtime_result.created else "reused",
+            f"env_id={shared_runtime_result.env_id}; env_path={shared_runtime_result.env_path}; lock={shared_runtime_result.lock_path}",
+        )
+
+        with timings.phase("distribution_check"):
+            runtime_result = verify_runtime(context, output_dir, plan, build_profile)
+        print(f"distribution check status: {runtime_result.overall_status}")
+        if runtime_result.overall_status == "fail":
+            record_blocked_execution(context, output_dir, "shared runtime distribution check", runtime_failure_detail(runtime_result), plan)
+            write_timing_reports(context, output_dir, timings)
+            return 1
+
+        registration_breakdown: list[dict[str, object]] = []
+        try:
+            with timings.phase("registration_copy"):
+                package_path = apply_registration(context, plan, final_app, output_dir, breakdown=registration_breakdown)
+        except Exception as exc:
+            mark_registration_breakdown(timings, registration_breakdown)
+            record_blocked_execution(context, output_dir, "registration copy", f"Registration copy or app pack generation failed: {exc!r}", plan)
+            write_timing_reports(context, output_dir, timings)
+            raise
+        mark_registration_breakdown(timings, registration_breakdown)
+        with timings.phase("execution_checks"):
+            execution_result = run_execution_checks(context, plan, output_dir, secret_report, runtime_result)
+        timings.mark("result_refresh", "not_applicable", "GUI result refresh is measured in the launcher after CLI completion.")
+        write_timing_reports(context, output_dir, timings)
+        print(f"Temporary registration completed: apps/{context.app_id}")
+        print(f"App Pack was generated: {package_path}")
+        print(f"execution_test_result overall_status={execution_result.overall_status}, approval_allowed={execution_result.approval_allowed}")
+        print("release/app_manifest.json starts with enabled=false for imported apps.")
+        return 0 if execution_result.approval_allowed else 1
 
     with timings.phase("build_env_creation"):
         build_env_result = create_build_env(
@@ -644,7 +701,7 @@ def normalize_normal_registration_args(args: argparse.Namespace) -> None:
     if args.skip_lock:
         raise ValueError("Normal App Studio registration always generates or updates requirements.lock; --skip-lock is not allowed.")
     if args.skip_frozen_build:
-        raise ValueError("Normal App Studio registration always builds a frozen-folder; --skip-frozen-build is not allowed.")
+        raise ValueError("Normal App Studio registration uses shared-env and does not expose frozen build skipping.")
     if args.skip_app_env_build:
         raise ValueError("Normal App Studio registration uses an internal build_env, not user-facing app_env; --skip-app-env-build is not allowed.")
     if args.create_app_env or args.rebuild_app_env:
@@ -653,11 +710,11 @@ def normalize_normal_registration_args(args: argparse.Namespace) -> None:
         print(f"Normal registration ignores legacy BuildMode={args.build_mode}; using {NORMAL_REGISTRATION_BUILD_MODE}.")
     args.build_mode = NORMAL_REGISTRATION_BUILD_MODE
     args.generate_lock = True
-    args.build_frozen_folder = True
+    args.build_frozen_folder = False
     args.verify_runtime = True
     args.create_app_env = False
     args.rebuild_app_env = False
-    args.rebuild_frozen_folder = True
+    args.rebuild_frozen_folder = False
     args.skip_lock = False
     args.skip_frozen_build = False
     args.skip_app_env_build = False
@@ -684,6 +741,30 @@ def print_summary(app_id: str, name: str, action: str, build_mode: str, included
     print(f"- included_files: {included_count}")
     print(f"- secret_findings: {finding_count}")
     print(f"- output: {output_dir}")
+
+
+def update_import_plan_with_shared_runtime(output_dir: Path, shared_runtime_result) -> None:
+    path = output_dir / "import_plan.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+    data["shared_runtime"] = {
+        "env_id": shared_runtime_result.env_id,
+        "env_path": str(shared_runtime_result.env_path),
+        "python_path": str(shared_runtime_result.python_path) if shared_runtime_result.python_path else "",
+        "requirements_lock": str(shared_runtime_result.lock_path),
+        "requirements_lock_sha256": shared_runtime_result.requirements_lock_sha256,
+        "created": shared_runtime_result.created,
+        "reused": shared_runtime_result.reused,
+        "package_versions": shared_runtime_result.package_versions,
+    }
+    data["required_runtime"] = f"python-shared-env:{shared_runtime_result.env_id}"
+    data["selected_build_mode"] = "shared-env"
+    data["build_frozen_folder"] = False
+    data["generate_lock"] = True
+    data["verify_runtime"] = True
+    write_json(path, data)
 
 
 if __name__ == "__main__":

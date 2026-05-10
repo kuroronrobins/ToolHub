@@ -162,7 +162,7 @@ export function getAppStudioApprovalFailureGuidance(result: AppStudioRunResult |
     lower.includes("winerror 2")
   ) {
     return {
-      reason: `アプリのソースファイルが見つからないため、配布用exeを作成できません。${compactSummary(summary)}`,
+      reason: `アプリのソースファイルが見つからないため、共有ランタイム登録を完了できません。${compactSummary(summary)}`,
       nextAction: "アプリ選択で現在存在する entry/app.py を選び直すか、移動したソースフォルダを元の場所に戻してからテスト登録を再実行してください。",
     };
   }

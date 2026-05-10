@@ -38,6 +38,10 @@ def make_build_plan(context: StudioContext, inventory: SourceInventory) -> Build
         runner = "exe"
         entry = f"bin/{context.app_id}/{context.app_id}.exe"
         required_runtime = None
+    elif mode == "shared-env":
+        runner = "python_shared_env"
+        entry = f"src/{context.entry_relative.as_posix()}"
+        required_runtime = "python-shared-env"
     else:
         runner = "python_app_env"
         entry = f"src/{context.entry_relative.as_posix()}"
@@ -47,6 +51,9 @@ def make_build_plan(context: StudioContext, inventory: SourceInventory) -> Build
     if mode == "frozen-folder":
         warnings.append("Frozen-folder uses PyInstaller --onedir or an equivalent folder build.")
         warnings.append("Use PyInstaller --onedir or equivalent. --onefile is not the ToolHub standard.")
+    if mode == "shared-env":
+        warnings.append("Shared-env uses a versioned ToolHub runtime environment selected from requirements.lock.")
+        warnings.append("If the dependency version set is new, ToolHub creates a new shared runtime env.")
     if mode == "existing-exe":
         warnings.append("Existing executable folders are copied as folder/exe style assets.")
 
@@ -57,7 +64,7 @@ def select_build_mode(context: StudioContext, inventory: SourceInventory) -> tup
     if context.entry.suffix.lower() == ".exe":
         return "existing-exe", ["Entry is already an executable."]
 
-    return "frozen-folder", ["Normal App Studio registration always builds a PyInstaller frozen-folder for user distribution."]
+    return "shared-env", ["Normal App Studio registration uses a versioned shared runtime environment for local ToolHub execution."]
 
 
 def has_asset_or_binary_signal(path: Path) -> bool:
@@ -84,7 +91,18 @@ def build_plan_markdown(plan: BuildPlan, context: StudioContext) -> str:
     if plan.warnings:
         lines.extend(["", "## Warnings", ""])
         lines.extend(f"- {warning}" for warning in plan.warnings)
-    if plan.mode == "app-env":
+    if plan.mode == "shared-env":
+        lines.extend(
+            [
+                "",
+                "## shared-env Layout",
+                "",
+                "- Runtime: `runtime/envs/<env_id>/Scripts/python.exe`",
+                "- App files remain under `apps/<app_id>/`.",
+                "- Apps with the same dependency lock can reuse the same runtime env.",
+            ]
+        )
+    elif plan.mode == "app-env":
         lines.extend(
             [
                 "",

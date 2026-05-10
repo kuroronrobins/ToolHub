@@ -352,8 +352,20 @@ if ($AppManifest) {
         if ($Entry.package) { Pass "$Id package path is set" } else { Fail "$Id package path is missing" }
         if ($Entry.required_core) { Pass "$Id required_core is set" } else { Fail "$Id required_core is missing" }
         if ($Entry.required_runner) { Pass "$Id required_runner is set" } else { Fail "$Id required_runner is missing" }
-        $AppEnv = Join-Path (Join-Path $Root "runtime\app_envs") $Id
-        if (Test-Path -LiteralPath $AppEnv -PathType Container) { Pass "$Id app_env skeleton exists" } else { Warn "$Id app_env skeleton is missing" }
+        $RequiredRuntime = [string]$Entry.required_runtime
+        if ($RequiredRuntime.StartsWith("python-shared-env:", [System.StringComparison]::OrdinalIgnoreCase)) {
+            $EnvId = $RequiredRuntime.Substring("python-shared-env:".Length)
+            $SharedEnv = Join-Path (Join-Path $Root "runtime\envs") $EnvId
+            $SharedEnvPython = Join-Path $SharedEnv "Scripts\python.exe"
+            if (Test-Path -LiteralPath $SharedEnvPython -PathType Leaf) {
+                Pass "$Id shared runtime exists: $EnvId"
+            } else {
+                Fail "$Id shared runtime is missing: runtime/envs/$EnvId"
+            }
+        } else {
+            $AppEnv = Join-Path (Join-Path $Root "runtime\app_envs") $Id
+            if (Test-Path -LiteralPath $AppEnv -PathType Container) { Pass "$Id app_env skeleton exists" } else { Warn "$Id app_env skeleton is missing" }
+        }
         if ($Entry.package) {
             $PackPath = Join-Path $ReleaseDir ([string]$Entry.package)
             if (Test-Path -LiteralPath $PackPath -PathType Leaf) {

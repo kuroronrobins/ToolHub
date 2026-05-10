@@ -704,7 +704,7 @@ class FrozenFolderTests(unittest.TestCase):
 
 
 class NormalRegistrationFlowTests(unittest.TestCase):
-    def test_lightweight_apply_reuses_build_env_and_build_tools_on_second_run(self) -> None:
+    def test_lightweight_apply_reuses_shared_runtime_on_second_run(self) -> None:
         with workspace_tempdir() as root:
             repo = make_repo(root)
             app_id = "cache_apply_demo"
@@ -782,14 +782,14 @@ class NormalRegistrationFlowTests(unittest.TestCase):
 
             self.assertEqual(first_exit, 0)
             self.assertEqual(second_exit, 0)
-            self.assertEqual(create_venv_count, 1)
-            self.assertEqual(build_tool_install_count, 1)
-            self.assertEqual(phases["build_env_cache"]["status"], "hit")
-            self.assertEqual(phases["build_tools_cache"]["status"], "hit")
-            self.assertIn("Existing build_env cache was reused", (output_dir / "build_env_report.md").read_text(encoding="utf-8"))
-            self.assertIn("install skipped", (output_dir / "build_tool_install_report.md").read_text(encoding="utf-8"))
+            self.assertEqual(create_venv_count, 0)
+            self.assertEqual(build_tool_install_count, 0)
+            self.assertEqual(phases["shared_runtime"]["status"], "reused")
+            import_plan = json.loads((output_dir / "import_plan.json").read_text(encoding="utf-8"))
+            self.assertEqual(import_plan["selected_build_mode"], "shared-env")
+            self.assertTrue(import_plan["shared_runtime"]["env_id"])
 
-    def test_xcgate_like_apply_uses_build_env_for_pyinstaller_and_registers_exe(self) -> None:
+    def test_xcgate_like_apply_registers_shared_env_source_app(self) -> None:
         with workspace_tempdir() as root:
             repo = make_repo(root)
             app_id = "xcgate_upload"
@@ -895,28 +895,26 @@ class NormalRegistrationFlowTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             output_dir = source / "ToolHub_AppStudio_Output" / app_id
-            final_exe = output_dir / "final_app" / "bin" / app_id / f"{app_id}.exe"
-            registered_exe = repo / "apps" / app_id / "bin" / app_id / f"{app_id}.exe"
-            self.assertTrue(final_exe.is_file())
-            self.assertTrue(registered_exe.is_file())
+            final_entry = output_dir / "final_app" / "src" / "run_xcgate_upload.py"
+            registered_entry = repo / "apps" / app_id / "src" / "run_xcgate_upload.py"
+            self.assertTrue(final_entry.is_file())
+            self.assertTrue(registered_entry.is_file())
             self.assertFalse((output_dir / "final_app" / "bin" / "BUILD_REQUIRED.txt").exists())
             self.assertFalse((repo / "apps" / "run_xcgate_upload_fixture" / "bin" / "BUILD_REQUIRED.txt").exists())
-            self.assertGreaterEqual(len(pyinstaller_commands), 2)
-            build_command = pyinstaller_commands[-1]
-            self.assertIn("--onedir", build_command)
-            self.assertIn("--contents-directory", build_command)
-            self.assertEqual(build_command[build_command.index("--contents-directory") + 1], ".")
+            self.assertEqual(pyinstaller_commands, [])
 
             import_plan = json.loads((output_dir / "import_plan.json").read_text(encoding="utf-8"))
-            self.assertEqual(import_plan["app_studio_policy_id"], "normal_python_source_to_frozen_folder_build_env_v3")
+            self.assertEqual(import_plan["app_studio_policy_id"], "normal_python_source_to_shared_versioned_runtime_v1")
+            self.assertEqual(import_plan["selected_build_mode"], "shared-env")
             self.assertFalse(import_plan["create_app_env"])
-            self.assertEqual(Path(import_plan["build_env_python"]), expected_build_env_python)
-            self.assertEqual(Path(import_plan["pyinstaller_probe_python"]), expected_build_env_python)
-            self.assertEqual(Path(import_plan["pyinstaller_build_python"]), expected_build_env_python)
+            self.assertTrue(import_plan["shared_runtime"]["env_id"])
+            self.assertTrue(import_plan["required_runtime"].startswith("python-shared-env:"))
             self.assertNotIn("runtime\\app_envs", json.dumps(import_plan).replace("/", "\\"))
 
             app_yaml = (repo / "apps" / app_id / "app.yaml").read_text(encoding="utf-8")
-            self.assertIn(f"entry: bin/{app_id}/{app_id}.exe", app_yaml)
+            self.assertIn("runner: python_shared_env", app_yaml)
+            self.assertIn("entry: src/run_xcgate_upload.py", app_yaml)
+            self.assertIn("env_id:", app_yaml)
             execution = json.loads((output_dir / "execution_test_result.json").read_text(encoding="utf-8"))
             self.assertTrue(execution["approval_allowed"])
             self.assertIn("app_studio_policy_id", execution["evidence"])
@@ -926,11 +924,12 @@ class NormalRegistrationFlowTests(unittest.TestCase):
             self.assertIn("app_studio_policy_id", runtime["evidence"])
             timing = json.loads((output_dir / "timing_report.json").read_text(encoding="utf-8"))
             phases = {item["phase"] for item in timing["phases"]}
-            self.assertIn("pyinstaller_build", phases)
+            self.assertIn("shared_runtime", phases)
+            self.assertNotIn("pyinstaller_build", phases)
             self.assertIn("distribution_check", phases)
-            frozen_report = (output_dir / "frozen_folder_build_report.md").read_text(encoding="utf-8")
-            self.assertIn("build_env", frozen_report)
-            self.assertIn("--contents-directory .", frozen_report)
+            shared_report = (output_dir / "shared_runtime_report.md").read_text(encoding="utf-8")
+            self.assertIn("Shared Runtime Report", shared_report)
+            self.assertIn(import_plan["shared_runtime"]["env_id"], shared_report)
 
 
 class ExecutionAndApprovalTests(unittest.TestCase):

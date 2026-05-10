@@ -23,12 +23,47 @@ def verify_runtime(
     plan: BuildPlan | None = None,
     build_profile: dict[str, Any] | None = None,
 ) -> RuntimeCheckResult:
-    if plan and plan.mode == "frozen-folder":
+    if plan and plan.mode == "shared-env":
+        result = verify_shared_env_distribution(context, output_dir, plan, build_profile or {})
+    elif plan and plan.mode == "frozen-folder":
         result = verify_frozen_folder_distribution(context, output_dir, plan, build_profile or {})
     else:
         result = verify_legacy_runtime(context, output_dir)
     write_runtime_reports(context, output_dir, result)
     return result
+
+
+def verify_shared_env_distribution(
+    context: StudioContext,
+    output_dir: Path,
+    plan: BuildPlan,
+    build_profile: dict[str, Any],
+) -> RuntimeCheckResult:
+    final_app = output_dir / "final_app"
+    entry_path = final_app / plan.entry
+    env_path = context.repo_root / "runtime" / "envs" / plan.env_id if plan.env_id else Path("")
+    env_python = env_path / ("Scripts/python.exe" if os.name == "nt" else "bin/python") if plan.env_id else Path("")
+    checks: list[RuntimeCheck] = [
+        file_check("shared-env run.entry exists", entry_path),
+        app_yaml_entry_check(final_app / "app.yaml", plan.entry),
+        requirements_lock_check(final_app),
+        shared_env_id_check(plan),
+        shared_env_python_check(env_python),
+        forbidden_payload_check(final_app),
+        size_check("shared-env app source size", final_app),
+    ]
+    if uses_playwright(build_profile):
+        checks.append(
+            RuntimeCheck(
+                "shared-env startup smoke",
+                "warn",
+                "Skipped automatic startup smoke because Playwright/browser automation can require login or external sites.",
+                NON_BLOCKING_WARNING,
+            )
+        )
+    else:
+        checks.append(shared_env_smoke_execution_check(final_app, entry_path, env_python))
+    return build_runtime_result(context, output_dir, checks)
 
 
 def verify_frozen_folder_distribution(
@@ -105,6 +140,18 @@ def requirements_lock_check(final_app: Path) -> RuntimeCheck:
     if path.is_file():
         return RuntimeCheck("requirements.lock exists", "pass", str(path))
     return RuntimeCheck("requirements.lock exists", "fail", f"Missing: {path}")
+
+
+def shared_env_id_check(plan: BuildPlan) -> RuntimeCheck:
+    if plan.env_id:
+        return RuntimeCheck("shared-env id", "pass", plan.env_id)
+    return RuntimeCheck("shared-env id", "fail", "shared-env registration did not select an env_id")
+
+
+def shared_env_python_check(env_python: Path) -> RuntimeCheck:
+    if env_python.is_file():
+        return RuntimeCheck("shared-env python", "pass", str(env_python))
+    return RuntimeCheck("shared-env python", "fail", f"Missing shared env Python: {env_python}")
 
 
 def build_required_removed_check(final_app: Path) -> RuntimeCheck:
@@ -371,6 +418,68 @@ def frozen_smoke_execution_check(final_app: Path, exe_path: Path, timeout_second
     if process.returncode == 0:
         return RuntimeCheck("frozen smoke execution", "warn", detail, NON_BLOCKING_WARNING)
     return RuntimeCheck("frozen smoke execution", "fail", detail)
+
+
+def shared_env_smoke_execution_check(final_app: Path, entry_path: Path, env_python: Path, timeout_seconds: float = 5.0) -> RuntimeCheck:
+    if not env_python.is_file():
+        return RuntimeCheck("shared-env startup smoke", "fail", f"Shared env Python is missing: {env_python}")
+    if not entry_path.is_file():
+        return RuntimeCheck("shared-env startup smoke", "fail", f"Entry file is missing: {entry_path}")
+    env = os.environ.copy()
+    env["PYTHONNOUSERSITE"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["VIRTUAL_ENV"] = str(env_python.parent.parent)
+    env["PATH"] = str(env_python.parent) + os.pathsep + env.get("PATH", "")
+    try:
+        process = subprocess.Popen(
+            [str(env_python), str(entry_path)],
+            cwd=str(entry_path.parent),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            terminate_process(process)
+            stdout, stderr = process.communicate(timeout=2)
+            output_tail = text_tail("\n".join(part for part in [stdout, stderr] if part))
+            fatal = fatal_startup_output(output_tail)
+            if fatal:
+                return RuntimeCheck("shared-env startup smoke", "fail", f"Startup produced a fatal error before timeout: {fatal}. Output tail: {output_tail}")
+            return RuntimeCheck("shared-env startup smoke", "pass", f"Process stayed alive for {timeout_seconds:.1f}s without fatal startup stderr.")
+    except Exception as exc:
+        return RuntimeCheck("shared-env startup smoke", "fail", f"Entry could not be started with shared env: {exc!r}")
+
+    output_tail = text_tail("\n".join(part for part in [stdout, stderr] if part))
+    fatal = fatal_startup_output(output_tail)
+    if fatal:
+        return RuntimeCheck("shared-env startup smoke", "fail", f"Startup produced a fatal error: {fatal}. Output tail: {output_tail}")
+    if process.returncode == 0:
+        return RuntimeCheck("shared-env startup smoke", "pass", "Process exited successfully during startup smoke check.")
+    detail = f"Process exited during startup smoke check with exit_code={process.returncode}."
+    if output_tail:
+        detail += f" Output tail: {output_tail}"
+    return RuntimeCheck("shared-env startup smoke", "fail", detail)
+
+
+def fatal_startup_output(output: str) -> str:
+    patterns = [
+        "Traceback (most recent call last)",
+        "Unhandled error in main",
+        "ModuleNotFoundError",
+        "ImportError:",
+        "TypeError:",
+        "AttributeError:",
+        "unexpected keyword argument",
+    ]
+    for pattern in patterns:
+        if pattern in output:
+            return pattern
+    return ""
 
 
 def looks_like_native_executable(path: Path) -> bool:

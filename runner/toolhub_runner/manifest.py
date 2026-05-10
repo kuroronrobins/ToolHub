@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 
-SUPPORTED_RUNNERS = {"python", "cli", "exe", "playwright_python", "python_app_env"}
+SUPPORTED_RUNNERS = {"python", "cli", "exe", "playwright_python", "python_app_env", "python_shared_env"}
 SUPPORTED_MODES = {"gui", "cli", "background"}
 
 
@@ -40,6 +40,7 @@ class Run:
     runner: str
     entry: str
     mode: str
+    env_id: str = ""
 
 
 @dataclass
@@ -120,6 +121,7 @@ def manifest_from_dict(data: Dict[str, Any], app_dir: Path) -> AppManifest:
         runner=require_str(run_data, "runner"),
         entry=require_str(run_data, "entry"),
         mode=require_str(run_data, "mode"),
+        env_id=str(run_data.get("env_id") or ""),
     )
     validate_run(run)
 

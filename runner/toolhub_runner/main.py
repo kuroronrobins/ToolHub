@@ -18,6 +18,7 @@ from toolhub_runner.manifest import AppManifest, ManifestError, load_app_manifes
 from toolhub_runner.playwright_runner import PlaywrightPythonRunner
 from toolhub_runner.python_app_env_runner import PythonAppEnvRunner
 from toolhub_runner.python_runner import PythonRunner
+from toolhub_runner.python_shared_env_runner import PythonSharedEnvRunner
 
 
 def select_runner(project_root: Path, manifest: AppManifest):
@@ -25,6 +26,8 @@ def select_runner(project_root: Path, manifest: AppManifest):
         return PythonRunner(project_root, manifest)
     if manifest.run.runner == "python_app_env":
         return PythonAppEnvRunner(project_root, manifest)
+    if manifest.run.runner == "python_shared_env":
+        return PythonSharedEnvRunner(project_root, manifest)
     if manifest.run.runner == "cli":
         return CliRunner(project_root, manifest)
     if manifest.run.runner == "exe":

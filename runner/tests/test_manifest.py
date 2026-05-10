@@ -68,6 +68,17 @@ class ManifestTests(unittest.TestCase):
     def test_python_app_env_is_supported(self) -> None:
         self.assertIn("python_app_env", SUPPORTED_RUNNERS)
 
+    def test_python_shared_env_is_supported(self) -> None:
+        data = dict(VALID_DATA)
+        data["run"] = dict(VALID_DATA["run"])
+        data["run"]["runner"] = "python_shared_env"
+        data["run"]["env_id"] = "py313-demo"
+
+        manifest = manifest_from_dict(data, ROOT / "apps" / "sample")
+
+        self.assertIn("python_shared_env", SUPPORTED_RUNNERS)
+        self.assertEqual(manifest.run.env_id, "py313-demo")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -58,7 +58,7 @@ export function AppStudioImportSidebar({ step, operation, request, preflight, re
         </div>
         <div>
           <dt>登録方式</dt>
-          <dd>{result?.selectedBuildMode === "frozen-folder" || request.buildMode === "frozen-folder" ? "配布用exe" : result?.selectedBuildMode || request.buildMode}</dd>
+          <dd>{buildModeLabel(result?.selectedBuildMode || request.buildMode)}</dd>
         </div>
         <div>
           <dt>事前確認</dt>
@@ -115,6 +115,16 @@ function preflightStatus(preflight: AppStudioPreflightResult | null): string {
     return "要注意";
   }
   return "問題なし";
+}
+
+function buildModeLabel(mode?: string | null): string {
+  if (mode === "shared-env") {
+    return "共有ランタイム";
+  }
+  if (mode === "frozen-folder") {
+    return "配布用exe";
+  }
+  return mode || "-";
 }
 
 function friendlyWarning(warning: string): string {

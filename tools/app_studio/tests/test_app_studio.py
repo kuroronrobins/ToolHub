@@ -44,15 +44,15 @@ def workspace_tempdir():
 
 
 class AppStudioTests(unittest.TestCase):
-    def test_normal_registration_policy_forces_frozen_folder_pipeline(self) -> None:
+    def test_normal_registration_policy_forces_shared_env_pipeline(self) -> None:
         args = parse_app_studio_args(["--entry", "main.py", "--apply"])
 
         normalize_normal_registration_args(args)
 
-        self.assertEqual(args.build_mode, "frozen-folder")
+        self.assertEqual(args.build_mode, "shared-env")
         self.assertTrue(args.generate_lock)
-        self.assertTrue(args.build_frozen_folder)
-        self.assertTrue(args.rebuild_frozen_folder)
+        self.assertFalse(args.build_frozen_folder)
+        self.assertFalse(args.rebuild_frozen_folder)
         self.assertTrue(args.verify_runtime)
         self.assertFalse(args.create_app_env)
         self.assertFalse(args.rebuild_app_env)
@@ -280,14 +280,14 @@ class AppStudioTests(unittest.TestCase):
             manifest = manifest_from_dict(data, app_dir)
 
             self.assertEqual(manifest.id, "demo_app")
-            self.assertEqual(manifest.run.runner, "exe")
-            self.assertEqual(manifest.run.entry, "bin/demo_app/demo_app.exe")
+            self.assertEqual(manifest.run.runner, "python_shared_env")
+            self.assertEqual(manifest.run.entry, "src/main.py")
             self.assertEqual(data["display"]["icon"], "icon.png")
             self.assertEqual(data["display"]["icon_fallback"], "icon.svg")
-            self.assertEqual(data["runtime"]["distribution_mode"], "frozen_folder")
+            self.assertEqual(data["runtime"]["distribution_mode"], "shared_env")
             self.assertEqual(data["runtime"]["requirements_lock"], "requirements.lock")
             self.assertEqual(data["build"]["managed_by"], "toolhub_app_studio")
-            self.assertEqual(data["build"]["build_mode"], "frozen-folder")
+            self.assertEqual(data["build"]["build_mode"], "shared-env")
 
     def test_metadata_override_applies_manifest_fields(self) -> None:
         with workspace_tempdir() as temp:

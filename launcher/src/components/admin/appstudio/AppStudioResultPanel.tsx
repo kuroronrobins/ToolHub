@@ -72,7 +72,7 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
 
       <div className="studio-result-list">
         <ResultRow icon={<CheckCircle2 size={18} />} label="アプリID" value={result?.appId ?? "-"} />
-        <ResultRow icon={<CheckCircle2 size={18} />} label="登録方式" value={result?.selectedBuildMode === "frozen-folder" ? "配布用exe" : result?.selectedBuildMode ?? "-"} />
+        <ResultRow icon={<CheckCircle2 size={18} />} label="登録方式" value={buildModeLabel(result?.selectedBuildMode)} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="現在版" value={result?.currentVersion ?? "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="新しい版" value={result?.newVersion ?? "-"} />
         <ResultRow icon={<CheckCircle2 size={18} />} label="終了コード" value={result ? String(result.exitCode) : "-"} />
@@ -186,6 +186,16 @@ function ResultRow({ icon, label, value }: { icon: ReactNode; label: string; val
       <p>{value}</p>
     </div>
   );
+}
+
+function buildModeLabel(mode?: string | null): string {
+  if (mode === "shared-env") {
+    return "共有ランタイム";
+  }
+  if (mode === "frozen-folder") {
+    return "配布用exe";
+  }
+  return mode || "-";
 }
 
 function FindingList({ title, items }: { title: string; items: string[] }) {

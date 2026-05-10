@@ -45,11 +45,11 @@ pub(crate) fn normalize_normal_import_request(
         return Err("Normal App Studio registration accepts Python source only. Existing exe registration is not available in this flow.".to_string());
     }
     if request.create_app_env || request.rebuild_app_env {
-        return Err("Normal App Studio registration uses an internal build_env, not runtime/app_envs options.".to_string());
+        return Err("Normal App Studio registration uses shared versioned runtime environments, not runtime/app_envs options.".to_string());
     }
-    request.build_mode = "frozen-folder".to_string();
+    request.build_mode = "shared-env".to_string();
     request.generate_lock = true;
-    request.build_frozen_folder = true;
+    request.build_frozen_folder = false;
     request.verify_runtime = true;
     request.create_app_env = false;
     request.rebuild_app_env = false;
@@ -267,7 +267,7 @@ mod tests {
             app_id: Some("sample_app".to_string()),
             name: Some("Sample App".to_string()),
             version: Some("1.2.3".to_string()),
-            build_mode: "frozen-folder".to_string(),
+            build_mode: "shared-env".to_string(),
             icon_prompt: None,
             icon_style_preset: None,
             icon_style_custom: None,
@@ -278,7 +278,7 @@ mod tests {
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: true,
-            build_frozen_folder: true,
+            build_frozen_folder: false,
             verify_runtime: true,
         }
     }
@@ -289,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    fn normal_import_request_forces_frozen_folder_distribution_flags() {
+    fn normal_import_request_forces_shared_env_distribution_flags() {
         let mut request = base_import_request();
         request.build_mode = "auto".to_string();
         request.generate_lock = false;
@@ -298,9 +298,9 @@ mod tests {
 
         normalize_normal_import_request(&mut request).unwrap();
 
-        assert_eq!(request.build_mode, "frozen-folder");
+        assert_eq!(request.build_mode, "shared-env");
         assert!(request.generate_lock);
-        assert!(request.build_frozen_folder);
+        assert!(!request.build_frozen_folder);
         assert!(request.verify_runtime);
         assert!(!request.create_app_env);
         assert!(!request.rebuild_app_env);
@@ -342,7 +342,7 @@ mod tests {
         assert_eq!(args[2], "--entry");
         assert_eq!(args[3], request.entry);
         assert_eq!(args[4], "--build-mode");
-        assert_eq!(args[5], "frozen-folder");
+        assert_eq!(args[5], "shared-env");
         assert!(has_arg_pair(&args, "--source-root", "C:\\work\\sample"));
         assert!(has_arg_pair(&args, "--app-id", "sample_app"));
         assert!(has_arg_pair(&args, "--name", "Sample App"));
@@ -354,7 +354,7 @@ mod tests {
         assert!(args.contains(&"--icon-override".to_string()));
         assert!(args.contains(&"--build-profile".to_string()));
         assert!(args.contains(&"--generate-lock".to_string()));
-        assert!(args.contains(&"--build-frozen-folder".to_string()));
+        assert!(!args.contains(&"--build-frozen-folder".to_string()));
         assert!(args.contains(&"--verify-runtime".to_string()));
         assert_eq!(args.last().map(String::as_str), Some("--suggest"));
     }
@@ -388,7 +388,7 @@ mod tests {
             name: Some("Sample App".to_string()),
             current_version: Some("1.2.2".to_string()),
             new_version: "1.2.3".to_string(),
-            build_mode: "frozen-folder".to_string(),
+            build_mode: "shared-env".to_string(),
             icon_prompt: Some("icon".to_string()),
             icon_style_preset: Some("flat".to_string()),
             icon_style_custom: Some("custom".to_string()),
@@ -406,7 +406,7 @@ mod tests {
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: true,
-            build_frozen_folder: true,
+            build_frozen_folder: false,
             verify_runtime: true,
         };
 

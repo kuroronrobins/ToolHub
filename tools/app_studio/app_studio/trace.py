@@ -10,7 +10,7 @@ from typing import Any
 from .models import NORMAL_REGISTRATION_POLICY, StudioContext
 
 
-APP_STUDIO_POLICY_ID = "normal_python_source_to_frozen_folder_build_env_v3"
+APP_STUDIO_POLICY_ID = "normal_python_source_to_shared_versioned_runtime_v1"
 BUILD_ENV_DIRNAME = "be"
 BUILD_TMP_DIRNAME = "bt"
 TRACE_KEYS = {

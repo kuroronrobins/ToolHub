@@ -1,4 +1,4 @@
-export type AppStudioBuildMode = "auto" | "app-env" | "frozen-folder" | "existing-exe";
+export type AppStudioBuildMode = "auto" | "app-env" | "shared-env" | "frozen-folder" | "existing-exe";
 
 export interface AppStudioImportRequest {
   entry: string;

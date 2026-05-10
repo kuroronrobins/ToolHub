@@ -1,5 +1,20 @@
 # GUI Build方式・AI提案・結果表示補足
 
+## 現在の通常登録方針
+
+2026-05-11 時点の通常新規登録は `shared-env` 固定です。Pythonソースを `apps/<app_id>/src/` にコピーし、登録時に作成した `requirements.lock` から `runtime/envs/<env_id>` を作成または再利用します。
+
+生成される `app.yaml` の要点:
+
+- `run.runner: python_shared_env`
+- `run.entry: src/<entry>.py`
+- `run.env_id: <env_id>`
+- `runtime.distribution_mode: shared_env`
+- `runtime.required_runtime: python-shared-env:<env_id>`
+- `runtime.requirements_lock: requirements.lock`
+
+通常登録では `build_env` と PyInstaller frozen-folder は使用しません。既存の `run.runner: exe` frozen-folder アプリは互換対象として残しますが、新規登録の標準ではありません。
+
 通常新規登録 GUI は BuildMode を選ばせません。Python ソースから配布用 frozen-folder exe を作成して登録する固定フローです。
 
 旧来の `auto` / `app-env` / `existing-exe` / Python 直接実行は、既存 manifest 互換や古いログを読むための概念として残っていますが、通常新規登録 GUI の選択肢ではありません。Entry が `.exe` の場合は、既存 exe 登録ではなく Python ソースを選び直す必要があります。

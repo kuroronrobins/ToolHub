@@ -1,0 +1,44 @@
+id: sample_cli_app
+name: CLIサンプルアプリ
+
+display:
+  icon: icon.svg
+  short_description: JSON Linesイベントを標準出力に出すCLIデモアプリです。
+  categories:
+    - 業務デモ
+    - バッチ処理
+
+detail:
+  description: >
+    ToolHub runner がCLIアプリの進捗イベントを読み取り、起動結果とログを扱えることを確認するためのサンプルです。
+  use_cases:
+    - CLIアプリの起動確認をしたい
+    - 標準出力イベントの表示を確認したい
+  inputs:
+    - なし
+  outputs:
+    - 実行ログ
+  notes:
+    - 実処理は行わず、短いデモイベントだけを出力します。
+
+search:
+  keywords:
+    - CLI
+    - サンプル
+    - バッチ
+    - JSON Lines
+  examples:
+    - CLIサンプルを起動したい
+    - バッチ処理のデモを確認したい
+
+run:
+  runner: cli
+  entry: main.py
+  mode: cli
+
+admin:
+  version: 1.0.0
+  owner: admin
+  requirements: requirements.txt
+  log_dir: logs
+
