@@ -4,9 +4,11 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
-from .build_profile import managed_build_python, pyinstaller_profile_args
+from .build_profile import managed_build_python, normalize_build_profile, pyinstaller_profile_args, resolve_profile_source
 from .models import BuildPlan, FrozenBuildResult, StudioContext
+from .payload_policy import should_exclude_payload_path
 from .trace import BUILD_TMP_DIRNAME, app_studio_trace, is_runtime_app_env_path, planned_build_env_python
 from .util import assert_within, reset_directory, write_text
 
@@ -15,6 +17,7 @@ PYINSTALLER_ARTIFACT_ROOT = Path(BUILD_TMP_DIRNAME) / "pyi"
 PYINSTALLER_DIST_DIR = "d"
 PYINSTALLER_WORK_DIR = "b"
 PYINSTALLER_SPEC_DIR = "s"
+SANITIZED_DATA_DIR = "sanitized_data"
 WINDOWS_MAX_PATH = 260
 
 
@@ -82,17 +85,18 @@ def build_frozen_folder(
     work.mkdir(parents=True, exist_ok=True)
     spec.mkdir(parents=True, exist_ok=True)
 
-    command = pyinstaller_command(python, context, dist, work, spec, build_profile)
+    effective_build_profile, sanitizer_records = prepare_sanitized_build_profile(context, output_dir, build_profile)
+    command = pyinstaller_command(python, context, dist, work, spec, effective_build_profile)
     if any("--onefile" in arg for arg in command):
         error = "Refusing to run PyInstaller with --onefile."
-        result = FrozenBuildResult(False, False, None, build_report(context, plan, [command], error, None), command, error)
+        result = FrozenBuildResult(False, False, None, build_report(context, plan, [command], error, None, payload_sanitizer_records=sanitizer_records), command, error)
         write_frozen_report(context, result)
         return result
 
     completed = run_pyinstaller_command(command, context.source_root, no_user_site=no_user_site)
     if completed.returncode != 0:
         error = "PyInstaller --onedir build failed."
-        result = FrozenBuildResult(False, False, None, build_report(context, plan, [probe_command, command], error, None, completed.stdout, completed.stderr, probe_stdout=probe_stdout, no_user_site=no_user_site), command, error)
+        result = FrozenBuildResult(False, False, None, build_report(context, plan, [probe_command, command], error, None, completed.stdout, completed.stderr, probe_stdout=probe_stdout, no_user_site=no_user_site, payload_sanitizer_records=sanitizer_records), command, error)
         write_frozen_report(context, result)
         return result
 
@@ -100,7 +104,7 @@ def build_frozen_folder(
     built_exe = built_dir / exe_name(context.app_id)
     if not built_exe.is_file():
         error = f"Expected frozen executable was not found: {built_exe}"
-        result = FrozenBuildResult(False, False, None, build_report(context, plan, [probe_command, command], error, None, completed.stdout, completed.stderr, probe_stdout=probe_stdout, no_user_site=no_user_site), command, error)
+        result = FrozenBuildResult(False, False, None, build_report(context, plan, [probe_command, command], error, None, completed.stdout, completed.stderr, probe_stdout=probe_stdout, no_user_site=no_user_site, payload_sanitizer_records=sanitizer_records), command, error)
         write_frozen_report(context, result)
         return result
 
@@ -112,9 +116,121 @@ def build_frozen_folder(
     if build_required.is_file():
         build_required.unlink()
     exe_path = final_bin / exe_name(context.app_id)
-    result = FrozenBuildResult(True, False, exe_path, build_report(context, plan, [probe_command, command], "", exe_path, completed.stdout, completed.stderr, probe_stdout=probe_stdout, no_user_site=no_user_site), command, "")
+    result = FrozenBuildResult(True, False, exe_path, build_report(context, plan, [probe_command, command], "", exe_path, completed.stdout, completed.stderr, probe_stdout=probe_stdout, no_user_site=no_user_site, payload_sanitizer_records=sanitizer_records), command, "")
     write_frozen_report(context, result)
     return result
+
+
+def prepare_sanitized_build_profile(
+    context: StudioContext,
+    output_dir: Path,
+    build_profile: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    if not build_profile:
+        return build_profile, []
+
+    normalized = normalize_build_profile(build_profile)
+    sanitized_root = output_dir / BUILD_TMP_DIRNAME / SANITIZED_DATA_DIR
+    reset_directory(sanitized_root, output_dir)
+    sanitized_root.mkdir(parents=True, exist_ok=True)
+
+    sanitized_add_data: list[dict[str, str]] = []
+    records: list[dict[str, Any]] = []
+    for index, item in enumerate(normalized["add_data"]):
+        source_label = item["source"]
+        destination = item["destination"]
+        source = resolve_profile_source(context, source_label)
+        policy_relative = source_policy_relative(context, source, source_label)
+        exclude, reason = should_exclude_payload_path(policy_relative)
+        if exclude:
+            records.append(
+                {
+                    "source": source_label,
+                    "destination": destination,
+                    "status": "excluded",
+                    "reason": reason,
+                    "included_files": 0,
+                    "excluded_files": 0,
+                }
+            )
+            continue
+        if source.is_dir():
+            stage = sanitized_root / f"{index:03d}_{safe_stage_name(destination or source.name)}"
+            included_files, excluded_files = copy_sanitized_directory(source, stage)
+            sanitized_add_data.append({"source": str(stage), "destination": destination})
+            records.append(
+                {
+                    "source": source_label,
+                    "staged_source": str(stage),
+                    "destination": destination,
+                    "status": "staged",
+                    "reason": "directory add_data sanitized before PyInstaller",
+                    "included_files": included_files,
+                    "excluded_files": excluded_files,
+                }
+            )
+            continue
+        if source.is_file():
+            sanitized_add_data.append(item)
+            records.append(
+                {
+                    "source": source_label,
+                    "destination": destination,
+                    "status": "kept",
+                    "reason": "file add_data passed through",
+                    "included_files": 1,
+                    "excluded_files": 0,
+                }
+            )
+            continue
+        sanitized_add_data.append(item)
+        records.append(
+            {
+                "source": source_label,
+                "destination": destination,
+                "status": "kept_missing",
+                "reason": "source did not exist during sanitizer; PyInstaller will report the missing input",
+                "included_files": 0,
+                "excluded_files": 0,
+            }
+        )
+
+    sanitized = {**normalized, "add_data": sanitized_add_data}
+    return sanitized, records
+
+
+def copy_sanitized_directory(source: Path, destination: Path) -> tuple[int, int]:
+    included_files = 0
+    excluded_files = 0
+    destination.mkdir(parents=True, exist_ok=True)
+    for path in sorted(source.rglob("*")):
+        relative = path.relative_to(source)
+        exclude, _reason = should_exclude_payload_path(relative)
+        if exclude:
+            if path.is_file():
+                excluded_files += 1
+            continue
+        target = destination / relative
+        if path.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        if path.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, target)
+            included_files += 1
+    return included_files, excluded_files
+
+
+def source_policy_relative(context: StudioContext, source: Path, source_label: str) -> Path:
+    try:
+        return source.resolve().relative_to(context.source_root.resolve())
+    except Exception:
+        return Path(source_label)
+
+
+def safe_stage_name(value: str) -> str:
+    cleaned = value.replace("\\", "_").replace("/", "_").replace(":", "_").strip("._ ")
+    return cleaned or "data"
 
 
 def select_python(context: StudioContext) -> Path | None:
@@ -246,6 +362,7 @@ def build_report(
     stderr: str = "",
     probe_stdout: str = "",
     no_user_site: bool = False,
+    payload_sanitizer_records: list[dict[str, Any]] | None = None,
 ) -> str:
     status = "FAIL" if error else "PASS"
     selected_python = Path(commands[0][0]) if commands and commands[0] else None
@@ -289,6 +406,33 @@ def build_report(
         lines.extend(f"- `{' '.join(command)}`" for command in commands)
     else:
         lines.append("- No command was run.")
+    if payload_sanitizer_records is not None:
+        excluded_files = sum(int(record.get("excluded_files") or 0) for record in payload_sanitizer_records)
+        staged_dirs = sum(1 for record in payload_sanitizer_records if record.get("status") == "staged")
+        lines.extend(
+            [
+                "",
+                "## Payload Sanitizer",
+                "",
+                f"- add_data_entries: `{len(payload_sanitizer_records)}`",
+                f"- staged_directories: `{staged_dirs}`",
+                f"- excluded_generated_files: `{excluded_files}`",
+                "",
+                "| Status | Source | Destination | Included | Excluded | Reason |",
+                "| --- | --- | --- | ---: | ---: | --- |",
+            ]
+        )
+        for record in payload_sanitizer_records:
+            reason = str(record.get("reason") or "").replace("|", "\\|")
+            lines.append(
+                "| "
+                f"{record.get('status', '')} | "
+                f"`{record.get('source', '')}` | "
+                f"`{record.get('destination', '')}` | "
+                f"{int(record.get('included_files') or 0)} | "
+                f"{int(record.get('excluded_files') or 0)} | "
+                f"{reason} |"
+            )
     if stdout or stderr:
         lines.extend(["", "## Output", "", "```text", stdout[-4000:].strip(), stderr[-4000:].strip(), "```"])
     lines.extend(

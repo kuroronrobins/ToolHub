@@ -50,11 +50,11 @@
     "legacy_flet_system_20260510": {
       "version": "0.1.0",
       "package": "app_packs/legacy_flet_system_20260510-0.1.0.zip",
-      "sha256": "78642f5cbf0c2b6822e1f53902d97da6c748750f48faedd7b24ffd3fbc0fc729",
+      "sha256": "d4a88385a930ce300ef4b88124aaf02a444ea6888187e086b0136517f73bcc6c",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": null,
-      "enabled": false
+      "enabled": true
     }
   }
 }

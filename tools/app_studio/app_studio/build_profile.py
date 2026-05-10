@@ -336,7 +336,7 @@ def has_requirements_lock(context: StudioContext, inventory: SourceInventory) ->
 def missing_required_files(context: StudioContext, profile: dict[str, Any]) -> list[str]:
     missing: list[str] = []
     for relative in profile.get("required_files", []):
-        if not resolve_profile_source(context, relative).is_file():
+        if not resolve_profile_source(context, relative).exists():
             missing.append(str(relative))
     return missing
 

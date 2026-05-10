@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import shutil
 import time
@@ -200,9 +201,12 @@ def apply_registration(
     breakdown: list[dict[str, Any]] | None = None,
 ) -> Path:
     records = breakdown if breakdown is not None else []
+    manifest_path = context.repo_root / "release" / "app_manifest.json"
+    original_manifest = copy.deepcopy(load_app_manifest_json(manifest_path)) if manifest_path.is_file() else None
+    backup_root: Path | None = None
     try:
         with _registration_step(records, "backup_existing_total"):
-            backup_existing(context.repo_root, context.app_id, breakdown=records)
+            backup_root = backup_existing(context.repo_root, context.app_id, breakdown=records)
 
         apps_dir = context.repo_root / "apps"
         target = apps_dir / context.app_id
@@ -231,8 +235,43 @@ def apply_registration(
         with _registration_step(records, "copy_pack_to_output_mirror", f"path={output_dir / 'app_pack'}"):
             copy_pack_to_output(package_path, output_dir)
         return package_path
+    except Exception:
+        try:
+            rollback_registration(context.repo_root, context.app_id, backup_root, original_manifest, records)
+        except Exception as rollback_exc:
+            records.append(
+                {
+                    "name": "rollback_registration",
+                    "status": "fail",
+                    "detail": f"{type(rollback_exc).__name__}: {rollback_exc}",
+                    "duration_seconds": 0.0,
+                }
+            )
+        raise
     finally:
         write_registration_copy_report(output_dir, context, records)
+
+
+def rollback_registration(
+    repo_root: Path,
+    app_id: str,
+    backup_root: Path | None,
+    original_manifest: dict[str, Any] | None,
+    records: list[dict[str, Any]],
+) -> None:
+    apps_dir = repo_root / "apps"
+    target = apps_dir / app_id
+    manifest_path = repo_root / "release" / "app_manifest.json"
+    assert_within(target, apps_dir, "app registration target")
+    with _registration_step(records, "rollback_app_directory", f"path={target}"):
+        if target.exists():
+            shutil.rmtree(target)
+        backup_app = backup_root / "app" if backup_root else None
+        if backup_app and backup_app.is_dir():
+            shutil.copytree(backup_app, target)
+    with _registration_step(records, "rollback_manifest", f"path={manifest_path}"):
+        if original_manifest is not None:
+            write_json(manifest_path, original_manifest)
 
 
 def backup_existing(

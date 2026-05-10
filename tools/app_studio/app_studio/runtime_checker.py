@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fnmatch
 import json
 import os
 from pathlib import Path
@@ -8,67 +7,11 @@ import subprocess
 from typing import Any
 
 from .models import BuildPlan, RuntimeCheck, RuntimeCheckResult, StudioContext
+from .payload_policy import is_forbidden_packaged_payload, should_exclude_payload_path
 from .trace import planned_build_env_path, trace_with_import_plan
 from .util import write_json, write_text
 
 
-FORBIDDEN_DIRS = {
-    ".auth",
-    ".git",
-    ".pytest_cache",
-    ".venv",
-    "__pycache__",
-    "build",
-    "build_env",
-    "dist",
-    "env",
-    "log",
-    "logs",
-    "node_modules",
-    "screenshots",
-    "temp",
-    "tmp",
-    "venv",
-}
-FORBIDDEN_PATTERNS = {
-    ".env",
-    ".env.*",
-    "*.key",
-    "*.log",
-    "*.pem",
-    "*.pyc",
-    "*.pyo",
-    "*.tmp",
-}
-FORBIDDEN_EXACT_NAMES = {
-    "auth_state.json",
-    "client_secret.json",
-    "client-secrets.json",
-    "client_secrets.json",
-    "cookie.json",
-    "cookies.json",
-    "credential.json",
-    "credentials.json",
-    "session.json",
-    "sessions.json",
-    "storage_state.json",
-    "token.json",
-    "tokens.json",
-}
-FORBIDDEN_CONFIG_SUFFIXES = {".json", ".yaml", ".yml", ".toml", ".ini", ".txt"}
-FORBIDDEN_CONFIG_MARKERS = {
-    "api_key",
-    "apikey",
-    "auth_state",
-    "client_secret",
-    "credential",
-    "credentials",
-    "password",
-    "passwd",
-    "secret",
-    "storage_state",
-}
-FORBIDDEN_AUTH_MARKERS = {"cookie", "session", "token"}
 APPROVAL_BLOCKING_WARNING = "approval_blocking_warning"
 NON_BLOCKING_WARNING = "non_blocking_warning"
 INFO = "info"
@@ -257,13 +200,17 @@ def expected_data_relatives(mappings: list[dict[str, Any]], required_files: list
         source_path = resolve_source(source_root, source)
         if source_path and source_path.is_dir():
             files = sorted(path for path in source_path.rglob("*") if path.is_file())
-            if not files:
-                expected.append(clean_relative(destination))
-                continue
-            for file in files:
+            expected_files = [
+                file
+                for file in files
+                if not should_exclude_payload_path(file.relative_to(source_path))[0]
+            ]
+            for file in expected_files:
                 expected.append(clean_relative(destination) / file.relative_to(source_path))
         else:
-            expected.append(clean_relative(destination) / Path(source).name)
+            source_relative = clean_relative(source)
+            if not should_exclude_payload_path(source_relative)[0]:
+                expected.append(clean_relative(destination) / source_relative.name)
     return unique_paths(expected)
 
 
@@ -277,12 +224,18 @@ def expected_relative_for_required_file(required: str, mappings: list[dict[str, 
         source_relative = clean_relative(source)
         source_path = resolve_source(source_root, source)
         if source_relative == required_relative:
+            if should_exclude_payload_path(required_relative)[0]:
+                return None
             if source_path and source_path.is_dir():
                 return clean_relative(destination)
             return clean_relative(destination) / source_relative.name
         nested = relative_to_or_none(required_relative, source_relative)
         if nested is not None:
+            if should_exclude_payload_path(nested)[0]:
+                return None
             return clean_relative(destination) / nested
+    if should_exclude_payload_path(required_relative)[0]:
+        return None
     return required_relative
 
 
@@ -336,34 +289,7 @@ def forbidden_payload_check(final_app: Path) -> RuntimeCheck:
 
 
 def is_forbidden_payload_path(path: Path, root: Path) -> bool:
-    relative_parts = [part.lower() for part in path.relative_to(root).parts]
-    if any(part in FORBIDDEN_DIRS for part in relative_parts):
-        return True
-    if not path.is_file():
-        return False
-
-    name = path.name.lower()
-    if is_allowed_runtime_certificate(relative_parts, name):
-        return False
-    if any(fnmatch.fnmatch(name, pattern.lower()) for pattern in FORBIDDEN_PATTERNS):
-        return True
-    if name in FORBIDDEN_EXACT_NAMES:
-        return True
-    if name.startswith(".env"):
-        return True
-
-    suffix = path.suffix.lower()
-    stem = path.stem.lower()
-    if suffix in FORBIDDEN_CONFIG_SUFFIXES:
-        if any(marker in stem for marker in FORBIDDEN_CONFIG_MARKERS):
-            return True
-        if any(marker in stem for marker in FORBIDDEN_AUTH_MARKERS):
-            return True
-    return False
-
-
-def is_allowed_runtime_certificate(relative_parts: list[str], name: str) -> bool:
-    return name == "cacert.pem" and "certifi" in relative_parts
+    return is_forbidden_packaged_payload(path.relative_to(root), path.is_file())[0]
 
 
 def build_env_separation_check(context: StudioContext, final_app: Path) -> RuntimeCheck:
@@ -397,7 +323,7 @@ def add_data_size_check(context: StudioContext, build_profile: dict[str, Any]) -
         if not isinstance(item, dict):
             continue
         source = context.source_root / str(item.get("source") or "")
-        size = directory_size(source) if source.is_dir() else source.stat().st_size if source.is_file() else 0
+        size = directory_size_excluding_generated(source) if source.is_dir() else source.stat().st_size if source.is_file() else 0
         total += size
         if size >= 25 * 1024 * 1024:
             large.append(f"{source.name}={size} bytes")
@@ -480,6 +406,16 @@ def directory_size(path: Path) -> int:
     if not path.is_dir():
         return 0
     return sum(file.stat().st_size for file in path.rglob("*") if file.is_file())
+
+
+def directory_size_excluding_generated(path: Path) -> int:
+    if not path.is_dir():
+        return 0
+    return sum(
+        file.stat().st_size
+        for file in path.rglob("*")
+        if file.is_file() and not should_exclude_payload_path(file.relative_to(path))[0]
+    )
 
 
 def uses_playwright(build_profile: dict[str, Any]) -> bool:

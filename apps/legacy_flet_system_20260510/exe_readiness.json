@@ -9,8 +9,8 @@
     },
     {
       "name": "managed build python",
-      "status": "warn",
-      "detail": "build_env is not present yet. Apply creates a managed build environment under the App Studio output directory."
+      "status": "pass",
+      "detail": "C:\\Users\\kuroron\\Documents\\RD\\20260215_PDFApplication\\archive\\legacy_flet_system_20260510\\ToolHub_AppStudio_Output\\legacy_flet_system_20260510\\be\\Scripts\\python.exe"
     },
     {
       "name": "requirements.lock",
@@ -19,13 +19,13 @@
     },
     {
       "name": "profile data files",
-      "status": "warn",
-      "detail": "No data files were inferred. Confirm this app does not need config/assets at runtime."
+      "status": "pass",
+      "detail": "1 data file(s) will be passed to PyInstaller."
     },
     {
       "name": "hidden imports",
       "status": "pass",
-      "detail": "24 hidden import candidate(s) were inferred."
+      "detail": "25 hidden import candidate(s) were inferred."
     },
     {
       "name": "secret scan",
@@ -36,6 +36,7 @@
   "manual_checks": [
     "app.py: Path - call uses a dynamic path expression",
     "pdf_app/services/usage_log.py: Path - call uses a dynamic path expression",
-    "pdf_app/services/usage_log.py: read_text - Path read call uses a dynamic path expression"
+    "pdf_app/services/usage_log.py: read_text - Path read call uses a dynamic path expression",
+    "Flet desktop runtime を検出しました。build_env で flet-desktop を同一バージョンに補完し、frozen-folder 起動確認を行ってください。"
   ]
 }

@@ -478,7 +478,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         runtime_result = verify_runtime(context, output_dir, plan, build_profile)
     print(f"distribution check status: {runtime_result.overall_status}")
     if runtime_result.overall_status == "fail":
-        record_blocked_execution(context, output_dir, "frozen-folder distribution check", "Distribution verification failed. Review runtime_check_report.md.", plan)
+        record_blocked_execution(context, output_dir, "frozen-folder distribution check", runtime_failure_detail(runtime_result), plan)
         write_timing_reports(context, output_dir, timings)
         return 1
 
@@ -501,6 +501,17 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     print(f"execution_test_result overall_status={execution_result.overall_status}, approval_allowed={execution_result.approval_allowed}")
     print("release/app_manifest.json starts with enabled=false for imported apps.")
     return 0 if execution_result.approval_allowed else 1
+
+
+def runtime_failure_detail(runtime_result) -> str:
+    failed = [check for check in runtime_result.checks if check.status == "fail"]
+    if not failed:
+        return "Distribution verification failed. Review runtime_check_report.md."
+    summaries = [f"{check.name}: {check.detail}" for check in failed[:3]]
+    detail = "; ".join(summaries)
+    if len(failed) > 3:
+        detail += f"; and {len(failed) - 3} more fail check(s)"
+    return f"Distribution verification failed: {detail}. Review runtime_check_report.md."
 
 
 def run_image_test(image_model: str | None = None) -> int:

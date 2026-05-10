@@ -28,12 +28,14 @@ from app_studio.exporter import export_suggestion
 from app_studio.frozen_folder_builder import build_report as frozen_build_report
 from app_studio.frozen_folder_builder import build_frozen_folder
 from app_studio.frozen_folder_builder import detect_pyinstaller_environment_issue, pyinstaller_command
+from app_studio.frozen_folder_builder import prepare_sanitized_build_profile
 from app_studio.frozen_folder_builder import probe_pyinstaller
 from app_studio.frozen_folder_builder import run_pyinstaller_command
 from app_studio.lock_generator import generate_lock
 from app_studio.models import BuildPlan, DependencyReport, FileRecord, GeneratedArtifacts, IconCandidateAsset, ImportOptions, RuntimeCheck, RuntimeCheckResult, SecretFinding, SecretScanReport, SourceInventory
 from app_studio.models import AppEnvBuildResult, LockGenerationResult
 from app_studio.openai_client import OpenAIResult, edit_image, error_category_from_reason, generate_image, test_image_generation_connection
+from app_studio.payload_policy import is_forbidden_packaged_payload, should_exclude_payload_path
 from app_studio.registrar import (
     app_pack_required_entries,
     app_pack_requirements_lock_entry,
@@ -652,6 +654,37 @@ class FrozenFolderTests(unittest.TestCase):
             )
             self.assertIn("xcgate_flows/src", profile["required_files"])
 
+    def test_payload_policy_excludes_python_generated_artifacts(self) -> None:
+        self.assertTrue(should_exclude_payload_path(Path("__pycache__") / "main.cpython-311.pyc")[0])
+        self.assertTrue(should_exclude_payload_path(Path("pkg") / "__pycache__" / "service.pyc")[0])
+        self.assertTrue(is_forbidden_packaged_payload(Path("bin/demo/pkg/__pycache__/service.pyc"))[0])
+        self.assertFalse(should_exclude_payload_path(Path("pkg") / "native_extension.pyd")[0])
+
+    def test_sanitized_build_profile_stages_directory_add_data_without_pyc(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            source_dir = context.source_root / "pdf_app" / "services"
+            cache_dir = source_dir / "__pycache__"
+            cache_dir.mkdir(parents=True)
+            write_text(source_dir / "worker.py", "def run(): pass\n")
+            write_text(cache_dir / "worker.cpython-311.pyc", "compiled\n")
+
+            sanitized, records = prepare_sanitized_build_profile(
+                context,
+                context.output_dir,
+                {
+                    "add_data": [{"source": "pdf_app/services", "destination": "pdf_app/services"}],
+                    "required_files": ["pdf_app/services"],
+                },
+            )
+
+            self.assertIsNotNone(sanitized)
+            staged_source = Path(sanitized["add_data"][0]["source"])
+            self.assertTrue((staged_source / "worker.py").is_file())
+            self.assertFalse((staged_source / "__pycache__" / "worker.cpython-311.pyc").exists())
+            self.assertEqual(sanitized["add_data"][0]["destination"], "pdf_app/services")
+            self.assertEqual(records[0]["excluded_files"], 1)
+
     def test_exe_readiness_reports_profile_and_manual_checks(self) -> None:
         with workspace_tempdir() as root:
             context = make_context(root)
@@ -1036,6 +1069,49 @@ build:
             self.assertIn(f"{context.app_id}/requirements.lock", names)
             self.assertIn(f"{context.app_id}/icon.png", names)
             self.assertIn(f"{context.app_id}/bin/{context.app_id}/{context.app_id}.exe", names)
+
+    def test_apply_registration_rolls_back_app_and_manifest_on_pack_failure(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root, "demo_frozen")
+            write_minimal_registered_app(context.repo_root, context.app_id, enabled=True)
+            original_manifest = json.loads((context.repo_root / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+            final_app = context.output_dir / "final_app"
+            bin_dir = final_app / "bin" / context.app_id
+            bin_dir.mkdir(parents=True)
+            write_text(
+                final_app / "app.yaml",
+                f"""id: {context.app_id}
+name: Broken Frozen
+display:
+  icon: missing.png
+run:
+  runner: exe
+  entry: bin/{context.app_id}/{context.app_id}.exe
+admin:
+  version: 0.1.0
+runtime:
+  distribution_mode: frozen_folder
+build:
+  managed_by: toolhub_app_studio
+  build_mode: frozen-folder
+""",
+            )
+            write_text(final_app / "README.md", "# Broken\n")
+            write_text(final_app / "requirements.txt", "")
+            write_text(bin_dir / f"{context.app_id}.exe", "fake exe\n")
+
+            with self.assertRaises(FileNotFoundError):
+                apply_registration(
+                    context,
+                    BuildPlan("frozen-folder", "exe", f"bin/{context.app_id}/{context.app_id}.exe", None, []),
+                    final_app,
+                    context.output_dir,
+                )
+
+            app_dir = context.repo_root / "apps" / context.app_id
+            self.assertEqual((app_dir / "main.py").read_text(encoding="utf-8"), "print('ok')\n")
+            restored_manifest = json.loads((context.repo_root / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(restored_manifest, original_manifest)
 
     def test_package_app_pack_rejects_missing_run_entry(self) -> None:
         with workspace_tempdir() as root:
@@ -2468,6 +2544,59 @@ class RuntimeCheckerTests(unittest.TestCase):
             required = next(check for check in result.checks if check.name == "required add-data files")
             self.assertEqual(required.status, "pass")
             self.assertNotIn("xcgate_flows/xcgate_flows", required.detail)
+
+    def test_required_add_data_ignores_generated_python_artifacts(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            plan = BuildPlan("frozen-folder", "exe", f"bin/{context.app_id}/{context.app_id}.exe", None, [])
+            source_dir = context.source_root / "pdf_app" / "services"
+            cache_dir = source_dir / "__pycache__"
+            cache_dir.mkdir(parents=True)
+            write_text(source_dir / "worker.py", "def run(): pass\n")
+            write_text(cache_dir / "worker.cpython-311.pyc", "compiled\n")
+            final_app = context.output_dir / "final_app"
+            bin_root = final_app / "bin" / context.app_id
+            (bin_root / "pdf_app" / "services").mkdir(parents=True)
+            write_text(final_app / "app.yaml", f"run:\n  runner: exe\n  entry: {plan.entry}\n")
+            write_text(final_app / "requirements.lock", "")
+            write_text(bin_root / f"{context.app_id}.exe", "fake exe")
+            write_text(bin_root / "pdf_app" / "services" / "worker.py", "def run(): pass\n")
+            write_text(context.output_dir / "frozen_folder_build_report.md", "- command: python -m PyInstaller --onedir --contents-directory . main.py\n")
+            planned_build_env_path(context).mkdir()
+
+            result = verify_runtime(
+                context,
+                context.output_dir,
+                plan,
+                {
+                    "add_data": [{"source": "pdf_app/services", "destination": "pdf_app/services"}],
+                    "required_files": ["pdf_app/services", "pdf_app/services/__pycache__/worker.cpython-311.pyc"],
+                },
+            )
+
+            required = next(check for check in result.checks if check.name == "required add-data files")
+            forbidden = next(check for check in result.checks if check.name == "forbidden payload files")
+            self.assertEqual(required.status, "pass")
+            self.assertEqual(forbidden.status, "pass")
+
+    def test_frozen_distribution_check_fails_if_generated_artifact_remains_packaged(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            plan = BuildPlan("frozen-folder", "exe", f"bin/{context.app_id}/{context.app_id}.exe", None, [])
+            final_app = context.output_dir / "final_app"
+            bin_root = final_app / "bin" / context.app_id
+            cache_dir = bin_root / "pkg" / "__pycache__"
+            cache_dir.mkdir(parents=True)
+            write_text(final_app / "app.yaml", f"run:\n  runner: exe\n  entry: {plan.entry}\n")
+            write_text(final_app / "requirements.lock", "")
+            write_text(bin_root / f"{context.app_id}.exe", "fake exe")
+            write_text(cache_dir / "worker.cpython-311.pyc", "compiled\n")
+
+            result = verify_runtime(context, context.output_dir, plan, {"add_data": []})
+
+            forbidden = next(check for check in result.checks if check.name == "forbidden payload files")
+            self.assertEqual(forbidden.status, "fail")
+            self.assertIn("__pycache__", forbidden.detail)
 
     def test_frozen_distribution_check_blocks_user_auth_files_without_blocking_playwright_internals(self) -> None:
         with workspace_tempdir() as root:

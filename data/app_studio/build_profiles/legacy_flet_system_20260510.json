@@ -29,26 +29,40 @@
     "services.page_workspace",
     "services.pdf_ops",
     "services.text_edit",
-    "services.usage_log"
+    "services.usage_log",
+    "flet_desktop"
   ],
-  "add_data": [],
+  "add_data": [
+    {
+      "source": "pdf_app/services",
+      "destination": "pdf_app/services"
+    }
+  ],
   "add_binaries": [],
-  "collect_all": [],
+  "collect_all": [
+    "flet",
+    "flet_desktop"
+  ],
   "runtime_cwd": null,
   "environment": {},
-  "required_files": [],
+  "required_files": [
+    "pdf_app/services"
+  ],
   "manual_checks": [
     "app.py: Path - call uses a dynamic path expression",
     "pdf_app/services/usage_log.py: Path - call uses a dynamic path expression",
-    "pdf_app/services/usage_log.py: read_text - Path read call uses a dynamic path expression"
+    "pdf_app/services/usage_log.py: read_text - Path read call uses a dynamic path expression",
+    "Flet desktop runtime を検出しました。build_env で flet-desktop を同一バージョンに補完し、frozen-folder 起動確認を行ってください。"
   ],
-  "warnings": [],
+  "warnings": [
+    "ビルド前注意: frozen-folder作成後、必要な設定ファイル・データファイルは配布物検証で自動確認されます。"
+  ],
   "source_root": "C:\\Users\\kuroron\\Documents\\RD\\20260215_PDFApplication\\archive\\legacy_flet_system_20260510",
-  "source_root_origin": "explicit",
+  "source_root_origin": "entry_parent",
   "entry_relative": "app.py",
   "inventory_summary": {
     "source_root": "C:\\Users\\kuroron\\Documents\\RD\\20260215_PDFApplication\\archive\\legacy_flet_system_20260510",
-    "source_root_origin": "explicit",
+    "source_root_origin": "entry_parent",
     "entry_relative": "app.py",
     "included_count": 15,
     "excluded_count": 7,
