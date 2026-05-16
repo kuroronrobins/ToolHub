@@ -12,8 +12,9 @@ The app source of truth is `apps/<app_id>/`:
 - `app.yaml`
 - `README.md`
 - `requirements.txt`
-- `requirements.lock` for App Studio frozen-folder apps
+- `requirements.lock` for App Studio shared-env and frozen-folder apps
 - `icon.png` or `icon.svg`
+- `src/` for normal App Studio shared-env apps
 - `bin/`
 - bundled assets required by the app
 
@@ -25,6 +26,7 @@ Generated or derived locations:
 - `release/app_manifest.json`
 - `release/app_packs/<app_id>-<version>.zip`
 - `release/staging/`
+- `runtime/envs/<env_id>/`
 - `runtime/app_envs/<app_id>/`
 
 History locations:
@@ -42,21 +44,22 @@ are not App Pack sources and are not deletion targets.
   app.yaml
   README.md
   requirements.txt
-  requirements.lock       # required for App Studio frozen-folder apps
+  requirements.lock       # required for App Studio shared-env and frozen-folder apps
   icon.png or icon.svg
+  src/
   bin/
   pack_manifest.json
   assets/
 ```
 
 `scripts/package_app_pack.ps1` copies `apps/<app_id>/`, removes cache files, adds `pack_manifest.json`, then creates
-the zip. For App Studio frozen-folder apps, `runtime.requirements_lock` in `app.yaml` is the App Pack lock-file
-contract. If that field is present it must point to an app-relative file, and the same entry must be present in the zip.
-When an App Studio frozen-folder app omits the field for compatibility, packaging and verification require
-`requirements.lock` by convention. Legacy Python-runner apps that do not declare frozen-folder distribution keep
-their existing compatibility path and are not upgraded by this check.
+the zip. For App Studio shared-env and frozen-folder apps, `runtime.requirements_lock` in `app.yaml` is the App Pack
+lock-file contract. If that field is present it must point to an app-relative file, and the same entry must be present in
+the zip. When an App Studio frozen-folder app omits the field for compatibility, packaging and verification require
+`requirements.lock` by convention. Legacy Python-runner apps that do not declare App Studio distribution keep their
+existing compatibility path and are not upgraded by this check.
 
-The required App Pack entries for App Studio frozen-folder apps are:
+The required App Pack entries for normal App Studio shared-env apps are:
 
 - `<app_id>/app.yaml`
 - `<app_id>/pack_manifest.json`
@@ -65,6 +68,9 @@ The required App Pack entries for App Studio frozen-folder apps are:
 - `<app_id>/<runtime.requirements_lock>` usually `<app_id>/requirements.lock`
 - `<app_id>/<display.icon>`
 - `<app_id>/<run.entry>`
+
+Legacy frozen-folder apps follow the same source-of-truth rule, but `run.entry` usually points to
+`bin/<app_id>/<app_id>.exe`. Current shared-env apps usually point to `src/<entry_relative>.py`.
 
 ## Manifest Entry
 

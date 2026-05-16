@@ -256,6 +256,8 @@ python main.py --release
 
 目的: 現行標準と legacy 経路を混同しない。
 
+2026-05-17 の文書整理で、完了済みの調査・handoff・古い frozen-folder 前提の長文計画は `docs/archive/` へ移動し、`docs/13_app_studio.md`、`docs/16_app_studio_exe_build_operations.md`、`docs/05_build_and_release.md`、`docs/09_app_pack_spec.md` は shared-env 標準と legacy frozen-folder を分けて書き直した。
+
 対応:
 
 1. `docs/31_app_registration_app_authoring_guidelines.md` はアプリ作者向けとして維持する。

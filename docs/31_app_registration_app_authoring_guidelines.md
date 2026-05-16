@@ -18,7 +18,21 @@ ToolHub に Python アプリを登録したあとも、単体実行時と同じ�
 - runtime dependency は root 直下の `requirements.txt` または `pyproject.toml` に集約する。
 - `.venv`、`venv`、`build`、`dist`、`ToolHub_AppStudio_Output`、ログ、録音、認証情報、キャッシュは登録対象に含めない。
 - GUI アプリは ToolHub の runner に長時間待たせない。起動後は launcher に制御が戻る前提で設計する。
+- GUI アプリの entry process は、ToolHub の起動確認が終わるまで生存する。子プロセスだけ起動して親プロセスが即終了する構成にしない。
 - サブ画面、設定画面、補助プロセスは frozen exe でも同じ entry point から起動できるようにする。
+
+## 現在の ToolHub 登録方式
+
+現行の App Studio 通常登録では、Python ソースアプリは `shared-env` として登録される。
+
+- `app.yaml` の runner は `python_shared_env` になる。
+- 依存関係は `requirements.lock` から選ばれた versioned shared runtime にインストールされる。
+- 同じ dependency lock を持つアプリは、同じ共有ランタイムを再利用できる。
+- アプリ本体は `apps/<app_id>/` に配置され、ランタイムは `runtime/envs/<env_id>/` に分離される。
+
+したがって、アプリ側は「自分専用 venv が常に隣にある」前提ではなく、ToolHub が選んだ Python で entry point が実行される前提で作る。
+
+明示的に frozen-folder や既存 exe を選ぶ場合を除き、通常の Python アプリは shared-env で成立する構成を優先する。
 
 ## 推奨ディレクトリ構成
 
@@ -66,7 +80,9 @@ my_app/
   ToolHub_AppStudio_Output/
 ```
 
-ToolHub は source root 付近の dependency file を使う。古いサブプロジェクトや helper 用の `requirements.txt` が混在すると、誤った runtime が作られる。
+ToolHub は source root 直下の dependency file を使う。`pyproject.toml` の `[project].dependencies`、root 直下の `requirements.txt`、root 直下の `requirements.lock` が主な入力になる。
+
+古いサブプロジェクトや helper 用の `requirements.txt` は自動選択しない。必要な依存が nested requirements にしかない場合は、source root を狭めるか、root 直下に正しい `requirements.txt` を用意する。
 
 ## Entry Point
 
@@ -135,6 +151,31 @@ def main(argv: list[str] | None = None) -> int:
     return run_window(args.window)
 ```
 
+## GUI 起動完了判定
+
+ToolHub は GUI アプリを detached process として起動し、起動直後に fatal error がないか短時間確認する。
+
+この確認時間内に entry process が終了すると、ユーザーには「アプリは起動直後に終了しました」と表示される。GUI アプリでは、メイン画面を持つ process が生存したままになるようにする。
+
+避ける:
+
+```python
+def main() -> int:
+    subprocess.Popen([sys.executable, "real_gui.py"])
+    return 0
+```
+
+この形は、実際の GUI が起動していても、ToolHub から見ると entry process が即終了したように見える。
+
+推奨:
+
+```python
+def main() -> int:
+    return run_gui_main_window()
+```
+
+補助画面を別 process で開く場合も、メイン画面の process は自分のイベントループを維持する。短時間で完了するバッチ処理は GUI mode ではなく CLI / blocking 実行として扱う。
+
 ## Frozen exe 対応の子プロセス起動
 
 PyInstaller などで frozen-folder 化すると、`sys.executable` は Python ではなくアプリ exe を指す。
@@ -183,7 +224,7 @@ subprocess.Popen([
 ])
 ```
 
-ToolHub frozen 実行時は `sys.executable` が `app_20260201_agendasnap.exe` になるため、`app.exe -m agendasnap.ui.caption_window` が実行される。`main.py` が `-m` を無視すると、サブ画面ではなく新しいメイン画面が起動する。
+ToolHub frozen 実行時は `sys.executable` が `<app_id>.exe` のようなアプリ exe になるため、`app.exe -m agendasnap.ui.caption_window` が実行される。`main.py` が `-m` を無視すると、サブ画面ではなく新しいメイン画面が起動する。
 
 ### 修正後の形
 
@@ -244,9 +285,53 @@ my_app/
 - ToolHub の `apps/<app_id>` は登録済み配布物であり、設定や実施ログを混ぜると再登録、差分確認、削除が難しくなる。
 - 録音や議事録はユーザーデータであり、アプリ配布物ではない。
 
+## ToolHub 実行時の環境とパス解決
+
+ToolHub runner はアプリ起動時に次の環境変数を設定する。
+
+```text
+TOOLHUB_ROOT=<ToolHub root>
+TOOLHUB_APP_ID=<app_id>
+TOOLHUB_APP_DIR=<ToolHub root>/apps/<app_id>
+PYTHONIOENCODING=utf-8
+PYTHONDONTWRITEBYTECODE=1
+```
+
+shared-env 登録では、さらに次が設定される。
+
+```text
+TOOLHUB_SHARED_ENV_ID=<env_id>
+VIRTUAL_ENV=<ToolHub root>/runtime/envs/<env_id>
+PYTHONNOUSERSITE=1
+```
+
+アプリの asset、default config、同梱テンプレートは、`Path.cwd()` 固定ではなく `__file__` または `TOOLHUB_APP_DIR` 基準で解決する。
+
+推奨:
+
+```python
+import os
+from pathlib import Path
+
+
+def app_root() -> Path:
+    if "TOOLHUB_APP_DIR" in os.environ:
+        return Path(os.environ["TOOLHUB_APP_DIR"])
+    return Path(__file__).resolve().parents[1]
+```
+
+ユーザーデータは `TOOLHUB_APP_DIR` には書かない。`%LOCALAPPDATA%` やアプリ側で決めた user data root に保存する。
+
 ## Requirements
 
-root 直下に pip が読める `requirements.txt` を置く。
+root 直下に pip が読める `requirements.txt` を置く。`pyproject.toml` の `[project].dependencies` も入力として使えるが、最終的な登録物では `requirements.txt` と `requirements.lock` に正規化される前提で整理する。
+
+App Studio は dependency file を次の順で扱う。
+
+1. root 直下の `pyproject.toml` に `[project].dependencies` があれば使う。
+2. root 直下の `requirements.txt` があれば使う。
+3. root 直下の `requirements.lock` があれば参考にする。
+4. どれもない場合は import 解析候補を出すだけで、自動で nested requirements を採用しない。
 
 推奨:
 
@@ -272,6 +357,7 @@ numpy>=1.26  # 日本語コメント
 - requirements には実行時 dependency だけを書く。
 - `pytest`、`ruff`、`black`、`mypy`、`pyinstaller` などの開発用 dependency は通常入れない。
 - optional dependency は top-level import しない。
+- shared-env では `requirements.lock` の内容が共有ランタイム選択に使われるため、不要な依存や開発用依存を混ぜない。
 
 ## .toolhubignore
 
@@ -376,8 +462,10 @@ docs/31_app_registration_app_authoring_guidelines.md に従って、この Pytho
 - GUI のメイン画面とサブ画面は --window などの明示引数で dispatch してください。
 - subprocess で sys.executable -m <module> を使っている箇所は、frozen exe でも動く entry point 再呼び出し方式に置き換えてください。
 - --toolhub-smoke を追加し、外部通信、録音、ブラウザ起動、GUI 表示なしで依存関係と設定読み込みを検証できるようにしてください。
-- requirements.txt を root 直下に整理し、実行時 dependency だけを記載してください。
+- requirements.txt または pyproject.toml を root 直下に整理し、実行時 dependency だけを記載してください。
 - .toolhubignore を追加または更新し、venv、build、dist、ToolHub_AppStudio_Output、ログ、録音、認証情報、キャッシュを除外してください。
+- shared-env 登録で使われることを前提に、不要な依存や開発用 dependency が requirements.lock に入らないようにしてください。
+- GUI entry process が起動確認中に即終了しないようにしてください。
 - 単体実行と ToolHub frozen 実行で同じ画面が開く構造にしてください。
 
 完了後、python main.py --toolhub-smoke と、可能なら各 --window 引数の起動確認結果を報告してください。
@@ -387,9 +475,13 @@ docs/31_app_registration_app_authoring_guidelines.md に従って、この Pytho
 
 - [ ] `main.py` が唯一の外部 entry point である。
 - [ ] `python main.py --toolhub-smoke` が副作用なしで成功する。
+- [ ] GUI アプリの entry process が起動直後に終了しない。
 - [ ] `sys.executable -m <module>` で自アプリのサブ画面を開いていない。
 - [ ] frozen exe の場合は `app.exe --window <name>` でサブ画面が開く。
 - [ ] `requirements.txt` が root 直下にあり、pip で読める。
+- [ ] `pyproject.toml` を使う場合も、実行時 dependency が `[project].dependencies` に整理されている。
+- [ ] `requirements.lock` に不要な開発用 dependency が混ざっていない。
 - [ ] `.toolhubignore` があり、不要ファイルと機密ファイルを除外している。
+- [ ] asset と default config は `__file__` または `TOOLHUB_APP_DIR` 基準で解決している。
 - [ ] ログ、録音、議事録、ユーザー設定は配布物ではなく user data に保存される。
 - [ ] ToolHub 登録後にメイン画面、字幕、設定、議事録が単体実行時と同じ挙動になる。

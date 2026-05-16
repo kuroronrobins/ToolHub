@@ -4,6 +4,12 @@ ToolHubは、複数のPythonアプリケーションを1つのデスクトップ
 
 各アプリは `apps/<app_id>/app.yaml` を持つプラグインとして配置します。ランチャー本体には個別アプリ固有の処理を書かず、起動処理は `runner/` のPython App Runnerに集約します。
 
+## 文書の読み方
+
+文書の入口は [docs/README.md](docs/README.md) です。
+
+まず読むべき文書、現在仕様の文書、配布・検証文書、履歴 archive の位置づけをそこに整理しています。完了済みの調査記録や古い実装計画は `docs/archive/` に移してあり、通常の作業開始時にはトップレベルの docs だけを見れば足ります。
+
 ## 開発時の起動方法
 
 開発者は、プロジェクト直下で以下を実行します。
@@ -41,6 +47,7 @@ py main.py
 現行実装の到達点:
 
 - 新しいPCで `python main.py --dev` によるランチャー起動、アプリカード表示、GUI/CLI/Web操作サンプルの起動は確認済みです。
+- App Studio の通常新規登録は `shared-env` 固定です。Pythonソースを `apps/<app_id>/src/` に登録し、`runtime/envs/<env_id>/` の共有ランタイムで起動します。
 - `scripts/build_release.ps1 -SkipInstall` によりTauri標準NSIS/MSI bundle生成、`release/dist_installer/ToolHub_Setup_0.1.0.exe` への収集、`release/manifest.json` のinstaller `sha256` / `size` 更新は確認済みです。
 - 実インストール検証、コード署名、installerへのruntime同梱検証は未完了です。runtime実体はローカルrelease artifactとして扱い、Gitには含めません。
 
@@ -107,6 +114,8 @@ ToolHubは配布アプリケーションなので、再現性のために以下�
 `package-lock.json` は `npm ci` で同じ依存バージョンを復元するために使います。`Cargo.lock` はTauri/Rust側の依存解決を固定するために使います。
 
 ## 新しいアプリの追加
+
+通常の新規登録は、管理者画面の App Studio から行います。現在の標準方式は `shared-env` です。Pythonソースを entry として選び、App Studio が `requirements.lock`、共有ランタイム、`app.yaml`、App Pack を作成します。詳細は [docs/13_app_studio.md](docs/13_app_studio.md) を参照してください。
 
 以下の補助スクリプトでテンプレートを作成できます。
 
@@ -248,6 +257,7 @@ Tauriランチャー経由では、起動時に `%LOCALAPPDATA%\ToolHub\` 配下
 
 詳細は以下を参照してください。
 
+- [docs/README.md](docs/README.md)
 - [docs/05_build_and_release.md](docs/05_build_and_release.md)
 - [docs/07_installer_distribution.md](docs/07_installer_distribution.md)
 - [docs/08_update_design.md](docs/08_update_design.md)

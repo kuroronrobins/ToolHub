@@ -19,7 +19,7 @@
 - runner は `runtime/envs/<env_id>/Scripts/python.exe` を使い、`VIRTUAL_ENV` と `PATH` をその共有環境へ向けて起動する。
 - Playwright 系は自動 startup smoke が warning 扱いで skip される場合があり、ログイン、ブラウザ、外部サイト操作は手動確認対象である。
 
-古い docs には frozen-folder 標準の記述が残っているため、本検証では docs 記述ではなく、生成された `app.yaml`、`import_plan.json`、`shared_runtime_report.md`、`runtime_check_result.json`、runner 起動結果を最終判定の根拠にする。
+履歴 archive には frozen-folder 標準だった時期の記述が残っているため、本検証では archive の古い記述ではなく、生成された `app.yaml`、`import_plan.json`、`shared_runtime_report.md`、`runtime_check_result.json`、runner 起動結果を最終判定の根拠にする。
 
 ## 用語
 
