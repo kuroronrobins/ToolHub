@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "envs": {
+    "py313-win_amd64-runtime-37c71daf": {
+      "path": "runtime\\envs\\py313-win_amd64-runtime-37c71daf",
+      "requirements_lock_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "apps": [
+        "zt_calibook_py_20260516",
+        "zt_xcgate_20260516"
+      ],
+      "last_used_at": "2026-05-16T17:13:29"
+    },
+    "py313-win_amd64-flet0283-fletdesktop0283-03c58f59": {
+      "path": "runtime\\envs\\py313-win_amd64-flet0283-fletdesktop0283-03c58f59",
+      "requirements_lock_sha256": "664cb0c4a254d85d5395e4e21cf0faa7b0d38697667f11c1c15c2c35977d05b8",
+      "apps": [
+        "zt_agendasnap_20260516"
+      ],
+      "last_used_at": "2026-05-16T17:12:31"
+    },
+    "py313-win_amd64-playwright1550-27ead7db": {
+      "path": "runtime\\envs\\py313-win_amd64-playwright1550-27ead7db",
+      "requirements_lock_sha256": "befe030e760a39fe36d655507ac832bc8d133a3e904e5fe246e6ee8f74761d08",
+      "apps": [
+        "zt_xcgate_srcroot_20260516"
+      ],
+      "last_used_at": "2026-05-16T17:14:28"
+    }
+  }
+}

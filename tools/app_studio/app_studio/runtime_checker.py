@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 from typing import Any
 
+from .app_contract import detect_frozen_subprocess_module_risks, smoke_flags_in_source, source_has_gui_signal
 from .models import BuildPlan, RuntimeCheck, RuntimeCheckResult, StudioContext
 from .payload_policy import is_forbidden_packaged_payload, should_exclude_payload_path
 from .trace import planned_build_env_path, trace_with_import_plan
@@ -49,6 +50,7 @@ def verify_shared_env_distribution(
         requirements_lock_check(final_app),
         shared_env_id_check(plan),
         shared_env_python_check(env_python),
+        shared_env_collect_all_check(env_python, build_profile),
         forbidden_payload_check(final_app),
         size_check("shared-env app source size", final_app),
     ]
@@ -63,6 +65,7 @@ def verify_shared_env_distribution(
         )
     else:
         checks.append(shared_env_smoke_execution_check(final_app, entry_path, env_python))
+    checks.append(forbidden_payload_check(final_app, "forbidden payload files after smoke"))
     return build_runtime_result(context, output_dir, checks)
 
 
@@ -83,11 +86,12 @@ def verify_frozen_folder_distribution(
         build_required_removed_check(final_app),
         pyinstaller_layout_check(output_dir),
         required_data_files_check(bin_root, build_profile, context.source_root),
+        frozen_child_process_contract_check(context),
         forbidden_payload_check(final_app),
         build_env_separation_check(context, final_app),
         size_check("frozen-folder size", bin_root),
         add_data_size_check(context, build_profile),
-        frozen_smoke_execution_check(final_app, exe_path),
+        frozen_smoke_execution_check(context, final_app, exe_path),
     ]
     if uses_playwright(build_profile):
         checks.append(
@@ -152,6 +156,77 @@ def shared_env_python_check(env_python: Path) -> RuntimeCheck:
     if env_python.is_file():
         return RuntimeCheck("shared-env python", "pass", str(env_python))
     return RuntimeCheck("shared-env python", "fail", f"Missing shared env Python: {env_python}")
+
+
+def shared_env_collect_all_check(env_python: Path, build_profile: dict[str, Any]) -> RuntimeCheck:
+    collect_all = build_profile.get("collect_all") if isinstance(build_profile, dict) else []
+    packages = sorted({str(item).strip() for item in collect_all if str(item).strip()}) if isinstance(collect_all, list) else []
+    if not packages:
+        return RuntimeCheck("shared-env collect_all imports", "pass", "No collect_all packages require import verification.")
+    if not env_python.is_file():
+        return RuntimeCheck(
+            "shared-env collect_all imports",
+            "warn",
+            "Shared env Python is missing, so collect_all packages could not be verified: " + ", ".join(packages),
+            APPROVAL_BLOCKING_WARNING,
+            True,
+        )
+    script = "\n".join(
+        [
+            "import importlib.util",
+            "import json",
+            "import sys",
+            "missing = []",
+            "for raw in sys.argv[1:]:",
+            "    name = raw.replace('-', '_')",
+            "    if importlib.util.find_spec(name) is None:",
+            "        missing.append(raw)",
+            "print(json.dumps({'missing': missing}, sort_keys=True))",
+        ]
+    )
+    try:
+        completed = subprocess.run(
+            [str(env_python), "-c", script, *packages],
+            cwd=str(env_python.parent),
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=20,
+            check=False,
+        )
+    except Exception as exc:
+        return RuntimeCheck(
+            "shared-env collect_all imports",
+            "warn",
+            f"Could not verify collect_all packages {packages}: {exc!r}",
+            APPROVAL_BLOCKING_WARNING,
+            True,
+        )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        return RuntimeCheck(
+            "shared-env collect_all imports",
+            "warn",
+            f"Import verification command failed for {packages}: {text_tail(detail)}",
+            APPROVAL_BLOCKING_WARNING,
+            True,
+        )
+    try:
+        payload = json.loads(completed.stdout.strip() or "{}")
+    except Exception:
+        payload = {}
+    missing = [str(item) for item in payload.get("missing", [])] if isinstance(payload, dict) else []
+    if missing:
+        return RuntimeCheck(
+            "shared-env collect_all imports",
+            "warn",
+            "Shared runtime is missing package(s) required by build_profile.collect_all: " + ", ".join(missing),
+            APPROVAL_BLOCKING_WARNING,
+            True,
+        )
+    return RuntimeCheck("shared-env collect_all imports", "pass", "Verified collect_all packages in shared runtime: " + ", ".join(packages))
 
 
 def build_required_removed_check(final_app: Path) -> RuntimeCheck:
@@ -323,16 +398,16 @@ def unique_paths(paths: list[Path]) -> list[Path]:
     return result
 
 
-def forbidden_payload_check(final_app: Path) -> RuntimeCheck:
+def forbidden_payload_check(final_app: Path, name: str = "forbidden payload files") -> RuntimeCheck:
     findings: list[str] = []
     if not final_app.exists():
-        return RuntimeCheck("forbidden payload files", "fail", f"Missing final_app: {final_app}")
+        return RuntimeCheck(name, "fail", f"Missing final_app: {final_app}")
     for path in sorted(final_app.rglob("*")):
         if is_forbidden_payload_path(path, final_app):
             findings.append(path.relative_to(final_app).as_posix())
     if findings:
-        return RuntimeCheck("forbidden payload files", "fail", "Forbidden files were packaged: " + ", ".join(findings[:10]))
-    return RuntimeCheck("forbidden payload files", "pass", "No forbidden credential, log, cache, temp, or build_env files were found.")
+        return RuntimeCheck(name, "fail", "Forbidden files were packaged: " + ", ".join(findings[:10]))
+    return RuntimeCheck(name, "pass", "No forbidden credential, log, cache, temp, or build_env files were found.")
 
 
 def is_forbidden_payload_path(path: Path, root: Path) -> bool:
@@ -382,7 +457,22 @@ def add_data_size_check(context: StudioContext, build_profile: dict[str, Any]) -
     return RuntimeCheck("add-data source size", status, detail, APPROVAL_BLOCKING_WARNING if status == "warn" else INFO, status == "warn")
 
 
-def frozen_smoke_execution_check(final_app: Path, exe_path: Path, timeout_seconds: float = 4.0) -> RuntimeCheck:
+def frozen_child_process_contract_check(context: StudioContext) -> RuntimeCheck:
+    risks = detect_frozen_subprocess_module_risks(context)
+    if not risks:
+        return RuntimeCheck("frozen child-process contract", "pass", "No local sys.executable -m subprocess pattern was detected.")
+    detail = (
+        "Frozen exe will set sys.executable to the app executable, not python.exe. "
+        "Replace local module child launches with an entry-point dispatcher such as app.exe --window <name>. "
+        "Findings: "
+        + "; ".join(risk.display(context.source_root) for risk in risks[:5])
+    )
+    if len(risks) > 5:
+        detail += f"; and {len(risks) - 5} more"
+    return RuntimeCheck("frozen child-process contract", "warn", detail, APPROVAL_BLOCKING_WARNING, True)
+
+
+def frozen_smoke_execution_check(context: StudioContext, final_app: Path, exe_path: Path, timeout_seconds: float = 4.0) -> RuntimeCheck:
     if not exe_path.is_file():
         return RuntimeCheck("frozen smoke execution", "fail", f"Executable is missing: {exe_path}")
     if not looks_like_native_executable(exe_path):
@@ -392,9 +482,24 @@ def frozen_smoke_execution_check(final_app: Path, exe_path: Path, timeout_second
             "Skipped because the run.entry file does not look like a native executable. This is usually a test fixture or placeholder.",
             NON_BLOCKING_WARNING,
         )
+    has_gui_signal = source_has_gui_signal(context)
+    smoke_flags = smoke_flags_in_source(context)
+    command = [str(exe_path)]
+    smoke_flag = ""
+    if has_gui_signal:
+        if not smoke_flags:
+            return RuntimeCheck(
+                "frozen smoke execution",
+                "warn",
+                "Skipped automatic GUI launch because no safe smoke flag was detected. Add --toolhub-smoke or --smoke so ToolHub can verify the frozen executable without opening the real UI.",
+                APPROVAL_BLOCKING_WARNING,
+                True,
+            )
+        smoke_flag = smoke_flags[0]
+        command.append(smoke_flag)
     try:
         process = subprocess.Popen(
-            [str(exe_path)],
+            command,
             cwd=str(final_app),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -407,14 +512,20 @@ def frozen_smoke_execution_check(final_app: Path, exe_path: Path, timeout_second
             stdout, stderr = process.communicate(timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
             terminate_process(process)
+            if smoke_flag:
+                return RuntimeCheck("frozen smoke execution", "fail", f"Smoke command timed out after {timeout_seconds:.1f}s: {' '.join(command)}")
             return RuntimeCheck("frozen smoke execution", "pass", f"Process stayed alive for {timeout_seconds:.1f}s; no immediate crash was detected.")
     except Exception as exc:
         return RuntimeCheck("frozen smoke execution", "fail", f"Executable could not be started: {exc!r}")
 
     output_tail = text_tail("\n".join(part for part in [stdout, stderr] if part))
+    if smoke_flag and process.returncode == 0:
+        return RuntimeCheck("frozen smoke execution", "pass", f"Smoke command succeeded: {' '.join(command)}")
     detail = f"Process exited during startup smoke check with exit_code={process.returncode}."
     if output_tail:
         detail += f" Output tail: {output_tail}"
+    if smoke_flag:
+        return RuntimeCheck("frozen smoke execution", "fail", detail)
     if process.returncode == 0:
         return RuntimeCheck("frozen smoke execution", "warn", detail, NON_BLOCKING_WARNING)
     return RuntimeCheck("frozen smoke execution", "fail", detail)
@@ -428,6 +539,7 @@ def shared_env_smoke_execution_check(final_app: Path, entry_path: Path, env_pyth
     env = os.environ.copy()
     env["PYTHONNOUSERSITE"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     env["VIRTUAL_ENV"] = str(env_python.parent.parent)
     env["PATH"] = str(env_python.parent) + os.pathsep + env.get("PATH", "")
     try:

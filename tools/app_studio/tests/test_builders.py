@@ -19,9 +19,11 @@ sys.path.insert(0, str(ROOT / "runner"))
 from app_studio.ai_metadata_suggester import build_icon_design_brief, metadata_prompt, normalize_icon_actions, normalize_icon_objects, select_icon_composition_template, suggest_icon_prompt, suggest_metadata
 from app_studio.build_profile import analyze_exe_readiness, default_build_profile
 from app_studio.default_icon import default_icon_png
+from app_studio.dependency_analyzer import analyze_dependencies, normalize_requirement_lines
 from app_studio.icon_generator import build_icon_revision_api_base_prompt, deterministic_icon_concepts, generate_icon_assets_with_candidates, icon_image_generation_settings, icon_regeneration_candidate_count, icon_style_settings, image_api_prompt, image_api_summary, regenerate_icon_only
 from app_studio.app_env_builder import create_app_env, create_build_env, install_build_tools, run_command
 from app_studio.approval import approve_app, targeted_approval_verification, validate_approval_inputs, verify_release_gate
+from app_studio.app_contract import detect_frozen_subprocess_module_risks
 from app_studio.build_planner import make_build_plan
 from app_studio.execution_tester import build_execution_result, record_blocked_execution, run_execution_checks
 from app_studio.exporter import export_suggestion
@@ -32,7 +34,7 @@ from app_studio.frozen_folder_builder import prepare_sanitized_build_profile
 from app_studio.frozen_folder_builder import probe_pyinstaller
 from app_studio.frozen_folder_builder import run_pyinstaller_command
 from app_studio.lock_generator import generate_lock
-from app_studio.models import BuildPlan, DependencyReport, FileRecord, GeneratedArtifacts, IconCandidateAsset, ImportOptions, RuntimeCheck, RuntimeCheckResult, SecretFinding, SecretScanReport, SourceInventory
+from app_studio.models import BuildPlan, DependencyReport, FileRecord, GeneratedArtifacts, IconCandidateAsset, ImportOptions, RuntimeCheck, RuntimeCheckResult, SecretFinding, SecretScanReport, SharedRuntimeBuildResult, SourceInventory
 from app_studio.models import AppEnvBuildResult, LockGenerationResult
 from app_studio.openai_client import OpenAIResult, edit_image, error_category_from_reason, generate_image, test_image_generation_connection
 from app_studio.payload_policy import is_forbidden_packaged_payload, should_exclude_payload_path
@@ -41,8 +43,9 @@ from app_studio.registrar import (
     app_pack_requirements_lock_entry,
     apply_registration,
     package_app_pack,
+    validate_no_forbidden_payload,
 )
-from app_studio.runtime_checker import verify_runtime
+from app_studio.runtime_checker import frozen_smoke_execution_check, shared_env_smoke_execution_check, verify_runtime
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import scan_ai_payload_text
 from app_studio.timing import TimingRecorder
@@ -660,6 +663,116 @@ class FrozenFolderTests(unittest.TestCase):
         self.assertTrue(is_forbidden_packaged_payload(Path("bin/demo/pkg/__pycache__/service.pyc"))[0])
         self.assertFalse(should_exclude_payload_path(Path("pkg") / "native_extension.pyd")[0])
 
+    def test_requirements_normalization_strips_utf8_inline_comments(self) -> None:
+        lines = normalize_requirement_lines(
+            [
+                "numpy>=1.26  # 数値演算",
+                "webrtcvad-wheels>=2.0 ; sys_platform == \"win32\"   # 事前ビルド wheel",
+                "# コメントのみ",
+                "",
+            ]
+        )
+
+        self.assertEqual(
+            lines,
+            [
+                "numpy>=1.26",
+                'webrtcvad-wheels>=2.0 ; sys_platform == "win32"',
+            ],
+        )
+
+    def test_dependency_analysis_lists_nested_requirements_without_auto_selecting(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            nested = context.source_root / "old_subproject" / "requirements.txt"
+            nested.parent.mkdir()
+            write_text(nested, '"""not a pip requirements file"""\n')
+            inventory = SourceInventory(
+                [
+                    FileRecord(context.entry, "main.py", 12, True, "entry", "source"),
+                    FileRecord(nested, "old_subproject/requirements.txt", 36, True, "nested requirements", "config"),
+                ],
+                import_roots=["playwright"],
+            )
+
+            report, proposed = analyze_dependencies(context, inventory)
+
+            self.assertEqual(report.source, "import-analysis")
+            self.assertEqual(report.requirements, [])
+            self.assertEqual(report.third_party_candidates, ["playwright"])
+            self.assertIn("Nested requirements candidates: old_subproject/requirements.txt", proposed)
+            self.assertNotIn('"""not a pip requirements file"""', proposed)
+
+    def test_shared_env_smoke_does_not_write_pycache(self) -> None:
+        with workspace_tempdir() as root:
+            final_app = root / "final_app"
+            src = final_app / "src"
+            src.mkdir(parents=True)
+            write_text(src / "worker.py", "VALUE = 1\n")
+            write_text(src / "main.py", "import worker\nprint(worker.VALUE)\n")
+
+            result = shared_env_smoke_execution_check(final_app, src / "main.py", Path(sys.executable), timeout_seconds=3.0)
+
+            self.assertEqual(result.status, "pass")
+            self.assertFalse((src / "__pycache__").exists())
+
+    def test_registration_rejects_forbidden_final_app_payload(self) -> None:
+        with workspace_tempdir() as root:
+            final_app = root / "final_app"
+            cache = final_app / "src" / "__pycache__"
+            cache.mkdir(parents=True)
+            write_text(cache / "main.cpython-313.pyc", "compiled\n")
+
+            with self.assertRaisesRegex(ValueError, "forbidden payload"):
+                validate_no_forbidden_payload(final_app)
+
+    def test_detects_frozen_local_module_subprocess_risk(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            package = context.source_root / "demo_app" / "ui"
+            package.mkdir(parents=True)
+            write_text(context.source_root / "demo_app" / "__init__.py", "")
+            write_text(
+                context.entry,
+                "\n".join(
+                    [
+                        "import subprocess",
+                        "import sys",
+                        "subprocess.Popen([sys.executable, '-m', 'demo_app.ui.settings'])",
+                    ]
+                ),
+            )
+
+            risks = detect_frozen_subprocess_module_risks(context)
+
+            self.assertEqual(len(risks), 1)
+            self.assertEqual(risks[0].module, "demo_app.ui.settings")
+
+    def test_frozen_gui_smoke_uses_safe_smoke_flag(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            write_text(context.entry, "import flet as ft\nSMOKE = '--smoke'\n")
+            final_app = root / "final_app"
+            exe = final_app / "bin" / context.app_id / f"{context.app_id}.exe"
+            write_text(exe, "fake\n")
+            seen_commands: list[list[str]] = []
+
+            class FakeProcess:
+                returncode = 0
+
+                def communicate(self, timeout=None):
+                    return "ok\n", ""
+
+            def fake_popen(command, **kwargs):
+                seen_commands.append([str(item) for item in command])
+                return FakeProcess()
+
+            with patch("app_studio.runtime_checker.looks_like_native_executable", return_value=True), patch("app_studio.runtime_checker.subprocess.Popen", side_effect=fake_popen):
+                result = frozen_smoke_execution_check(context, final_app, exe, timeout_seconds=1.0)
+
+            self.assertEqual(result.status, "pass")
+            self.assertEqual(seen_commands[0][-1], "--smoke")
+
     def test_sanitized_build_profile_stages_directory_add_data_without_pyc(self) -> None:
         with workspace_tempdir() as root:
             context = make_context(root)
@@ -704,6 +817,58 @@ class FrozenFolderTests(unittest.TestCase):
 
 
 class NormalRegistrationFlowTests(unittest.TestCase):
+    def test_shared_runtime_registry_is_not_updated_before_registration_success(self) -> None:
+        with workspace_tempdir() as root:
+            repo = make_repo(root)
+            app_id = "pre_registration_fail"
+            source = root / "source"
+            source.mkdir()
+            entry = source / "main.py"
+            write_text(entry, "print('hello')\n")
+            argv = [
+                "--entry",
+                str(entry),
+                "--app-id",
+                app_id,
+                "--name",
+                "Pre Registration Fail",
+                "--apply",
+            ]
+            args = parse_app_studio_args(argv)
+            args._raw_argv = argv
+            lock = source / "ToolHub_AppStudio_Output" / app_id / "final_app" / "requirements.lock"
+            runtime_result = RuntimeCheckResult(
+                app_id,
+                "fail",
+                [RuntimeCheck("test distribution", "fail", "blocked before registration")],
+                unresolved_distribution_risks_count=1,
+            )
+
+            def fake_prepare_shared_runtime(context, requirements_path):
+                write_text(lock, "")
+                env_path = context.repo_root / "runtime" / "envs" / "py313-win_amd64-runtime-test"
+                python = env_path / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
+                write_text(python, "fake python\n")
+                return SharedRuntimeBuildResult(
+                    ok=True,
+                    skipped=False,
+                    env_id="py313-win_amd64-runtime-test",
+                    env_path=env_path,
+                    python_path=python,
+                    lock_path=lock,
+                    report="ok\n",
+                    created=True,
+                    requirements_lock_sha256="empty",
+                )
+
+            with patch("main.prepare_shared_runtime", side_effect=fake_prepare_shared_runtime), patch("main.verify_runtime", return_value=runtime_result), patch("main.update_shared_runtime_registry") as update_registry:
+                exit_code = run_import(args, repo)
+
+            self.assertEqual(exit_code, 1)
+            update_registry.assert_not_called()
+            self.assertFalse((repo / "runtime" / "envs" / "toolhub_env_registry.json").exists())
+            self.assertFalse((repo / "apps" / app_id).exists())
+
     def test_lightweight_apply_reuses_shared_runtime_on_second_run(self) -> None:
         with workspace_tempdir() as root:
             repo = make_repo(root)
@@ -893,7 +1058,7 @@ class NormalRegistrationFlowTests(unittest.TestCase):
             with patch("main.create_build_env", side_effect=fake_create_build_env), patch("main.generate_lock", side_effect=fake_generate_lock), patch("main.install_build_tools", side_effect=fake_install_build_tools), patch("app_studio.frozen_folder_builder.run_pyinstaller_command", side_effect=fake_pyinstaller):
                 exit_code = run_import(args, repo)
 
-            self.assertEqual(exit_code, 0)
+            self.assertEqual(exit_code, 1)
             output_dir = source / "ToolHub_AppStudio_Output" / app_id
             final_entry = output_dir / "final_app" / "src" / "run_xcgate_upload.py"
             registered_entry = repo / "apps" / app_id / "src" / "run_xcgate_upload.py"
@@ -916,7 +1081,8 @@ class NormalRegistrationFlowTests(unittest.TestCase):
             self.assertIn("entry: src/run_xcgate_upload.py", app_yaml)
             self.assertIn("env_id:", app_yaml)
             execution = json.loads((output_dir / "execution_test_result.json").read_text(encoding="utf-8"))
-            self.assertTrue(execution["approval_allowed"])
+            self.assertFalse(execution["approval_allowed"])
+            self.assertIn("shared-env collect_all imports", json.dumps(execution, ensure_ascii=False))
             self.assertIn("app_studio_policy_id", execution["evidence"])
             self.assertIn("non_blocking_warnings_count", execution)
             runtime = json.loads((output_dir / "runtime_check_result.json").read_text(encoding="utf-8"))

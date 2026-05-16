@@ -55,6 +55,33 @@
       "required_runner": ">=0.1.0",
       "required_runtime": null,
       "enabled": true
+    },
+    "zt_agendasnap_20260516": {
+      "version": "0.1.0",
+      "package": "app_packs/zt_agendasnap_20260516-0.1.0.zip",
+      "sha256": "a26942a2c3352cba7ec6627e50d3a929e45ab9255a60cfac80f322ba1012053e",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": "python-shared-env:py313-win_amd64-flet0283-fletdesktop0283-03c58f59",
+      "enabled": false
+    },
+    "zt_xcgate_20260516": {
+      "version": "0.1.0",
+      "package": "app_packs/zt_xcgate_20260516-0.1.0.zip",
+      "sha256": "cb7f8fb4ee8cb069b23dc913c1fcc8e33006b7c8e67d0a7d6917a673df73a0d4",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": "python-shared-env:py313-win_amd64-runtime-37c71daf",
+      "enabled": false
+    },
+    "zt_xcgate_srcroot_20260516": {
+      "version": "0.1.0",
+      "package": "app_packs/zt_xcgate_srcroot_20260516-0.1.0.zip",
+      "sha256": "2f06f3473f03cc7e649a689896ac4399d8082468194d798da680854e83066ac6",
+      "required_core": ">=0.1.0",
+      "required_runner": ">=0.1.0",
+      "required_runtime": "python-shared-env:py313-win_amd64-playwright1550-27ead7db",
+      "enabled": false
     }
   }
 }

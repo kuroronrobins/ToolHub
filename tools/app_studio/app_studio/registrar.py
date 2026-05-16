@@ -22,6 +22,7 @@ from .app_pack_contract import (
 )
 from .exporter import copy_pack_to_output
 from .models import BuildPlan, StudioContext
+from .payload_policy import is_forbidden_packaged_payload
 from .util import assert_within, file_sha256, timestamp, write_json, write_text
 
 
@@ -215,6 +216,8 @@ def apply_registration(
             if target.exists():
                 shutil.rmtree(target)
         stats = _directory_stats(final_app_dir)
+        with _registration_step(records, "final_app_payload_gate", f"path={final_app_dir}"):
+            validate_no_forbidden_payload(final_app_dir)
         with _registration_step(
             records,
             "copy_final_app_to_apps",
@@ -250,6 +253,20 @@ def apply_registration(
         raise
     finally:
         write_registration_copy_report(output_dir, context, records)
+
+
+def validate_no_forbidden_payload(final_app_dir: Path) -> None:
+    if not final_app_dir.is_dir():
+        raise FileNotFoundError(f"final_app is missing: {final_app_dir}")
+    findings: list[str] = []
+    for path in sorted(final_app_dir.rglob("*")):
+        forbidden, reason = is_forbidden_packaged_payload(path.relative_to(final_app_dir), path.is_file())
+        if forbidden:
+            findings.append(f"{path.relative_to(final_app_dir).as_posix()} ({reason})")
+    if findings:
+        sample = "; ".join(findings[:10])
+        suffix = f"; and {len(findings) - 10} more" if len(findings) > 10 else ""
+        raise ValueError(f"final_app contains forbidden payload files: {sample}{suffix}")
 
 
 def rollback_registration(

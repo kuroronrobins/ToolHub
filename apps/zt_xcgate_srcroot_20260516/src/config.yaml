@@ -1,0 +1,26 @@
+﻿options:
+  headless: false
+  channel: "msedge"
+  ignore_https_errors: true
+  timeout_page_ms: 30000
+  timeout_complete_ms: 60000
+  slowmo_ms: 200
+  devtools: false
+  keep_open: true
+  goto_retries: 3
+  goto_retry_delay_ms: 1500
+  # FileChooser が開かない場合の待機を短縮
+  timeout_file_chooser_ms: 5000
+
+  # ★ 既定は非永続で storage_state を使う
+  storage_state_path: ".auth/mega_state.json"
+
+  # ★ 永続を試したい場合のみ true に（失敗時は自動フォールバック）
+  prefer_persistent: false
+  user_data_dir: "C:/Users/kuroron/AppData/Local/Microsoft/Edge/User Data"
+  user_data_profile: "Default"
+
+logging:
+  csv_path: "logs/upload_log.csv"
+  shots_dir: "logs"
+

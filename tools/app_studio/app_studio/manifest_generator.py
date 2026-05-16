@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .app_contract import infer_run_mode_from_source
 from .models import BuildPlan, StudioContext
 from .util import yaml_scalar
 
@@ -118,16 +119,4 @@ def wrap_block(text: str) -> list[str]:
 
 
 def infer_run_mode(context: StudioContext) -> str:
-    if context.entry.suffix.lower() == ".exe":
-        return "gui"
-    try:
-        text = context.entry.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return "gui"
-    cli_signals = ["argparse", "click.", "typer.", "sys.argv"]
-    gui_signals = ["tkinter", "PyQt", "PySide", "customtkinter", "wx."]
-    if any(signal in text for signal in gui_signals):
-        return "gui"
-    if any(signal in text for signal in cli_signals):
-        return "cli"
-    return "gui"
+    return infer_run_mode_from_source(context)

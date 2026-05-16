@@ -1,0 +1,6 @@
+﻿# --- runtime ---
+playwright>=1.46,<2.0
+PyYAML>=6.0,<7.0
+
+# 運用環境が Python 3.11 未満や型補助が必要な場合に備えて（3.13でも無害）
+typing_extensions>=4.8,<5.0

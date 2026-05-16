@@ -39,7 +39,7 @@ from app_studio.registrar import apply_registration
 from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import ai_submission_block_reason, scan_secrets, secret_scan_status
-from app_studio.shared_runtime import prepare_shared_runtime
+from app_studio.shared_runtime import prepare_shared_runtime, update_registry as update_shared_runtime_registry
 from app_studio.timing import TimingRecorder, write_timing_reports
 from app_studio.trace import app_studio_trace, merge_trace_into_import_plan, planned_build_env_path
 from app_studio.util import find_repo_root, write_json, write_text
@@ -443,6 +443,8 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
             write_timing_reports(context, output_dir, timings)
             raise
         mark_registration_breakdown(timings, registration_breakdown)
+        with timings.phase("shared_runtime_registry"):
+            update_shared_runtime_registry(context, shared_runtime_result.env_id, shared_runtime_result.env_path, shared_runtime_result.lock_path)
         with timings.phase("execution_checks"):
             execution_result = run_execution_checks(context, plan, output_dir, secret_report, runtime_result)
         timings.mark("result_refresh", "not_applicable", "GUI result refresh is measured in the launcher after CLI completion.")

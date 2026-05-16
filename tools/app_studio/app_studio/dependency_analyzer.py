@@ -52,7 +52,7 @@ def analyze_dependencies(context: StudioContext, inventory: SourceInventory) -> 
     if requirements.is_file():
         lines = normalize_requirement_lines(requirements.read_text(encoding="utf-8", errors="replace").splitlines())
         report = DependencyReport("requirements.txt", lines, inventory.import_roots, third_party_candidates=[], notes=["requirements.txt was copied as the proposed requirements file."])
-        return report, requirements.read_text(encoding="utf-8", errors="replace")
+        return report, "\n".join(lines).rstrip() + ("\n" if lines else "")
 
     if lock.is_file():
         lines = normalize_requirement_lines(lock.read_text(encoding="utf-8", errors="replace").splitlines())
@@ -60,24 +60,31 @@ def analyze_dependencies(context: StudioContext, inventory: SourceInventory) -> 
         return report, "\n".join(lines) + "\n"
 
     nested_requirements = included_requirements_files(context, inventory)
-    if nested_requirements:
-        lines = merged_requirement_lines(nested_requirements)
-        source_list = ", ".join(path.relative_to(context.source_root).as_posix() for path in nested_requirements)
-        report = DependencyReport(
-            "nested-requirements.txt",
-            lines,
-            inventory.import_roots,
-            third_party_candidates=[],
-            notes=[
-                "Nested requirements.txt files were found in included project files.",
-                f"Sources: {source_list}",
-            ],
-        )
-        return report, "\n".join(lines).rstrip() + "\n"
-
     stdlib = set(getattr(sys, "stdlib_module_names", FALLBACK_STDLIB)) | FALLBACK_STDLIB
     local_roots = local_module_roots(context)
     candidates = sorted(root for root in inventory.import_roots if root not in stdlib and root not in local_roots)
+    if nested_requirements:
+        source_list = ", ".join(path.relative_to(context.source_root).as_posix() for path in nested_requirements)
+        proposed = [
+            "# Review these import-derived candidates before installing.",
+            "# App Studio found nested requirements.txt files but did not auto-select them.",
+            "# Choose a narrower source root or provide a root-level requirements.txt when one of these is authoritative.",
+            f"# Nested requirements candidates: {source_list}",
+        ]
+        proposed.extend(f"# {candidate}" for candidate in candidates)
+        report = DependencyReport(
+            "import-analysis",
+            [],
+            inventory.import_roots,
+            third_party_candidates=candidates,
+            notes=[
+                "Nested requirements.txt files were found but were not auto-selected.",
+                "This avoids treating unrelated helper or subproject files as app runtime dependencies.",
+                f"Sources: {source_list}",
+            ],
+        )
+        return report, "\n".join(proposed).rstrip() + "\n"
+
     proposed = ["# Review these import-derived candidates before installing.", "# App Studio did not find requirements.txt or pyproject.toml."]
     proposed.extend(f"# {candidate}" for candidate in candidates)
     proposed_text = "\n".join(proposed).rstrip() + "\n"
@@ -110,11 +117,29 @@ def parse_pyproject_dependencies(path: Path) -> list[str]:
 def normalize_requirement_lines(lines: list[str]) -> list[str]:
     normalized: list[str] = []
     for line in lines:
-        stripped = line.strip().lstrip("\ufeff")
+        stripped = strip_requirement_comment(line.strip().lstrip("\ufeff"))
         if not stripped or stripped.startswith("#"):
             continue
         normalized.append(stripped)
     return normalized
+
+
+def strip_requirement_comment(line: str) -> str:
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(line):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char in {"'", '"'}:
+            quote = None if quote == char else char if quote is None else quote
+            continue
+        if char == "#" and quote is None and (index == 0 or line[index - 1].isspace()):
+            return line[:index].rstrip()
+    return line.strip()
 
 
 def included_requirements_files(context: StudioContext, inventory: SourceInventory) -> list[Path]:

@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .app_contract import detect_frozen_subprocess_module_risks
 from .models import BuildPlan, ExecutionCheck, ExecutionTestResult, RuntimeCheckResult, SecretScanReport, StudioContext
 from .runtime_checker import is_forbidden_payload_path, required_data_findings
 from .trace import trace_with_import_plan
@@ -79,6 +80,7 @@ def build_execution_result(
         checks.append(check(".py run.entry blocked", "fail" if plan.entry.lower().endswith(".py") else "pass", plan.entry))
         checks.append(registered_build_required_check(context))
         checks.extend(frozen_profile_checks(context))
+        checks.append(frozen_child_process_contract_check(context))
         checks.append(forbidden_registered_payload_check(context))
     elif plan.mode == "shared-env":
         checks.append(check("shared-env run.entry", "pass" if app_entry.is_file() else "fail", str(app_entry)))
@@ -177,7 +179,7 @@ def parse_manifest_check(context: StudioContext) -> ExecutionCheck:
         manifest = load_app_manifest(context.repo_root, context.app_id)
     except Exception as exc:
         return check("app.yaml parse", "fail", repr(exc))
-    return check("app.yaml parse", "pass", f"runner={manifest.run.runner}, entry={manifest.run.entry}")
+    return check("app.yaml parse", "pass", f"runner={manifest.run.runner}, entry={manifest.run.entry}, mode={manifest.run.mode}")
 
 
 def python_runtime_check(context: StudioContext) -> ExecutionCheck:
@@ -309,6 +311,21 @@ def registered_build_required_check(context: StudioContext) -> ExecutionCheck:
     if marker.exists():
         return check("registered BUILD_REQUIRED marker", "fail", f"BUILD_REQUIRED.txt remains after registration: {marker}")
     return check("registered BUILD_REQUIRED marker", "pass", "BUILD_REQUIRED.txt is not present in apps/<app_id>/bin.")
+
+
+def frozen_child_process_contract_check(context: StudioContext) -> ExecutionCheck:
+    risks = detect_frozen_subprocess_module_risks(context)
+    if not risks:
+        return check("frozen child-process contract", "pass", "No local sys.executable -m subprocess pattern was detected.")
+    detail = (
+        "Frozen exe will set sys.executable to the app executable, not python.exe. "
+        "Replace local module child launches with an entry-point dispatcher such as app.exe --window <name>. "
+        "Findings: "
+        + "; ".join(risk.display(context.source_root) for risk in risks[:5])
+    )
+    if len(risks) > 5:
+        detail += f"; and {len(risks) - 5} more"
+    return check("frozen child-process contract", "warn", detail, approval_category=APPROVAL_BLOCKING_WARNING)
 
 
 def execution_report_markdown(result: ExecutionTestResult) -> str:

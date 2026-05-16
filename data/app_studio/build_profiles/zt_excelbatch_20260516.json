@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "app_id": "zt_excelbatch_20260516",
+  "source": "saved+auto",
+  "paths": [
+    "20251127_ExcelChangeReview",
+    "app"
+  ],
+  "hidden_imports": [
+    "__init__",
+    "app.__init__",
+    "app.auto_updater",
+    "app.batch_logic",
+    "app.config",
+    "app.engine",
+    "app.excel_controller",
+    "app.gui",
+    "app.main",
+    "app.preview_capture",
+    "app.rules",
+    "app.settings_store",
+    "app.ui_main",
+    "auto_updater",
+    "batch_logic",
+    "config",
+    "excel_controller",
+    "settings_store",
+    "ui_main"
+  ],
+  "add_data": [
+    {
+      "source": "templates/2第三者確認.json",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/3第三者確認.json",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/IP.json",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251125_110119.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251125_110549.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251125_151139.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251126_122522.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251126_123050.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251126_210751.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251126_211440.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251126_212234.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251127_002113.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251128_095033-2.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251128_095033.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251128_095246.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251202_111356.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251202_124830.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251202_154458.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251204_180003.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251205_124805.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/template_20251205_125533.xlsx",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/ver受入包装.json",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/ラベルとver.json",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/ラベル第三者確認.json",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/ラベル第三者確認　もどす　.json",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/ラベル第三者確認　もどす　ラベル2　.json",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/ラベル第三者確認　もどす　ラベル　.json",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/外観.json",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/外観2.json",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/第三者確認.json",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/管理番号入力規制.json",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/記入欄書式改善.json",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/貼り付けラベル.json",
+      "destination": "templates"
+    },
+    {
+      "source": "templates/１－６.json",
+      "destination": "templates"
+    },
+    {
+      "source": "20251127_ExcelChangeReview/app",
+      "destination": "20251127_ExcelChangeReview/app"
+    }
+  ],
+  "add_binaries": [],
+  "collect_all": [],
+  "runtime_cwd": null,
+  "environment": {},
+  "required_files": [
+    "templates/2第三者確認.json",
+    "templates/3第三者確認.json",
+    "templates/IP.json",
+    "templates/template_20251125_110119.xlsx",
+    "templates/template_20251125_110549.xlsx",
+    "templates/template_20251125_151139.xlsx",
+    "templates/template_20251126_122522.xlsx",
+    "templates/template_20251126_123050.xlsx",
+    "templates/template_20251126_210751.xlsx",
+    "templates/template_20251126_211440.xlsx",
+    "templates/template_20251126_212234.xlsx",
+    "templates/template_20251127_002113.xlsx",
+    "templates/template_20251128_095033-2.xlsx",
+    "templates/template_20251128_095033.xlsx",
+    "templates/template_20251128_095246.xlsx",
+    "templates/template_20251202_111356.xlsx",
+    "templates/template_20251202_124830.xlsx",
+    "templates/template_20251202_154458.xlsx",
+    "templates/template_20251204_180003.xlsx",
+    "templates/template_20251205_124805.xlsx",
+    "templates/template_20251205_125533.xlsx",
+    "templates/ver受入包装.json",
+    "templates/ラベルとver.json",
+    "templates/ラベル第三者確認.json",
+    "templates/ラベル第三者確認　もどす　.json",
+    "templates/ラベル第三者確認　もどす　ラベル2　.json",
+    "templates/ラベル第三者確認　もどす　ラベル　.json",
+    "templates/外観.json",
+    "templates/外観2.json",
+    "templates/第三者確認.json",
+    "templates/管理番号入力規制.json",
+    "templates/記入欄書式改善.json",
+    "templates/貼り付けラベル.json",
+    "templates/１－６.json",
+    "20251127_ExcelChangeReview/app"
+  ],
+  "manual_checks": [
+    "app/auto_updater.py: Path - call uses a dynamic path expression",
+    "app/auto_updater.py: read_text - Path read call uses a dynamic path expression",
+    "app/settings_store.py: open - call uses a dynamic path expression",
+    "app/settings_store.py: json.load - call uses a dynamic path expression",
+    "app/ui_main.py: open - call uses a dynamic path expression",
+    "app/ui_main.py: read_text - Path read call uses a dynamic path expression",
+    "app/ui_main.py: Path - call uses a dynamic path expression"
+  ],
+  "warnings": [
+    "ビルド前注意: frozen-folder作成後、必要な設定ファイル・データファイルは配布物検証で自動確認されます。"
+  ],
+  "source_root": "C:\\Users\\kuroron\\Documents\\RD\\20251123_ExcelBatchReplace",
+  "source_root_origin": "entry_parent",
+  "entry_relative": "main.py",
+  "inventory_summary": {
+    "source_root": "C:\\Users\\kuroron\\Documents\\RD\\20251123_ExcelBatchReplace",
+    "source_root_origin": "entry_parent",
+    "entry_relative": "main.py",
+    "included_count": 53,
+    "excluded_count": 18,
+    "blocked_count": 0,
+    "manual_check_count": 15,
+    "excluded_directory_count": 4,
+    "sensitive_excluded_directory_count": 0,
+    "sensitive_excluded_file_count": 0,
+    "source_root_warnings": [
+      "auto source_root contains a .git directory; use --source-root if only a subdirectory should be packaged."
+    ],
+    "toolhubignore_pattern_count": 0
+  }
+}

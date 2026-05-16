@@ -55,7 +55,6 @@ def prepare_shared_runtime(context: StudioContext, requirements_path: Path) -> S
             shutil.copy2(existing_lock, lock_path)
         else:
             write_text(lock_path, initial_lock_text)
-        update_registry(context, env_id, env_path, lock_path)
         result = SharedRuntimeBuildResult(
             ok=True,
             skipped=True,
@@ -124,8 +123,6 @@ def prepare_shared_runtime(context: StudioContext, requirements_path: Path) -> S
         shutil.move(str(staging), str(env_path))
         reused = False
     env_python = app_env_python(env_path)
-    update_registry(context, env_id, env_path, lock_path)
-
     result = SharedRuntimeBuildResult(
         ok=True,
         skipped=reused,
@@ -304,10 +301,28 @@ def read_installable_requirements(path: Path) -> list[str]:
         return []
     result: list[str] = []
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        stripped = line.strip().lstrip("\ufeff")
+        stripped = strip_requirement_comment(line.strip().lstrip("\ufeff"))
         if stripped and not stripped.startswith("#"):
             result.append(stripped)
     return result
+
+
+def strip_requirement_comment(line: str) -> str:
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(line):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char in {"'", '"'}:
+            quote = None if quote == char else char if quote is None else quote
+            continue
+        if char == "#" and quote is None and (index == 0 or line[index - 1].isspace()):
+            return line[:index].rstrip()
+    return line.strip()
 
 
 def package_name_from_spec(spec: str) -> str:

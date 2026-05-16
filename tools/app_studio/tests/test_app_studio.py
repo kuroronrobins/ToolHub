@@ -197,9 +197,10 @@ class AppStudioTests(unittest.TestCase):
             self.assertIn("xcgate_flows/flows/xcgate_upload.flow", included)
             self.assertIn("xcgate_flows/src/main.py", included)
             self.assertNotIn("xcgate_flows/.auth/mega_state.json", included)
-            self.assertEqual(dependency_report.source, "nested-requirements.txt")
-            self.assertIn("playwright>=1.46,<2.0", requirements)
-            self.assertIn("PyYAML>=6.0,<7.0", requirements)
+            self.assertEqual(dependency_report.source, "import-analysis")
+            self.assertIn("Nested requirements candidates: xcgate_flows/requirements.txt", requirements)
+            self.assertNotIn("playwright>=1.46,<2.0", requirements)
+            self.assertNotIn("PyYAML>=6.0,<7.0", requirements)
             self.assertNotIn("--- runtime ---", requirements)
 
     def test_code_referenced_runtime_files_are_included_without_extension_whitelist(self) -> None:
@@ -288,6 +289,41 @@ class AppStudioTests(unittest.TestCase):
             self.assertEqual(data["runtime"]["requirements_lock"], "requirements.lock")
             self.assertEqual(data["build"]["managed_by"], "toolhub_app_studio")
             self.assertEqual(data["build"]["build_mode"], "shared-env")
+
+    def test_manifest_generator_prefers_gui_signal_over_argparse(self) -> None:
+        with workspace_tempdir() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            (repo / "apps").mkdir(parents=True)
+            (repo / "release").mkdir()
+            (repo / "runner").mkdir()
+            source = root / "source"
+            ui = source / "agendasnap" / "ui"
+            ui.mkdir(parents=True)
+            entry = source / "main.py"
+            entry.write_text(
+                "\n".join(
+                    [
+                        "import argparse",
+                        "import runpy",
+                        "def main():",
+                        "    argparse.ArgumentParser().parse_args()",
+                        "    runpy.run_module('agendasnap.ui.mock_ui', run_name='__main__')",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (source / "agendasnap" / "__init__.py").write_text("", encoding="utf-8")
+            (ui / "__init__.py").write_text("", encoding="utf-8")
+            (ui / "mock_ui.py").write_text("import flet as ft\nft.app(target=lambda page: None)\n", encoding="utf-8")
+
+            context = create_context(ImportOptions(entry=entry, action="suggest", app_id="agendasnap", name="AgendaSnap"), repo)
+            inventory = classify_files(context)
+            plan = make_build_plan(context, inventory)
+            yaml_text = generate_app_yaml(context, plan, {"short_description": "demo", "description": "demo", "categories": ["demo"]})
+
+            self.assertIn("mode: gui", yaml_text)
+            self.assertNotIn("mode: cli", yaml_text)
 
     def test_metadata_override_applies_manifest_fields(self) -> None:
         with workspace_tempdir() as temp:
