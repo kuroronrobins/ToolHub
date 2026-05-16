@@ -1,35 +1,50 @@
 from __future__ import annotations
 
-import unittest
-from pathlib import Path
+from contextlib import contextmanager
+import shutil
 import sys
+import unittest
+import uuid
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from toolhub_runner.manifest import ManifestError, manifest_from_dict, load_app_manifest
 from toolhub_runner.manifest import SUPPORTED_RUNNERS
+from toolhub_runner.manifest import ManifestError, load_app_manifest, manifest_from_dict
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
+
+@contextmanager
+def workspace_tempdir():
+    base = ROOT / "data" / "tmp_tests"
+    base.mkdir(parents=True, exist_ok=True)
+    path = base / f"runner_case_{uuid.uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=False)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
+
 VALID_DATA = {
     "id": "sample",
-    "name": "サンプル",
+    "name": "Sample",
     "display": {
         "icon": "icon.svg",
-        "short_description": "説明",
-        "categories": ["業務"],
+        "short_description": "Description",
+        "categories": ["Tools"],
     },
     "detail": {
-        "description": "詳細説明です。",
-        "use_cases": ["使い方"],
-        "inputs": ["入力"],
-        "outputs": ["出力"],
-        "notes": ["注意"],
+        "description": "Detailed description",
+        "use_cases": ["Use"],
+        "inputs": ["Input"],
+        "outputs": ["Output"],
+        "notes": ["Note"],
     },
     "search": {
-        "keywords": ["サンプル"],
-        "examples": ["探したい"],
+        "keywords": ["sample"],
+        "examples": ["find sample"],
     },
     "run": {
         "runner": "cli",
@@ -47,12 +62,51 @@ VALID_DATA = {
 
 class ManifestTests(unittest.TestCase):
     def test_load_app_manifest(self) -> None:
-        manifest = load_app_manifest(ROOT, "sample_cli_app")
+        with workspace_tempdir() as repo:
+            app_dir = repo / "apps" / "demo_cli_app"
+            app_dir.mkdir(parents=True)
+            (app_dir / "app.yaml").write_text(
+                """id: demo_cli_app
+name: Demo CLI App
+display:
+  icon: icon.svg
+  short_description: Demo app
+  categories:
+    - Tools
+detail:
+  description: Demo detail
+  use_cases:
+    - Test
+  inputs:
+    - None
+  outputs:
+    - Log
+  notes:
+    - Demo
+search:
+  keywords:
+    - demo
+  examples:
+    - run demo
+run:
+  runner: cli
+  entry: main.py
+  mode: cli
+admin:
+  version: 1.0.0
+  owner: admin
+  requirements: requirements.txt
+  log_dir: logs
+""",
+                encoding="utf-8",
+            )
 
-        self.assertEqual(manifest.id, "sample_cli_app")
-        self.assertEqual(manifest.name, "CLIサンプルアプリ")
+            manifest = load_app_manifest(repo, "demo_cli_app")
+
+        self.assertEqual(manifest.id, "demo_cli_app")
+        self.assertEqual(manifest.name, "Demo CLI App")
         self.assertEqual(manifest.run.runner, "cli")
-        self.assertIn("バッチ処理", manifest.display.categories)
+        self.assertIn("Tools", manifest.display.categories)
 
     def test_missing_required_field_raises(self) -> None:
         with self.assertRaises(ManifestError):

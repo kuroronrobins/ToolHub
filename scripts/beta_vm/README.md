@@ -85,8 +85,7 @@ Do not install Python, Node.js, Rust, npm, cargo, or Tauri CLI in the VM before 
 When `-PauseForManualGuiChecks` is passed, the script asks for:
 
 - app cards visible in ToolHub.
-- `sample_gui_app` launch result.
-- `sample_playwright_app` launch result.
+- validation app launch result, when a validation app has been deliberately registered.
 
 If you do not pass `-PauseForManualGuiChecks`, these are recorded as `manual_check`.
 

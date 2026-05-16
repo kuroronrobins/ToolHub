@@ -64,8 +64,7 @@ The script records these checks automatically where possible:
 When prompted, confirm these in the VM:
 
 - app cards are visible.
-- `sample_gui_app` launches.
-- `sample_playwright_app` launches.
+- if a validation app has been deliberately registered, it launches.
 - installer / uninstaller prompts do not require deleting user data.
 
 If a prompt offers to delete user data, do not select it. Record that prompt behavior in the result notes when reporting back.

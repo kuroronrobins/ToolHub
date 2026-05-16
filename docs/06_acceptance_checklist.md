@@ -8,10 +8,10 @@
 
 - [x] `python main.py --dev` でToolHubランチャーが起動する
 - [x] ランチャーにアプリカードが表示される
-- [x] GUIサンプルアプリがウィンドウを開く
-- [x] CLIサンプルアプリがrunner経由で `ok: true` を返し、ログを保存する
-- [x] Web操作サンプルアプリがrunner経由で `ok: true` を返し、ログを保存する
-- [x] Web操作サンプルは `headless=True` のため、ブラウザウィンドウが表示されない挙動を正常として確認済み
+- [x] 登録済み検証アプリがウィンドウを開く
+- [x] CLI形式の登録済み検証アプリがrunner経由で `ok: true` を返し、ログを保存する
+- [x] Web操作の登録済み検証アプリがrunner経由で `ok: true` を返し、ログを保存する
+- [x] Web操作の検証アプリは、登録内容に応じてヘッドレス起動を正常として確認する
 
 ## Functional
 
@@ -27,9 +27,9 @@
 - [x] カテゴリで絞り込める実装がある
 - [x] 検索で絞り込める実装がある
 - [x] 説明を見るを押すと詳細が表示される実装がある
-- [x] GUIサンプルアプリを起動できる
-- [x] CLIサンプルアプリを起動できる
-- [x] Web自動化サンプルアプリを他アプリと同様のrunner経由で起動できる
+- [x] GUI形式の登録済み検証アプリを起動できる
+- [x] CLI形式の登録済み検証アプリを起動できる
+- [x] Web自動化の登録済み検証アプリを他アプリと同様のrunner経由で起動できる
 - [x] エラー時に利用者向けメッセージが出る
 - [x] 詳細ログが保存される
 
@@ -47,7 +47,7 @@
 
 - [x] 新規アプリは `apps/` にフォルダ追加するだけで登録できる
 - [x] `app.yaml` 仕様がdocsに記載されている
-- [x] サンプルアプリをコピーして新規アプリを作れる
+- [x] `docs/31_app_registration_app_authoring_guidelines.md` に従って新規アプリを作れる
 - [x] ランチャー本体に個別アプリ固有処理がない
 - [x] `main.py` に個別アプリ固有処理がない
 - [x] `main.py` にUIロジックがない
@@ -176,8 +176,7 @@
 - [ ] [manual check] 初回起動時に default config が copy され、既存 user config を上書きしない。
 - [ ] [manual check] アンインストールで `%LOCALAPPDATA%\ToolHub\` の user data を削除しない。
 - [ ] [manual check] インストール済み環境で app card が表示される。
-- [ ] [manual check] インストール済み環境で `sample_gui_app` が起動できる。
-- [ ] [manual check] インストール済み環境で `sample_playwright_app` が起動できる。
+- [ ] [manual check] 登録済み検証アプリがある場合、インストール済み環境から起動できる。
 - [ ] [manual check] Beta 配布用の remote manifest endpoint を決定し、`updates.manifest_url` または同等設定から取得できる。
 - [ ] [manual check] 実 endpoint / 実 installer で remote check、download、sha256 match / mismatch、cache 外 path 拒否、verified launch gating を確認する。
 
@@ -196,7 +195,7 @@
 - [x] `scripts/beta_sandbox/sandbox_install_test.ps1` を作成し、Sandbox 内で installer preflight、開発ツール不在、install dir、payload、runtime、first launch、user data、log、uninstall 結果を JSON / Markdown に記録する。
 - [x] `scripts/beta_sandbox/run_sandbox_test.ps1 -DryRun` で host 側 artifact / manifest / mount 設定を事前確認できる。
 - [ ] Windows Sandbox 実行結果: 現在 PC は Windows Home / Core で `Containers-DisposableClientVM` が存在しないため未実施。Sandbox 起動と installer GUI 操作は人間確認を伴うため、`scripts/beta_sandbox/results/latest_sandbox_install_result.*` を確認してから完了判定する。
-- [ ] GUI manual check: app card 表示、`sample_gui_app`、`sample_playwright_app` 起動確認は Sandbox 結果内の `manual_check` として記録する。
+- [ ] GUI manual check: app card 表示と、登録済み検証アプリがある場合の起動確認を Sandbox 結果内の `manual_check` として記録する。
 
 2026-05-10 時点の Windows Sandbox 不可時の代替検証フロー:
 
@@ -226,8 +225,7 @@
 | install result | 未実施 | clean profile / VM で実施する。 |
 | first launch | 未実施 | install 後に確認する。 |
 | app card | 未実施 | install 後に確認する。 |
-| `sample_gui_app` | 未実施 | install 後に確認する。 |
-| `sample_playwright_app` | 未実施 | install 後に確認する。 |
+| validation app launch | 未実施 | 登録済み検証アプリがある場合に確認する。 |
 | uninstall | 未実施 | install 後に確認する。 |
 | user data preservation | 未実施 | uninstall / reinstall 後に確認する。 |
 
@@ -241,8 +239,7 @@ clean profile / VM で記録する結果:
 | user data dir | `%LOCALAPPDATA%\ToolHub\` が作成される | 未実施 |
 | existing config preservation | 既存 `config/launcher.yaml` を上書きしない | 未実施 |
 | app card | インストール済み環境で app card が表示される | 未実施 |
-| `sample_gui_app` | インストール済み環境で起動できる | 未実施 |
-| `sample_playwright_app` | インストール済み環境で起動できる | 未実施 |
+| validation app launch | 登録済み検証アプリがインストール済み環境で起動できる | 未実施 |
 | bundled Python | PATH Python ではなく同梱 `runtime/python/python.exe` を使う | 未実施 |
 | Web automation runtime | 同梱 `runtime/web_automation_runtime/` が使える | 未実施 |
 | no user dev dependencies | Python / Node.js / Rust / Tauri CLI / pip package なしで動く | 未実施 |
@@ -268,8 +265,7 @@ clean profile / VM で記録する結果:
 
 - `python main.py --check`: OK
 - `python -m unittest discover -s runner/tests`: 16 tests OK
-- `python runner/toolhub_runner/main.py --project-root . --app-id sample_cli_app`: OK。runner側の初期statusと、アプリ側の実処理eventのみ出力
-- `python runner/toolhub_runner/main.py --project-root . --app-id sample_playwright_app`: sandbox内ではWinError 5、sandbox外再実行でOK。runner側の初期statusと、アプリ側の実処理eventのみ出力
+- Built-in app launch checks were retired after built-in app source removal.
 - `scripts/check_all.ps1`: OK。`icon.ico`、`bundle.icon`、`bundle.resources` の存在確認を含む
 - `scripts/build_release.ps1 -SkipInstall`: OK。Tauri標準NSIS/MSI bundle生成、`release/dist_installer/ToolHub_Setup_0.1.0.exe` 収集、installer sha256/size更新まで通過
 - `scripts/verify_release.ps1 -RequireInstaller`: OK。installer file / sha256 / size、App Pack sha256、`pack_manifest.json` を確認

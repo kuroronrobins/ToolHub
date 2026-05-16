@@ -107,7 +107,7 @@ Get-ChildItem -Path $root -Recurse -Filter main.py -File -ErrorAction SilentlyCo
 
 - `venv`, `.venv`, `env`, `site-packages` 配下の `main.py` は対象外。
 - `ToolHub_AppStudio_Output`, `build`, `dist`, `target`, `release`, `runtime`, `.gitup`, `backups` 配下は対象外。
-- ToolHub 自身の `main.py`、runner、sample app、過去 staging output は対象外。
+- ToolHub 自身の `main.py`、runner、旧同梱検証アプリ、過去 staging output は対象外。
 - `失敗` と名前にある過去試行版は、必要がある場合だけ regression ケースに回す。
 - SecurityFixWork や clone repo 内の重複は、元プロジェクトが残っている場合は原則重複扱いにする。
 

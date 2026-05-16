@@ -106,18 +106,6 @@ ToolHubは配布アプリケーションなので、再現性のために以下�
 
 `package-lock.json` は `npm ci` で同じ依存バージョンを復元するために使います。`Cargo.lock` はTauri/Rust側の依存解決を固定するために使います。
 
-## サンプルアプリ
-
-`apps/` には初回検証用のサンプルを3つ用意しています。
-
-- `sample_gui_app`: Python標準のTkinterを使うGUIサンプル
-- `sample_cli_app`: JSON Linesイベントを標準出力に出すCLIサンプル
-- `sample_playwright_app`: Web自動化アプリ想定のサンプル
-
-`sample_playwright_app` は `headless=True` でローカルHTMLを操作するため、正常時もブラウザウィンドウは表示されません。
-
-利用者向け画面では、アプリの実行方式や内部技術名は表示しません。
-
 ## 新しいアプリの追加
 
 以下の補助スクリプトでテンプレートを作成できます。

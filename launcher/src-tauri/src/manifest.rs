@@ -157,8 +157,13 @@ fn add_unique_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
 }
 
 fn find_root_from_candidate(candidate: &Path) -> Option<PathBuf> {
+    let mut dev_build_artifact_fallback = None;
     for ancestor in candidate.ancestors() {
         if looks_like_root(ancestor) {
+            if is_dev_build_artifact_root(ancestor) {
+                dev_build_artifact_fallback.get_or_insert_with(|| ancestor.to_path_buf());
+                continue;
+            }
             return Some(ancestor.to_path_buf());
         }
         for child_candidate in [
@@ -170,7 +175,7 @@ fn find_root_from_candidate(candidate: &Path) -> Option<PathBuf> {
             }
         }
     }
-    None
+    dev_build_artifact_fallback
 }
 
 fn looks_like_root(path: &Path) -> bool {
@@ -181,6 +186,49 @@ fn looks_like_root(path: &Path) -> bool {
     path.join("launcher").is_dir()
         || path.join("release").join("app_manifest.json").is_file()
         || path.join("release").join("manifest.json").is_file()
+}
+
+pub fn root_type(path: &Path) -> &'static str {
+    if is_dev_build_artifact_root(path) {
+        return "dev_build_artifact";
+    }
+    if path.join("launcher").is_dir() {
+        return "dev_source";
+    }
+    if is_user_data_root(path) {
+        return "user_data";
+    }
+    if looks_like_root(path) {
+        return "installed_resource";
+    }
+    "unknown"
+}
+
+fn is_dev_build_artifact_root(path: &Path) -> bool {
+    let parts = normalized_components(path);
+    parts.windows(4).any(|window| {
+        window[0] == "launcher"
+            && window[1] == "src-tauri"
+            && window[2] == "target"
+            && (window[3] == "release" || window[3] == "debug")
+    })
+}
+
+fn is_user_data_root(path: &Path) -> bool {
+    let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    if !file_name.eq_ignore_ascii_case("ToolHub") {
+        return false;
+    }
+    path.join("data").join("logs").is_dir() && path.join("config").is_dir()
+}
+
+fn normalized_components(path: &Path) -> Vec<String> {
+    path.components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .map(|component| component.to_ascii_lowercase())
+        .collect()
 }
 
 pub fn load_apps(root: &Path) -> Result<Vec<AppInfo>, Box<dyn Error>> {
@@ -500,6 +548,90 @@ mod tests {
         assert!(looks_like_root(&root));
 
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn project_root_prefers_dev_source_over_dev_build_artifact_root() {
+        let root = temp_root_dir("dev_with_build_artifact");
+        std::fs::create_dir_all(root.join("apps")).unwrap();
+        std::fs::create_dir_all(root.join("runner")).unwrap();
+        std::fs::create_dir_all(root.join("launcher")).unwrap();
+
+        let build_artifact_root = root
+            .join("launcher")
+            .join("src-tauri")
+            .join("target")
+            .join("release");
+        std::fs::create_dir_all(build_artifact_root.join("apps")).unwrap();
+        std::fs::create_dir_all(build_artifact_root.join("runner")).unwrap();
+        std::fs::create_dir_all(build_artifact_root.join("release")).unwrap();
+        std::fs::write(
+            build_artifact_root
+                .join("release")
+                .join("app_manifest.json"),
+            "{}",
+        )
+        .unwrap();
+
+        let resolved = find_root_from_candidate(&build_artifact_root).unwrap();
+
+        assert_eq!(resolved, root);
+        let _ = std::fs::remove_dir_all(resolved);
+    }
+
+    #[test]
+    fn root_type_marks_dev_source_root() {
+        let root = temp_root_dir("dev_source");
+        std::fs::create_dir_all(root.join("apps")).unwrap();
+        std::fs::create_dir_all(root.join("runner")).unwrap();
+        std::fs::create_dir_all(root.join("launcher")).unwrap();
+
+        assert_eq!(root_type(&root), "dev_source");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn root_type_marks_dev_build_artifact_root() {
+        let workspace = temp_root_dir("workspace");
+        let root = workspace
+            .join("launcher")
+            .join("src-tauri")
+            .join("target")
+            .join("release");
+        std::fs::create_dir_all(root.join("apps")).unwrap();
+        std::fs::create_dir_all(root.join("runner")).unwrap();
+        std::fs::create_dir_all(root.join("release")).unwrap();
+        std::fs::write(root.join("release").join("app_manifest.json"), "{}").unwrap();
+
+        assert_eq!(root_type(&root), "dev_build_artifact");
+
+        let _ = std::fs::remove_dir_all(workspace);
+    }
+
+    #[test]
+    fn root_type_marks_installed_resource_root() {
+        let root = temp_root_dir("installed_resource");
+        std::fs::create_dir_all(root.join("apps")).unwrap();
+        std::fs::create_dir_all(root.join("runner")).unwrap();
+        std::fs::create_dir_all(root.join("release")).unwrap();
+        std::fs::write(root.join("release").join("app_manifest.json"), "{}").unwrap();
+
+        assert_eq!(root_type(&root), "installed_resource");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn root_type_marks_user_data_root() {
+        let parent = temp_root_dir("localappdata");
+        let root = parent.join("ToolHub");
+        std::fs::create_dir_all(root.join("data").join("logs")).unwrap();
+        std::fs::create_dir_all(root.join("config")).unwrap();
+
+        assert_eq!(root_type(&root), "user_data");
+
+        let _ = std::fs::remove_dir_all(parent);
     }
 
     fn temp_app_dir() -> PathBuf {

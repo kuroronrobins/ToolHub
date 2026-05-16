@@ -12,6 +12,7 @@ def build_app_env(project_root: Path, manifest: AppManifest) -> dict[str, str]:
     env["TOOLHUB_APP_ID"] = manifest.id
     env["TOOLHUB_APP_DIR"] = str(manifest.app_dir)
     env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     return env
 
 

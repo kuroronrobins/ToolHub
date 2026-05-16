@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 from typing import Any
 
@@ -64,7 +65,7 @@ def verify_shared_env_distribution(
             )
         )
     else:
-        checks.append(shared_env_smoke_execution_check(final_app, entry_path, env_python))
+        checks.append(shared_env_smoke_execution_check(final_app, entry_path, env_python, context=context))
     checks.append(forbidden_payload_check(final_app, "forbidden payload files after smoke"))
     return build_runtime_result(context, output_dir, checks)
 
@@ -531,7 +532,13 @@ def frozen_smoke_execution_check(context: StudioContext, final_app: Path, exe_pa
     return RuntimeCheck("frozen smoke execution", "fail", detail)
 
 
-def shared_env_smoke_execution_check(final_app: Path, entry_path: Path, env_python: Path, timeout_seconds: float = 5.0) -> RuntimeCheck:
+def shared_env_smoke_execution_check(
+    final_app: Path,
+    entry_path: Path,
+    env_python: Path,
+    timeout_seconds: float = 5.0,
+    context: StudioContext | None = None,
+) -> RuntimeCheck:
     if not env_python.is_file():
         return RuntimeCheck("shared-env startup smoke", "fail", f"Shared env Python is missing: {env_python}")
     if not entry_path.is_file():
@@ -561,7 +568,8 @@ def shared_env_smoke_execution_check(final_app: Path, entry_path: Path, env_pyth
             output_tail = text_tail("\n".join(part for part in [stdout, stderr] if part))
             fatal = fatal_startup_output(output_tail)
             if fatal:
-                return RuntimeCheck("shared-env startup smoke", "fail", f"Startup produced a fatal error before timeout: {fatal}. Output tail: {output_tail}")
+                hint = missing_local_module_hint(output_tail, final_app, context)
+                return RuntimeCheck("shared-env startup smoke", "fail", f"Startup produced a fatal error before timeout: {fatal}.{hint} Output tail: {output_tail}")
             return RuntimeCheck("shared-env startup smoke", "pass", f"Process stayed alive for {timeout_seconds:.1f}s without fatal startup stderr.")
     except Exception as exc:
         return RuntimeCheck("shared-env startup smoke", "fail", f"Entry could not be started with shared env: {exc!r}")
@@ -569,13 +577,41 @@ def shared_env_smoke_execution_check(final_app: Path, entry_path: Path, env_pyth
     output_tail = text_tail("\n".join(part for part in [stdout, stderr] if part))
     fatal = fatal_startup_output(output_tail)
     if fatal:
-        return RuntimeCheck("shared-env startup smoke", "fail", f"Startup produced a fatal error: {fatal}. Output tail: {output_tail}")
+        hint = missing_local_module_hint(output_tail, final_app, context)
+        return RuntimeCheck("shared-env startup smoke", "fail", f"Startup produced a fatal error: {fatal}.{hint} Output tail: {output_tail}")
     if process.returncode == 0:
         return RuntimeCheck("shared-env startup smoke", "pass", "Process exited successfully during startup smoke check.")
     detail = f"Process exited during startup smoke check with exit_code={process.returncode}."
     if output_tail:
         detail += f" Output tail: {output_tail}"
     return RuntimeCheck("shared-env startup smoke", "fail", detail)
+
+
+def missing_local_module_hint(output: str, final_app: Path, context: StudioContext | None = None) -> str:
+    match = re.search(r"No module named ['\"]([^'\"]+)['\"]", output)
+    if not match or context is None:
+        return ""
+    module_name = match.group(1).strip()
+    if not module_name:
+        return ""
+    module_relative = Path(*module_name.split("."))
+    source_candidates = [
+        context.source_root / module_relative,
+        (context.source_root / module_relative).with_suffix(".py"),
+        context.source_root / module_relative / "__init__.py",
+    ]
+    packaged_root = final_app / "src"
+    packaged_candidates = [
+        packaged_root / module_relative,
+        (packaged_root / module_relative).with_suffix(".py"),
+        packaged_root / module_relative / "__init__.py",
+    ]
+    if any(path.exists() for path in source_candidates) and not any(path.exists() for path in packaged_candidates):
+        return (
+            f" Local module `{module_name}` exists in source but is missing from the packaged app. "
+            "Review source_root and `.toolhubignore`; a broad ignore pattern may be excluding executable code."
+        )
+    return ""
 
 
 def fatal_startup_output(output: str) -> str:

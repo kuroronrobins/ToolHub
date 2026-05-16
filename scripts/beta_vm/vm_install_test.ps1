@@ -876,8 +876,6 @@ function Record-ToolHubLaunch {
         $script:LaunchedToolHubExe = [string]$RunningBeforeLaunch[0].executable_path
         Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "pass" -Message "ToolHub was already running after installer" -Data @{ processes = @($RunningBeforeLaunch) }
         Add-ManualPromptCheck -Id "app_cards_visible" -Description "app cards are visible in GUI" -Prompt "Are app cards visible in the ToolHub window?"
-        Add-ManualPromptCheck -Id "sample_gui_app_launch" -Description "sample_gui_app launches from installed ToolHub" -Prompt "Did sample_gui_app launch successfully?"
-        Add-ManualPromptCheck -Id "sample_playwright_app_launch" -Description "sample_playwright_app launches from installed ToolHub" -Prompt "Did sample_playwright_app launch successfully?"
         return
     }
 
@@ -900,8 +898,6 @@ function Record-ToolHubLaunch {
         } else {
             Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "pass" -Message "ToolHub stayed running for $LaunchSeconds seconds" -Data @{ launched_exe = $LaunchExe; processes = @($RunningAfterLaunch) }
             Add-ManualPromptCheck -Id "app_cards_visible" -Description "app cards are visible in GUI" -Prompt "Are app cards visible in the ToolHub window?"
-            Add-ManualPromptCheck -Id "sample_gui_app_launch" -Description "sample_gui_app launches from installed ToolHub" -Prompt "Did sample_gui_app launch successfully?"
-            Add-ManualPromptCheck -Id "sample_playwright_app_launch" -Description "sample_playwright_app launches from installed ToolHub" -Prompt "Did sample_playwright_app launch successfully?"
             $ToolHubProcess.CloseMainWindow() | Out-Null
             Start-Sleep -Seconds 3
             if (-not $ToolHubProcess.HasExited) {

@@ -77,8 +77,6 @@ $KeyIds = @(
     "toolhub_launch",
     "user_data_dir_created",
     "app_cards_visible",
-    "sample_gui_app_launch",
-    "sample_playwright_app_launch",
     "uninstall_completed",
     "user_data_preserved_after_uninstall",
     "reinstall_completed",

@@ -261,7 +261,7 @@ These are not deletion recommendations. They need call graph checks, fixture che
 - `release/app_manifest.json` and `release/manifest.json` schema/version compatibility.
 - Disabled stale release manifest entries until a deliberate full-delete policy is used.
 - Saved proposals, old import plans, old candidate manifests, and legacy flat icon candidate files.
-- Legacy Python runner sample apps that do not declare frozen-folder distribution and should not be forced to have `requirements.lock`.
+- Legacy Python runner apps that do not declare frozen-folder distribution and should not be forced to have `requirements.lock`.
 - Runtime packaging assumptions: runtime may not be fully bundled in dev environments.
 - User data and external references discovered by delete planning.
 - App Studio default icon and fallback semantics from the icon cleanup handoff.
@@ -322,7 +322,7 @@ These are not deletion recommendations. They need call graph checks, fixture che
 ### Release, runtime, and App Pack connection issues
 
 - Normal App Studio registration is frozen-folder, but release readiness still reports broader runtime/app_env concerns for the whole product. These should stay separate in reports.
-- `requirements.lock` is required for App Studio frozen-folder apps, but not for legacy Python runner sample apps unless they declare the frozen-folder contract.
+- `requirements.lock` is required for App Studio frozen-folder apps, but not for legacy Python runner apps unless they declare the frozen-folder contract.
 - App Pack required entries are checked by Python and PowerShell with similar but duplicated logic.
 - Approval runs targeted app verification and `verify_release.ps1`; global pre-existing release warnings should not be treated as newly introduced app failures.
 - Existing App Pack sha256 mismatch or missing installer artifact is a release readiness issue unless caused by the current registration.
@@ -989,7 +989,7 @@ docs/15_app_studio_update_gui.md と docs/21_app_registration_improvement_plan.m
 - App Studio frozen-folder app と `runtime.requirements_lock` を明示した app だけを対象に、lock file の必須性を
   Python packaging、approval targeted verification、frozen-folder distribution check、PowerShell packaging、
   `verify_release.ps1`、docs で揃える。
-- legacy Python runner 直実行 sample app には一律必須化しない。
+- legacy Python runner 直実行 app には一律必須化しない。
 - app.yaml public schema、App Pack manifest schema、runner I/F、release manifest compatibility は変更しない。
 
 残した follow-up:
@@ -1677,7 +1677,7 @@ Current phase decision:
 P0 completed items:
 
 - `requirements.lock` / App Pack required entries / `verify_release` contract documented and covered by tests.
-- App Studio frozen-folder registration keeps `requirements.lock` as a distribution reproducibility artifact without forcing it onto legacy Python runner sample apps.
+- App Studio frozen-folder registration keeps `requirements.lock` as a distribution reproducibility artifact without forcing it onto legacy Python runner apps.
 - Approval gate validates execution/runtime result app id consistency, output_dir consistency, stale final_app/result relationships, fail status, `approval_allowed=false`, and approval-blocking warnings.
 - Approval rejection now exposes actionable failure reasons and next actions through Python gate messages, diagnose output, and UI guidance.
 - `diagnose_app_studio_import.ps1` classifies approval gate failures, runtime result failures, and global release verification warnings separately.
@@ -1784,7 +1784,7 @@ ToolHub App Studio cleanup は P0/P1 の実用上の区切りに到達済みで�
 Scope:
 
 - This is an audit-only P2 pass. No Python, PowerShell, Rust, React/TypeScript, app source, release manifest, runtime, data, log, lock file, or generated artifact behavior was changed.
-- The P0/P1 cleanup boundary above is treated as the baseline: App Studio frozen-folder apps require the lock-file contract, legacy Python-runner sample apps do not receive a blanket `requirements.lock` requirement, and `verify_release.ps1` remains an independent release gate.
+- The P0/P1 cleanup boundary above is treated as the baseline: App Studio frozen-folder apps require the lock-file contract, legacy Python-runner apps do not receive a blanket `requirements.lock` requirement, and `verify_release.ps1` remains an independent release gate.
 - The goal is to map duplicated rules before choosing a low-risk implementation unit. This section does not change the App Pack spec, app.yaml schema, runner public I/F, release manifest compatibility, or release-readiness policy.
 
 Python-side current responsibilities:
@@ -1845,7 +1845,7 @@ Rules better aligned by golden fixtures / shared examples than shared code:
 
 - Required entries for an App Studio frozen-folder app with explicit `runtime.requirements_lock`.
 - Required entries for an App Studio frozen-folder app that omits `runtime.requirements_lock` and therefore defaults to `requirements.lock`.
-- Legacy Python-runner sample app without `runtime.requirements_lock`, where `requirements.lock` remains optional.
+- Legacy Python-runner app without `runtime.requirements_lock`, where `requirements.lock` remains optional.
 - Invalid absolute, parent-traversal, and empty values for `run.entry`, `display.icon`, and `runtime.requirements_lock`.
 - Zip missing `run.entry`, `display.icon`, `runtime.requirements_lock`, `README.md`, `requirements.txt`, or `pack_manifest.json`.
 - Manifest package path missing, App Pack `sha256` mismatch, and disabled stale manifest entry classification.
@@ -1871,7 +1871,7 @@ ToolHub App Studio P2 として、App Pack / release verification contract の s
 条件:
 - App Pack spec、app.yaml public schema、runner public I/F、release manifest compatibility は変更しない。
 - Python / PowerShell の実運用挙動は変えず、fixture とテスト追加に限定する。
-- legacy Python runner sample app に requirements.lock を一律必須化しない。
+- legacy Python runner app に requirements.lock を一律必須化しない。
 - verify_release.ps1 を弱めない。
 - apps / release / runtime / generated artifacts は変更しない。
 - PowerShell helper共通化は、fixture test が通ってから別タスクで判断する。

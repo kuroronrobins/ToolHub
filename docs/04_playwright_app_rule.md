@@ -35,7 +35,7 @@ run:
 - runner直接実行時の開発フォールバック: `data/browser_profiles/<app_id>/` と `data/logs/<app_id>/`
 - 詳細エラー: `run_*.log`
 
-`sample_playwright_app` は `headless=True` で実行するため、正常時もブラウザウィンドウは表示されません。
+Web automation apps may run headless when the registered app chooses that behavior. ToolHub does not ship a built-in app for this check.
 
 ## Error Handling
 

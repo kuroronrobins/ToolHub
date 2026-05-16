@@ -48,6 +48,7 @@ from app_studio.registrar import (
 from app_studio.runtime_checker import frozen_smoke_execution_check, shared_env_smoke_execution_check, verify_runtime
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import scan_ai_payload_text
+from app_studio.shared_runtime import KnownGoodProbe, companion_flet_desktop_requirement, ensure_framework_runtime_packages, initial_lock_from_probe
 from app_studio.timing import TimingRecorder
 from app_studio.trace import planned_build_env_path, planned_build_env_python
 from app_studio.util import write_json, write_text
@@ -440,6 +441,48 @@ class AppEnvBuilderTests(unittest.TestCase):
             self.assertTrue(result.ok)
             self.assertTrue(any("flet-desktop==0.85.0" in command for command in install_commands))
             self.assertIn("Installed framework runtime package: flet-desktop==0.85.0", result.report)
+
+
+class SharedRuntimeTests(unittest.TestCase):
+    def test_initial_lock_adds_flet_desktop_when_probe_has_no_known_good_version(self) -> None:
+        lock_text = initial_lock_from_probe(["flet>=0.24"], KnownGoodProbe(None, "none", {}))
+
+        self.assertIn("flet>=0.24", lock_text)
+        self.assertIn("flet-desktop>=0.24", lock_text)
+
+    def test_initial_lock_pins_flet_desktop_to_known_good_flet_version(self) -> None:
+        lock_text = initial_lock_from_probe(["flet>=0.24"], KnownGoodProbe(None, "path/python", {"flet": "0.84.0"}))
+
+        self.assertIn("flet==0.84.0", lock_text)
+        self.assertIn("flet-desktop==0.84.0", lock_text)
+
+    def test_companion_flet_desktop_requirement_keeps_constraints_without_extras(self) -> None:
+        self.assertEqual(companion_flet_desktop_requirement("flet[all]==0.28.3"), "flet-desktop==0.28.3")
+        self.assertEqual(companion_flet_desktop_requirement("flet"), "flet-desktop")
+
+    def test_shared_runtime_installs_matching_flet_desktop_before_freeze(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            env_python = root / "env" / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
+            write_text(env_python, "fake python\n")
+            install_commands: list[list[str]] = []
+
+            def fake_installed_package_versions(python, packages, cwd, temp_dir):
+                return {"flet": "0.84.0"}
+
+            def fake_run_command(command, cwd, temp_dir):
+                if "flet-desktop==0.84.0" in command:
+                    install_commands.append(command)
+                    return types.SimpleNamespace(returncode=0, stdout="installed flet-desktop\n", stderr="")
+                raise AssertionError(f"unexpected command: {command}")
+
+            notes: list[str] = []
+            with patch("app_studio.shared_runtime.installed_package_versions", side_effect=fake_installed_package_versions), patch("app_studio.shared_runtime.run_command", side_effect=fake_run_command):
+                error = ensure_framework_runtime_packages(context, env_python, root / "tmp", notes)
+
+            self.assertEqual(error, "")
+            self.assertTrue(any("flet-desktop==0.84.0" in command for command in install_commands))
+            self.assertTrue(any("Installed framework runtime package: flet-desktop==0.84.0" in note for note in notes))
 
 
 class LockGeneratorTests(unittest.TestCase):
@@ -1135,15 +1178,15 @@ class ExecutionAndApprovalTests(unittest.TestCase):
 
     def test_app_pack_required_entries_keep_legacy_app_lock_optional(self) -> None:
         entries = app_pack_required_entries(
-            "sample_gui_app",
+            "demo_gui_app",
             run_entry="main.py",
             display_icon="icon.svg",
             requirements_lock=None,
         )
 
-        self.assertIn("sample_gui_app/main.py", entries)
-        self.assertIn("sample_gui_app/icon.svg", entries)
-        self.assertNotIn("sample_gui_app/requirements.lock", entries)
+        self.assertIn("demo_gui_app/main.py", entries)
+        self.assertIn("demo_gui_app/icon.svg", entries)
+        self.assertNotIn("demo_gui_app/requirements.lock", entries)
 
     def test_requirements_lock_entry_defaults_for_frozen_folder_without_declared_field(self) -> None:
         with workspace_tempdir() as root:
@@ -1173,7 +1216,7 @@ build:
     def test_requirements_lock_entry_is_optional_for_legacy_python_runner_app(self) -> None:
         with workspace_tempdir() as root:
             repo = make_repo(root)
-            app_id = "sample_gui_app"
+            app_id = "demo_gui_app"
             write_minimal_registered_app(repo, app_id)
 
             self.assertIsNone(app_pack_requirements_lock_entry(repo / "apps" / app_id))
@@ -2812,6 +2855,31 @@ class RuntimeCheckerTests(unittest.TestCase):
             smoke = next(check for check in result.checks if check.name == "frozen smoke execution")
             self.assertEqual(smoke.status, "fail")
             self.assertIn("flet_desktop", smoke.detail)
+
+    def test_shared_env_smoke_explains_missing_local_module_excluded_from_package(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            write_text(context.source_root / "agendasnap" / "__init__.py", "")
+            write_text(context.source_root / "agendasnap" / "audio" / "__init__.py", "")
+            final_app = root / "final_app"
+            entry = final_app / "src" / "main.py"
+            env_python = root / "env" / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
+            write_text(entry, "import agendasnap.audio\n")
+            write_text(final_app / "src" / "agendasnap" / "__init__.py", "")
+            write_text(env_python, "fake python\n")
+
+            class FakeProcess:
+                returncode = 1
+
+                def communicate(self, timeout=None):
+                    return "", "ModuleNotFoundError: No module named 'agendasnap.audio'\n"
+
+            with patch("app_studio.runtime_checker.subprocess.Popen", return_value=FakeProcess()):
+                result = shared_env_smoke_execution_check(final_app, entry, env_python, timeout_seconds=1.0, context=context)
+
+            self.assertEqual(result.status, "fail")
+            self.assertIn("exists in source but is missing from the packaged app", result.detail)
+            self.assertIn(".toolhubignore", result.detail)
 
 
 class DocsTests(unittest.TestCase):

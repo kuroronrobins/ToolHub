@@ -51,10 +51,20 @@ def prepare_shared_runtime(context: StudioContext, requirements_path: Path) -> S
 
     if env_path.is_dir() and env_python.is_file():
         existing_lock = env_path / "requirements.lock"
-        if existing_lock.is_file():
-            shutil.copy2(existing_lock, lock_path)
-        else:
-            write_text(lock_path, initial_lock_text)
+        framework_error = ensure_framework_runtime_packages(context, env_python, temp_root, notes)
+        if framework_error:
+            result = failure_result(context, env_id, env_path, lock_path, notes, framework_error)
+            write_shared_runtime_reports(context, result)
+            return result
+        freeze = run_command([str(env_python), "-m", "pip", "freeze"], context.repo_root, temp_root)
+        notes.append(command_summary("pip freeze reused shared runtime dependencies", [str(env_python), "-m", "pip", "freeze"], freeze))
+        if freeze.returncode != 0:
+            result = failure_result(context, env_id, env_path, lock_path, notes, "shared runtime lock freeze failed")
+            write_shared_runtime_reports(context, result)
+            return result
+        resolved_lock_text = freeze.stdout.strip() + ("\n" if freeze.stdout.strip() else "")
+        write_text(existing_lock, resolved_lock_text)
+        write_text(lock_path, resolved_lock_text)
         result = SharedRuntimeBuildResult(
             ok=True,
             skipped=True,
@@ -99,6 +109,13 @@ def prepare_shared_runtime(context: StudioContext, requirements_path: Path) -> S
     if install.returncode != 0:
         shutil.rmtree(staging, ignore_errors=True)
         result = failure_result(context, env_id, env_path, lock_path, notes, "shared runtime dependency install failed")
+        write_shared_runtime_reports(context, result)
+        return result
+
+    framework_error = ensure_framework_runtime_packages(context, staging_python, temp_root, notes)
+    if framework_error:
+        shutil.rmtree(staging, ignore_errors=True)
+        result = failure_result(context, env_id, env_path, lock_path, notes, framework_error)
         write_shared_runtime_reports(context, result)
         return result
 
@@ -198,11 +215,14 @@ def initial_lock_from_probe(requirements: list[str], probe: KnownGoodProbe) -> s
     lines: list[str] = []
     seen: set[str] = set()
     lower_versions = {key.lower(): value for key, value in probe.package_versions.items()}
+    flet_requirement = ""
     for requirement in requirements:
         name = package_name_from_spec(requirement)
         if not name:
             continue
         key = normalize_package_name(name)
+        if key == "flet":
+            flet_requirement = requirement
         version = lower_versions.get(key)
         if version and version_satisfies(version, requirement):
             line = f"{name}=={version}"
@@ -215,7 +235,49 @@ def initial_lock_from_probe(requirements: list[str], probe: KnownGoodProbe) -> s
     if flet_version and "flet-desktop" not in seen:
         desktop_version = lower_versions.get("flet-desktop") or flet_version
         lines.append(f"flet-desktop=={desktop_version}")
+    elif flet_requirement and "flet-desktop" not in seen:
+        lines.append(companion_flet_desktop_requirement(flet_requirement))
     return "\n".join(lines) + ("\n" if lines else "")
+
+
+def companion_flet_desktop_requirement(flet_requirement: str) -> str:
+    name = package_name_from_spec(flet_requirement)
+    constraints = flet_requirement[len(name) :].strip()
+    if constraints.startswith("["):
+        closing = constraints.find("]")
+        constraints = constraints[closing + 1 :].strip() if closing >= 0 else ""
+    return "flet-desktop" + constraints if constraints else "flet-desktop"
+
+
+def ensure_framework_runtime_packages(context: StudioContext, env_python: Path, temp_root: Path, notes: list[str]) -> str:
+    versions = installed_package_versions(env_python, ["flet", "flet-desktop"], context.repo_root, temp_root)
+    flet_version = versions.get("flet") or ""
+    flet_desktop_version = versions.get("flet-desktop") or ""
+    notes.append(
+        "Shared runtime framework package check: "
+        + json.dumps(
+            {"flet": flet_version, "flet-desktop": flet_desktop_version},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+    if not flet_version:
+        return ""
+    if flet_desktop_version == flet_version:
+        notes.append(f"Flet desktop runtime already matches flet=={flet_version}.")
+        return ""
+
+    package = f"flet-desktop=={flet_version}"
+    install = run_command(
+        [str(env_python), "-m", "pip", "install", "--disable-pip-version-check", package],
+        context.repo_root,
+        temp_root,
+    )
+    notes.append(command_summary("pip install framework runtime packages", [str(env_python), "-m", "pip", "install", "--disable-pip-version-check", package], install))
+    if install.returncode != 0:
+        return f"framework runtime package install failed: {package}"
+    notes.append(f"Installed framework runtime package: {package}")
+    return ""
 
 
 def select_base_python(context: StudioContext, probe: KnownGoodProbe) -> Path:

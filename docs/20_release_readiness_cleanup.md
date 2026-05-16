@@ -41,14 +41,11 @@ The current repository snapshot from `.\scripts\report_release_readiness.ps1` is
 
 Enabled apps with source:
 
-- `sample_gui_app`
-- `sample_playwright_app`
-- `run_xcgate_upload`
-- `app_20260215_pdfapplication`
+- none
 
 Disabled apps with source:
 
-- `app_20260201_agendasnap`
+- none
 
 Disabled stale entries:
 
@@ -90,10 +87,6 @@ Current delete candidates:
 
 These should not be treated as cleanup deletion targets in Phase 6:
 
-- Active source apps: `sample_gui_app`, `sample_playwright_app`, `run_xcgate_upload`,
-  `app_20260215_pdfapplication`.
-- Hidden but restorable source apps: `app_20260201_agendasnap`.
-- Apps with valid source and regenerated App Packs.
 - Runtime and installer warnings.
 - Local toolchain warnings.
 
@@ -133,7 +126,7 @@ runtime packaging tasks and must not be resolved by deleting apps.
   update source/config gaps, and updater features that are still not implemented.
 - `warnings`: readiness issues that should be reviewed but are not always immediate blockers.
 - `manual_checks`: checks that require an installed environment or release build machine, such as real install,
-  uninstall, `%LOCALAPPDATA%` placement, bundled runtime use, and sample app launch.
+  uninstall, `%LOCALAPPDATA%` placement, bundled runtime use, and registered validation app launch.
 - `future_formal_only`: formal-release items such as code signing, manifest signing, rollback, and App Pack/runtime
   unit update extensions.
 
@@ -182,7 +175,7 @@ Windows Sandbox support for Phase 1-B now exists under `scripts/beta_sandbox/`:
   boundaries, and Windows Sandbox availability without launching Sandbox.
 - `sandbox_install_test.ps1` runs inside Sandbox, records developer-tool absence, installer preflight, install
   placement, bundled runtime, first launch, user data/log creation, and possible uninstall results to JSON / Markdown.
-- GUI observations, including app cards and sample app launch, remain `manual_check` items until reviewed from the
+- GUI observations, including app cards and registered validation app launch, remain `manual_check` items until reviewed from the
   Sandbox session and result files.
 
 The current PC is Windows Home / Core, so Windows Sandbox cannot be used here because `Containers-DisposableClientVM`

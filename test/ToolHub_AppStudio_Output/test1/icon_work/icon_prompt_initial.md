@@ -1,1 +1,0 @@
-ToolHub icon for Test2. 64x64 viewBox, simple business app line art, calm colors, readable at small sizes, consistent with existing ToolHub icons.

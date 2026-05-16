@@ -211,10 +211,13 @@ def find_release_executable(root: Path) -> Optional[Path]:
     return None
 
 
-def launch_release(executable: Path) -> int:
+def launch_release(executable: Path, root: Path) -> int:
     logging.info("launching release executable: %s", executable)
+    logging.info("passing TOOLHUB_ROOT=%s to release executable", root)
+    env = os.environ.copy()
+    env["TOOLHUB_ROOT"] = str(root)
     try:
-        subprocess.Popen([str(executable)], cwd=str(executable.parent))
+        subprocess.Popen([str(executable)], cwd=str(executable.parent), env=env)
     except OSError:
         logging.exception("failed to launch release executable")
         raise
@@ -294,7 +297,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         if not args.dev:
             release_exe = find_release_executable(root)
             if release_exe:
-                return launch_release(release_exe)
+                return launch_release(release_exe, root)
             if args.release:
                 logging.error("release executable not found")
                 print("ビルド済みToolHub実行ファイルが見つかりません。")

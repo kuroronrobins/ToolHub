@@ -239,6 +239,7 @@ try {
     Require-Path "scripts/verify_runtime.ps1"
     Require-Path "scripts/verify_release.ps1"
     Require-Path "scripts/diagnose_app_manifest.ps1"
+    Require-Path "scripts/diagnose_active_root_staleness.ps1"
     Require-Path "scripts/report_release_readiness.ps1"
     Require-Path "scripts/rebuild_app_manifest.ps1"
     Require-Path "scripts/plan_app_delete.ps1"
@@ -311,6 +312,10 @@ try {
 
     Run-Step "App manifest diagnostic script syntax" {
         & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\diagnose_app_manifest.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "Active root staleness diagnostic script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\diagnose_active_root_staleness.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
     }
 
     Run-Step "Release readiness report script syntax" {
@@ -410,6 +415,14 @@ try {
         $Args = @()
         if ($Strict) { $Args += "-Strict" }
         & ".\scripts\diagnose_app_manifest.ps1" @Args
+    }
+
+    if (Test-Path -LiteralPath "launcher/src-tauri/target/release" -PathType Container) {
+        Run-Step "Active root staleness diagnosis" {
+            & ".\scripts\diagnose_active_root_staleness.ps1" -ActiveRoot ".\launcher\src-tauri\target\release"
+        } -Optional
+    } else {
+        Skip "Active root staleness diagnosis: launcher/src-tauri/target/release was not found."
     }
 
     Write-Host ""

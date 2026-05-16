@@ -91,7 +91,7 @@ ToolHub には App Studio、App Pack、runtime 準備、release manifest、relea
 - 新規 PC 相当で Python / Node.js / Rust / Tauri CLI / pip package なしに起動できること。
 - `%LOCALAPPDATA%\Programs\ToolHub\` へ配置されること。
 - `%LOCALAPPDATA%\ToolHub\` へ user data が分離されること。
-- installer 同梱 runtime で sample app が起動すること。
+- installer 同梱 runtime で registered validation app が起動すること。
 - 再インストール / アップデート時に user data を消さないこと。
 - updater が取得した installer の起動後に version が更新されること。
 
@@ -106,7 +106,7 @@ Beta Ready は、以下をすべて満たした状態とする。
 5. release build に `runner/`, `apps/`, `runtime/`, `config.default/`, `release/manifest.json`, `release/app_manifest.json`, `updater/`, `README.md` が含まれる。
 6. `runtime/python/python.exe` と Web automation runtime が release build machine で承認済み archive から sha256 検証付きで展開され、`verify_runtime.ps1 -RequireRuntime` が pass する。
 7. 初回起動で app card が表示される。
-8. 少なくとも `sample_gui_app` と `sample_playwright_app` をインストール済み環境から起動できる。
+8. 登録済み検証アプリがある場合、インストール済み環境から起動できる。
 9. アンインストール後も `%LOCALAPPDATA%\ToolHub\` の user data を削除しない。
 10. 起動時または管理者操作で remote manifest を取得できる。
 11. remote manifest の version と現在 version を比較できる。
@@ -165,7 +165,7 @@ installer に含める配布単位:
 installer 生成と実インストールは別の完了条件にする。
 
 - 生成済み: `scripts/package_installer.ps1` が installer を収集し、`release/manifest.json` の `toolhub.installer.sha256` / `size` を更新する。
-- 実インストール検証済み: clean user profile または VM で `ToolHub_Setup.exe` を実行し、配置、起動、sample app、uninstall、user data 保持を確認する。
+- 実インストール検証済み: clean user profile または VM で `ToolHub_Setup.exe` を実行し、配置、起動、登録済み検証アプリ、uninstall、user data 保持を確認する。
 
 ## アップデート機能の方針
 
@@ -438,7 +438,7 @@ Phase 0 実施状況:
 - installer payload に `runner/`, `apps/`, `runtime/`, `config.default/`, `release/manifest.json`, `release/app_manifest.json` が入ることを確認する。
 - 新規 PC 相当の環境で実インストールする。
 - `%LOCALAPPDATA%\Programs\ToolHub\` と `%LOCALAPPDATA%\ToolHub\` の分離を確認する。
-- 初回起動、sample app 起動、uninstall、user data 保持を確認する。
+- 初回起動、登録済み検証アプリ起動、uninstall、user data 保持を確認する。
 
 検証条件:
 
@@ -448,13 +448,13 @@ Phase 0 実施状況:
 - `.\scripts\verify_release.ps1 -RequireInstaller -RequireAppPacks -RequireRuntime -Strict`
 - clean VM / clean user profile で installer を実行
 - Python / Node.js / Rust / Tauri CLI がない環境で起動
-- `sample_gui_app` / `sample_playwright_app` 起動
+- 登録済み検証アプリの起動
 - uninstall 後に `%LOCALAPPDATA%\ToolHub\` が残ることを確認
 
 完了条件:
 
 - 利用者向け導入手順が `ToolHub_Setup.exe` だけで成立する。
-- install / uninstall / first launch / sample app / user data separation が実機で確認済み。
+- install / uninstall / first launch / registered validation app / user data separation が実機で確認済み。
 - runtime 同梱が release build machine で再現可能。
 
 リスク:
@@ -488,8 +488,8 @@ Phase 1-A / 1-B 実施状況:
 - Phase 1-B: Beta 配布物は `ToolHub_Setup.exe` を優先するため、Tauri bundle target は NSIS のみに絞る。MSI 生成は正式版候補として残し、Phase 1-B の完了条件には含めない。
 - Phase 1-B: dirty VM 再実行では新 installer hash が正しいにもかかわらず `%LOCALAPPDATA%\ToolHub\apps\...` への write error が発生した。生成 NSIS では `NSIS_HOOK_PREINSTALL` が Tauri の初回 `SetOutPath $INSTDIR` の後に挿入されるため、hook 内で `$INSTDIR` 固定後に `SetOutPath $INSTDIR` も再設定する方針へ補強した。
 - Phase 1-B: VM 診断は install 前の旧/new dir 残存、tester-recorded installer write error path、`dirty_vm_previous_install_residue` を記録する。旧 `%LOCALAPPDATA%\ToolHub` は user data として削除せず、clean proof とは分けて扱う。
-- Phase 1-B: 修正後 installer / VM package を再生成したうえで、clean Windows VM で `%LOCALAPPDATA%\Programs\ToolHub` 配置、`install_dir_user_data_collision=false`、app card 表示、sample app 起動、uninstall 後 user data 保持を再確認する。
-- Phase 1-B: 実 install / launch / sample app / uninstall / user data preservation は clean Windows VM または clean Windows user profile の manual check として残す。installer / uninstaller UI と sample app 起動は人間確認を伴うため、検証結果を確認するまで完了済みとはしない。
+- Phase 1-B: 修正後 installer / VM package を再生成したうえで、clean Windows VM で `%LOCALAPPDATA%\Programs\ToolHub` 配置、`install_dir_user_data_collision=false`、app card 表示、登録済み検証アプリ起動、uninstall 後 user data 保持を再確認する。
+- Phase 1-B: 実 install / launch / registered validation app / uninstall / user data preservation は clean Windows VM または clean Windows user profile の manual check として残す。installer / uninstaller UI と 登録済み検証アプリ起動は人間確認を伴うため、検証結果を確認するまで完了済みとはしない。
 
 ### Phase 2: remote manifest による更新検知
 
@@ -690,7 +690,7 @@ Phase 1-A / 1-B 実施状況:
 | Phase | 完了条件 |
 | --- | --- |
 | Phase 0 | Beta Ready 条件が docs に固定され、未実装 / 未検証が明確になっている。 |
-| Phase 1 | `ToolHub_Setup.exe` 実インストール、初回起動、runtime 同梱、sample app、uninstall、user data 保持が実機で確認済み。 |
+| Phase 1 | `ToolHub_Setup.exe` 実インストール、初回起動、runtime 同梱、登録済み検証アプリ、uninstall、user data 保持が実機で確認済み。 |
 | Phase 2 | remote manifest fetch、version comparison、通常通知、管理者詳細、network failure handling が動く。 |
 | Phase 3 | latest installer download、sha256 verify、user-confirmed launch、failure safe behavior が動く。 |
 | Phase 4 | update log、update result、再起動後 version 確認、failure diagnosis、release readiness report 連携がある。 |
@@ -752,7 +752,7 @@ Windows Application Control が `rustc.exe` / `cargo.exe` をブロックする�
 - first launch で `%LOCALAPPDATA%\ToolHub\` が作成されることを確認する。
 - `config/launcher.yaml` が初回のみ copy され、既存設定が上書きされないことを確認する。
 - app card が表示されることを確認する。
-- `sample_gui_app` と `sample_playwright_app` を起動する。
+- 登録済み検証アプリがある場合は起動する。
 - uninstall 後に `%LOCALAPPDATA%\ToolHub\` が保持されることを確認する。
 
 ### update
@@ -822,7 +822,7 @@ Windows Application Control が `rustc.exe` / `cargo.exe` をブロックする�
 実装開始時は、まず [24_beta_installer_updater_execution_handoff.md](24_beta_installer_updater_execution_handoff.md) を読む。ユーザー不在でも停止条件に当たらない限り、同 handoff の順番で実装、検証、報告まで進める。
 
 1. Phase 1-B 補助検証: `scripts/beta_isolated_path/README.md` に従い、PATH 隔離テストを実行して ToolHub が host の開発ツール PATH に依存していないことを補助確認してください。これは完全証明ではありません。
-2. Phase 1-B 本検証: `scripts/beta_vm/README.md` に従い、clean Windows VM または clean Windows user profile で `ToolHub_Setup_0.1.0.exe` の install / first launch / sample app / uninstall / reinstall / user data preservation を記録してください。
+2. Phase 1-B 本検証: `scripts/beta_vm/README.md` に従い、clean Windows VM または clean Windows user profile で `ToolHub_Setup_0.1.0.exe` の install / first launch / registered validation app / uninstall / reinstall / user data preservation を記録してください。
 3. Phase 2 検証: 実 endpoint または mock manifest で `check_updates_remote` の `no_update` / `update_available` / fetch failure を確認してください。
 4. Phase 3 検証: 実 installer または mock file で `download_update_installer` の download / size mismatch / sha256 mismatch / verified launch gating を確認してください。
 5. Phase 4 実装: 再起動後 version 確認と failure diagnosis 表示を追加してください。check / download / launch result log と release readiness report 連携は実装済みです。

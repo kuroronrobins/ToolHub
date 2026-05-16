@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
 import signal
+import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,6 +17,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from toolhub_runner.base_runner import BaseRunner
 from toolhub_runner.manifest import Admin, AppManifest, Detail, Display, Run, Search
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@contextmanager
+def workspace_tempdir():
+    base = ROOT / "data" / "tmp_tests"
+    base.mkdir(parents=True, exist_ok=True)
+    path = base / f"runner_case_{uuid.uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=False)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def make_manifest(app_dir: Path, mode: str = "gui") -> AppManifest:
@@ -32,8 +48,7 @@ def make_manifest(app_dir: Path, mode: str = "gui") -> AppManifest:
 
 class DetachedRunnerTests(unittest.TestCase):
     def test_detached_immediate_exit_is_failure_with_stderr(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+        with workspace_tempdir() as root:
             app_dir = root / "apps" / "detached_sample"
             app_dir.mkdir(parents=True)
             script = app_dir / "fail.py"
@@ -56,8 +71,7 @@ class DetachedRunnerTests(unittest.TestCase):
             self.assertIn("stderr_log_path", payload)
 
     def test_detached_process_alive_after_probe_is_success(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+        with workspace_tempdir() as root:
             app_dir = root / "apps" / "detached_sample"
             app_dir.mkdir(parents=True)
             script = app_dir / "sleep.py"

@@ -81,7 +81,7 @@ It then verifies the installer file, starts the installer, waits for it to finis
 
 The installer is intentionally run interactively. The silent installer option is not assumed because it has not been verified for this artifact. Complete the installer UI inside Sandbox. If an uninstaller prompt asks about user data, do not select any option that deletes user data.
 
-The default `.wsb` command passes `-PauseForManualGuiChecks`. After `ToolHub.exe` starts, the PowerShell window waits while you confirm app cards and launch sample apps from the ToolHub GUI. Answer the prompts to record `pass`, `fail`, or `manual_check` in the result files.
+The default `.wsb` command passes `-PauseForManualGuiChecks`. After `ToolHub.exe` starts, the PowerShell window waits while you confirm app cards and launch registered validation apps from the ToolHub GUI. Answer the prompts to record `pass`, `fail`, or `manual_check` in the result files.
 
 ## Results
 
@@ -111,8 +111,7 @@ The result status values are:
 The script can prompt for these checks when launched from the provided `.wsb` file:
 
 - app cards are visible in ToolHub.
-- `sample_gui_app` launches from the installed ToolHub GUI.
-- `sample_playwright_app` launches from the installed ToolHub GUI.
+- a deliberately registered validation app launches from the installed ToolHub GUI.
 - any installer / uninstaller prompt behavior that cannot be safely automated.
 
 Do not mark Phase 1-B complete until the JSON / Markdown result files and GUI observations have been reviewed.

@@ -277,6 +277,31 @@ numpy>=1.26  # 日本語コメント
 
 source root 直下に `.toolhubignore` を置く。
 
+### 実行コードを除外しない
+
+`.toolhubignore` は、ログ、録音、認証情報、キャッシュ、build 生成物を除外するためのもの。
+Python package として import されるディレクトリ名を広く除外しないこと。
+
+悪い例:
+
+```gitignore
+audio/
+```
+
+`agendasnap.audio` のような実行コードがあるアプリでは、上記により `agendasnap/audio/` まで除外され、
+登録後に `ModuleNotFoundError: No module named 'agendasnap.audio'` で失敗する。
+
+録音データを除外したい場合は、コード package ではなく、実データの保存先だけを指定する。
+
+```gitignore
+sessions/
+recordings/
+logs/
+tmp/
+runtime_data/audio/
+user_data/recordings/
+```
+
 推奨内容:
 
 ```gitignore

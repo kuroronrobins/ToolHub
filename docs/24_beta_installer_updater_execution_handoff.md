@@ -93,7 +93,7 @@ python main.py --check
 
 - `verify_release.ps1` / `report_release_readiness.ps1` が required payload を検査できるか確認する。
 - `runtime/python/python.exe` と Web runtime が local artifact として存在しても、installer 同梱検証済みとは扱わない。
-- 実機 install / uninstall / `%LOCALAPPDATA%` 配置 / user data 保持 / sample app 起動は `manual_check` として残す。
+- 実機 install / uninstall / `%LOCALAPPDATA%` 配置 / user data 保持 / 登録済み検証アプリ起動は `manual_check` として残す。
 - runtime archive の承認や取得が必要なら、捏造せず manual/external blocker として扱う。
 
 検証:

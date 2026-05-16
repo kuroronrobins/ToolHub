@@ -27,7 +27,7 @@ ToolHubは以下の層で構成します。
 
 - `main.py` に個別アプリ固有処理を書かない。
 - Reactのメイン画面に `run.runner`、実行パス、依存関係、ログパスを表示しない。
-- Tauri backendにサンプルアプリ名などの個別分岐を書かない。
+- Tauri backendに個別アプリ名などの個別分岐を書かない。
 - runner種別ごとの起動差分はPython runner層に閉じる。
 
 ## Search Extension Note

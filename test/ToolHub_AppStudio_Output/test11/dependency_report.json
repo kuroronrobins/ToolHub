@@ -1,9 +1,0 @@
-{
-  "source": "import-analysis",
-  "requirements": [],
-  "import_roots": [],
-  "third_party_candidates": [],
-  "notes": [
-    "pip freeze is intentionally not used. Import roots are listed for human review."
-  ]
-}

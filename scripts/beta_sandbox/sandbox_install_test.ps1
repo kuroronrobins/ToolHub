@@ -303,21 +303,16 @@ try {
                 Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "fail" -Message "ToolHub exited early with code $($ToolHubProcess.ExitCode)"
             }
             Add-Check -Id "app_cards_visible" -Description "app cards are visible in GUI" -Status "not_run" -Message "ToolHub was not running when GUI checks were requested"
-            Add-Check -Id "sample_gui_app_launch" -Description "sample_gui_app launches from installed ToolHub" -Status "not_run" -Message "ToolHub was not running when GUI checks were requested"
-            Add-Check -Id "sample_playwright_app_launch" -Description "sample_playwright_app launches from installed ToolHub" -Status "not_run" -Message "ToolHub was not running when GUI checks were requested"
         } else {
             Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "pass" -Message "ToolHub process stayed running for $LaunchSeconds seconds"
             if ($PauseForManualGuiChecks) {
                 Write-Host ""
                 Write-Host "ToolHub is running. Complete GUI checks before continuing:"
-                Write-Host "1. Confirm app cards are visible."
-                Write-Host "2. Launch sample_gui_app from ToolHub."
-                Write-Host "3. Launch sample_playwright_app from ToolHub."
+                Write-Host "1. Confirm the ToolHub window is usable."
+                Write-Host "2. If a validation app has been registered, launch it from ToolHub."
                 Write-Host "Answer the prompts below after checking the ToolHub window."
             }
             Add-ManualPromptCheck -Id "app_cards_visible" -Description "app cards are visible in GUI" -Prompt "Are app cards visible in the ToolHub window?"
-            Add-ManualPromptCheck -Id "sample_gui_app_launch" -Description "sample_gui_app launches from installed ToolHub" -Prompt "Did sample_gui_app launch successfully from the installed ToolHub GUI?"
-            Add-ManualPromptCheck -Id "sample_playwright_app_launch" -Description "sample_playwright_app launches from installed ToolHub" -Prompt "Did sample_playwright_app launch successfully from the installed ToolHub GUI?"
             $Closed = $ToolHubProcess.CloseMainWindow()
             Start-Sleep -Seconds 3
             if (-not $ToolHubProcess.HasExited) {
@@ -328,8 +323,6 @@ try {
     } else {
         Add-Check -Id "toolhub_launch" -Description "ToolHub launches" -Status "not_run" -Message "ToolHub.exe was not found"
         Add-Check -Id "app_cards_visible" -Description "app cards are visible in GUI" -Status "not_run" -Message "ToolHub.exe was not found"
-        Add-Check -Id "sample_gui_app_launch" -Description "sample_gui_app launches from installed ToolHub" -Status "not_run" -Message "ToolHub.exe was not found"
-        Add-Check -Id "sample_playwright_app_launch" -Description "sample_playwright_app launches from installed ToolHub" -Status "not_run" -Message "ToolHub.exe was not found"
     }
 
     if (Test-Path -LiteralPath $UserDataDir) {

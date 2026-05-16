@@ -1,8 +1,0 @@
-{
-  "operation": "rebuild_from_github",
-  "remote_url": "https://github.com/kuroronrobins/ToolHub.git",
-  "branch": "develop",
-  "created_at": "2026-05-07T19:38:56",
-  "project_root": "C:\\Users\\kuroron\\Documents\\RD\\20260426_Toolhub",
-  "previous_head": "9895ee88a9a8452dd270c37c057af22edd9a7260"
-}
