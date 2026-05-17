@@ -7,6 +7,7 @@ param(
     [ValidateSet("auto", "app-env", "frozen-folder", "existing-exe", "shared-env")]
     [string]$BuildMode = "shared-env",
     [string]$IconPrompt,
+    [string]$IconPng,
     [switch]$CreateAppEnv,
     [switch]$RebuildAppEnv,
     [switch]$SkipAppEnvBuild,
@@ -69,6 +70,7 @@ try {
     if ($Name) { $ArgsList += @("--name", $Name) }
     if ($Version) { $ArgsList += @("--version", $Version) }
     if ($IconPrompt) { $ArgsList += @("--icon-prompt", $IconPrompt) }
+    if ($IconPng) { $ArgsList += @("--icon-png", $IconPng) }
     if ($DryRun) { $ArgsList += "--dry-run" }
     if ($Suggest) { $ArgsList += "--suggest" }
     if ($Apply) { $ArgsList += "--apply" }

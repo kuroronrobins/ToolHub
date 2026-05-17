@@ -28,7 +28,7 @@ from app_studio.file_classifier import classify_files
 from app_studio.frozen_folder_builder import build_frozen_folder
 from app_studio.default_icon import DEFAULT_ICON_REASON, DEFAULT_ICON_SOURCE
 from app_studio.icon_generator import DEFAULT_ICON_REGENERATION_CANDIDATE_COUNT, ICON_IMAGE_QUALITY_MODES, ICON_REGENERATION_MODES, generate_icon_assets_with_candidates, image_api_summary, regenerate_icon_only
-from app_studio.icon_override import apply_icon_override, load_icon_override
+from app_studio.icon_override import apply_icon_override, load_icon_override, load_uploaded_png_override
 from app_studio.lock_generator import generate_lock
 from app_studio.manifest_generator import generate_app_yaml
 from app_studio.metadata_override import apply_metadata_override, load_metadata_override
@@ -102,6 +102,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--verify-runtime", action="store_true")
     parser.add_argument("--metadata-override")
     parser.add_argument("--icon-override")
+    parser.add_argument("--icon-png")
     parser.add_argument("--build-profile")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
@@ -190,16 +191,23 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     app_yaml = generate_app_yaml(context, plan, metadata)
     readme = generate_readme(context, plan)
     package_blocks_icon_ai = secret_report.blocks_apply
+    icon_override: dict | None = None
+    if args.icon_png:
+        icon_override = load_uploaded_png_override(Path(args.icon_png))
+    elif args.icon_override:
+        icon_override = load_icon_override(Path(args.icon_override))
+    uploaded_png_selected = str((icon_override or {}).get("selected_icon_source") or "").strip() == "uploaded_png"
     ai_skip_reason = (
         f"package secret scan blocked AI submission: {ai_submission_block_reason(secret_report) or 'Apply-blocking secret finding'}"
         if package_blocks_icon_ai
         else ""
     )
+    allow_icon_ai = not package_blocks_icon_ai and not uploaded_png_selected
     with timings.phase("icon_generation"):
         icon_prompt_initial, icon_prompt_revision, icon_svg, default_icon_png, style_reference, icon_ai_report, icon_candidate_png, icon_candidate_url, icon_candidates = generate_icon_assets_with_candidates(
             context,
             args.icon_prompt,
-            allow_ai=not package_blocks_icon_ai,
+            allow_ai=allow_icon_ai,
             ai_skip_reason=ai_skip_reason,
             metadata=metadata,
             dependency_report=dependency_report,
@@ -212,8 +220,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     icon_override_warnings: list[str] = []
     selected_icon_source = DEFAULT_ICON_SOURCE
     icon_final_png = default_icon_png
-    if args.icon_override:
-        icon_override = load_icon_override(Path(args.icon_override))
+    if icon_override:
         icon_final_png, selected_icon_source, icon_override_warnings = apply_icon_override(default_icon_png, icon_override)
     icon_ai_diagnostics = image_api_summary(
         icon_candidates,
@@ -235,7 +242,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     default_icon_used = selected_icon_source == DEFAULT_ICON_SOURCE
     default_icon_reason = (
         "Icon override was missing or invalid, so ToolHub used the common default app icon."
-        if args.icon_override and default_icon_used and icon_override_warnings
+        if icon_override and default_icon_used and icon_override_warnings
         else DEFAULT_ICON_REASON
     )
     icon_status = icon_status_for_source(
@@ -310,7 +317,8 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "default_icon_used": default_icon_used,
         "default_icon_reason": default_icon_reason if default_icon_used else "",
         "icon_status": icon_status,
-        "icon_override_used": bool(args.icon_override),
+        "icon_override_used": bool(icon_override),
+        "icon_png_used": bool(args.icon_png),
         "icon_override_warnings": icon_override_warnings,
         "metadata_ai_report": metadata.get("_ai_generation_report", ""),
         "metadata_override_used": bool(metadata_override_applied),
@@ -358,7 +366,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         print(f"- metadata_override_keys: {', '.join(metadata_override_applied) if metadata_override_applied else 'none'}")
         if metadata_override_warnings:
             print(f"- metadata_override_warnings: {len(metadata_override_warnings)}")
-    if args.icon_override:
+    if icon_override:
         print(f"- selected_icon_source: {selected_icon_source}")
         if icon_override_warnings:
             print(f"- icon_override_warnings: {len(icon_override_warnings)}")
@@ -694,6 +702,8 @@ def validate_flag_combination(args: argparse.Namespace) -> None:
         raise ValueError("-CreateAppEnv and -SkipAppEnvBuild cannot be used together.")
     if args.build_frozen_folder and args.skip_frozen_build:
         raise ValueError("-BuildFrozenFolder and -SkipFrozenBuild cannot be used together.")
+    if getattr(args, "icon_png", None) and getattr(args, "icon_override", None):
+        raise ValueError("--icon-png and --icon-override cannot be used together.")
 
 
 def normalize_normal_registration_args(args: argparse.Namespace) -> None:

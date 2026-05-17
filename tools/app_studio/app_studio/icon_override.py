@@ -26,6 +26,19 @@ def load_icon_override(path: Path) -> dict[str, Any]:
     return data
 
 
+def load_uploaded_png_override(path: Path) -> dict[str, Any]:
+    try:
+        png = path.read_bytes()
+    except OSError as exc:
+        raise FileNotFoundError(f"uploaded icon PNG was not found: {path}") from exc
+    if not png.startswith(PNG_SIGNATURE):
+        raise ValueError(f"uploaded icon file was not a PNG: {path}")
+    return {
+        "selected_icon_source": "uploaded_png",
+        "png_base64": base64.b64encode(png).decode("ascii"),
+    }
+
+
 def apply_icon_override(default_png: bytes, override: dict[str, Any] | None) -> tuple[bytes, str, list[str]]:
     if not override:
         return default_png, DEFAULT_ICON_SOURCE, []

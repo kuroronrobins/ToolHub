@@ -21,7 +21,7 @@ from app_studio.frozen_folder_builder import classify_pyinstaller_failure, pyins
 from app_studio.manifest_generator import generate_app_yaml
 from app_studio.metadata_override import apply_metadata_override, load_metadata_override
 from app_studio.models import BuildPlan, ImportOptions
-from app_studio.icon_override import apply_icon_override, load_icon_override
+from app_studio.icon_override import apply_icon_override, load_icon_override, load_uploaded_png_override
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import scan_secrets
 from app_studio.registrar import apply_registration, backup_existing
@@ -29,6 +29,7 @@ from app_studio.util import default_app_id_for_entry, reset_output_dir
 from toolhub_runner.manifest import manifest_from_dict, load_yaml_mapping
 from main import normalize_normal_registration_args
 from main import parse_args as parse_app_studio_args
+from main import validate_flag_combination
 
 
 @contextmanager
@@ -400,6 +401,37 @@ class AppStudioTests(unittest.TestCase):
         self.assertEqual(args.source_root, "src")
         self.assertEqual(args.icon_override, "icon_override.json")
         self.assertEqual(args.build_profile, "build_profile.json")
+
+    def test_icon_png_cli_argument_is_supported(self) -> None:
+        args = parse_app_studio_args(
+            [
+                "import",
+                "--entry",
+                "main.py",
+                "--icon-png",
+                "icon.png",
+                "--suggest",
+            ]
+        )
+
+        self.assertEqual(args.icon_png, "icon.png")
+
+    def test_icon_png_and_icon_override_cannot_be_combined(self) -> None:
+        args = parse_app_studio_args(
+            [
+                "import",
+                "--entry",
+                "main.py",
+                "--icon-override",
+                "icon_override.json",
+                "--icon-png",
+                "icon.png",
+                "--suggest",
+            ]
+        )
+
+        with self.assertRaisesRegex(ValueError, "icon-png"):
+            validate_flag_combination(args)
 
     def test_explicit_source_root_keeps_entry_relative(self) -> None:
         with workspace_tempdir() as temp:
@@ -779,6 +811,21 @@ class AppStudioTests(unittest.TestCase):
         self.assertEqual(source, "candidate_png")
         self.assertEqual(warnings, [])
         self.assertTrue(final_png.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_uploaded_png_override_loads_png_file(self) -> None:
+        with workspace_tempdir() as temp:
+            path = Path(temp) / "icon.png"
+            path.write_bytes(b"\x89PNG\r\n\x1a\nuploaded")
+
+            override = load_uploaded_png_override(path)
+            final_png, source, warnings = apply_icon_override(
+                b"\x89PNG\r\n\x1a\ndefault",
+                override,
+            )
+
+        self.assertEqual(source, "uploaded_png")
+        self.assertEqual(warnings, [])
+        self.assertEqual(final_png, b"\x89PNG\r\n\x1a\nuploaded")
 
     def test_icon_override_legacy_fallback_uses_default_icon(self) -> None:
         default_png = b"\x89PNG\r\n\x1a\ndefault"

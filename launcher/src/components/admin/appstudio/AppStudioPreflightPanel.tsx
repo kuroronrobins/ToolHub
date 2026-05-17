@@ -5,6 +5,7 @@ interface Props {
   result: AppStudioPreflightResult | null;
   busy: boolean;
   onRun: () => void;
+  showRunButton?: boolean;
 }
 
 type PreflightSeverity = "pending" | "ok" | "warn" | "fix" | "fail";
@@ -17,7 +18,7 @@ interface PreflightDisplayItem {
   next: string;
 }
 
-export function AppStudioPreflightPanel({ result, busy, onRun }: Props) {
+export function AppStudioPreflightPanel({ result, busy, onRun, showRunButton = true }: Props) {
   const summary = preflightSummary(result);
   const items = preflightItems(result);
   return (
@@ -31,9 +32,11 @@ export function AppStudioPreflightPanel({ result, busy, onRun }: Props) {
           <strong>{summary.title}</strong>
           <span>{summary.message}</span>
         </div>
-        <button className="secondary-button" type="button" onClick={onRun} disabled={busy} title={busy ? "処理中は実行できません" : "登録前の確認を実行します"}>
-          事前確認を実行
-        </button>
+        {showRunButton ? (
+          <button className="secondary-button" type="button" onClick={onRun} disabled={busy} title={busy ? "処理中は実行できません" : "登録前の確認を実行します"}>
+            事前確認を実行
+          </button>
+        ) : null}
       </div>
 
       <div className="studio-preflight-grid">

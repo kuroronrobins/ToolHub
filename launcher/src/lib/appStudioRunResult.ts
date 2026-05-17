@@ -100,16 +100,16 @@ export function normalizeAppStudioRunResult(
 
 export function getAppStudioImportSidebarNextAction(input: AppStudioImportSidebarNextActionInput): string {
   if (input.step === "selectEntry") {
-    return input.hasEntry ? "アプリIDと表示名を確認し、必要なら事前確認を実行してから次へ進んでください。" : "登録するアプリのメインファイルを選択してください。";
+    return input.hasEntry ? "メインファイルと表示名を確認し、事前確認を実行します。" : "登録するアプリのメインファイルを選択してください。";
   }
   if (input.step === "aiProposal") {
-    return "保存済み提案を読むか、AIで新しく提案を作成してください。";
+    return "表示名、説明、アイコンを確認し、テスト登録へ進みます。";
   }
   if (input.step === "review") {
-    return "説明文、カテゴリ、アイコンを確認し、必要ならAIアイコンを再生成してください。";
+    return input.result ? "結果を確認し、問題なければ承認へ進みます。" : "テスト登録と配布物検証を実行します。";
   }
   if (!input.result) {
-    return input.preflightOk ? "登録内容を作成し、続けてテスト登録と配布物検証を行ってください。" : "まず事前確認を実行してください。";
+    return input.preflightOk ? "テスト登録を実行してから承認判断を行います。" : "まず事前確認を実行してください。";
   }
   return normalizeAppStudioRunResult(input.result, {
     approvalMode: input.approvalMode,

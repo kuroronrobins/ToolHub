@@ -31,7 +31,7 @@ runtime:
 
 ## 通常新規登録フロー
 
-管理者画面の App Studio で Python entry を選び、必要に応じて App ID、表示名、説明、アイコン prompt を調整します。`.exe` は通常新規登録の入力として扱いません。
+管理者画面の App Studio で Python entry を選び、必要に応じて App ID、表示名、説明、アイコン prompt を調整します。アイコンは通常フローでは AI 画像候補を作りますが、管理者が PNG を指定した場合は AI 画像生成の代わりにその PNG を採用します。`.exe` は通常新規登録の入力として扱いません。
 
 処理の流れ:
 
@@ -69,9 +69,12 @@ OpenAI API キーは管理者画面の AI/API キー管理で扱います。キ�
 アイコンは PNG を標準成果物にします。
 
 - 採用済み PNG がある場合は `icon.png` に反映する。
+- 管理者が PNG を指定した場合は `uploaded_png` として扱い、AI 画像生成をスキップして `icon.png` に反映する。
 - AI 画像 API が失敗した場合でも local fallback candidate は作らない。
 - 採用済み PNG がない場合は ToolHub 共通 default icon を `icon.png` に使う。
 - 古い saved proposal の fallback candidate は読み取り互換だけ維持する。
+
+CLI で通常登録する場合は、`--icon-png <path-to-icon.png>` または `scripts/import_app.ps1 -IconPng <path-to-icon.png>` で指定 PNG を採用できます。`--icon-png` と `--icon-override` は同時に指定しません。
 
 画像生成テストで `organization_verification_required` が出る場合は、OpenAI Platform 側の組織認証が必要です。認証が完了するまでは、メタデータ編集や手動入力は継続できますが、AI 画像候補は増えません。
 

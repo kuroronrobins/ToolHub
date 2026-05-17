@@ -2,9 +2,9 @@ export type AppStudioImportStep = "selectEntry" | "aiProposal" | "review" | "reg
 
 export const IMPORT_STEPS: Array<{ key: AppStudioImportStep; index: string; label: string }> = [
   { key: "selectEntry", index: "1", label: "アプリ選択" },
-  { key: "aiProposal", index: "2", label: "AI提案" },
-  { key: "review", index: "3", label: "内容確認" },
-  { key: "register", index: "4", label: "登録・承認" },
+  { key: "aiProposal", index: "2", label: "表示内容" },
+  { key: "review", index: "3", label: "テスト登録" },
+  { key: "register", index: "4", label: "承認" },
 ];
 
 interface Props {

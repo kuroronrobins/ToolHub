@@ -1,5 +1,5 @@
 import type { AppStudioAiProposal, AppStudioApprovalMode, AppStudioImportRequest, AppStudioPreflightResult, AppStudioRunResult } from "../../../lib/appStudioTypes";
-import { normalizeAppStudioIconProposal } from "../../../lib/appStudioIconProposal";
+import { normalizeAppStudioIconProposal, previewIconDataUrl } from "../../../lib/appStudioIconProposal";
 import { collectAppStudioRunResultWarnings, getAppStudioImportSidebarNextAction, type AppStudioRunAction } from "../../../lib/appStudioRunResult";
 import { AppStudioOperationBanner, type StudioOperationState } from "./AppStudioOperationBanner";
 import { type AppStudioImportStep, importStepLabel } from "./AppStudioStepNav";
@@ -27,6 +27,10 @@ export function AppStudioImportSidebar({ step, operation, request, preflight, re
     approvalMode,
     lastAction,
   });
+  const iconDataUrl = previewIconDataUrl(request.iconOverride, aiProposal);
+  const appName = request.name?.trim() || aiProposal?.metadata.name || request.appId || "表示名未設定";
+  const shortDescription = request.metadata?.shortDescription?.trim() || aiProposal?.metadata.shortDescription || "説明文は表示内容画面で確認します。";
+  const statusLabel = result?.enabled ? "承認済み" : result && approvalMode && !error ? "承認待ち" : sidebarStatusLabel(step, preflight, result);
   return (
     <section className="studio-side-section studio-import-sidebar">
       <div className="admin-section-head">
@@ -34,10 +38,20 @@ export function AppStudioImportSidebar({ step, operation, request, preflight, re
           <p className="dialog-kicker">現在の状態</p>
           <h4>{importStepLabel(step)}</h4>
         </div>
-        <span className={`admin-status-pill ${result?.enabled ? "ok" : ""}`}>{result?.enabled ? "承認済み" : "未承認"}</span>
+        <span className={`admin-status-pill ${result?.enabled ? "ok" : ""}`}>{statusLabel}</span>
       </div>
 
       <AppStudioOperationBanner operation={operation} compact />
+
+      <div className="studio-sidebar-preview">
+        <div className="studio-sidebar-preview-icon" aria-hidden="true">
+          {iconDataUrl ? <img src={iconDataUrl} alt="" /> : <span>{appName.slice(0, 1).toUpperCase()}</span>}
+        </div>
+        <div>
+          <strong>{appName}</strong>
+          <p>{shortDescription}</p>
+        </div>
+      </div>
 
       <div className="studio-next-action">
         <strong>次にやること</strong>
@@ -49,40 +63,32 @@ export function AppStudioImportSidebar({ step, operation, request, preflight, re
 
       <dl className="studio-sidebar-status">
         <div>
-          <dt>アプリID</dt>
-          <dd>{request.appId || result?.appId || "-"}</dd>
-        </div>
-        <div>
-          <dt>バージョン</dt>
-          <dd>{request.version || result?.newVersion || result?.currentVersion || "-"}</dd>
-        </div>
-        <div>
-          <dt>登録方式</dt>
-          <dd>{buildModeLabel(result?.selectedBuildMode || request.buildMode)}</dd>
+          <dt>アプリ選択</dt>
+          <dd>{request.entry ? "入力中" : "未入力"}</dd>
         </div>
         <div>
           <dt>事前確認</dt>
           <dd>{preflightStatus(preflight)}</dd>
         </div>
         <div>
-          <dt>メタデータ生成</dt>
-          <dd>{reportStatus(aiProposal?.metadata.aiReport)}</dd>
+          <dt>表示内容</dt>
+          <dd>{request.name ? "確認中" : "未確認"}</dd>
         </div>
         <div>
-          <dt>画像生成</dt>
-          <dd>{reportStatus(aiProposal?.icon.aiReport)}</dd>
+          <dt>テスト登録</dt>
+          <dd>{result ? testStatus(result) : "未実行"}</dd>
         </div>
         <div>
-          <dt>承認状態</dt>
+          <dt>承認</dt>
           <dd>{result?.enabled ? "有効化済み" : "未承認"}</dd>
         </div>
       </dl>
 
       {warnings.length ? (
         <div className="studio-sidebar-warnings">
-          <strong>直近の注意</strong>
+          <strong>注意 {warnings.length}件</strong>
           <ul>
-            {warnings.slice(0, 4).map((warning) => (
+            {warnings.slice(0, 2).map((warning) => (
               <li key={warning}>{warning}</li>
             ))}
           </ul>
@@ -90,6 +96,28 @@ export function AppStudioImportSidebar({ step, operation, request, preflight, re
       ) : null}
     </section>
   );
+}
+
+function sidebarStatusLabel(step: AppStudioImportStep, preflight: AppStudioPreflightResult | null, result: AppStudioRunResult | null): string {
+  if (result?.enabled) {
+    return "承認済み";
+  }
+  if (result) {
+    return "承認待ち";
+  }
+  if (step === "selectEntry" && !preflight) {
+    return "未確認";
+  }
+  if (step === "aiProposal") {
+    return "表示確認中";
+  }
+  if (step === "review") {
+    return "テスト前";
+  }
+  if (step === "register") {
+    return "最終確認";
+  }
+  return "進行中";
 }
 
 function collectWarnings(preflight: AppStudioPreflightResult | null, result: AppStudioRunResult | null, aiProposal: AppStudioAiProposal | null): string[] {
@@ -117,14 +145,17 @@ function preflightStatus(preflight: AppStudioPreflightResult | null): string {
   return "問題なし";
 }
 
-function buildModeLabel(mode?: string | null): string {
-  if (mode === "shared-env") {
-    return "共有ランタイム";
+function testStatus(result: AppStudioRunResult): string {
+  if (result.executionStatus === "pass") {
+    return "成功";
   }
-  if (mode === "frozen-folder") {
-    return "配布用exe";
+  if (result.executionStatus === "warn") {
+    return "要確認";
   }
-  return mode || "-";
+  if (result.executionStatus === "fail" || !result.ok) {
+    return "失敗";
+  }
+  return result.executionStatus || "確認中";
 }
 
 function friendlyWarning(warning: string): string {
@@ -134,23 +165,3 @@ function friendlyWarning(warning: string): string {
   return warning;
 }
 
-function reportStatus(report?: string | null): string {
-  if (!report) {
-    return "未実行";
-  }
-  const line = report.split(/\r?\n/).find((item) => item.trim().startsWith("status:"));
-  const value = line?.slice("status:".length).trim();
-  if (value === "success") {
-    return "成功";
-  }
-  if (value === "fallback") {
-    return "API未実行（代替処理）";
-  }
-  if (value === "skipped") {
-    return "スキップ";
-  }
-  if (value === "failed") {
-    return "失敗";
-  }
-  return value || "未実行";
-}
