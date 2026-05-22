@@ -1,0 +1,78 @@
+id: app_20251123_excelbatchreplace
+name: ExcelBatchReplace
+
+display:
+  icon: icon.png
+  icon_fallback: icon.svg
+  short_description: "複数のExcelファイルに対して、指定範囲の一括置換を行う業務向けツールです。"
+  categories:
+    - "業務効率化"
+    - "Excel操作"
+    - "一括処理"
+
+detail:
+  description: >
+    複数のExcelファイル（xls、xlsx、xlsm）に対して、テンプレートを基準にした範囲置換をまとめて実行する業務アプリです。基準セルの一致位置を起点に矩形範囲を反映でき、値のみ、書式のみ、または両方の反映に対応します。処理前のバックアップにも対応し、バックグラウンドで動作するため、作業中の画面操作を妨げにくい構成です。
+  use_cases:
+    - "複数の帳票へ同じ修正をまとめて反映する"
+    - "テンプレート範囲を基準に置換処理を繰り返す"
+    - "値だけ、書式だけ、両方を切り替えて更新する"
+  inputs:
+    - "置換対象のExcelファイル"
+    - "設定用テンプレートファイル"
+    - "反映方法の指定"
+    - "バックアップ先フォルダ"
+  outputs:
+    - "更新済みのExcelファイル"
+    - "必要に応じたバックアップファイル"
+    - "処理結果の通知"
+  notes:
+    - "対象ファイルは事前に閉じておくことを推奨します。"
+    - "Microsoft Excelのデスクトップ版が必要です。"
+    - "マクロ付きファイルは形式を変えずに扱います。"
+
+search:
+  keywords:
+    - Excel
+    - "一括置換"
+    - "範囲反映"
+    - "テンプレート"
+    - "バックアップ"
+    - "業務効率化"
+    - xls
+    - xlsx
+    - xlsm
+  examples:
+    - "複数の請求書ファイルに同じ様式変更を一括反映する"
+    - "テンプレートの差し替え内容を複数帳票へまとめて適用する"
+
+run:
+  runner: python_shared_env
+  entry: src/main.py
+  mode: gui
+  env_id: py313-win_amd64-pywin32310-dd4d21f1
+
+admin:
+  version: 0.1.0
+  owner: admin
+  requirements: requirements.txt
+  log_dir: logs
+
+runtime:
+  distribution_mode: shared_env
+  app_env: null
+  required_runtime: python-shared-env:py313-win_amd64-pywin32310-dd4d21f1
+  requirements_lock: requirements.lock
+  shared_env:
+    env_id: py313-win_amd64-pywin32310-dd4d21f1
+    scope: versioned
+
+build:
+  managed_by: toolhub_app_studio
+  build_mode: shared-env
+  source_entry: C:\Users\kuroron\Documents\RD\20251123_ExcelBatchReplace\main.py
+  output_mirror: C:\Users\kuroron\Documents\RD\20251123_ExcelBatchReplace\ToolHub_AppStudio_Output\app_20251123_excelbatchreplace
+
+quality:
+  approval_required: true
+  execution_test_required: true

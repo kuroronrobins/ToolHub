@@ -21,6 +21,9 @@ pub struct AppStudioAiMetadataSuggestion {
     pub release_notes: Vec<String>,
     pub change_summary: Option<String>,
     pub ai_report: Option<String>,
+    pub ai_generated: bool,
+    pub ai_status: Option<String>,
+    pub ai_fallback_reason: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -164,6 +167,15 @@ pub fn read_ai_proposal(output_dir: Option<&Path>) -> AppStudioAiProposal {
     }
     fill_metadata_ai_report(output_dir, &mut proposal.metadata);
     fill_release_notes(output_dir, &mut proposal.metadata);
+    if !proposal.metadata.ai_generated {
+        clear_metadata_ai_proposal_values(&mut proposal.metadata);
+        if proposal.metadata.ai_report.is_some() {
+            proposal.warnings.push(
+                "Metadata AI did not complete; fallback metadata is not exposed as an AI proposal."
+                    .to_string(),
+            );
+        }
+    }
     proposal.ok = proposal.warnings.is_empty()
         || proposal.metadata.name.is_some()
         || proposal.icon.final_png_data_url.is_some()
@@ -189,6 +201,9 @@ fn metadata_from_yaml(yaml: &serde_yaml::Value) -> AppStudioAiMetadataSuggestion
         release_notes: yaml_string_list(yaml, &["release", "release_notes"]),
         change_summary: yaml_str(yaml, &["release", "change_summary"]),
         ai_report: None,
+        ai_generated: false,
+        ai_status: None,
+        ai_fallback_reason: None,
     }
 }
 
@@ -202,6 +217,13 @@ fn fill_metadata_ai_report(output_dir: &Path, metadata: &mut AppStudioAiMetadata
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
+    if let Some(report) = metadata.ai_report.as_deref() {
+        metadata.ai_status = report_value(report, "status");
+        metadata.ai_fallback_reason = report_value(report, "fallback_reason")
+            .or_else(|| report_value(report, "parse_fallback_reason"))
+            .or_else(|| report_value(report, "deterministic_reason"));
+        metadata.ai_generated = metadata_report_indicates_ai_generated(report);
+    }
 }
 
 fn fill_release_notes(output_dir: &Path, metadata: &mut AppStudioAiMetadataSuggestion) {
@@ -227,6 +249,34 @@ fn fill_release_notes(output_dir: &Path, metadata: &mut AppStudioAiMetadataSugge
         metadata.change_summary =
             Some(format!("Update {app_id} to version {version} with {mode}."));
     }
+}
+
+fn metadata_report_indicates_ai_generated(report: &str) -> bool {
+    report_value(report, "status").as_deref() == Some("success")
+        && report_value(report, "parse_status").as_deref() == Some("success")
+}
+
+fn report_value(report: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key}:");
+    report.lines().find_map(|line| {
+        let trimmed = line.trim();
+        let value = trimmed.strip_prefix(&prefix)?.trim();
+        (!value.is_empty() && value != "none").then(|| value.to_string())
+    })
+}
+
+fn clear_metadata_ai_proposal_values(metadata: &mut AppStudioAiMetadataSuggestion) {
+    metadata.short_description = None;
+    metadata.description = None;
+    metadata.categories.clear();
+    metadata.keywords.clear();
+    metadata.examples.clear();
+    metadata.use_cases.clear();
+    metadata.inputs.clear();
+    metadata.outputs.clear();
+    metadata.notes.clear();
+    metadata.release_notes.clear();
+    metadata.change_summary = None;
 }
 
 fn yaml_str(value: &serde_yaml::Value, path: &[&str]) -> Option<String> {

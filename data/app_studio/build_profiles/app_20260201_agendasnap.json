@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "app_id": "app_20260201_agendasnap",
+  "source": "saved+auto",
+  "paths": [
+    "agendasnap"
+  ],
+  "hidden_imports": [
+    "__init__",
+    "agendasnap.__init__",
+    "agendasnap.apikeys.__init__",
+    "agendasnap.apikeys.base",
+    "agendasnap.apikeys.embedded",
+    "agendasnap.apikeys.env",
+    "agendasnap.apikeys.provider",
+    "agendasnap.apikeys.service",
+    "agendasnap.apikeys.wincred",
+    "agendasnap.app",
+    "agendasnap.bus.__init__",
+    "agendasnap.bus.events",
+    "agendasnap.config.__init__",
+    "agendasnap.config.ai_providers",
+    "agendasnap.config.glossary",
+    "agendasnap.config.loader",
+    "agendasnap.config.validate",
+    "agendasnap.launcher",
+    "agendasnap.llm.__init__",
+    "agendasnap.llm.cost",
+    "agendasnap.llm.openai_responses",
+    "agendasnap.minutes.__init__",
+    "agendasnap.minutes.generator",
+    "agendasnap.minutes.llm_summarizer",
+    "agendasnap.minutes.profiles",
+    "agendasnap.minutes.render_md",
+    "agendasnap.minutes.schema",
+    "agendasnap.minutes.ssot",
+    "agendasnap.pipeline.__init__",
+    "agendasnap.pipeline.streaming",
+    "agendasnap.resilience.controller",
+    "agendasnap.runtime_paths",
+    "agendasnap.store.__init__",
+    "agendasnap.store.atomic",
+    "agendasnap.store.session_fs",
+    "agendasnap.store.transcript_repo",
+    "agendasnap.stt.__init__",
+    "agendasnap.stt.base",
+    "agendasnap.stt.errors",
+    "agendasnap.stt.offline",
+    "agendasnap.stt.openai_realtime",
+    "agendasnap.stt.provider_factory",
+    "agendasnap.stt.realtime_client",
+    "agendasnap.ui.__init__",
+    "agendasnap.ui.audio_tuning_view",
+    "agendasnap.ui.caption_window",
+    "agendasnap.ui.device_picker",
+    "agendasnap.ui.minutes_window",
+    "agendasnap.ui.mock_ui",
+    "agendasnap.ui.settings_window",
+    "apikeys.__init__",
+    "apikeys.base",
+    "apikeys.embedded",
+    "apikeys.env",
+    "apikeys.provider",
+    "apikeys.service",
+    "apikeys.wincred",
+    "app",
+    "bus.__init__",
+    "bus.events",
+    "config.__init__",
+    "config.ai_providers",
+    "config.glossary",
+    "config.loader",
+    "config.validate",
+    "launcher",
+    "llm.__init__",
+    "llm.cost",
+    "llm.openai_responses",
+    "minutes.__init__",
+    "minutes.generator",
+    "minutes.llm_summarizer",
+    "minutes.profiles",
+    "minutes.render_md",
+    "minutes.schema",
+    "minutes.ssot",
+    "pipeline.__init__",
+    "pipeline.streaming",
+    "resilience.controller",
+    "runtime_paths",
+    "store.__init__",
+    "store.atomic",
+    "store.session_fs",
+    "store.transcript_repo",
+    "stt.__init__",
+    "stt.base",
+    "stt.errors",
+    "stt.offline",
+    "stt.openai_realtime",
+    "stt.provider_factory",
+    "stt.realtime_client",
+    "ui.__init__",
+    "ui.audio_tuning_view",
+    "ui.caption_window",
+    "ui.device_picker",
+    "ui.minutes_window",
+    "ui.mock_ui",
+    "ui.settings_window",
+    "flet_desktop"
+  ],
+  "add_data": [
+    {
+      "source": "agendasnap/config/default.yaml",
+      "destination": "agendasnap/config"
+    },
+    {
+      "source": "icon.png",
+      "destination": "."
+    },
+    {
+      "source": "agendasnap/apikeys",
+      "destination": "agendasnap/apikeys"
+    },
+    {
+      "source": "agendasnap/bus",
+      "destination": "agendasnap/bus"
+    },
+    {
+      "source": "agendasnap/config",
+      "destination": "agendasnap/config"
+    },
+    {
+      "source": "agendasnap/llm",
+      "destination": "agendasnap/llm"
+    },
+    {
+      "source": "agendasnap/minutes",
+      "destination": "agendasnap/minutes"
+    },
+    {
+      "source": "agendasnap/pipeline",
+      "destination": "agendasnap/pipeline"
+    },
+    {
+      "source": "agendasnap/resilience",
+      "destination": "agendasnap/resilience"
+    },
+    {
+      "source": "agendasnap/store",
+      "destination": "agendasnap/store"
+    },
+    {
+      "source": "agendasnap/stt",
+      "destination": "agendasnap/stt"
+    },
+    {
+      "source": "agendasnap/ui",
+      "destination": "agendasnap/ui"
+    }
+  ],
+  "add_binaries": [],
+  "collect_all": [
+    "flet",
+    "flet_desktop"
+  ],
+  "runtime_cwd": null,
+  "environment": {},
+  "required_files": [
+    "agendasnap/config/default.yaml",
+    "icon.png",
+    "agendasnap/apikeys",
+    "agendasnap/bus",
+    "agendasnap/config",
+    "agendasnap/llm",
+    "agendasnap/minutes",
+    "agendasnap/pipeline",
+    "agendasnap/resilience",
+    "agendasnap/store",
+    "agendasnap/stt",
+    "agendasnap/ui"
+  ],
+  "manual_checks": [
+    "agendasnap/config/ai_providers.py: syntax_error - Python source could not be parsed for data-file references.",
+    "agendasnap/config/loader.py: Path - call uses a dynamic path expression",
+    "agendasnap/config/loader.py: yaml.safe_load - call uses a dynamic path expression",
+    "Flet desktop runtime を検出しました。build_env で flet-desktop を同一バージョンに補完し、frozen-folder 起動確認を行ってください。"
+  ],
+  "warnings": [
+    "ビルド前注意: frozen-folder作成後、必要な設定ファイル・データファイルは配布物検証で自動確認されます。"
+  ],
+  "source_root": "C:\\Users\\kuroron\\Documents\\RD\\20260201_AgendaSnap",
+  "source_root_origin": "entry_parent",
+  "entry_relative": "main.py",
+  "inventory_summary": {
+    "source_root": "C:\\Users\\kuroron\\Documents\\RD\\20260201_AgendaSnap",
+    "source_root_origin": "entry_parent",
+    "entry_relative": "main.py",
+    "included_count": 56,
+    "excluded_count": 55,
+    "blocked_count": 0,
+    "manual_check_count": 10,
+    "excluded_directory_count": 25,
+    "sensitive_excluded_directory_count": 0,
+    "sensitive_excluded_file_count": 0,
+    "source_root_warnings": [
+      "auto source_root contains a .git directory; use --source-root if only a subdirectory should be packaged."
+    ],
+    "toolhubignore_pattern_count": 78
+  }
+}

@@ -216,7 +216,8 @@ mod tests {
 
     #[test]
     fn api_key_mask_display_hides_secret() {
-        assert_eq!(mask_secret("<DUMMY_OPENAI_API_KEY>"), "sk-...abcd");
+        let openai_like_key = format!("{}{}", "sk-", "example-visible-abcd");
+        assert_eq!(mask_secret(&openai_like_key), "sk-...abcd");
         assert_eq!(mask_secret("short"), "...hort");
     }
 }

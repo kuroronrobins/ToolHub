@@ -1,4 +1,5 @@
 import type { AppStudioAiProposal, AppStudioApprovalMode, AppStudioImportRequest, AppStudioPreflightResult, AppStudioRunResult } from "../../../lib/appStudioTypes";
+import { generatedMetadataSuggestion } from "../../../lib/appStudioMetadata";
 import { normalizeAppStudioIconProposal, previewIconDataUrl } from "../../../lib/appStudioIconProposal";
 import { collectAppStudioRunResultWarnings, getAppStudioImportSidebarNextAction, type AppStudioRunAction } from "../../../lib/appStudioRunResult";
 import { AppStudioOperationBanner, type StudioOperationState } from "./AppStudioOperationBanner";
@@ -28,8 +29,9 @@ export function AppStudioImportSidebar({ step, operation, request, preflight, re
     lastAction,
   });
   const iconDataUrl = previewIconDataUrl(request.iconOverride, aiProposal);
-  const appName = request.name?.trim() || aiProposal?.metadata.name || request.appId || "表示名未設定";
-  const shortDescription = request.metadata?.shortDescription?.trim() || aiProposal?.metadata.shortDescription || "説明文は表示内容画面で確認します。";
+  const generatedMetadata = generatedMetadataSuggestion(aiProposal?.metadata);
+  const appName = request.name?.trim() || generatedMetadata?.name || request.appId || "表示名未設定";
+  const shortDescription = request.metadata?.shortDescription?.trim() || generatedMetadata?.shortDescription || "説明文は表示内容画面で確認します。";
   const statusLabel = result?.enabled ? "承認済み" : result && approvalMode && !error ? "承認待ち" : sidebarStatusLabel(step, preflight, result);
   return (
     <section className="studio-side-section studio-import-sidebar">

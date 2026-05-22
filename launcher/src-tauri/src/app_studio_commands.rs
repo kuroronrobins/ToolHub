@@ -1663,7 +1663,7 @@ mod tests {
         .unwrap();
         std::fs::write(
             output.join("import_plan.json"),
-            "{\"app_id\":\"sample\",\"version\":\"1.2.3\",\"selected_build_mode\":\"app-env\",\"metadata_ai_report\":\"status: success\\nmodel: text-model\"}",
+            "{\"app_id\":\"sample\",\"version\":\"1.2.3\",\"selected_build_mode\":\"app-env\",\"metadata_ai_report\":\"status: success\\nmodel: text-model\\nparse_status: success\"}",
         )
         .unwrap();
         std::fs::write(icon_work.join("icon_prompt_initial.md"), "simple icon").unwrap();
@@ -1690,6 +1690,8 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("status: success"));
+        assert!(proposal.metadata.ai_generated);
+        assert_eq!(proposal.metadata.ai_status.as_deref(), Some("success"));
         assert_eq!(proposal.metadata.categories, vec!["CSV".to_string()]);
         assert!(proposal.icon.fallback_svg.is_some());
         assert!(proposal.icon.final_png_data_url.is_some());
@@ -1729,6 +1731,45 @@ mod tests {
             .release_notes
             .iter()
             .any(|item| item.contains("1.2.3")));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn read_ai_proposal_suppresses_metadata_fallback_when_ai_skipped() {
+        let root = temp_project_root();
+        let output = root.join("output");
+        std::fs::create_dir_all(&output).unwrap();
+        std::fs::write(
+            output.join("proposed_app.yaml"),
+            "id: fallback_app\nname: Fallback App\ndisplay:\n  short_description: Thin fallback\n  categories:\n    - Utility\ndetail:\n  description: Generated without AI.\nsearch:\n  keywords:\n    - fallback\nrelease:\n  release_notes:\n    - fallback release\n  change_summary: fallback change\n",
+        )
+        .unwrap();
+        std::fs::write(
+            output.join("import_plan.json"),
+            "{\"app_id\":\"fallback_app\",\"version\":\"1.0.0\",\"selected_build_mode\":\"shared-env\",\"metadata_ai_report\":\"api: responses.create\\nstatus: skipped\\nmodel: text-model\\nparse_status: not_attempted\\nfallback_reason: secret scan blocked AI submission, AI skipped\"}",
+        )
+        .unwrap();
+
+        let proposal = read_ai_proposal(Some(&output));
+
+        assert!(proposal.ok);
+        assert!(!proposal.metadata.ai_generated);
+        assert_eq!(proposal.metadata.name.as_deref(), Some("Fallback App"));
+        assert_eq!(proposal.metadata.ai_status.as_deref(), Some("skipped"));
+        assert_eq!(
+            proposal.metadata.ai_fallback_reason.as_deref(),
+            Some("secret scan blocked AI submission, AI skipped")
+        );
+        assert!(proposal.metadata.short_description.is_none());
+        assert!(proposal.metadata.description.is_none());
+        assert!(proposal.metadata.categories.is_empty());
+        assert!(proposal.metadata.keywords.is_empty());
+        assert!(proposal.metadata.release_notes.is_empty());
+        assert!(proposal.metadata.change_summary.is_none());
+        assert!(proposal
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("fallback metadata")));
         let _ = std::fs::remove_dir_all(root);
     }
 

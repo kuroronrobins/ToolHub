@@ -20,7 +20,7 @@ import {
   normalizeAppStudioIconProposal,
   selectedIconCandidateForProposal,
 } from "../../../lib/appStudioIconProposal";
-import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
+import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata, generatedMetadataSuggestion } from "../../../lib/appStudioMetadata";
 import { IMAGE_TEST_UPDATED_EVENT, imageApiFailureGuidance, loadImageGenerationTestResult, type StoredImageGenerationTestResult } from "../../../lib/imageApiHealth";
 import type {
   AppStudioAiProposal,
@@ -635,7 +635,7 @@ export function AppStudioImportWizard() {
 
         <AppStudioLauncherPreview appId={request.appId} name={request.name} metadata={request.metadata} proposal={aiProposal} iconOverride={request.iconOverride} />
 
-        <AppStudioMetadataEditor metadata={request.metadata} proposal={aiProposal?.metadata ?? null} compact onChange={(metadata) => update({ metadata })} />
+        <AppStudioMetadataEditor metadata={request.metadata} proposal={generatedMetadataSuggestion(aiProposal?.metadata)} compact onChange={(metadata) => update({ metadata })} />
 
         {renderIconCompactPanel()}
 

@@ -46,6 +46,10 @@ export function metadataFromSuggestion(suggestion: AppStudioAiMetadataSuggestion
   }) ?? createEmptyAppStudioMetadata();
 }
 
+export function generatedMetadataSuggestion(suggestion?: AppStudioAiMetadataSuggestion | null): AppStudioAiMetadataSuggestion | null {
+  return suggestion?.aiGenerated === true ? suggestion : null;
+}
+
 export function cleanEditableMetadata(metadata?: AppStudioEditableMetadata): AppStudioEditableMetadata | undefined {
   if (!metadata) {
     return undefined;

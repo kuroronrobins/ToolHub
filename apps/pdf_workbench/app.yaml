@@ -1,0 +1,60 @@
+id: pdf_workbench
+name: PDF Workbench
+
+display:
+  icon: icon.png
+  icon_fallback: icon.svg
+  short_description: "PDF Workbench をToolHubから起動するアプリです。"
+  categories:
+    - "業務ツール"
+
+detail:
+  description: >
+    PDF Workbench は、指定されたメインファイルをもとにToolHubへ取り込むためのアプリ定義です。
+  use_cases:
+    - "PDF Workbench をToolHubからすばやく起動する"
+  inputs:
+    - "アプリ設定に依存"
+  outputs:
+    - "アプリ実行結果"
+  notes:
+    - "正式登録前に実行確認と人間承認が必要です。"
+
+search:
+  keywords:
+    - PDF Workbench
+    - pdf_workbench
+    - ToolHub
+  examples:
+    - "PDF Workbench を起動したい"
+
+run:
+  runner: python_shared_env
+  entry: src/main.py
+  mode: gui
+  env_id: py313-win_amd64-runtime-37c71daf
+
+admin:
+  version: 0.2.0
+  owner: admin
+  requirements: requirements.txt
+  log_dir: logs
+
+runtime:
+  distribution_mode: shared_env
+  app_env: null
+  required_runtime: python-shared-env:py313-win_amd64-runtime-37c71daf
+  requirements_lock: requirements.lock
+  shared_env:
+    env_id: py313-win_amd64-runtime-37c71daf
+    scope: versioned
+
+build:
+  managed_by: toolhub_app_studio
+  build_mode: shared-env
+  source_entry: C:\Users\kuroron\Documents\RD\20260215_PDFApplication\build\toolhub-registration\pdf_workbench\main.py
+  output_mirror: C:\Users\kuroron\Documents\RD\20260215_PDFApplication\build\toolhub-registration\pdf_workbench\ToolHub_AppStudio_Output\pdf_workbench
+
+quality:
+  approval_required: true
+  execution_test_required: true

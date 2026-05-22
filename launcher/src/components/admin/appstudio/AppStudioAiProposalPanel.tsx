@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Bot, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { appStudioAiDiagnostics, appStudioReadAiProposal } from "../../../lib/appStudioApi";
+import { generatedMetadataSuggestion } from "../../../lib/appStudioMetadata";
 import {
   candidateConceptSummary,
   candidateSourceLabel,
@@ -132,6 +133,7 @@ export function AppStudioAiProposalPanel({
 
   const metadata = proposal?.metadata;
   const icon = proposal?.icon;
+  const generatedMetadata = generatedMetadataSuggestion(metadata);
   const selected = selectedIconSource ?? localSelectedIconSource;
   const normalizedIcon = icon ? normalizeAppStudioIconProposal(icon, selected) : null;
   const apiCandidates = normalizedIcon?.apiCandidates ?? [];
@@ -194,23 +196,31 @@ export function AppStudioAiProposalPanel({
         <div className="studio-ai-card">
           <div className="admin-section-head">
             <div>
-              <p className="dialog-kicker">メタデータ生成</p>
-              <h4>{metadata.name || metadata.appId || "AI提案"}</h4>
+              <p className="dialog-kicker">{generatedMetadata ? "メタデータ生成" : "メタデータAI未実行"}</p>
+              <h4>{metadata.name || metadata.appId || (generatedMetadata ? "AI提案" : "AI提案なし")}</h4>
             </div>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => onAdopt({ name: metadata.name ?? undefined, iconPrompt: metadata.iconPrompt ?? undefined })}
-            >
-              <CheckCircle2 size={17} aria-hidden="true" />
-              表示名とPromptを採用
-            </button>
+            {generatedMetadata ? (
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => onAdopt({ name: generatedMetadata.name ?? undefined, iconPrompt: generatedMetadata.iconPrompt ?? undefined })}
+              >
+                <CheckCircle2 size={17} aria-hidden="true" />
+                表示名とPromptを採用
+              </button>
+            ) : (
+              <span className="admin-status-pill warn">fallback非表示</span>
+            )}
           </div>
           <dl className="studio-ai-fields">
             <ReportFields title="メタデータ生成状態" report={metadata.aiReport} />
-            {metadataFields.map((field) => (
-              <Field key={field.key} label={field.label} value={fieldValue(metadata[field.key])} />
-            ))}
+            {generatedMetadata ? (
+              metadataFields.map((field) => (
+                <Field key={field.key} label={field.label} value={fieldValue(generatedMetadata[field.key])} />
+              ))
+            ) : (
+              <MetadataFallbackSuppressed metadata={metadata} />
+            )}
           </dl>
         </div>
       ) : null}
@@ -295,6 +305,19 @@ function ImageApiBlockedNotice({ result }: { result: StoredImageGenerationTestRe
       <p>{guidance}</p>
       <p>この状態ではAI画像候補は作成されず、未採用時はToolHub共通default iconが使われます。スタイル指定の効果はAPI生成候補が1件以上ある場合だけ確認できます。</p>
     </div>
+  );
+}
+
+function MetadataFallbackSuppressed({ metadata }: { metadata: AppStudioAiProposal["metadata"] }) {
+  const status = metadata.aiStatus ? statusValue(metadata.aiStatus) : "未実行";
+  return (
+    <>
+      <dt>提案状態</dt>
+      <dd>
+        状態: {status}。メタデータAIが完了していないため、fallback metadata はAI提案として表示していません。
+        {metadata.aiFallbackReason ? ` 理由: ${metadata.aiFallbackReason}` : ""}
+      </dd>
+    </>
   );
 }
 
@@ -533,6 +556,7 @@ function reportSummary(report?: string | null): Array<[string, string]> {
     content_type: "形式",
     saved_candidate: "保存候補",
     fallback_reason: "理由",
+    parse_fallback_reason: "理由",
     deterministic_reason: "理由",
   };
   const lines = report.split(/\r?\n/);
@@ -558,6 +582,9 @@ function statusValue(value: string): string {
   }
   if (value === "failed") {
     return "失敗";
+  }
+  if (value === "not_attempted") {
+    return "未実行";
   }
   return value;
 }

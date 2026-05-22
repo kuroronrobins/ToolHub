@@ -348,6 +348,9 @@ export interface AppStudioAiMetadataSuggestion {
   releaseNotes: string[];
   changeSummary?: string | null;
   aiReport?: string | null;
+  aiGenerated?: boolean;
+  aiStatus?: string | null;
+  aiFallbackReason?: string | null;
 }
 
 export interface AppStudioAiIconSuggestion {

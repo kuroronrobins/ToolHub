@@ -338,6 +338,7 @@ fn validate_run(run: &RawRun) -> Result<(), Box<dyn Error>> {
         "exe",
         "playwright_python",
         "python_app_env",
+        "python_shared_env",
     ];
     if !runners.contains(&run.runner.as_str()) {
         return Err(format!("unsupported runner: {}", run.runner).into());
@@ -503,6 +504,31 @@ mod tests {
 
         assert!(app.icon_data_url.is_none());
         assert!(app.icon_svg.unwrap().contains("<svg"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn load_apps_keeps_python_shared_env_app_enabled() {
+        let root = temp_root_dir("shared_env_app");
+        let app_dir = root.join("apps").join("shared_env_app");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::write(
+            app_dir.join("icon.svg"),
+            "<svg viewBox=\"0 0 64 64\"></svg>",
+        )
+        .unwrap();
+        std::fs::write(
+            app_dir.join("app.yaml"),
+            "id: shared_env_app\nname: Shared Env App\ndisplay:\n  icon: icon.svg\n  short_description: desc\n  categories:\n    - CSV\ndetail:\n  description: desc\nrun:\n  runner: python_shared_env\n  entry: src/main.py\n  mode: gui\n",
+        )
+        .unwrap();
+
+        let apps = load_apps(&root).unwrap();
+
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].id, "shared_env_app");
+        assert!(apps[0].enabled);
+        assert!(apps[0].disabled_reason.is_none());
         let _ = std::fs::remove_dir_all(root);
     }
 

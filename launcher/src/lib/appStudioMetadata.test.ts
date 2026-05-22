@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanEditableMetadata, cleanIconOverride, splitMetadataText } from "./appStudioMetadata";
+import { cleanEditableMetadata, cleanIconOverride, generatedMetadataSuggestion, splitMetadataText } from "./appStudioMetadata";
 
 describe("appStudioMetadata", () => {
   it("splits newline and comma separated metadata", () => {
@@ -30,6 +30,26 @@ describe("appStudioMetadata", () => {
       releaseNotes: [],
       changeSummary: "",
     });
+  });
+
+  it("only exposes metadata suggestions when AI generation succeeded", () => {
+    const suggestion = {
+      name: "Generated",
+      shortDescription: "Useful description",
+      description: "",
+      categories: [],
+      keywords: [],
+      examples: [],
+      useCases: [],
+      inputs: [],
+      outputs: [],
+      notes: [],
+      releaseNotes: [],
+      aiGenerated: true,
+    };
+    expect(generatedMetadataSuggestion(suggestion)).toBe(suggestion);
+    expect(generatedMetadataSuggestion({ ...suggestion, aiGenerated: false })).toBeNull();
+    expect(generatedMetadataSuggestion({ ...suggestion, aiGenerated: undefined })).toBeNull();
   });
 
   it("keeps adopted png icon overrides only when data is present", () => {

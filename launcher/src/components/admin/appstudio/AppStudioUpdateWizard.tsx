@@ -10,7 +10,7 @@ import {
   appStudioUpdatePreflight,
   appStudioUpdateSuggest,
 } from "../../../lib/appStudioApi";
-import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata } from "../../../lib/appStudioMetadata";
+import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata, generatedMetadataSuggestion } from "../../../lib/appStudioMetadata";
 import {
   getAppStudioUpdateNextAction,
   getAppStudioUpdateRunResultMessage,
@@ -377,7 +377,7 @@ export function AppStudioUpdateWizard() {
 
         <AppStudioMetadataEditor
           metadata={request.metadata}
-          proposal={aiProposal?.metadata ?? null}
+          proposal={generatedMetadataSuggestion(aiProposal?.metadata)}
           includeReleaseFields
           onChange={(metadata) => update({ metadata })}
         />
