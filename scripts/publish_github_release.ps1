@@ -423,8 +423,14 @@ function Invoke-GhReleasePublish {
 
     $Existing = $false
     if (-not $DryRun) {
-        & gh release view $TagName --repo $Repository *> $null
-        $Existing = ($LASTEXITCODE -eq 0)
+        $PreviousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            & gh release view $TagName --repo $Repository 1>$null 2>$null
+            $Existing = ($LASTEXITCODE -eq 0)
+        } finally {
+            $ErrorActionPreference = $PreviousErrorActionPreference
+        }
     } else {
         Write-Host "> gh release view $TagName --repo $Repository"
     }
