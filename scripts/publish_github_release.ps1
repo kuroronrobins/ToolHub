@@ -628,11 +628,12 @@ if (-not $SkipRemoteVerify) {
         Write-Host "[SKIP] remote manifest verification for draft release assets. Draft assets are not public update endpoints."
     } else {
         Write-Step "Verify remote manifest"
-        $VerifyArgs = @("-ManifestUrl", $RemoteVerifyManifestUrl, "-ExpectedVersion", $Version)
+        $VerifyScript = Join-Path $Root "scripts\verify_github_release_assets.ps1"
+        $VerifyArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $VerifyScript, "-ManifestUrl", $RemoteVerifyManifestUrl, "-ExpectedVersion", $Version)
         if ($DownloadInstallerForRemoteVerify) {
             $VerifyArgs += "-DownloadInstaller"
         }
-        Invoke-External (Join-Path $Root "scripts\verify_github_release_assets.ps1") $VerifyArgs
+        Invoke-External "powershell" $VerifyArgs
     }
 } else {
     Write-Host "[SKIP] remote manifest verification"

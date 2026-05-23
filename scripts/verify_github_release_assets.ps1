@@ -171,6 +171,9 @@ function Invoke-DownloadText {
 
     $Response = Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri $Url
     if ($null -ne $Response.Content) {
+        if ($Response.Content -is [byte[]]) {
+            return [System.Text.Encoding]::UTF8.GetString($Response.Content)
+        }
         return [string]$Response.Content
     }
     if ($null -ne $Response.RawContent) {
