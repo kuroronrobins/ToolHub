@@ -406,14 +406,18 @@ function Test-PayloadRoot {
     $PythonExe = Join-Path $Runtime "python\python.exe"
     $WebRuntime = Join-Path $Runtime "web_automation_runtime"
     $AppYamlCount = 0
+    $AppYamlPaths = @()
     if (Test-Path -LiteralPath $Apps -PathType Container) {
-        $AppYamlCount = @(Get-ChildItem -LiteralPath $Apps -Filter "app.yaml" -Recurse -ErrorAction SilentlyContinue).Count
+        $AppYamlItems = @(Get-ChildItem -LiteralPath $Apps -Filter "app.yaml" -Recurse -ErrorAction SilentlyContinue)
+        $AppYamlCount = $AppYamlItems.Count
+        $AppYamlPaths = @($AppYamlItems | ForEach-Object { $_.FullName })
     }
     return [ordered]@{
         root = $Root
         exists = $Exists
         apps = (Test-Path -LiteralPath $Apps -PathType Container)
         app_yaml_count = $AppYamlCount
+        app_yaml_paths = $AppYamlPaths
         runner = (Test-Path -LiteralPath $Runner -PathType Container)
         runtime = (Test-Path -LiteralPath $Runtime -PathType Container)
         config_default = (Test-Path -LiteralPath $ConfigDefault -PathType Container)
@@ -454,9 +458,25 @@ function Add-PayloadRootVariants {
     Add-PayloadRootSummary -Root (Join-Path (Join-Path (Join-Path $Root "resources") "_up_") "_up_")
 }
 
+function Test-InstallDirEvidence {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Container)) {
+        return $false
+    }
+    foreach ($PayloadName in @("apps", "runner", "release", "runtime")) {
+        if (Test-Path -LiteralPath (Join-Path $Path $PayloadName) -PathType Container) {
+            return $true
+        }
+    }
+    $ToolHubExe = @(Get-ChildItem -LiteralPath $Path -File -Filter "ToolHub*.exe" -Recurse -ErrorAction SilentlyContinue |
+        Select-Object -First 1)
+    return ($ToolHubExe.Count -gt 0)
+}
+
 function Update-InstallDiscovery {
+    $LegacyUserDataDir = Join-Path $env:LOCALAPPDATA "ToolHub"
     Add-UniquePath -List $CandidateInstallDirs -Path $ExpectedInstallDir
-    Add-UniquePath -List $CandidateInstallDirs -Path (Join-Path $env:LOCALAPPDATA "ToolHub")
+    Add-UniquePath -List $CandidateInstallDirs -Path $LegacyUserDataDir
     Add-UniquePath -List $CandidateInstallDirs -Path (Join-Path $env:ProgramFiles "ToolHub")
     if (-not [string]::IsNullOrWhiteSpace(${env:ProgramFiles(x86)})) {
         Add-UniquePath -List $CandidateInstallDirs -Path (Join-Path ${env:ProgramFiles(x86)} "ToolHub")
@@ -465,7 +485,19 @@ function Update-InstallDiscovery {
     Add-UniquePath -List $CandidateInstallDirs -Path (Join-Path $env:LOCALAPPDATA "Programs\ToolHub\ToolHub")
 
     foreach ($Path in $CandidateInstallDirs.ToArray()) {
-        Add-UniquePath -List $DiscoveredInstallDirs -Path $Path -OnlyIfExists
+        try {
+            $CandidateFull = [System.IO.Path]::GetFullPath($Path).TrimEnd("\")
+            $LegacyFull = [System.IO.Path]::GetFullPath($LegacyUserDataDir).TrimEnd("\")
+            if ($CandidateFull.Equals($LegacyFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                if (Test-InstallDirEvidence -Path $Path) {
+                    Add-UniquePath -List $DiscoveredInstallDirs -Path $Path -OnlyIfExists
+                }
+            } else {
+                Add-UniquePath -List $DiscoveredInstallDirs -Path $Path -OnlyIfExists
+            }
+        } catch {
+            Add-UniquePath -List $DiscoveredInstallDirs -Path $Path -OnlyIfExists
+        }
     }
 
     $ProgramsDir = Join-Path $env:LOCALAPPDATA "Programs"
@@ -583,6 +615,7 @@ function Get-LogSummary {
     $Searched = @()
     $Files = @()
     $MatchedLines = @()
+    $Snippets = @()
     foreach ($Root in $SearchRoots) {
         if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
             continue
@@ -599,13 +632,25 @@ function Get-LogSummary {
                 last_write_time_utc = $File.LastWriteTimeUtc.ToString("o")
             }
             try {
-                $Matches = @(Select-String -LiteralPath $File.FullName -Pattern "error|failed|panic|project root|app_manifest|app.yaml|list_apps|アプリ" -SimpleMatch:$false -ErrorAction SilentlyContinue |
+                $Matches = @(Select-String -LiteralPath $File.FullName -Pattern "error|failed|panic|project root|app_manifest|app.yaml|list_apps|アプリ|Traceback|ModuleNotFoundError|ImportError|TclError|exit_code|admin_error" -SimpleMatch:$false -ErrorAction SilentlyContinue |
                     Select-Object -First 20)
                 foreach ($Match in $Matches) {
                     $MatchedLines += [ordered]@{
                         path = $File.FullName
                         line = [int]$Match.LineNumber
                         text = [string]$Match.Line
+                    }
+                }
+                if ($File.Name -like "*.stderr.log" -or $File.Name -eq "latest.log" -or $File.Name -like "result_*.json") {
+                    $Content = Get-Content -LiteralPath $File.FullName -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+                    if (-not [string]::IsNullOrWhiteSpace($Content)) {
+                        if ($Content.Length -gt 4000) {
+                            $Content = $Content.Substring($Content.Length - 4000)
+                        }
+                        $Snippets += [ordered]@{
+                            path = $File.FullName
+                            tail = $Content
+                        }
                     }
                 }
             } catch {
@@ -621,6 +666,7 @@ function Get-LogSummary {
         searched_paths = @($Searched)
         files = @($Files)
         matched_lines = @($MatchedLines)
+        snippets = @($Snippets)
     }
 }
 
@@ -787,6 +833,29 @@ function Save-Results {
     }
     if ($PayloadLayoutSummary.Count -eq 0) {
         $Lines.Add("| none | False | False | False | False | False | 0 |") | Out-Null
+    }
+    $Lines.Add("") | Out-Null
+    $Lines.Add("## App YAML Paths") | Out-Null
+    $AnyAppYamlPath = $false
+    foreach ($Summary in $PayloadLayoutSummary.ToArray()) {
+        foreach ($AppYamlPath in @($Summary.app_yaml_paths)) {
+            $AnyAppYamlPath = $true
+            $Lines.Add(("- {0}" -f $AppYamlPath)) | Out-Null
+        }
+    }
+    if (-not $AnyAppYamlPath) {
+        $Lines.Add("- none") | Out-Null
+    }
+    $Lines.Add("") | Out-Null
+    $Lines.Add("## Log Snippets") | Out-Null
+    foreach ($Snippet in @($LogSummary.snippets)) {
+        $Lines.Add(("- {0}" -f $Snippet.path)) | Out-Null
+        $Lines.Add('```text') | Out-Null
+        $Lines.Add([string]$Snippet.tail) | Out-Null
+        $Lines.Add('```') | Out-Null
+    }
+    if ((@($LogSummary.snippets)).Count -eq 0) {
+        $Lines.Add("- none") | Out-Null
     }
     $Lines.Add("") | Out-Null
     $Lines.Add("## Checks") | Out-Null

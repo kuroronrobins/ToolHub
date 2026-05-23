@@ -11,7 +11,7 @@
 - `tools/app_studio/app_studio/models.py` の `NORMAL_REGISTRATION_BUILD_MODE` は `shared-env`。
 - `scripts/import_app.ps1` は legacy BuildMode を受けても `shared-env` に正規化する。
 - 新規登録 GUI は `buildMode: shared-env` を初期値にし、通常登録では frozen-folder build を要求しない。
-- runner は `python_shared_env` をサポートし、`runtime/envs/<env_id>/Scripts/python.exe` を使って app を起動する。
+- runner は `python_shared_env` をサポートし、配布同梱の `runtime/python/python.exe` から `runtime/envs/<env_id>/Lib/site-packages` を bootstrap して app を起動する。
 
 通常新規登録で作る `app.yaml` の要点:
 

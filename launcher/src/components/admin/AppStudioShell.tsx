@@ -13,16 +13,16 @@ export function AppStudioShell() {
     <section className="admin-panel-section">
       <div className="admin-section-head">
         <div>
-          <p className="dialog-kicker">アプリスタジオ</p>
-          <h3>ToolHub アプリスタジオ</h3>
+          <p className="dialog-kicker">アプリ管理</p>
+          <h3>アプリ登録と管理</h3>
         </div>
         <span className="admin-status-pill">管理者専用</span>
       </div>
       <p className="admin-muted">
-        管理者画面からアプリ登録、既存アプリ更新、表示切り替え、削除確認を実行します。公開準備は今後の拡張用です。
+        App Studioを使って、アプリ登録、既存アプリ更新、表示切り替え、削除確認を実行します。公開準備は今後の拡張用です。
       </p>
 
-      <div className="studio-tab-row" role="tablist" aria-label="アプリスタジオの機能">
+      <div className="studio-tab-row" role="tablist" aria-label="アプリ管理の機能">
         <button type="button" className={activeTab === "new" ? "active" : ""} onClick={() => setActiveTab("new")}>
           <PackagePlus size={17} aria-hidden="true" />
           新規登録

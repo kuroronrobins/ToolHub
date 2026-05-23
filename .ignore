@@ -1,7 +1,18 @@
 data/logs/
 data/test_tmp/
+data/tmp_validation/
+data/app_studio/
 **/__pycache__/
 launcher/node_modules/
 launcher/src-tauri/target/
 launcher/dist/
+release/
+runtime/
+vendor/
+docs/archive/
+apps/*/src/assets/payload/
+apps/*/build_profile.json
+apps/*/exe_readiness.json
+GitUp Manager.exe
+_app_data.json
 

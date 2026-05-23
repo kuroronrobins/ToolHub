@@ -2,24 +2,23 @@
 
 このフォルダは、ToolHub の設計、運用、配布、検証に関する文書を置く場所です。
 
-トップレベルの Markdown は、原則として現在読むべき文書だけにします。完了済みの調査記録、古い実装計画、過去の handoff は `archive/` に移し、通常の作業開始時には読みません。
+Codex の初動では [00_AI_CONTEXT.md](00_AI_CONTEXT.md) を優先します。詳細が必要な場合だけ、下の表から目的に合う文書を読んでください。
 
 ## まず読むもの
 
 通常の作業では、次の順に読むと迷いにくいです。
 
-1. [../README.md](../README.md): 起動方法、配布方針、検証コマンドの入口。
-2. [00_concept.md](00_concept.md): ToolHub の目的と利用者体験。
+1. [00_AI_CONTEXT.md](00_AI_CONTEXT.md): Codex 用の現在前提。
+2. [../README.md](../README.md): 起動方法、配布方針、検証コマンドの入口。
 3. [01_architecture.md](01_architecture.md): launcher、runner、apps、scripts、release/runtime の責務分担。
-4. [13_app_studio.md](13_app_studio.md): 現行 App Studio 登録フロー。通常新規登録は `shared-env` 固定です。
+4. [13_app_studio.md](13_app_studio.md): 現行 App Studio 登録フロー。
 5. [06_acceptance_checklist.md](06_acceptance_checklist.md): リリースや検収で見る項目。
-
-アプリ作者向けの詳細手順は `31_app_registration_app_authoring_guidelines.md` を参照してください。この整理作業では同ファイルの内容は変更対象外です。
 
 ## 現行仕様の入口
 
 | 目的 | 読む文書 |
 | --- | --- |
+| Codex 用の現在前提を見る | [00_AI_CONTEXT.md](00_AI_CONTEXT.md) |
 | 全体像を確認する | [00_concept.md](00_concept.md), [01_architecture.md](01_architecture.md) |
 | `app.yaml` の仕様を見る | [02_app_manifest_spec.md](02_app_manifest_spec.md) |
 | 手動で簡単な app を追加する | [03_add_new_app.md](03_add_new_app.md) |
@@ -57,11 +56,4 @@
 
 ## Archive の扱い
 
-[archive/](archive/) は履歴保管場所です。次のような文書を置きます。
-
-- 完了済みの調査計画。
-- その時点の evidence や validation result。
-- 古い標準方式を前提にした計画。
-- 実装 handoff としては役目を終えた長文 audit。
-
-archive 内の文書は、過去の判断理由を追うために読むものです。現在仕様の根拠として使う場合は、必ずトップレベルの現行文書または実装を確認してください。
+[archive/](archive/) は過去資料の入口だけを残しています。完了済みの調査記録、古い実装計画、検証 evidence、役目を終えた handoff は現在仕様ではないため削除しました。過去経緯が必要な場合だけ Git 履歴から確認してください。

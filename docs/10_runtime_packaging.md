@@ -19,6 +19,7 @@ For normal shared-env apps:
 - `runtime.required_runtime` is `python-shared-env:<env_id>`.
 - `requirements.lock` is required and included in `apps/<app_id>/` and App Pack zip.
 - `runtime/app_envs/<app_id>` is not required at runtime.
+- ToolHub starts shared-env apps with bundled `runtime/python/python.exe` and bootstraps packages from `runtime/envs/<env_id>/Lib/site-packages`; the venv `Scripts/python.exe` redirector is not used as the launch executable in installed builds.
 
 The old `runtime/app_envs/` folder remains only for legacy compatibility and explicit app-env execution modes. Existing `run.runner: exe` frozen-folder apps remain supported for compatibility, but they are no longer the normal new-registration path.
 

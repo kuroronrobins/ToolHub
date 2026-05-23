@@ -28,22 +28,84 @@ button {
 
 .app-shell {
   min-height: 100vh;
-  padding: 24px;
+  padding: 22px 24px 24px;
 }
 
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
-  max-width: 1280px;
-  margin: 0 auto 18px;
+  max-width: 1360px;
+  margin: 0 auto 14px;
 }
 
 .topbar-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  justify-self: end;
+  padding: 6px;
+  border: 1px solid #dfe5ee;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04);
+}
+
+.update-status-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid #cfd7e3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #344054;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.update-status-button.latest {
+  border-color: #b6d4d0;
+  background: #f2fbfa;
+  color: #0f5f58;
+}
+
+.update-status-button.available {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.update-status-button.failed {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.update-status-button.checking,
+.update-status-button:disabled {
+  cursor: wait;
+  border-color: #d7dee8;
+  background: #f4f7fb;
+  color: #667085;
+}
+
+.admin-entry-button {
+  min-width: 84px;
+  border-color: transparent;
+  background: transparent;
+  color: #536173;
+  font-weight: 600;
+}
+
+.admin-entry-button:hover {
+  border-color: #d7dee8;
+  background: #f3f6fa;
+  color: #344054;
 }
 
 .topbar h1 {
@@ -59,8 +121,8 @@ button {
 }
 
 .search-row {
-  max-width: 1280px;
-  margin: 0 auto 18px;
+  max-width: 1360px;
+  margin: 0 auto 16px;
 }
 
 .search-box {
@@ -88,9 +150,9 @@ button {
 
 .content-layout {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 18px;
-  max-width: 1280px;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: 16px;
+  max-width: 1360px;
   margin: 0 auto;
 }
 
@@ -118,6 +180,10 @@ button {
 }
 
 .category-button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   min-height: 36px;
   padding: 8px 10px;
@@ -139,13 +205,40 @@ button {
   font-weight: 700;
 }
 
+.category-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.category-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: #536173;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.category-button.active .category-count {
+  background: #ffffff;
+  color: #0f5f58;
+}
+
 .workspace {
   min-width: 0;
 }
 
 .workspace-head {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   min-height: 24px;
   margin-bottom: 10px;
   color: #637083;
@@ -157,42 +250,59 @@ button {
 
 .app-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr));
+  gap: 10px;
 }
 
 .app-card {
-  display: flex;
-  flex-direction: column;
-  min-height: 232px;
-  padding: 16px;
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  min-height: 126px;
+  padding: 12px;
   border: 1px solid #dfe5ee;
   border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.04);
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
-.card-head {
-  display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
+.app-card:hover,
+.app-card:focus-within {
+  border-color: #b6d4d0;
+  box-shadow: 0 5px 16px rgba(15, 23, 42, 0.08);
+}
+
+.app-card:focus-visible {
+  outline: 3px solid rgba(15, 118, 110, 0.24);
+  outline-offset: 2px;
 }
 
 .app-icon {
   display: grid;
   place-items: center;
-  width: 52px;
-  height: 52px;
-  border: 1px solid #d7ebe8;
-  border-radius: 8px;
-  background: #f2fbfa;
+  width: 84px;
+  height: 84px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: #0f766e;
 }
 
 .app-icon img {
-  width: 34px;
-  height: 34px;
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+}
+
+.card-content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 2px;
 }
 
 .card-title-block {
@@ -201,18 +311,19 @@ button {
 
 .card-title-block h2 {
   margin: 0;
-  font-size: 17px;
-  line-height: 1.35;
+  font-size: 18px;
+  line-height: 1.25;
   color: #111827;
   overflow-wrap: anywhere;
 }
 
 .card-title-block p {
   display: -webkit-box;
-  min-height: 44px;
+  min-height: 48px;
   margin: 6px 0 0;
-  color: #5b6675;
-  line-height: 1.55;
+  color: #3f4a5a;
+  font-weight: 600;
+  line-height: 1.5;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -221,17 +332,17 @@ button {
 .tag-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: 16px 0;
+  gap: 5px;
+  margin: 0;
 }
 
 .tag {
   max-width: 100%;
-  padding: 4px 8px;
+  padding: 3px 7px;
   border-radius: 999px;
   background: #eef2f7;
   color: #445064;
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
@@ -239,7 +350,20 @@ button {
 .card-actions {
   display: flex;
   gap: 8px;
-  margin-top: auto;
+  align-items: center;
+  justify-self: end;
+  padding-top: 14px;
+  cursor: default;
+}
+
+.launch-button {
+  min-width: 74px;
+}
+
+.detail-icon-button {
+  flex: 0 0 auto;
+  border-color: #cfd7e3;
+  background: #ffffff;
 }
 
 .primary-button,
@@ -305,6 +429,20 @@ button {
 
 .refresh-button {
   flex: 0 0 auto;
+}
+
+.workspace-refresh-button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.secondary-button:disabled,
+.secondary-button:disabled:hover {
+  cursor: not-allowed;
+  border-color: #d7dee8;
+  background: #f3f6fa;
+  color: #7a8697;
 }
 
 .inline-alert,
@@ -724,6 +862,7 @@ button {
   align-items: center;
   gap: 8px;
   min-height: 38px;
+  padding: 0 10px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
@@ -758,6 +897,15 @@ button {
   border-radius: 8px;
   background: #ffffff;
   color: #445064;
+}
+
+.admin-info-list {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-info-list strong {
+  color: #111827;
 }
 
 .admin-section-head {
@@ -2985,7 +3133,7 @@ button {
 
   .topbar {
     align-items: flex-start;
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
   .studio-delete-head,
@@ -3029,7 +3177,24 @@ button {
     width: auto;
   }
 
+  .app-card {
+    grid-template-columns: 74px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .app-icon {
+    width: 72px;
+    height: 72px;
+  }
+
+  .app-icon img {
+    width: 68px;
+    height: 68px;
+  }
+
   .card-actions {
+    grid-column: 2;
+    justify-self: start;
     flex-wrap: wrap;
   }
 

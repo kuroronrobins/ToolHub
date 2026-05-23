@@ -46,7 +46,33 @@ function Copy-ToStage {
     $Destination = Join-Path $StagingDir $RelativeDestination
     $DestinationParent = Split-Path -Parent $Destination
     New-Item -ItemType Directory -Force -Path $DestinationParent | Out-Null
-    Copy-Item -LiteralPath $SourceFull -Destination $Destination -Recurse -Force
+    if (Test-Path -LiteralPath $SourceFull -PathType Container) {
+        $ExcludedDirectories = @(
+            ".git",
+            "node_modules",
+            "debug",
+            "__pycache__",
+            ".pytest_cache",
+            "browser_profiles",
+            "update_cache",
+            "logs"
+        )
+        $ExcludedFiles = @(
+            "*.pyc",
+            "*.pyo",
+            "*.tmp",
+            "*.log"
+        )
+        New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+        & robocopy $SourceFull $Destination /E /XD $ExcludedDirectories /XF $ExcludedFiles /NFL /NDL /NJH /NJS /NP | Out-Null
+        $RobocopyExitCode = $LASTEXITCODE
+        if ($RobocopyExitCode -ge 8) {
+            throw "robocopy failed while staging $SourceFull to $Destination. exit_code=$RobocopyExitCode"
+        }
+        $global:LASTEXITCODE = 0
+    } else {
+        Copy-Item -LiteralPath $SourceFull -Destination $Destination -Force
+    }
 }
 
 function Remove-ExcludedFromStage {

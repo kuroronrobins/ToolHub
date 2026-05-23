@@ -7,6 +7,7 @@ Planned release layout:
 ```text
 runtime/
 |- python/
+|- envs/
 |- app_envs/
 `- web_automation_runtime/
 ```
@@ -19,5 +20,6 @@ Large runtime artifacts are intentionally not tracked in Git. Place approved loc
 .\scripts\prepare_runtime.ps1 -WebRuntimeArchive <web-runtime.zip> -WebRuntimeSha256 <sha256>
 ```
 
-Default behavior does not download anything from the internet. Normal frozen-folder apps do not require
+Default behavior does not download anything from the internet. Normal shared-env apps store versioned
+runtime environments under `runtime/envs/<env_id>` and do not require
 `runtime/app_envs/<app_id>`; create compatibility skeletons only with `-CreateAppEnvSkeletons`.

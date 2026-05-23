@@ -26,7 +26,7 @@
    - `apps/pdf_workbench/app.yaml` と `apps/app_20251123_excelbatchreplace/app.yaml` が存在することを確認する。
    - 2 件の `requirements.lock` が存在することを確認する。
 2. runtime の前提を確認する。
-   - 両アプリは `python_shared_env` 方式なので、`runtime/envs/<env_id>/Scripts/python.exe` が installer payload に含まれる必要がある。
+   - 両アプリは `python_shared_env` 方式なので、`runtime/python/python.exe` と `runtime/envs/<env_id>/Lib/site-packages` が installer payload に含まれる必要がある。
    - VM 上で Python / pip package を別途導入して動いた場合は、配布検証としては成功扱いにしない。
 3. 開発ツール依存を除外する前提を確認する。
    - VM には Python、Node.js、npm、Rust、cargo、Tauri CLI、pip package を事前導入しない。

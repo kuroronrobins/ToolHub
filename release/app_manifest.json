@@ -6,13 +6,13 @@
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": "python-shared-env:py313-win_amd64-runtime-37c71daf",
-      "sha256": "3632c3f17b10c2a56f831dc16c46bbe286cd245ee55fe0110a80b0efbf28defa",
+      "sha256": "f3bc675ae968db7cdc517a014beb31d4e1d52efc9d3eae4e1ed251b0289e4e04",
       "version": "0.2.0"
     },
     "app_20251123_excelbatchreplace": {
       "version": "0.1.0",
       "package": "app_packs/app_20251123_excelbatchreplace-0.1.0.zip",
-      "sha256": "13b08c6fb65531e636e8422809445a71deea3571543338b5ec2ddaba0e90de5d",
+      "sha256": "e79c6d4a42f3c62e4d04887b1b632302ec0c24317886344e370c0c01df7f4e83",
       "required_core": ">=0.1.0",
       "required_runner": ">=0.1.0",
       "required_runtime": "python-shared-env:py313-win_amd64-pywin32310-dd4d21f1",

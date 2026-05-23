@@ -2,11 +2,12 @@ import { Layers } from "lucide-react";
 
 interface Props {
   categories: string[];
+  counts: Record<string, number>;
   selected: string;
   onSelect: (category: string) => void;
 }
 
-export function CategorySidebar({ categories, selected, onSelect }: Props) {
+export function CategorySidebar({ categories, counts, selected, onSelect }: Props) {
   return (
     <aside className="sidebar" aria-label="カテゴリ">
       <div className="sidebar-title">
@@ -21,7 +22,10 @@ export function CategorySidebar({ categories, selected, onSelect }: Props) {
             className={category === selected ? "category-button active" : "category-button"}
             onClick={() => onSelect(category)}
           >
-            {category}
+            <span className="category-label">{category}</span>
+            <span className="category-count" aria-label={`${category} ${counts[category] ?? 0}件`}>
+              {counts[category] ?? 0}
+            </span>
           </button>
         ))}
       </nav>

@@ -1,20 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Info, RefreshCw, Settings, ShieldCheck } from "lucide-react";
-import { AboutDialog } from "./components/AboutDialog";
+import { AlertCircle, AlertTriangle, CheckCircle2, Download, RefreshCw, ShieldCheck } from "lucide-react";
 import { AdminEntryDialog } from "./components/admin/AdminEntryDialog";
 import { AppDetailDialog } from "./components/AppDetailDialog";
 import { AppGrid } from "./components/AppGrid";
 import { CategorySidebar } from "./components/CategorySidebar";
 import { LaunchProgressDialog } from "./components/LaunchProgressDialog";
 import { SearchBox } from "./components/SearchBox";
-import { SystemInfoDialog } from "./components/SystemInfoDialog";
-import { UpdateNotice } from "./components/UpdateNotice";
 import { UpdateSummaryDialog } from "./components/UpdateSummaryDialog";
-import { ALL_CATEGORY, enabledApps, getCategoryList } from "./lib/appCatalog";
+import { ALL_CATEGORY, enabledApps, getCategoryCounts, getCategoryList } from "./lib/appCatalog";
 import { checkUpdatesRemote, launchApp, listApps } from "./lib/api";
 import { filterApps } from "./lib/search";
 import type { LaunchEvent, RunStatus, ToolApp } from "./lib/types";
 import type { UpdateSummary } from "./lib/updateTypes";
+
+type UpdateStatus = "checking" | "latest" | "available" | "failed";
 
 export default function App() {
   const [apps, setApps] = useState<ToolApp[]>([]);
@@ -27,10 +26,9 @@ export default function App() {
   const [launchEvents, setLaunchEvents] = useState<LaunchEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [aboutOpen, setAboutOpen] = useState(false);
-  const [systemInfoOpen, setSystemInfoOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [updateSummary, setUpdateSummary] = useState<UpdateSummary | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("checking");
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
 
   async function loadCatalog() {
@@ -53,20 +51,27 @@ export default function App() {
   }, []);
 
   async function checkForUpdates() {
+    setUpdateStatus("checking");
     try {
       const summary = await checkUpdatesRemote();
       if (shouldShowUserUpdateNotice(summary)) {
         setUpdateSummary(summary);
+        setUpdateStatus("available");
       } else {
         setUpdateSummary(null);
         setUpdateDialogOpen(false);
+        setUpdateStatus("latest");
       }
     } catch (error) {
+      setUpdateSummary(null);
+      setUpdateDialogOpen(false);
+      setUpdateStatus("failed");
       console.error(error);
     }
   }
 
   const categories = useMemo(() => getCategoryList(apps), [apps]);
+  const categoryCounts = useMemo(() => getCategoryCounts(apps), [apps]);
   const visibleApps = useMemo(() => filterApps(apps, query, category), [apps, category, query]);
   const isFiltered = query.trim().length > 0 || category !== ALL_CATEGORY;
   const visibleUpdateSummary = updateDialogOpen ? updateSummary : null;
@@ -89,6 +94,14 @@ export default function App() {
     }
   }
 
+  function handleUpdateStatusClick() {
+    if (shouldShowUserUpdateNotice(updateSummary)) {
+      setUpdateDialogOpen(true);
+      return;
+    }
+    void checkForUpdates();
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -96,19 +109,20 @@ export default function App() {
           <h1>ToolHub</h1>
           <p>利用する業務アプリを選択してください。</p>
         </div>
-        <div className="topbar-actions">
-          <button className="secondary-button refresh-button" type="button" onClick={() => void loadCatalog()} title="アプリ一覧を更新">
-            <RefreshCw size={18} aria-hidden="true" />
-            更新
+        <div className="topbar-actions" aria-label="ToolHubの状態と管理">
+          <button
+            className={`update-status-button ${updateStatusTone(updateStatus, updateSummary)}`}
+            type="button"
+            onClick={handleUpdateStatusClick}
+            disabled={updateStatus === "checking"}
+            title={updateStatusTitle(updateStatus, updateSummary)}
+          >
+            {renderUpdateStatusIcon(updateStatus, updateSummary)}
+            <span>{updateStatusLabel(updateStatus, updateSummary)}</span>
           </button>
-          <button className="icon-button" type="button" onClick={() => setAboutOpen(true)} title="ToolHubについて">
-            <Info size={19} aria-hidden="true" />
-          </button>
-          <button className="icon-button" type="button" onClick={() => setSystemInfoOpen(true)} title="システム情報">
-            <Settings size={19} aria-hidden="true" />
-          </button>
-          <button className="icon-button" type="button" onClick={() => setAdminOpen(true)} title="管理者画面">
+          <button className="secondary-button admin-entry-button" type="button" onClick={() => setAdminOpen(true)} title="管理者画面">
             <ShieldCheck size={19} aria-hidden="true" />
+            管理者
           </button>
         </div>
       </header>
@@ -116,12 +130,6 @@ export default function App() {
       <div className="search-row">
         <SearchBox value={query} onChange={setQuery} />
       </div>
-
-      <UpdateNotice
-        summary={updateSummary}
-        onOpen={() => setUpdateDialogOpen(true)}
-        onDismiss={() => setUpdateSummary(null)}
-      />
 
       {loadError ? (
         <div className="inline-alert" role="alert">
@@ -131,9 +139,13 @@ export default function App() {
       ) : null}
 
       <main className="content-layout">
-        <CategorySidebar categories={categories} selected={category} onSelect={setCategory} />
+        <CategorySidebar categories={categories} counts={categoryCounts} selected={category} onSelect={setCategory} />
         <section className="workspace">
           <div className="workspace-head">
+            <button className="secondary-button workspace-refresh-button" type="button" onClick={() => void loadCatalog()} disabled={loading}>
+              <RefreshCw size={16} aria-hidden="true" />
+              アプリ一覧更新
+            </button>
             <p>{loading ? "読み込み中" : `${visibleApps.length} 件`}</p>
           </div>
           {loading ? (
@@ -145,8 +157,6 @@ export default function App() {
       </main>
 
       <AppDetailDialog app={selectedApp} onClose={() => setSelectedApp(null)} />
-      <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
-      <SystemInfoDialog open={systemInfoOpen} onClose={() => setSystemInfoOpen(false)} />
       <AdminEntryDialog open={adminOpen} onClose={() => setAdminOpen(false)} />
       <UpdateSummaryDialog summary={visibleUpdateSummary} onClose={() => setUpdateDialogOpen(false)} />
       <LaunchProgressDialog
@@ -166,4 +176,50 @@ export default function App() {
 
 function shouldShowUserUpdateNotice(summary: UpdateSummary | null): summary is UpdateSummary {
   return summary?.status === "update_available";
+}
+
+function updateStatusTone(status: UpdateStatus, summary: UpdateSummary | null): string {
+  if (shouldShowUserUpdateNotice(summary)) {
+    return "available";
+  }
+  return status;
+}
+
+function updateStatusLabel(status: UpdateStatus, summary: UpdateSummary | null): string {
+  if (shouldShowUserUpdateNotice(summary)) {
+    return "更新候補あり";
+  }
+  switch (status) {
+    case "checking":
+      return "確認中";
+    case "failed":
+      return "更新確認失敗";
+    case "latest":
+    case "available":
+    default:
+      return "最新";
+  }
+}
+
+function updateStatusTitle(status: UpdateStatus, summary: UpdateSummary | null): string {
+  if (shouldShowUserUpdateNotice(summary)) {
+    return "更新候補の詳細を確認";
+  }
+  if (status === "failed") {
+    return "更新状態を再確認";
+  }
+  return "更新状態を確認";
+}
+
+function renderUpdateStatusIcon(status: UpdateStatus, summary: UpdateSummary | null) {
+  if (shouldShowUserUpdateNotice(summary)) {
+    return <Download size={17} aria-hidden="true" />;
+  }
+  if (status === "checking") {
+    return <RefreshCw size={17} aria-hidden="true" />;
+  }
+  if (status === "failed") {
+    return <AlertTriangle size={17} aria-hidden="true" />;
+  }
+  return <CheckCircle2 size={17} aria-hidden="true" />;
 }

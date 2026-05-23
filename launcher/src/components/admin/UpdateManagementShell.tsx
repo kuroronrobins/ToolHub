@@ -97,8 +97,8 @@ export function UpdateManagementShell() {
     <section className="admin-panel-section">
       <div className="admin-section-head">
         <div>
-          <p className="dialog-kicker">更新管理</p>
-          <h3>配布と更新の確認</h3>
+          <p className="dialog-kicker">配布と更新</p>
+          <h3>更新確認とインストーラー管理</h3>
         </div>
         <span className="admin-status-pill">Shell</span>
       </div>

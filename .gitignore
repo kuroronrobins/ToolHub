@@ -1,15 +1,20 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+GitUp Manager.exe
+_app_data.json
 node_modules/
 launcher/dist/
 launcher/src-tauri/target/
 launcher/src-tauri/gen/
+config/*
+!config/.gitkeep
 data/logs/**/*.log
 data/logs/**/*.json
 data/logs/app_studio/
 data/test_tmp/
 data/tmp_tests/
+data/tmp_validation/
 backups/app_studio/
 release/app_packs/*
 !release/app_packs/.gitkeep
@@ -34,3 +39,7 @@ runtime/web_automation_runtime/*
 vendor/runtime/
 tools/runtime_sources/
 apps/*/bin/
+apps/*/src/assets/payload/
+apps/*/build_profile.json
+apps/*/exe_readiness.json
+scripts/beta_vm/テスト/

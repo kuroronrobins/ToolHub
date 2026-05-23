@@ -7,7 +7,8 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
-$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$Root = Join-Path ([System.IO.Path]::GetTempPath()) ("toolhub_delete_rehearsal_{0}" -f ([System.Guid]::NewGuid().ToString("N")))
 $AppId = "delete_rehearsal_app"
 $Version = "0.1.0"
 $AppsDir = Join-Path $Root "apps"
@@ -48,8 +49,10 @@ function Remove-TestPath {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) { return }
     $Full = [System.IO.Path]::GetFullPath($Path)
-    if (-not $Full.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to clean path outside repository: $Full"
+    $RootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd([char[]]@("\", "/"))
+    $AllowedPrefix = $RootFull + [System.IO.Path]::DirectorySeparatorChar
+    if (-not ($Full -eq $RootFull -or $Full.StartsWith($AllowedPrefix, [System.StringComparison]::OrdinalIgnoreCase))) {
+        throw "Refusing to clean path outside fixture root: $Full"
     }
     if (Test-Path -LiteralPath $Full) {
         Remove-Item -LiteralPath $Full -Recurse -Force
@@ -69,16 +72,19 @@ function Invoke-ValidationCommand {
     }
 }
 
-foreach ($Path in @($AppDir, $AppPackPath, $StrictStagingDir, $StrictVersionStaging, $AmbiguousStagingDir, $RuntimeAppEnv, $BackupStampDir, $LifecycleBackupStampDir)) {
-    if (Test-Path -LiteralPath $Path) {
-        throw "Rehearsal path already exists; refusing to overwrite: $Path"
-    }
-}
-
-$OriginalManifestBytes = [System.IO.File]::ReadAllBytes($ManifestPath)
-$OriginalManifest = [System.Text.Encoding]::UTF8.GetString($OriginalManifestBytes)
-
 try {
+    foreach ($Path in @($AppsDir, $ReleaseDir, (Join-Path $ReleaseDir "app_packs"), (Join-Path $ReleaseDir "staging"), (Join-Path (Join-Path $Root "runtime") "app_envs"), (Join-Path (Join-Path $Root "backups") "app_studio"), (Join-Path (Join-Path $Root "backups") "app_lifecycle"))) {
+        New-Item -ItemType Directory -Force -Path $Path | Out-Null
+    }
+
+    $BaseManifest = [pscustomobject]@{
+        schema_version = 1
+        channel = "test"
+        apps = [pscustomobject]@{}
+    }
+    [System.IO.File]::WriteAllText($ManifestPath, (($BaseManifest | ConvertTo-Json -Depth 20) + "`n"), [System.Text.UTF8Encoding]::new($false))
+    $OriginalManifest = Get-Content -Raw -Encoding UTF8 $ManifestPath
+
     Write-TextFile -Path (Join-Path $AppDir "app.yaml") -Text @"
 id: $AppId
 name: Delete Rehearsal App
@@ -115,7 +121,7 @@ build:
     })
     [System.IO.File]::WriteAllText($ManifestPath, ($Manifest | ConvertTo-Json -Depth 20), [System.Text.UTF8Encoding]::new($false))
 
-    $PlanJson = (& (Join-Path $PSScriptRoot "plan_app_delete.ps1") -AppId $AppId -DryRun -Json) | Out-String
+    $PlanJson = (& (Join-Path $PSScriptRoot "plan_app_delete.ps1") -AppId $AppId -ProjectRoot $Root -DryRun -Json) | Out-String
     $Plan = $PlanJson | ConvertFrom-Json
     $DeleteTargets = @($Plan.delete_targets)
     $ExcludedTargets = @($Plan.excluded_targets)
@@ -140,10 +146,7 @@ build:
     Assert-True (@($ExcludedTargets | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.normalized_path) -or [string]::IsNullOrWhiteSpace([string]$_.comparison_key) }).Count -eq 0) "excluded targets have comparison fields"
 }
 finally {
-    [System.IO.File]::WriteAllBytes($ManifestPath, $OriginalManifestBytes)
-    foreach ($Path in @($AppDir, $AppPackPath, $StrictStagingDir, $StrictVersionStaging, $AmbiguousStagingDir, $RuntimeAppEnv, $BackupStampDir, $LifecycleBackupStampDir)) {
-        Remove-TestPath $Path
-    }
+    Remove-TestPath $Root
 }
 
 Write-Host "Delete rehearsal completed. No files were deleted by a full-delete command."
