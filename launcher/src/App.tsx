@@ -6,14 +6,17 @@ import { AppGrid } from "./components/AppGrid";
 import { CategorySidebar } from "./components/CategorySidebar";
 import { LaunchProgressDialog } from "./components/LaunchProgressDialog";
 import { SearchBox } from "./components/SearchBox";
+import { UpdateNotice } from "./components/UpdateNotice";
 import { UpdateSummaryDialog } from "./components/UpdateSummaryDialog";
 import { ALL_CATEGORY, enabledApps, getCategoryCounts, getCategoryList } from "./lib/appCatalog";
 import { checkUpdatesRemote, launchApp, listApps } from "./lib/api";
 import { filterApps } from "./lib/search";
 import type { LaunchEvent, RunStatus, ToolApp } from "./lib/types";
 import type { UpdateSummary } from "./lib/updateTypes";
+import { shouldShowUserUpdateNotice, updateNoticeKey } from "./lib/updateNotice";
 
 type UpdateStatus = "checking" | "latest" | "available" | "failed";
+const UPDATE_NOTICE_DISMISSED_KEY = "toolhub.updateNotice.dismissedKey";
 
 export default function App() {
   const [apps, setApps] = useState<ToolApp[]>([]);
@@ -30,6 +33,7 @@ export default function App() {
   const [updateSummary, setUpdateSummary] = useState<UpdateSummary | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("checking");
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const [dismissedUpdateKey, setDismissedUpdateKey] = useState(() => readDismissedUpdateKey());
 
   async function loadCatalog() {
     setLoading(true);
@@ -75,6 +79,8 @@ export default function App() {
   const visibleApps = useMemo(() => filterApps(apps, query, category), [apps, category, query]);
   const isFiltered = query.trim().length > 0 || category !== ALL_CATEGORY;
   const visibleUpdateSummary = updateDialogOpen ? updateSummary : null;
+  const activeUpdateKey = updateNoticeKey(updateSummary);
+  const showUpdateNotice = shouldShowUserUpdateNotice(updateSummary) && activeUpdateKey !== dismissedUpdateKey;
 
   async function handleLaunch(app: ToolApp) {
     setLaunchAppTarget(app);
@@ -102,6 +108,13 @@ export default function App() {
     void checkForUpdates();
   }
 
+  function handleDismissUpdateNotice() {
+    if (activeUpdateKey) {
+      setDismissedUpdateKey(activeUpdateKey);
+      writeDismissedUpdateKey(activeUpdateKey);
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -126,6 +139,12 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      <UpdateNotice
+        summary={showUpdateNotice ? updateSummary : null}
+        onOpen={() => setUpdateDialogOpen(true)}
+        onDismiss={handleDismissUpdateNotice}
+      />
 
       <div className="search-row">
         <SearchBox value={query} onChange={setQuery} />
@@ -174,8 +193,20 @@ export default function App() {
   );
 }
 
-function shouldShowUserUpdateNotice(summary: UpdateSummary | null): summary is UpdateSummary {
-  return summary?.status === "update_available";
+function readDismissedUpdateKey(): string | null {
+  try {
+    return window.sessionStorage.getItem(UPDATE_NOTICE_DISMISSED_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeDismissedUpdateKey(value: string) {
+  try {
+    window.sessionStorage.setItem(UPDATE_NOTICE_DISMISSED_KEY, value);
+  } catch {
+    // The banner is still dismissible in memory when WebView storage is unavailable.
+  }
 }
 
 function updateStatusTone(status: UpdateStatus, summary: UpdateSummary | null): string {

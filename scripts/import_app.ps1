@@ -17,6 +17,7 @@ param(
     [switch]$RebuildFrozenFolder,
     [switch]$SkipFrozenBuild,
     [switch]$VerifyRuntime,
+    [switch]$ShowTerminal,
     [switch]$DryRun,
     [switch]$Suggest,
     [switch]$Apply
@@ -71,6 +72,7 @@ try {
     if ($Version) { $ArgsList += @("--version", $Version) }
     if ($IconPrompt) { $ArgsList += @("--icon-prompt", $IconPrompt) }
     if ($IconPng) { $ArgsList += @("--icon-png", $IconPng) }
+    if ($ShowTerminal) { $ArgsList += "--show-terminal" }
     if ($DryRun) { $ArgsList += "--dry-run" }
     if ($Suggest) { $ArgsList += "--suggest" }
     if ($Apply) { $ArgsList += "--apply" }

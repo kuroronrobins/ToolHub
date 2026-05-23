@@ -59,6 +59,11 @@ class AppStudioTests(unittest.TestCase):
         self.assertFalse(args.rebuild_app_env)
         self.assertFalse(args.skip_app_env_build)
 
+    def test_show_terminal_flag_is_parsed_for_registration(self) -> None:
+        args = parse_app_studio_args(["--entry", "main.py", "--show-terminal", "--suggest"])
+
+        self.assertTrue(args.show_terminal)
+
     def test_normal_registration_policy_rejects_existing_exe_entry(self) -> None:
         args = parse_app_studio_args(["--entry", "tool.exe", "--apply"])
 
@@ -290,6 +295,32 @@ class AppStudioTests(unittest.TestCase):
             self.assertEqual(data["runtime"]["requirements_lock"], "requirements.lock")
             self.assertEqual(data["build"]["managed_by"], "toolhub_app_studio")
             self.assertEqual(data["build"]["build_mode"], "shared-env")
+
+    def test_manifest_generator_emits_terminal_visibility_only_when_requested(self) -> None:
+        with workspace_tempdir() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            (repo / "apps").mkdir(parents=True)
+            (repo / "release").mkdir()
+            (repo / "runner").mkdir()
+            source = root / "source"
+            source.mkdir()
+            entry = source / "main.py"
+            entry.write_text("input('go')\n", encoding="utf-8")
+
+            hidden_context = create_context(ImportOptions(entry=entry, action="suggest", app_id="demo_app", name="Demo App"), repo)
+            visible_context = create_context(
+                ImportOptions(entry=entry, action="suggest", app_id="demo_app", name="Demo App", show_terminal=True),
+                repo,
+            )
+            inventory = classify_files(visible_context)
+            plan = make_build_plan(visible_context, inventory)
+
+            hidden_yaml = generate_app_yaml(hidden_context, plan, {"short_description": "demo", "description": "demo", "categories": ["demo"]})
+            visible_yaml = generate_app_yaml(visible_context, plan, {"short_description": "demo", "description": "demo", "categories": ["demo"]})
+
+            self.assertNotIn("show_terminal", hidden_yaml)
+            self.assertIn("show_terminal: true", visible_yaml)
 
     def test_manifest_generator_prefers_gui_signal_over_argparse(self) -> None:
         with workspace_tempdir() as temp:

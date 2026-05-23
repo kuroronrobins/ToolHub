@@ -81,6 +81,7 @@ pub struct UpdateDownloadResult {
 pub struct UpdateLaunchRequest {
     pub cache_path: String,
     pub expected_sha256: String,
+    pub target_version: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -91,6 +92,8 @@ pub struct UpdateLaunchResult {
     pub message: String,
     pub failure_reason: Option<String>,
     pub checked_at: String,
+    pub current_version: String,
+    pub target_version: Option<String>,
     pub cache_path: String,
     pub source_kind: String,
     pub expected_sha256: String,
@@ -228,7 +231,7 @@ pub fn check_updates_mvp() -> Result<UpdateSummary, String> {
         title,
         message,
         status: status.to_string(),
-        current_version,
+        current_version: current_version.clone(),
         local_manifest_version,
         update_source_configured,
         update_source_url: update_source_url.clone(),
@@ -246,7 +249,7 @@ pub fn check_updates_mvp() -> Result<UpdateSummary, String> {
         installer_sha256: None,
         installer_size: None,
         update_cache_path: Some(update_cache_dir().display().to_string()),
-        last_update_result: read_last_update_result(),
+        last_update_result: read_last_update_result_for_current_version(&current_version),
         core,
         runner,
         apps,
@@ -284,7 +287,7 @@ pub fn check_updates_remote() -> Result<UpdateSummary, String> {
     let update_source_url = config_lookup.source_url.clone();
     let update_source_configured = update_source_url.is_some();
     let update_cache_path = update_cache_dir();
-    let last_update_result = read_last_update_result();
+    let last_update_result = read_last_update_result_for_current_version(&current_version);
 
     let Some(remote_manifest_url) = update_source_url.clone() else {
         return Ok(UpdateSummary {
@@ -343,7 +346,7 @@ pub fn check_updates_remote() -> Result<UpdateSummary, String> {
                 title: "更新情報を取得できませんでした".to_string(),
                 message,
                 status,
-                current_version,
+                current_version: current_version.clone(),
                 local_manifest_version,
                 update_source_configured,
                 update_source_url,
@@ -361,7 +364,7 @@ pub fn check_updates_remote() -> Result<UpdateSummary, String> {
                 installer_sha256: None,
                 installer_size: None,
                 update_cache_path: Some(update_cache_path.display().to_string()),
-                last_update_result: read_last_update_result(),
+                last_update_result: read_last_update_result_for_current_version(&current_version),
                 core: None,
                 runner: None,
                 apps: Vec::new(),
@@ -461,7 +464,7 @@ pub fn check_updates_remote() -> Result<UpdateSummary, String> {
         title: title.to_string(),
         message: message.to_string(),
         status: status.to_string(),
-        current_version,
+        current_version: current_version.clone(),
         local_manifest_version,
         update_source_configured,
         update_source_url,
@@ -479,7 +482,7 @@ pub fn check_updates_remote() -> Result<UpdateSummary, String> {
         installer_sha256,
         installer_size,
         update_cache_path: Some(update_cache_path.display().to_string()),
-        last_update_result: read_last_update_result(),
+        last_update_result: read_last_update_result_for_current_version(&current_version),
         core,
         runner,
         apps,
@@ -634,12 +637,21 @@ pub fn launch_verified_update_installer(
 ) -> Result<UpdateLaunchResult, String> {
     let checked_at = Utc::now().to_rfc3339();
     let expected_sha256 = request.expected_sha256.trim().to_ascii_lowercase();
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let target_version = request
+        .target_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     let mut result = UpdateLaunchResult {
         ok: false,
         status: "not_started".to_string(),
         message: String::new(),
         failure_reason: None,
         checked_at,
+        current_version,
+        target_version,
         cache_path: request.cache_path.clone(),
         source_kind: "update_cache".to_string(),
         expected_sha256: expected_sha256.clone(),
@@ -718,7 +730,9 @@ pub fn launch_verified_update_installer(
 
 #[tauri::command]
 pub fn get_update_result_log() -> Result<Option<Value>, String> {
-    Ok(read_last_update_result())
+    Ok(read_last_update_result_for_current_version(env!(
+        "CARGO_PKG_VERSION"
+    )))
 }
 
 fn read_json_file(path: &Path, label: &str, notes: &mut Vec<String>) -> Option<Value> {
@@ -1087,6 +1101,13 @@ fn update_cache_dir() -> PathBuf {
 }
 
 fn validate_installer_cache_path(path: &Path) -> Result<PathBuf, UpdateSafetyError> {
+    validate_installer_cache_path_with_cache_dir(path, &update_cache_dir())
+}
+
+fn validate_installer_cache_path_with_cache_dir(
+    path: &Path,
+    cache_dir: &Path,
+) -> Result<PathBuf, UpdateSafetyError> {
     if !path.is_file() {
         return Err(UpdateSafetyError {
             status: "installer_missing".to_string(),
@@ -1099,13 +1120,12 @@ fn validate_installer_cache_path(path: &Path) -> Result<PathBuf, UpdateSafetyErr
         reason: "installer_path_canonicalize_failed".to_string(),
         message: format!("Installer path could not be resolved: {error}"),
     })?;
-    let cache_dir = update_cache_dir();
-    fs::create_dir_all(&cache_dir).map_err(|error| UpdateSafetyError {
+    fs::create_dir_all(cache_dir).map_err(|error| UpdateSafetyError {
         status: "update_cache_unavailable".to_string(),
         reason: "update_cache_create_failed".to_string(),
         message: format!("update_cache directory could not be prepared: {error}"),
     })?;
-    let canonical_cache = fs::canonicalize(&cache_dir).map_err(|error| UpdateSafetyError {
+    let canonical_cache = fs::canonicalize(cache_dir).map_err(|error| UpdateSafetyError {
         status: "update_cache_unavailable".to_string(),
         reason: "update_cache_canonicalize_failed".to_string(),
         message: format!("update_cache directory could not be resolved: {error}"),
@@ -1173,6 +1193,65 @@ fn write_update_result_log<T: Serialize>(operation: &str, result: &T) -> Result<
 fn read_last_update_result() -> Option<Value> {
     let text = fs::read_to_string(update_result_latest_path()).ok()?;
     serde_json::from_str(&text).ok()
+}
+
+fn read_last_update_result_for_current_version(current_version: &str) -> Option<Value> {
+    read_last_update_result().map(|value| annotate_last_update_result(value, current_version))
+}
+
+fn annotate_last_update_result(mut value: Value, current_version: &str) -> Value {
+    if value.get("operation").and_then(Value::as_str) != Some("launch") {
+        return value;
+    }
+
+    let Some(result) = value.get_mut("result").and_then(Value::as_object_mut) else {
+        return value;
+    };
+    let launch_status = result
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let Some(target_version) = result
+        .get("targetVersion")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|version| !version.is_empty())
+        .map(str::to_string)
+    else {
+        return value;
+    };
+
+    result.insert(
+        "observedCurrentVersion".to_string(),
+        json!(current_version.to_string()),
+    );
+
+    if launch_status != "launched" {
+        result.insert("postUpdateStatus".to_string(), json!("not_launched"));
+        result.insert(
+            "postUpdateMessage".to_string(),
+            json!("前回の更新インストーラーは完了状態では記録されていません。"),
+        );
+        return value;
+    }
+
+    let version_confirmed = current_version == target_version.as_str()
+        || version_is_newer(current_version, &target_version);
+    if version_confirmed {
+        result.insert("postUpdateStatus".to_string(), json!("version_confirmed"));
+        result.insert(
+            "postUpdateMessage".to_string(),
+            json!("前回起動した更新インストーラーの対象version以上で起動しています。"),
+        );
+    } else {
+        result.insert("postUpdateStatus".to_string(), json!("version_pending"));
+        result.insert(
+            "postUpdateMessage".to_string(),
+            json!("前回の更新インストーラーは起動済みですが、現在のToolHub versionはまだ対象versionに到達していません。"),
+        );
+    }
+    value
 }
 
 fn sha256_file(path: &Path) -> Result<String, String> {
@@ -1316,6 +1395,29 @@ fn parse_version(value: &str) -> Vec<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn update_safety_test_dir(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after UNIX_EPOCH")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "toolhub_update_safety_{}_{}_{}",
+            name,
+            std::process::id(),
+            stamp
+        ));
+        fs::create_dir_all(&dir).expect("test dir should be creatable");
+        dir
+    }
+
+    fn write_test_file(path: &Path, content: &[u8]) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("test parent should be creatable");
+        }
+        fs::write(path, content).expect("test file should be writable");
+    }
 
     #[test]
     fn safe_installer_file_name_accepts_toolhub_setup_from_url() {
@@ -1360,6 +1462,164 @@ mod tests {
         assert_eq!(
             sanitize_url_for_log("https://example.test/manifest.json?token=secret#section"),
             "https://example.test/manifest.json"
+        );
+    }
+
+    #[test]
+    fn update_safety_fetch_source_rejects_http_before_write() {
+        let dir = update_safety_test_dir("http_reject");
+        let destination = dir.join("downloaded.bin");
+
+        let error = fetch_source_to_file(
+            &dir,
+            "http://example.test/ToolHub_Setup_9.9.9.exe",
+            &destination,
+        )
+        .expect_err("http:// must be rejected before download");
+
+        assert!(error.contains("http:// update sources are not allowed"));
+        assert!(
+            !destination.exists(),
+            "blocked http source must not create destination"
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn update_safety_fetch_source_copies_local_file_fixture() {
+        let dir = update_safety_test_dir("local_copy");
+        let source = dir.join("fixture.bin");
+        let destination = dir.join("nested").join("downloaded.bin");
+        write_test_file(&source, b"fixture bytes");
+
+        fetch_source_to_file(&dir, source.to_str().expect("utf8 temp path"), &destination)
+            .expect("local file fixture should be copied");
+
+        assert_eq!(
+            fs::read(&destination).expect("downloaded fixture should be readable"),
+            b"fixture bytes"
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn update_safety_fetch_source_rejects_unsupported_scheme() {
+        let dir = update_safety_test_dir("unsupported_scheme");
+        let destination = dir.join("downloaded.bin");
+
+        let error = fetch_source_to_file(
+            &dir,
+            "ftp://example.test/ToolHub_Setup_9.9.9.exe",
+            &destination,
+        )
+        .expect_err("unsupported URL schemes must be rejected");
+
+        assert!(error.contains("unsupported update source scheme"));
+        assert!(!destination.exists());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn update_safety_resolve_installer_url_uses_manifest_relative_asset() {
+        let root = PathBuf::from(r"C:\toolhub");
+
+        let remote = resolve_installer_url(
+            &root,
+            "https://example.test/releases/latest/download/manifest.json",
+            None,
+            Some("ToolHub_Setup_9.9.9.exe"),
+        )
+        .expect("relative remote asset should resolve against manifest URL");
+
+        assert_eq!(
+            remote,
+            "https://example.test/releases/latest/download/ToolHub_Setup_9.9.9.exe"
+        );
+
+        let local = resolve_installer_url(
+            &root,
+            "release/manifest.json",
+            None,
+            Some("ToolHub_Setup_9.9.9.exe"),
+        )
+        .expect("relative local asset should resolve against manifest file");
+        assert!(
+            local.ends_with("release\\ToolHub_Setup_9.9.9.exe")
+                || local.ends_with("release/ToolHub_Setup_9.9.9.exe")
+        );
+    }
+
+    #[test]
+    fn update_safety_validate_cache_path_accepts_toolhub_setup_inside_cache() {
+        let dir = update_safety_test_dir("cache_accept");
+        let cache_dir = dir.join("update_cache");
+        let installer = cache_dir.join("ToolHub_Setup_9.9.9.exe");
+        write_test_file(&installer, b"installer bytes");
+
+        let validated = validate_installer_cache_path_with_cache_dir(&installer, &cache_dir)
+            .expect("ToolHub_Setup exe inside update_cache should be accepted");
+
+        assert_eq!(
+            validated,
+            fs::canonicalize(&installer).expect("installer should canonicalize")
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn update_safety_validate_cache_path_rejects_outside_cache() {
+        let dir = update_safety_test_dir("cache_outside");
+        let cache_dir = dir.join("update_cache");
+        let outside = dir.join("outside").join("ToolHub_Setup_9.9.9.exe");
+        write_test_file(&outside, b"installer bytes");
+
+        let error = validate_installer_cache_path_with_cache_dir(&outside, &cache_dir)
+            .expect_err("installer outside update_cache must be rejected");
+
+        assert_eq!(error.reason, "installer_path_outside_update_cache");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn update_safety_validate_cache_path_rejects_bad_name_inside_cache() {
+        let dir = update_safety_test_dir("cache_bad_name");
+        let cache_dir = dir.join("update_cache");
+        let installer = cache_dir.join("Other_Setup.exe");
+        write_test_file(&installer, b"installer bytes");
+
+        let error = validate_installer_cache_path_with_cache_dir(&installer, &cache_dir)
+            .expect_err("non ToolHub_Setup installer must be rejected");
+
+        assert_eq!(error.reason, "installer_name_not_toolhub_setup");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn update_safety_annotates_launched_result_after_version_change() {
+        let value = json!({
+            "operation": "launch",
+            "result": {
+                "status": "launched",
+                "targetVersion": "9.9.9"
+            }
+        });
+
+        let pending = annotate_last_update_result(value.clone(), "0.1.0");
+        assert_eq!(
+            pending
+                .get("result")
+                .and_then(|result| result.get("postUpdateStatus"))
+                .and_then(Value::as_str),
+            Some("version_pending")
+        );
+
+        let confirmed = annotate_last_update_result(value, "9.9.9");
+        assert_eq!(
+            confirmed
+                .get("result")
+                .and_then(|result| result.get("postUpdateStatus"))
+                .and_then(Value::as_str),
+            Some("version_confirmed")
         );
     }
 }

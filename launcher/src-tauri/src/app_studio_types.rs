@@ -17,6 +17,8 @@ pub struct AppStudioImportRequest {
     pub metadata: Option<AppStudioEditableMetadata>,
     pub icon_override: Option<AppStudioIconOverride>,
     pub build_profile: Option<Value>,
+    #[serde(default)]
+    pub show_terminal: bool,
     pub create_app_env: bool,
     pub rebuild_app_env: bool,
     pub generate_lock: bool,
@@ -40,6 +42,8 @@ pub struct AppStudioUpdateRequest {
     pub metadata: Option<AppStudioEditableMetadata>,
     pub icon_override: Option<AppStudioIconOverride>,
     pub build_profile: Option<Value>,
+    #[serde(default)]
+    pub show_terminal: bool,
     pub create_app_env: bool,
     pub rebuild_app_env: bool,
     pub generate_lock: bool,
@@ -310,6 +314,110 @@ pub struct AppStudioAiDiagnostics {
     pub message: String,
 }
 
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioPublishCheck {
+    pub id: String,
+    pub status: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioPublishAsset {
+    pub name: String,
+    pub source_path: Option<String>,
+    pub target_path: String,
+    pub source_exists: bool,
+    pub target_exists: bool,
+    pub source_sha256: Option<String>,
+    pub target_sha256: Option<String>,
+    pub source_size: Option<u64>,
+    pub target_size: Option<u64>,
+    pub generated: bool,
+    pub upload: bool,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioPublishPreflightResult {
+    pub ok: bool,
+    pub generated_at: String,
+    pub repo_root: String,
+    pub release_dir: String,
+    pub release_target_dir: String,
+    pub release_target_manifest_path: String,
+    pub branch: Option<String>,
+    pub remote_name: String,
+    pub remote_url: Option<String>,
+    pub github_owner: Option<String>,
+    pub github_repo: Option<String>,
+    pub version: Option<String>,
+    pub tag: Option<String>,
+    pub release_url: Option<String>,
+    pub latest_manifest_url: Option<String>,
+    pub tag_manifest_url: Option<String>,
+    pub update_manifest_url: Option<String>,
+    pub manifest_path: String,
+    pub app_manifest_path: String,
+    pub installer_file: Option<String>,
+    pub installer_path: Option<String>,
+    pub installer_exists: bool,
+    pub installer_sha256: Option<String>,
+    pub manifest_installer_sha256: Option<String>,
+    pub installer_size: Option<u64>,
+    pub manifest_installer_size: Option<u64>,
+    pub release_target_assets: Vec<AppStudioPublishAsset>,
+    pub dirty_files: Vec<String>,
+    pub dirty_release_files: Vec<String>,
+    pub dirty_runtime_data_files: Vec<String>,
+    pub dirty_source_files: Vec<String>,
+    pub dirty_other_files: Vec<String>,
+    pub readiness_summary: Option<Value>,
+    pub beta_ready_blockers: usize,
+    pub beta_ready_warnings: usize,
+    pub beta_ready_manual_checks: usize,
+    pub beta_ready_future_formal_only: usize,
+    pub checks: Vec<AppStudioPublishCheck>,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioPublishRunResult {
+    pub ok: bool,
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub command_line: String,
+    pub started_at: String,
+    pub finished_at: String,
+    pub process_wall_clock_seconds: f64,
+    pub user_message: String,
+    pub report: Option<Value>,
+    pub preflight: AppStudioPublishPreflightResult,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioPublishRemoteVerifyRequest {
+    pub manifest_url: Option<String>,
+    pub expected_version: Option<String>,
+    pub download_installer: bool,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioPublishRequest {
+    pub confirm_publish: bool,
+    pub allow_dirty: bool,
+    pub allow_existing_release: bool,
+    pub update_manifest_installer_url: bool,
+    pub draft: bool,
+    pub prerelease: bool,
+    pub download_installer_for_remote_verify: bool,
+    pub release_notes: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -356,6 +464,20 @@ mod tests {
         );
         assert!(request.generate_lock);
         assert!(!request.build_frozen_folder);
+        assert!(!request.show_terminal);
+
+        let terminal_request: AppStudioImportRequest = serde_json::from_value(json!({
+            "entry": "C:/apps/demo/main.py",
+            "buildMode": "shared-env",
+            "showTerminal": true,
+            "createAppEnv": false,
+            "rebuildAppEnv": false,
+            "generateLock": true,
+            "buildFrozenFolder": false,
+            "verifyRuntime": true
+        }))
+        .expect("terminal flag should deserialize");
+        assert!(terminal_request.show_terminal);
     }
 
     #[test]

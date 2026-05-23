@@ -25,6 +25,7 @@ def create_context(options: ImportOptions, repo_root: Path) -> StudioContext:
         requested_build_mode=options.build_mode,
         build_mode=options.build_mode,
         version=options.version,
+        show_terminal=options.show_terminal,
     )
 
 

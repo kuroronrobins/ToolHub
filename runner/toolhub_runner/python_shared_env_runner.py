@@ -54,6 +54,8 @@ class PythonSharedEnvRunner(BaseRunner):
         env = build_app_env(self.project_root, self.manifest)
         self.apply_shared_env_path(env, python, env_root, site_packages)
         cwd = entry.parent
+        if self.manifest.run.show_terminal:
+            return self.start_visible_terminal(command, env, cwd=cwd)
         if self.manifest.run.mode == "gui":
             return self.start_detached(command, env, cwd=cwd)
         return self.run_blocking(command, env, cwd=cwd)

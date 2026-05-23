@@ -8,10 +8,11 @@ import subprocess
 from typing import Any
 
 from .app_contract import detect_frozen_subprocess_module_risks, smoke_flags_in_source, source_has_gui_signal
+from .app_pack_contract import app_relative_path, app_yaml_run_entry
 from .models import BuildPlan, RuntimeCheck, RuntimeCheckResult, StudioContext
 from .payload_policy import is_forbidden_packaged_payload, should_exclude_payload_path
 from .trace import planned_build_env_path, trace_with_import_plan
-from .util import write_json, write_text
+from .util import file_sha256, write_json, write_text
 
 
 APPROVAL_BLOCKING_WARNING = "approval_blocking_warning"
@@ -691,11 +692,13 @@ def overall_status(checks: list[RuntimeCheck]) -> str:
 
 def build_runtime_result(context: StudioContext, output_dir: Path, checks: list[RuntimeCheck]) -> RuntimeCheckResult:
     summary = runtime_approval_summary(checks)
+    evidence = trace_with_import_plan(context, output_dir)
+    evidence.update(final_app_run_entry_evidence(output_dir))
     return RuntimeCheckResult(
         context.app_id,
         overall_status(checks),
         checks,
-        trace_with_import_plan(context, output_dir),
+        evidence,
         approval_blocking_warnings_count=summary["approval_blocking_warnings_count"],
         non_blocking_warnings_count=summary["non_blocking_warnings_count"],
         info_count=summary["info_count"],
@@ -703,6 +706,24 @@ def build_runtime_result(context: StudioContext, output_dir: Path, checks: list[
         approval_blocking_reasons=summary["approval_blocking_reasons"],
         non_blocking_warning_summaries=summary["non_blocking_warning_summaries"],
     )
+
+
+def final_app_run_entry_evidence(output_dir: Path) -> dict[str, str]:
+    final_app = output_dir / "final_app"
+    app_yaml = final_app / "app.yaml"
+    if not app_yaml.is_file():
+        return {}
+    try:
+        entry = app_yaml_run_entry(app_yaml.read_text(encoding="utf-8", errors="replace"), app_dir=final_app)
+    except Exception as exc:
+        return {"final_app_run_entry_error": f"{type(exc).__name__}: {exc}"}
+    if not entry:
+        return {}
+    entry_path = app_relative_path(final_app, entry)
+    evidence = {"final_app_run_entry": entry}
+    if entry_path.is_file():
+        evidence["final_app_run_entry_sha256"] = file_sha256(entry_path)
+    return evidence
 
 
 def runtime_approval_summary(checks: list[RuntimeCheck]) -> dict[str, Any]:

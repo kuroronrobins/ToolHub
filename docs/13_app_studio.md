@@ -19,7 +19,9 @@
 run:
   runner: python_shared_env
   entry: src/<entry_relative>.py
+  mode: gui | cli | background
   env_id: <env_id>
+  show_terminal: true  # CLI操作が必要なアプリだけ任意指定
 
 runtime:
   distribution_mode: shared_env
@@ -31,12 +33,12 @@ runtime:
 
 ## 通常新規登録フロー
 
-管理者画面の App Studio で Python entry を選び、必要に応じて App ID、表示名、説明、アイコン prompt を調整します。アイコンは通常フローでは AI 画像候補を作りますが、管理者が PNG を指定した場合は AI 画像生成の代わりにその PNG を採用します。`.exe` は通常新規登録の入力として扱いません。
+管理者画面の App Studio で Python entry を選び、必要に応じて App ID、表示名、説明、アイコン prompt、起動時のターミナル表示を調整します。アイコンは通常フローでは AI 画像候補を作りますが、管理者が PNG を指定した場合は AI 画像生成の代わりにその PNG を採用します。`.exe` は通常新規登録の入力として扱いません。
 
 処理の流れ:
 
 1. Python entry と source root を確認する。
-2. source inventory、secret scan、依存解析、metadata 提案、icon 提案を実行する。
+2. source inventory、secret scan、依存解析、metadata 提案、icon 提案を実行する。GUI では事前確認の成功後に AI 提案を自動実行する。
 3. `requirements.lock` を生成または更新する。
 4. lock 内容から共有 runtime env を作成または再利用する。
 5. `apps/<app_id>/src/` に source を登録する。
@@ -62,7 +64,9 @@ source root 直下の `.toolhubignore` は、最小限の gitignore 風 glob と
 
 ## AI 提案とアイコン
 
-AI 提案は自動確定しません。GUI の採用操作で、表示名、説明、カテゴリ、検索語、icon prompt などの編集値へ反映します。
+AI 提案は自動作成しますが、自動確定はしません。GUI の採用操作で、表示名、説明、カテゴリ、検索語、icon prompt などの編集値へ反映します。
+
+source package に手動確認レベルの secret scan 警告がある場合でも、実際に AI へ送る metadata prompt / icon prompt payload を個別に再スキャンし、安全な payload だけを送信します。payload 自体に token、password、API key などの可能性がある場合は AI 送信を止めます。
 
 OpenAI API キーは管理者画面の AI/API キー管理で扱います。キー本文は設定 JSON、`app.yaml`、App Pack、ログへ保存しません。Windows では Credential Manager を使います。
 
@@ -74,7 +78,7 @@ OpenAI API キーは管理者画面の AI/API キー管理で扱います。キ�
 - 採用済み PNG がない場合は ToolHub 共通 default icon を `icon.png` に使う。
 - 古い saved proposal の fallback candidate は読み取り互換だけ維持する。
 
-CLI で通常登録する場合は、`--icon-png <path-to-icon.png>` または `scripts/import_app.ps1 -IconPng <path-to-icon.png>` で指定 PNG を採用できます。`--icon-png` と `--icon-override` は同時に指定しません。
+CLI で通常登録する場合は、`--icon-png <path-to-icon.png>` または `scripts/import_app.ps1 -IconPng <path-to-icon.png>` で指定 PNG を採用できます。ターミナル操作が必要なアプリは `--show-terminal` または `scripts/import_app.ps1 -ShowTerminal` を指定します。`--icon-png` と `--icon-override` は同時に指定しません。
 
 画像生成テストで `organization_verification_required` が出る場合は、OpenAI Platform 側の組織認証が必要です。認証が完了するまでは、メタデータ編集や手動入力は継続できますが、AI 画像候補は増えません。
 

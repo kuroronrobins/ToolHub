@@ -25,6 +25,28 @@ const UNSUPPORTED_ACTION_LABELS: Record<string, string> = {
   signature_verification: "署名検証",
 };
 
+const POST_UPDATE_STATUS_LABELS: Record<string, string> = {
+  version_confirmed: "version確認済み",
+  version_pending: "更新後の再確認待ち",
+  not_launched: "起動未完了",
+};
+
+type LastUpdateResultView = {
+  operation?: string;
+  recordedAt?: string;
+  result?: {
+    status?: string;
+    message?: string;
+    failureReason?: string | null;
+    checkedAt?: string;
+    currentVersion?: string | null;
+    targetVersion?: string | null;
+    observedCurrentVersion?: string | null;
+    postUpdateStatus?: string | null;
+    postUpdateMessage?: string | null;
+  };
+};
+
 export function UpdateManagementShell() {
   const [summary, setSummary] = useState<UpdateSummary | null>(null);
   const [downloadResult, setDownloadResult] = useState<UpdateDownloadResult | null>(null);
@@ -81,6 +103,7 @@ export function UpdateManagementShell() {
         await launchVerifiedUpdateInstaller({
           cachePath: downloadResult.cachePath,
           expectedSha256: summary.installerSha256,
+          targetVersion: updateTargetVersion(summary),
         }),
       );
     } catch (launchError) {
@@ -92,6 +115,7 @@ export function UpdateManagementShell() {
 
   const canDownload = Boolean(summary?.installerUrl && summary.installerSha256 && !busy);
   const canLaunch = Boolean(downloadResult?.verified && downloadResult.cachePath && summary?.installerSha256 && !busy);
+  const lastUpdateResult = parseLastUpdateResult(summary?.lastUpdateResult);
 
   return (
     <section className="admin-panel-section">
@@ -167,6 +191,22 @@ export function UpdateManagementShell() {
             <p className="admin-muted">未実装: {summary.unsupportedActions.map((action) => UNSUPPORTED_ACTION_LABELS[action] ?? action).join("、")}</p>
           ) : null}
         </details>
+        {lastUpdateResult ? (
+          <details className="admin-details" open={lastUpdateResult.result?.postUpdateStatus === "version_pending"}>
+            <summary>前回の更新結果</summary>
+            <div className="version-list">
+              <div className="version-row"><span>operation</span><strong>{lastUpdateResult.operation ?? "-"}</strong></div>
+              <div className="version-row"><span>recorded at</span><strong>{lastUpdateResult.recordedAt ?? "-"}</strong></div>
+              <div className="version-row"><span>status</span><strong>{lastUpdateResult.result?.status ?? "-"}</strong></div>
+              <div className="version-row"><span>target version</span><strong>{lastUpdateResult.result?.targetVersion ?? "-"}</strong></div>
+              <div className="version-row"><span>launch-time version</span><strong>{lastUpdateResult.result?.currentVersion ?? "-"}</strong></div>
+              <div className="version-row"><span>current version</span><strong>{lastUpdateResult.result?.observedCurrentVersion ?? summary.currentVersion ?? "-"}</strong></div>
+              <div className="version-row"><span>post update check</span><strong>{postUpdateStatusLabel(lastUpdateResult.result?.postUpdateStatus)}</strong></div>
+              <div className="version-row"><span>failure reason</span><strong>{lastUpdateResult.result?.failureReason ?? "-"}</strong></div>
+              <div className="version-row"><span>message</span><strong>{lastUpdateResult.result?.postUpdateMessage ?? lastUpdateResult.result?.message ?? "-"}</strong></div>
+            </div>
+          </details>
+        ) : null}
         {downloadResult || launchResult ? (
           <details className="admin-details" open>
             <summary>installer update operation</summary>
@@ -188,6 +228,8 @@ export function UpdateManagementShell() {
                   <div className="version-row"><span>launch status</span><strong>{launchResult.status}</strong></div>
                   <div className="version-row"><span>source kind</span><strong>{launchResult.sourceKind}</strong></div>
                   <div className="version-row"><span>verified</span><strong>{launchResult.verified ? "yes" : "no"}</strong></div>
+                  <div className="version-row"><span>target version</span><strong>{launchResult.targetVersion ?? "-"}</strong></div>
+                  <div className="version-row"><span>current version</span><strong>{launchResult.currentVersion}</strong></div>
                   <div className="version-row"><span>failure reason</span><strong>{launchResult.failureReason ?? "-"}</strong></div>
                   <div className="version-row"><span>message</span><strong>{launchResult.message}</strong></div>
                 </>
@@ -225,4 +267,22 @@ function configSourceLabel(source: UpdateSummary["configSource"]): string {
     return "-";
   }
   return CONFIG_SOURCE_LABELS[source] ?? source;
+}
+
+function updateTargetVersion(summary: UpdateSummary): string | null {
+  return summary.remoteManifestVersion ?? summary.core?.nextVersion ?? null;
+}
+
+function parseLastUpdateResult(value: unknown): LastUpdateResultView | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return value as LastUpdateResultView;
+}
+
+function postUpdateStatusLabel(status?: string | null): string {
+  if (!status) {
+    return "-";
+  }
+  return POST_UPDATE_STATUS_LABELS[status] ?? status;
 }

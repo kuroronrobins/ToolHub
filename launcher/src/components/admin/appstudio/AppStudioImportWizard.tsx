@@ -52,6 +52,7 @@ const INITIAL_REQUEST: AppStudioImportRequest = {
   iconPrompt: "",
   iconStyleCustom: "",
   metadata: createEmptyAppStudioMetadata(),
+  showTerminal: false,
   createAppEnv: false,
   rebuildAppEnv: false,
   generateLock: true,
@@ -221,6 +222,7 @@ export function AppStudioImportWizard() {
     const check = await runPreflight();
     if (check?.ok) {
       setStep("aiProposal");
+      await run("suggest", "aiProposal");
     }
   }
 
@@ -586,6 +588,12 @@ export function AppStudioImportWizard() {
           <span>通常登録は共有ランタイム方式で実行します。方式の選択は不要です。</span>
         </div>
 
+        <label className="admin-toggle">
+          <input type="checkbox" checked={Boolean(request.showTerminal)} onChange={(event) => update({ showTerminal: event.target.checked })} />
+          起動時にターミナルを表示
+        </label>
+        <p className="admin-muted">入力待ちやコンソール操作が必要なCLIアプリで有効にします。</p>
+
         <AppStudioCollapsibleSection title="登録方式の詳細" summary="requirements.lock、共有ランタイム作成または再利用、起動検証を固定で実行します。">
           <AppStudioBuildOptions
             request={request}
@@ -619,7 +627,7 @@ export function AppStudioImportWizard() {
           <span className="studio-step-index">2</span>
           <div>
             <h4>ランチャーに表示する内容</h4>
-            <p>利用者に見える名前、説明、カテゴリ、アイコンだけを確認します。AI提案は必要な場合だけ使います。</p>
+            <p>利用者に見える名前、説明、カテゴリ、アイコンを確認します。AI提案はこの画面に進む時に自動作成します。</p>
           </div>
         </div>
 
@@ -1285,6 +1293,7 @@ function cleanRequest(request: AppStudioImportRequest): AppStudioImportRequest {
     appId: request.appId?.trim() || undefined,
     name: request.name?.trim() || undefined,
     buildMode: "shared-env",
+    showTerminal: Boolean(request.showTerminal),
     createAppEnv: false,
     rebuildAppEnv: false,
     generateLock: true,

@@ -40,11 +40,17 @@ use crate::app_studio_types::AppStudioEditableMetadata;
 use crate::app_studio_types::{
     AppStudioAiDiagnostics, AppStudioDeletePlan, AppStudioFullDeleteResult,
     AppStudioIconRegenerateRequest, AppStudioImportRequest, AppStudioManagedApp,
-    AppStudioManagementActionResult, AppStudioPreflightResult, AppStudioRegisteredApp,
-    AppStudioRunResult, AppStudioUpdateRequest,
+    AppStudioManagementActionResult, AppStudioPreflightResult, AppStudioPublishCheck,
+    AppStudioPublishAsset, AppStudioPublishPreflightResult, AppStudioPublishRemoteVerifyRequest,
+    AppStudioPublishRequest, AppStudioPublishRunResult, AppStudioRegisteredApp, AppStudioRunResult,
+    AppStudioUpdateRequest,
 };
+use chrono::Utc;
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
+use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -140,6 +146,67 @@ pub fn app_studio_pick_entry_file(
 ) -> Result<Option<String>, String> {
     session.require_authenticated()?;
     pick_entry_file()
+}
+
+#[tauri::command]
+pub fn app_studio_publish_preflight(
+    session: State<AdminSessionState>,
+) -> Result<AppStudioPublishPreflightResult, String> {
+    session.require_authenticated()?;
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    Ok(build_publish_preflight(&root))
+}
+
+#[tauri::command]
+pub async fn app_studio_publish_dry_run(
+    session: State<'_, AdminSessionState>,
+) -> Result<AppStudioPublishRunResult, String> {
+    session.require_authenticated()?;
+    tauri::async_runtime::spawn_blocking(run_publish_dry_run)
+        .await
+        .map_err(|_| "GitHub Release dry-run could not complete.".to_string())?
+}
+
+#[tauri::command]
+pub async fn app_studio_publish_prepare_target(
+    session: State<'_, AdminSessionState>,
+) -> Result<AppStudioPublishRunResult, String> {
+    session.require_authenticated()?;
+    tauri::async_runtime::spawn_blocking(run_publish_prepare_target)
+        .await
+        .map_err(|_| "GitHub Release target preparation could not complete.".to_string())?
+}
+
+#[tauri::command]
+pub async fn app_studio_publish_build_verify(
+    session: State<'_, AdminSessionState>,
+) -> Result<AppStudioPublishRunResult, String> {
+    session.require_authenticated()?;
+    tauri::async_runtime::spawn_blocking(run_publish_build_verify)
+        .await
+        .map_err(|_| "Release build/verify could not complete.".to_string())?
+}
+
+#[tauri::command]
+pub async fn app_studio_publish_remote_verify(
+    request: AppStudioPublishRemoteVerifyRequest,
+    session: State<'_, AdminSessionState>,
+) -> Result<AppStudioPublishRunResult, String> {
+    session.require_authenticated()?;
+    tauri::async_runtime::spawn_blocking(move || run_publish_remote_verify(request))
+        .await
+        .map_err(|_| "GitHub Release remote verification could not complete.".to_string())?
+}
+
+#[tauri::command]
+pub async fn app_studio_publish_release(
+    request: AppStudioPublishRequest,
+    session: State<'_, AdminSessionState>,
+) -> Result<AppStudioPublishRunResult, String> {
+    session.require_authenticated()?;
+    tauri::async_runtime::spawn_blocking(move || run_publish_release(request))
+        .await
+        .map_err(|_| "GitHub Release publish could not complete.".to_string())?
 }
 
 #[tauri::command]
@@ -831,6 +898,1179 @@ fn run_import_action(
     ))
 }
 
+fn build_publish_preflight(root: &Path) -> AppStudioPublishPreflightResult {
+    let release_dir = root.join("release");
+    let manifest_path = release_dir.join("manifest.json");
+    let app_manifest_path = release_dir.join("app_manifest.json");
+    let remote_name = "origin".to_string();
+    let mut checks = Vec::new();
+    let manifest = read_json_value(&manifest_path);
+    let readiness = run_release_readiness_json(root);
+    let readiness_summary = readiness
+        .as_ref()
+        .and_then(|value| value.get("summary").cloned());
+
+    let version = manifest
+        .as_ref()
+        .and_then(|value| json_path_string(value, &["toolhub", "version"]));
+    let tag = version.as_ref().map(|version| format!("v{version}"));
+    let installer_file = manifest
+        .as_ref()
+        .and_then(|value| json_path_string(value, &["toolhub", "installer", "file"]));
+    let manifest_installer_sha256 = manifest
+        .as_ref()
+        .and_then(|value| json_path_string(value, &["toolhub", "installer", "sha256"]));
+    let manifest_installer_size = manifest
+        .as_ref()
+        .and_then(|value| json_path_u64(value, &["toolhub", "installer", "size"]));
+    let installer_path = installer_file
+        .as_ref()
+        .map(|file| release_dir.join("dist_installer").join(file));
+    let installer_exists = installer_path
+        .as_ref()
+        .map(|path| path.is_file())
+        .unwrap_or(false);
+    let installer_sha256 = installer_path
+        .as_ref()
+        .filter(|path| path.is_file())
+        .and_then(|path| sha256_file(path).ok());
+    let installer_size = installer_path
+        .as_ref()
+        .filter(|path| path.is_file())
+        .and_then(|path| fs::metadata(path).ok())
+        .map(|metadata| metadata.len());
+
+    let remote_url = git_output(root, &["remote", "get-url", &remote_name]);
+    let (github_owner, github_repo) = remote_url
+        .as_deref()
+        .and_then(parse_github_remote)
+        .map(|(owner, repo)| (Some(owner), Some(repo)))
+        .unwrap_or((None, None));
+    let release_url = match (&github_owner, &github_repo, &tag) {
+        (Some(owner), Some(repo), Some(tag)) => Some(format!(
+            "https://github.com/{owner}/{repo}/releases/tag/{tag}"
+        )),
+        _ => None,
+    };
+    let latest_manifest_url = match (&github_owner, &github_repo) {
+        (Some(owner), Some(repo)) => Some(format!(
+            "https://github.com/{owner}/{repo}/releases/latest/download/manifest.json"
+        )),
+        _ => None,
+    };
+    let tag_manifest_url = match (&github_owner, &github_repo, &tag) {
+        (Some(owner), Some(repo), Some(tag)) => Some(format!(
+            "https://github.com/{owner}/{repo}/releases/download/{tag}/manifest.json"
+        )),
+        _ => None,
+    };
+    let update_manifest_url =
+        read_update_manifest_url(&root.join("config.default").join("launcher.yaml"));
+    let dirty_files = git_lines(root, &["status", "--short"]);
+    let dirty_groups = classify_dirty_files(&dirty_files);
+    let branch = git_output(root, &["rev-parse", "--abbrev-ref", "HEAD"]);
+    let release_target_dir = planned_release_target_dir(root, tag.as_deref());
+    let release_target_manifest_path = release_target_dir.join("release_target_manifest.json");
+    let release_target_assets = build_release_target_asset_plan(
+        &manifest_path,
+        &app_manifest_path,
+        installer_path.as_deref(),
+        installer_file.as_deref(),
+        &release_target_dir,
+    );
+
+    push_check(
+        &mut checks,
+        "manifest_json",
+        if manifest.is_some() { "pass" } else { "fail" },
+        if manifest.is_some() {
+            "release/manifest.json is readable."
+        } else {
+            "release/manifest.json is missing or invalid."
+        },
+    );
+    push_check(
+        &mut checks,
+        "app_manifest_json",
+        if read_json_value(&app_manifest_path).is_some() {
+            "pass"
+        } else {
+            "fail"
+        },
+        if app_manifest_path.is_file() {
+            "release/app_manifest.json is present."
+        } else {
+            "release/app_manifest.json is missing."
+        },
+    );
+    push_check(
+        &mut checks,
+        "installer_artifact",
+        if installer_exists { "pass" } else { "fail" },
+        if installer_exists {
+            "Installer artifact exists."
+        } else {
+            "Installer artifact is missing."
+        },
+    );
+    let sha_status = if manifest_installer_sha256.is_some()
+        && installer_sha256.is_some()
+        && manifest_installer_sha256 == installer_sha256
+    {
+        "pass"
+    } else {
+        "fail"
+    };
+    push_check(
+        &mut checks,
+        "installer_sha256",
+        sha_status,
+        if sha_status == "pass" {
+            "Installer sha256 matches release manifest."
+        } else {
+            "Installer sha256 is missing or does not match release manifest."
+        },
+    );
+    let size_status = if manifest_installer_size.is_some()
+        && installer_size.is_some()
+        && manifest_installer_size == installer_size
+    {
+        "pass"
+    } else {
+        "warning"
+    };
+    push_check(
+        &mut checks,
+        "installer_size",
+        size_status,
+        if size_status == "pass" {
+            "Installer size matches release manifest."
+        } else {
+            "Installer size is missing or does not match release manifest."
+        },
+    );
+    push_check(
+        &mut checks,
+        "github_remote",
+        if github_owner.is_some() && github_repo.is_some() {
+            "pass"
+        } else {
+            "warning"
+        },
+        if github_owner.is_some() && github_repo.is_some() {
+            "GitHub origin remote was detected."
+        } else {
+            "GitHub origin remote could not be parsed."
+        },
+    );
+    push_check(
+        &mut checks,
+        "working_tree",
+        if dirty_files.is_empty() {
+            "pass"
+        } else {
+            "warning"
+        },
+        if dirty_files.is_empty() {
+            "Working tree is clean."
+        } else {
+            "Working tree has uncommitted changes; publish script will require -AllowDirty."
+        },
+    );
+    push_check(
+        &mut checks,
+        "dirty_release_scope",
+        if dirty_groups.release_files.is_empty() {
+            "pass"
+        } else {
+            "warning"
+        },
+        if dirty_groups.release_files.is_empty() {
+            "No release/publish boundary files are dirty."
+        } else {
+            "Release or publish boundary files are dirty. Confirm these are intended before publishing."
+        },
+    );
+    push_check(
+        &mut checks,
+        "dirty_runtime_data_scope",
+        if dirty_groups.runtime_data_files.is_empty() {
+            "pass"
+        } else {
+            "warning"
+        },
+        if dirty_groups.runtime_data_files.is_empty() {
+            "No runtime/data state files are dirty."
+        } else {
+            "Runtime or user-state paths are dirty. Review carefully before using -AllowDirty."
+        },
+    );
+    push_check(
+        &mut checks,
+        "update_manifest_url",
+        if update_manifest_url.is_some() {
+            "pass"
+        } else {
+            "warning"
+        },
+        if update_manifest_url.is_some() {
+            "Default update manifest URL is configured."
+        } else {
+            "Default update manifest URL is not configured."
+        },
+    );
+    let release_target_ready = release_target_assets
+        .iter()
+        .filter(|asset| asset.upload)
+        .all(|asset| asset.target_exists);
+    push_check(
+        &mut checks,
+        "release_target_folder",
+        if release_target_dir.is_dir() {
+            "pass"
+        } else {
+            "warning"
+        },
+        if release_target_dir.is_dir() {
+            "GitHub Release target folder exists."
+        } else {
+            "GitHub Release target folder has not been prepared yet."
+        },
+    );
+    push_check(
+        &mut checks,
+        "release_target_assets",
+        if release_target_ready { "pass" } else { "warning" },
+        if release_target_ready {
+            "All planned GitHub Release upload assets exist in the target folder."
+        } else {
+            "Prepare the release target folder before publish so the exact upload assets can be reviewed."
+        },
+    );
+
+    let beta_ready_blockers = readiness_count(&readiness, &["summary", "beta_ready_blockers"]);
+    let beta_ready_warnings = readiness_count(&readiness, &["summary", "beta_ready_warnings"]);
+    let beta_ready_manual_checks =
+        readiness_count(&readiness, &["summary", "beta_ready_manual_checks"]);
+    let beta_ready_future_formal_only =
+        readiness_count(&readiness, &["summary", "beta_ready_future_formal_only"]);
+    push_check(
+        &mut checks,
+        "beta_ready_blockers",
+        if beta_ready_blockers == 0 {
+            "pass"
+        } else {
+            "fail"
+        },
+        if beta_ready_blockers == 0 {
+            "No beta_ready blockers were reported."
+        } else {
+            "beta_ready blockers remain."
+        },
+    );
+
+    let ok = checks.iter().all(|check| check.status != "fail");
+
+    AppStudioPublishPreflightResult {
+        ok,
+        generated_at: Utc::now().to_rfc3339(),
+        repo_root: root.display().to_string(),
+        release_dir: release_dir.display().to_string(),
+        release_target_dir: release_target_dir.display().to_string(),
+        release_target_manifest_path: release_target_manifest_path.display().to_string(),
+        branch,
+        remote_name,
+        remote_url,
+        github_owner,
+        github_repo,
+        version,
+        tag,
+        release_url,
+        latest_manifest_url,
+        tag_manifest_url,
+        update_manifest_url,
+        manifest_path: manifest_path.display().to_string(),
+        app_manifest_path: app_manifest_path.display().to_string(),
+        installer_file,
+        installer_path: installer_path.map(|path| path.display().to_string()),
+        installer_exists,
+        installer_sha256,
+        manifest_installer_sha256,
+        installer_size,
+        manifest_installer_size,
+        release_target_assets,
+        dirty_files,
+        dirty_release_files: dirty_groups.release_files,
+        dirty_runtime_data_files: dirty_groups.runtime_data_files,
+        dirty_source_files: dirty_groups.source_files,
+        dirty_other_files: dirty_groups.other_files,
+        readiness_summary,
+        beta_ready_blockers,
+        beta_ready_warnings,
+        beta_ready_manual_checks,
+        beta_ready_future_formal_only,
+        checks,
+    }
+}
+
+fn run_publish_dry_run() -> Result<AppStudioPublishRunResult, String> {
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    let script = root.join("scripts").join("publish_github_release.ps1");
+    if !script.is_file() {
+        return Err(format!(
+            "GitHub Release publish script is missing: {}",
+            script.display()
+        ));
+    }
+
+    let args = vec![
+        "-NoProfile".to_string(),
+        "-ExecutionPolicy".to_string(),
+        "Bypass".to_string(),
+        "-File".to_string(),
+        script.display().to_string(),
+        "-DryRun".to_string(),
+        "-SkipBuild".to_string(),
+        "-SkipVerify".to_string(),
+        "-SkipTag".to_string(),
+        "-SkipRemoteVerify".to_string(),
+        "-AllowDirty".to_string(),
+    ];
+    let command_line = command_line_for_log(Path::new("powershell"), &args);
+    append_app_studio_gui_log(
+        "publish_dry_run started",
+        &[("command", command_line.clone())],
+    );
+
+    let started_at = Utc::now().to_rfc3339();
+    let started = Instant::now();
+    let output = Command::new("powershell")
+        .args(&args)
+        .current_dir(&root)
+        .output()
+        .map_err(|error| format!("GitHub Release dry-run could not start: {error}"))?;
+    let process_wall_clock_seconds = started.elapsed().as_secs_f64();
+    let finished_at = Utc::now().to_rfc3339();
+    let exit_code = output.status.code().unwrap_or(-1);
+    let stdout = mask_sensitive(&String::from_utf8_lossy(&output.stdout));
+    let stderr = mask_sensitive(&String::from_utf8_lossy(&output.stderr));
+    let ok = output.status.success();
+    append_app_studio_gui_log(
+        "publish_dry_run finished",
+        &[("exit_code", exit_code.to_string()), ("ok", ok.to_string())],
+    );
+
+    Ok(AppStudioPublishRunResult {
+        ok,
+        exit_code,
+        stdout,
+        stderr,
+        command_line,
+        started_at,
+        finished_at,
+        process_wall_clock_seconds,
+        user_message: if ok {
+            "GitHub Release publish dry-run completed. No release assets were uploaded.".to_string()
+        } else {
+            "GitHub Release publish dry-run failed. Review stdout/stderr before publishing."
+                .to_string()
+        },
+        report: None,
+        preflight: build_publish_preflight(&root),
+    })
+}
+
+fn run_publish_prepare_target() -> Result<AppStudioPublishRunResult, String> {
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    let script = root.join("scripts").join("publish_github_release.ps1");
+    if !script.is_file() {
+        return Err(format!(
+            "GitHub Release publish script is missing: {}",
+            script.display()
+        ));
+    }
+
+    let args = vec![
+        "-NoProfile".to_string(),
+        "-ExecutionPolicy".to_string(),
+        "Bypass".to_string(),
+        "-File".to_string(),
+        script.display().to_string(),
+        "-PrepareTargetOnly".to_string(),
+        "-SkipBuild".to_string(),
+        "-SkipVerify".to_string(),
+        "-SkipTag".to_string(),
+        "-SkipRemoteVerify".to_string(),
+        "-AllowDirty".to_string(),
+    ];
+    let command_line = command_line_for_log(Path::new("powershell"), &args);
+    append_app_studio_gui_log(
+        "publish_prepare_target started",
+        &[("command", command_line.clone())],
+    );
+
+    let started_at = Utc::now().to_rfc3339();
+    let started = Instant::now();
+    let output = Command::new("powershell")
+        .args(&args)
+        .current_dir(&root)
+        .output()
+        .map_err(|error| format!("GitHub Release target preparation could not start: {error}"))?;
+    let process_wall_clock_seconds = started.elapsed().as_secs_f64();
+    let finished_at = Utc::now().to_rfc3339();
+    let exit_code = output.status.code().unwrap_or(-1);
+    let stdout = mask_sensitive(&String::from_utf8_lossy(&output.stdout));
+    let stderr = mask_sensitive(&String::from_utf8_lossy(&output.stderr));
+    let ok = output.status.success();
+    append_app_studio_gui_log(
+        "publish_prepare_target finished",
+        &[("exit_code", exit_code.to_string()), ("ok", ok.to_string())],
+    );
+
+    Ok(AppStudioPublishRunResult {
+        ok,
+        exit_code,
+        stdout,
+        stderr,
+        command_line,
+        started_at,
+        finished_at,
+        process_wall_clock_seconds,
+        user_message: if ok {
+            "GitHub Release target folder was prepared. Review the listed files before publishing."
+                .to_string()
+        } else {
+            "GitHub Release target preparation failed. Review stdout/stderr before publishing."
+                .to_string()
+        },
+        report: None,
+        preflight: build_publish_preflight(&root),
+    })
+}
+
+fn run_publish_build_verify() -> Result<AppStudioPublishRunResult, String> {
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    let build_script = root.join("scripts").join("build_release.ps1");
+    let verify_script = root.join("scripts").join("verify_release.ps1");
+    if !build_script.is_file() {
+        return Err(format!(
+            "Release build script is missing: {}",
+            build_script.display()
+        ));
+    }
+    if !verify_script.is_file() {
+        return Err(format!(
+            "Release verification script is missing: {}",
+            verify_script.display()
+        ));
+    }
+
+    let command_script = format!(
+        "$ErrorActionPreference = 'Stop'; & {} -RequireRuntime; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}; & {} -RequireInstaller -RequireAppPacks -RequireRuntime -Strict; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}",
+        quote_powershell_single(&build_script.display().to_string()),
+        quote_powershell_single(&verify_script.display().to_string())
+    );
+    let args = vec![
+        "-NoProfile".to_string(),
+        "-ExecutionPolicy".to_string(),
+        "Bypass".to_string(),
+        "-Command".to_string(),
+        command_script,
+    ];
+    let command_line = command_line_for_log(Path::new("powershell"), &args);
+    append_app_studio_gui_log(
+        "publish_build_verify started",
+        &[("command", command_line.clone())],
+    );
+
+    let started_at = Utc::now().to_rfc3339();
+    let started = Instant::now();
+    let output = Command::new("powershell")
+        .args(&args)
+        .current_dir(&root)
+        .output()
+        .map_err(|error| format!("Release build/verify could not start: {error}"))?;
+    let process_wall_clock_seconds = started.elapsed().as_secs_f64();
+    let finished_at = Utc::now().to_rfc3339();
+    let exit_code = output.status.code().unwrap_or(-1);
+    let stdout = mask_sensitive(&sanitize_url_queries_in_text(&String::from_utf8_lossy(
+        &output.stdout,
+    )));
+    let stderr = mask_sensitive(&sanitize_url_queries_in_text(&String::from_utf8_lossy(
+        &output.stderr,
+    )));
+    let ok = output.status.success();
+    append_app_studio_gui_log(
+        "publish_build_verify finished",
+        &[("exit_code", exit_code.to_string()), ("ok", ok.to_string())],
+    );
+
+    Ok(AppStudioPublishRunResult {
+        ok,
+        exit_code,
+        stdout,
+        stderr,
+        command_line,
+        started_at,
+        finished_at,
+        process_wall_clock_seconds,
+        user_message: if ok {
+            "Release build and verification completed.".to_string()
+        } else {
+            "Release build or verification failed. Review stdout/stderr before publishing."
+                .to_string()
+        },
+        report: None,
+        preflight: build_publish_preflight(&root),
+    })
+}
+
+fn run_publish_remote_verify(
+    request: AppStudioPublishRemoteVerifyRequest,
+) -> Result<AppStudioPublishRunResult, String> {
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    let preflight = build_publish_preflight(&root);
+    let script = root
+        .join("scripts")
+        .join("verify_github_release_assets.ps1");
+    if !script.is_file() {
+        return Err(format!(
+            "GitHub Release verification script is missing: {}",
+            script.display()
+        ));
+    }
+
+    let manifest_url = request
+        .manifest_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| preflight.update_manifest_url.clone())
+        .or_else(|| preflight.latest_manifest_url.clone())
+        .ok_or_else(|| {
+            "Remote manifest URL is not available. Run publish preflight and configure updates.manifest_url first.".to_string()
+        })?;
+    let expected_version = request
+        .expected_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| preflight.version.clone())
+        .ok_or_else(|| {
+            "Expected version is not available. release/manifest.json must define toolhub.version."
+                .to_string()
+        })?;
+
+    let mut args = vec![
+        "-NoProfile".to_string(),
+        "-ExecutionPolicy".to_string(),
+        "Bypass".to_string(),
+        "-File".to_string(),
+        script.display().to_string(),
+        "-ManifestUrl".to_string(),
+        manifest_url,
+        "-ExpectedVersion".to_string(),
+        expected_version,
+        "-Json".to_string(),
+    ];
+    if request.download_installer {
+        args.push("-DownloadInstaller".to_string());
+    }
+
+    let command_line = command_line_for_log(
+        Path::new("powershell"),
+        &redact_remote_verify_command_args(&args),
+    );
+    append_app_studio_gui_log(
+        "publish_remote_verify started",
+        &[
+            ("command", command_line.clone()),
+            ("download_installer", request.download_installer.to_string()),
+        ],
+    );
+
+    let started_at = Utc::now().to_rfc3339();
+    let started = Instant::now();
+    let output = Command::new("powershell")
+        .args(&args)
+        .current_dir(&root)
+        .output()
+        .map_err(|error| format!("GitHub Release remote verification could not start: {error}"))?;
+    let process_wall_clock_seconds = started.elapsed().as_secs_f64();
+    let finished_at = Utc::now().to_rfc3339();
+    let exit_code = output.status.code().unwrap_or(-1);
+    let stdout_raw = String::from_utf8_lossy(&output.stdout).to_string();
+    let report = serde_json::from_str::<Value>(stdout_raw.trim())
+        .ok()
+        .map(sanitize_remote_verify_report);
+    let stdout = match report.as_ref() {
+        Some(value) => serde_json::to_string_pretty(value)
+            .unwrap_or_else(|_| mask_sensitive(&sanitize_url_queries_in_text(&stdout_raw))),
+        None => mask_sensitive(&sanitize_url_queries_in_text(&stdout_raw)),
+    };
+    let stderr = mask_sensitive(&sanitize_url_queries_in_text(&String::from_utf8_lossy(
+        &output.stderr,
+    )));
+    let ok = output.status.success();
+    append_app_studio_gui_log(
+        "publish_remote_verify finished",
+        &[("exit_code", exit_code.to_string()), ("ok", ok.to_string())],
+    );
+
+    Ok(AppStudioPublishRunResult {
+        ok,
+        exit_code,
+        stdout,
+        stderr,
+        command_line,
+        started_at,
+        finished_at,
+        process_wall_clock_seconds,
+        user_message: if ok {
+            "GitHub Release remote verification completed.".to_string()
+        } else {
+            "GitHub Release remote verification failed. Review stdout/stderr and release assets."
+                .to_string()
+        },
+        report,
+        preflight: build_publish_preflight(&root),
+    })
+}
+
+fn run_publish_release(
+    request: AppStudioPublishRequest,
+) -> Result<AppStudioPublishRunResult, String> {
+    if !request.confirm_publish {
+        return Err(
+            "Publish confirmation is required before creating or updating a GitHub Release."
+                .to_string(),
+        );
+    }
+
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    let script = root.join("scripts").join("publish_github_release.ps1");
+    if !script.is_file() {
+        return Err(format!(
+            "GitHub Release publish script is missing: {}",
+            script.display()
+        ));
+    }
+
+    let mut args = vec![
+        "-NoProfile".to_string(),
+        "-ExecutionPolicy".to_string(),
+        "Bypass".to_string(),
+        "-File".to_string(),
+        script.display().to_string(),
+    ];
+    if request.allow_dirty {
+        args.push("-AllowDirty".to_string());
+    }
+    if request.allow_existing_release {
+        args.push("-AllowExistingRelease".to_string());
+    }
+    if request.update_manifest_installer_url {
+        args.push("-UpdateManifestInstallerUrl".to_string());
+    }
+    if request.draft {
+        args.push("-Draft".to_string());
+    }
+    if request.prerelease {
+        args.push("-Prerelease".to_string());
+    }
+    if request.download_installer_for_remote_verify {
+        args.push("-DownloadInstallerForRemoteVerify".to_string());
+    }
+    if let Some(release_notes) = request
+        .release_notes
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        args.push("-ReleaseNotes".to_string());
+        args.push(release_notes.to_string());
+    }
+
+    let command_line =
+        command_line_for_log(Path::new("powershell"), &redact_publish_command_args(&args));
+    append_app_studio_gui_log(
+        "publish_release started",
+        &[
+            ("command", command_line.clone()),
+            ("allow_dirty", request.allow_dirty.to_string()),
+            (
+                "allow_existing_release",
+                request.allow_existing_release.to_string(),
+            ),
+            (
+                "update_manifest_installer_url",
+                request.update_manifest_installer_url.to_string(),
+            ),
+            ("draft", request.draft.to_string()),
+            ("prerelease", request.prerelease.to_string()),
+        ],
+    );
+
+    let started_at = Utc::now().to_rfc3339();
+    let started = Instant::now();
+    let output = Command::new("powershell")
+        .args(&args)
+        .current_dir(&root)
+        .output()
+        .map_err(|error| format!("GitHub Release publish could not start: {error}"))?;
+    let process_wall_clock_seconds = started.elapsed().as_secs_f64();
+    let finished_at = Utc::now().to_rfc3339();
+    let exit_code = output.status.code().unwrap_or(-1);
+    let stdout = mask_sensitive(&sanitize_url_queries_in_text(&String::from_utf8_lossy(
+        &output.stdout,
+    )));
+    let stderr = mask_sensitive(&sanitize_url_queries_in_text(&String::from_utf8_lossy(
+        &output.stderr,
+    )));
+    let ok = output.status.success();
+    append_app_studio_gui_log(
+        "publish_release finished",
+        &[("exit_code", exit_code.to_string()), ("ok", ok.to_string())],
+    );
+
+    Ok(AppStudioPublishRunResult {
+        ok,
+        exit_code,
+        stdout,
+        stderr,
+        command_line,
+        started_at,
+        finished_at,
+        process_wall_clock_seconds,
+        user_message: if ok {
+            "GitHub Release publish completed. Review the release URL and remote verification."
+                .to_string()
+        } else {
+            "GitHub Release publish failed. Review stdout/stderr before retrying.".to_string()
+        },
+        report: None,
+        preflight: build_publish_preflight(&root),
+    })
+}
+
+fn redact_remote_verify_command_args(args: &[String]) -> Vec<String> {
+    let mut output = Vec::with_capacity(args.len());
+    let mut redact_next_url = false;
+    for arg in args {
+        if redact_next_url {
+            output.push(sanitize_url_query_for_log(arg));
+            redact_next_url = false;
+            continue;
+        }
+        output.push(arg.clone());
+        if arg == "-ManifestUrl" {
+            redact_next_url = true;
+        }
+    }
+    output
+}
+
+fn redact_publish_command_args(args: &[String]) -> Vec<String> {
+    redact_cli_arg_value(args, "-ReleaseNotes")
+}
+
+fn quote_powershell_single(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+fn sanitize_url_query_for_log(value: &str) -> String {
+    let without_fragment = value.split('#').next().unwrap_or(value);
+    without_fragment
+        .split('?')
+        .next()
+        .unwrap_or(without_fragment)
+        .to_string()
+}
+
+fn sanitize_url_queries_in_text(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for (index, segment) in value.split_whitespace().enumerate() {
+        if index > 0 {
+            output.push(' ');
+        }
+        output.push_str(&sanitize_possible_url_segment(segment));
+    }
+    output
+}
+
+fn sanitize_possible_url_segment(value: &str) -> String {
+    let Some(start) = value.find("https://").or_else(|| value.find("http://")) else {
+        return value.to_string();
+    };
+    let (prefix, rest) = value.split_at(start);
+    let end = rest
+        .find(|character: char| {
+            character.is_whitespace() || matches!(character, '"' | '\'' | ',' | ')' | ']')
+        })
+        .unwrap_or(rest.len());
+    let (url, suffix) = rest.split_at(end);
+    format!("{prefix}{}{suffix}", sanitize_url_query_for_log(url))
+}
+
+fn sanitize_remote_verify_report(value: Value) -> Value {
+    match value {
+        Value::String(text) => Value::String(sanitize_report_string(&text)),
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .map(sanitize_remote_verify_report)
+                .collect(),
+        ),
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .map(|(key, value)| (key, sanitize_remote_verify_report(value)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
+fn sanitize_report_string(value: &str) -> String {
+    if value.contains("http://") || value.contains("https://") {
+        sanitize_url_queries_in_text(value)
+    } else {
+        value.to_string()
+    }
+}
+
+fn push_check(checks: &mut Vec<AppStudioPublishCheck>, id: &str, status: &str, message: &str) {
+    checks.push(AppStudioPublishCheck {
+        id: id.to_string(),
+        status: status.to_string(),
+        message: message.to_string(),
+    });
+}
+
+fn planned_release_target_dir(root: &Path, tag: Option<&str>) -> PathBuf {
+    let folder = tag
+        .map(sanitize_release_target_folder_name)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "unresolved".to_string());
+    root.join("release")
+        .join("github_release_targets")
+        .join(folder)
+}
+
+fn sanitize_release_target_folder_name(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn build_release_target_asset_plan(
+    manifest_path: &Path,
+    app_manifest_path: &Path,
+    installer_path: Option<&Path>,
+    installer_file: Option<&str>,
+    release_target_dir: &Path,
+) -> Vec<AppStudioPublishAsset> {
+    let mut assets = Vec::new();
+    if let (Some(path), Some(file)) = (installer_path, installer_file) {
+        assets.push(build_release_target_asset(
+            file,
+            Some(path),
+            &release_target_dir.join(file),
+            false,
+            true,
+        ));
+    } else {
+        assets.push(build_release_target_asset(
+            "ToolHub_Setup_VERSION.exe",
+            None,
+            &release_target_dir.join("ToolHub_Setup_VERSION.exe"),
+            false,
+            true,
+        ));
+    }
+    assets.push(build_release_target_asset(
+        "manifest.json",
+        Some(manifest_path),
+        &release_target_dir.join("manifest.json"),
+        false,
+        true,
+    ));
+    assets.push(build_release_target_asset(
+        "app_manifest.json",
+        Some(app_manifest_path),
+        &release_target_dir.join("app_manifest.json"),
+        false,
+        true,
+    ));
+    assets.push(build_release_target_asset(
+        "checksums.sha256.txt",
+        None,
+        &release_target_dir.join("checksums.sha256.txt"),
+        true,
+        true,
+    ));
+    assets
+}
+
+fn build_release_target_asset(
+    name: &str,
+    source_path: Option<&Path>,
+    target_path: &Path,
+    generated: bool,
+    upload: bool,
+) -> AppStudioPublishAsset {
+    let source_exists = source_path.map(|path| path.is_file()).unwrap_or(false);
+    let target_exists = target_path.is_file();
+    let source_sha256 = source_path
+        .filter(|path| path.is_file())
+        .and_then(|path| sha256_file(path).ok());
+    let target_sha256 = if target_exists {
+        sha256_file(target_path).ok()
+    } else {
+        None
+    };
+    let source_size = source_path
+        .filter(|path| path.is_file())
+        .and_then(|path| fs::metadata(path).ok())
+        .map(|metadata| metadata.len());
+    let target_size = if target_exists {
+        fs::metadata(target_path).ok().map(|metadata| metadata.len())
+    } else {
+        None
+    };
+
+    AppStudioPublishAsset {
+        name: name.to_string(),
+        source_path: source_path.map(|path| path.display().to_string()),
+        target_path: target_path.display().to_string(),
+        source_exists,
+        target_exists,
+        source_sha256,
+        target_sha256,
+        source_size,
+        target_size,
+        generated,
+        upload,
+    }
+}
+
+#[derive(Default)]
+struct DirtyFileGroups {
+    release_files: Vec<String>,
+    runtime_data_files: Vec<String>,
+    source_files: Vec<String>,
+    other_files: Vec<String>,
+}
+
+fn classify_dirty_files(lines: &[String]) -> DirtyFileGroups {
+    let mut groups = DirtyFileGroups::default();
+    for line in lines {
+        let path = dirty_status_path(line);
+        if path.is_empty() {
+            groups.other_files.push(line.clone());
+        } else if is_release_boundary_path(&path) {
+            groups.release_files.push(line.clone());
+        } else if is_runtime_data_path(&path) {
+            groups.runtime_data_files.push(line.clone());
+        } else if is_source_path(&path) {
+            groups.source_files.push(line.clone());
+        } else {
+            groups.other_files.push(line.clone());
+        }
+    }
+    groups
+}
+
+fn dirty_status_path(line: &str) -> String {
+    let path = line
+        .get(3..)
+        .unwrap_or(line)
+        .split(" -> ")
+        .last()
+        .unwrap_or(line)
+        .trim()
+        .trim_matches('"');
+    path.replace('\\', "/")
+}
+
+fn is_release_boundary_path(path: &str) -> bool {
+    path.starts_with("release/")
+        || path.starts_with("installer/")
+        || path == "config.default/launcher.yaml"
+        || path == "launcher/package.json"
+        || path == "launcher/src-tauri/Cargo.toml"
+        || path == "launcher/src-tauri/tauri.conf.json"
+        || path == "scripts/build_release.ps1"
+        || path == "scripts/verify_release.ps1"
+        || path == "scripts/publish_github_release.ps1"
+        || path == "scripts/verify_github_release_assets.ps1"
+        || path == "scripts/check_all.ps1"
+}
+
+fn is_runtime_data_path(path: &str) -> bool {
+    path.starts_with("runtime/")
+        || path.starts_with("data/")
+        || path.starts_with("logs/")
+        || path.starts_with("backups/")
+        || path.starts_with("config/")
+}
+
+fn is_source_path(path: &str) -> bool {
+    path.starts_with("launcher/")
+        || path.starts_with("runner/")
+        || path.starts_with("tools/")
+        || path.starts_with("apps/")
+        || path.starts_with("scripts/")
+        || path.starts_with("docs/")
+        || path == "README.md"
+        || path == "AGENTS.md"
+}
+
+fn read_json_value(path: &Path) -> Option<Value> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+}
+
+fn json_path_string(value: &Value, path: &[&str]) -> Option<String> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    current
+        .as_str()
+        .map(|value| value.to_string())
+        .or_else(|| current.as_i64().map(|value| value.to_string()))
+}
+
+fn json_path_u64(value: &Value, path: &[&str]) -> Option<u64> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    current.as_u64()
+}
+
+fn readiness_count(readiness: &Option<Value>, path: &[&str]) -> usize {
+    readiness
+        .as_ref()
+        .and_then(|value| {
+            let mut current = value;
+            for key in path {
+                current = current.get(*key)?;
+            }
+            current.as_u64()
+        })
+        .unwrap_or(0) as usize
+}
+
+fn git_output(root: &Path, args: &[&str]) -> Option<String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+fn git_lines(root: &Path, args: &[&str]) -> Vec<String> {
+    Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(str::trim_end)
+                .filter(|line| !line.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_github_remote(remote: &str) -> Option<(String, String)> {
+    let trimmed = remote.trim().trim_end_matches(".git");
+    if let Some(rest) = trimmed.strip_prefix("https://github.com/") {
+        let (owner, repo) = rest.split_once('/')?;
+        return Some((owner.to_string(), repo.to_string()));
+    }
+    if let Some(rest) = trimmed.strip_prefix("git@github.com:") {
+        let (owner, repo) = rest.split_once('/')?;
+        return Some((owner.to_string(), repo.to_string()));
+    }
+    None
+}
+
+fn read_update_manifest_url(path: &Path) -> Option<String> {
+    let text = fs::read_to_string(path).ok()?;
+    let yaml: serde_yaml::Value = serde_yaml::from_str(&text).ok()?;
+    for key in ["manifest_url", "source_url", "url"] {
+        let value = yaml
+            .get("updates")
+            .and_then(|updates| updates.get(key))
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        if let Some(value) = value {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
+fn run_release_readiness_json(root: &Path) -> Option<Value> {
+    let script = root.join("scripts").join("report_release_readiness.ps1");
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            script.to_string_lossy().as_ref(),
+            "-Json",
+        ])
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    serde_json::from_slice(&output.stdout).ok()
+}
+
+fn sha256_file(path: &Path) -> Result<String, String> {
+    let mut file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 8192];
+    loop {
+        let read = file.read(&mut buffer).map_err(|error| error.to_string())?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
 fn run_approve_action(app_id: String, strict: bool) -> Result<AppStudioRunResult, String> {
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
     validate_app_id(&app_id)?;
@@ -1324,6 +2564,7 @@ mod tests {
             metadata: None,
             icon_override: None,
             build_profile: None,
+            show_terminal: false,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,
@@ -1358,6 +2599,7 @@ mod tests {
             metadata: None,
             icon_override: None,
             build_profile: None,
+            show_terminal: false,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,
@@ -1483,6 +2725,7 @@ mod tests {
             }),
             icon_override: None,
             build_profile: None,
+            show_terminal: false,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,
@@ -2031,6 +3274,7 @@ mod tests {
             metadata: None,
             icon_override: None,
             build_profile: None,
+            show_terminal: false,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,
@@ -2056,6 +3300,96 @@ mod tests {
         let result = preflight_for_update_request(&same, &root, candidate);
         assert!(result.ok);
         assert!(result.warnings.iter().any(|item| item.contains("same")));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn publish_dirty_file_classification_separates_release_runtime_source_and_other() {
+        let lines = vec![
+            " M release/manifest.json".to_string(),
+            " M scripts/publish_github_release.ps1".to_string(),
+            " M runtime/envs/toolhub_env_registry.json".to_string(),
+            " M data/app_studio/build_profiles/demo.json".to_string(),
+            " M launcher/src/App.tsx".to_string(),
+            "?? docs/35_github_release_updater_implementation_plan.md".to_string(),
+            " R old.txt -> installer/toolhub_install_dir.nsh".to_string(),
+            "?? notes/local.txt".to_string(),
+        ];
+
+        let groups = classify_dirty_files(&lines);
+
+        assert_eq!(groups.release_files.len(), 3);
+        assert!(groups
+            .release_files
+            .iter()
+            .any(|item| item.contains("release/manifest.json")));
+        assert!(groups
+            .release_files
+            .iter()
+            .any(|item| item.contains("scripts/publish_github_release.ps1")));
+        assert!(groups
+            .release_files
+            .iter()
+            .any(|item| item.contains("installer/toolhub_install_dir.nsh")));
+        assert_eq!(groups.runtime_data_files.len(), 2);
+        assert_eq!(groups.source_files.len(), 2);
+        assert_eq!(groups.other_files, vec!["?? notes/local.txt".to_string()]);
+    }
+
+    #[test]
+    fn publish_dirty_status_path_handles_renames_and_quoted_paths() {
+        assert_eq!(
+            dirty_status_path(" R docs/old.md -> docs/new.md"),
+            "docs/new.md"
+        );
+        assert_eq!(
+            dirty_status_path(" M \"launcher/src/App.tsx\""),
+            "launcher/src/App.tsx"
+        );
+        assert_eq!(
+            dirty_status_path("?? scripts\\verify_github_release_assets.ps1"),
+            "scripts/verify_github_release_assets.ps1"
+        );
+    }
+
+    #[test]
+    fn publish_release_target_folder_uses_sanitized_tag() {
+        let root = temp_project_root();
+        let target = planned_release_target_dir(&root, Some("v1.2.3/beta"));
+        assert!(target.ends_with(Path::new("release/github_release_targets/v1.2.3_beta")));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn publish_release_target_asset_plan_marks_generated_checksum() {
+        let root = temp_project_root();
+        let release_dir = root.join("release");
+        let manifest_path = release_dir.join("manifest.json");
+        let app_manifest_path = release_dir.join("app_manifest.json");
+        let installer_path = release_dir
+            .join("dist_installer")
+            .join("ToolHub_Setup_1.2.3.exe");
+        std::fs::create_dir_all(installer_path.parent().unwrap()).unwrap();
+        std::fs::write(&manifest_path, "{}\n").unwrap();
+        std::fs::write(&app_manifest_path, "{}\n").unwrap();
+        std::fs::write(&installer_path, b"installer").unwrap();
+
+        let target = planned_release_target_dir(&root, Some("v1.2.3"));
+        let assets = build_release_target_asset_plan(
+            &manifest_path,
+            &app_manifest_path,
+            Some(&installer_path),
+            Some("ToolHub_Setup_1.2.3.exe"),
+            &target,
+        );
+
+        assert_eq!(assets.len(), 4);
+        assert!(assets.iter().any(|asset| asset.name == "ToolHub_Setup_1.2.3.exe"
+            && asset.source_exists
+            && !asset.target_exists));
+        assert!(assets.iter().any(|asset| asset.name == "checksums.sha256.txt"
+            && asset.generated
+            && asset.upload));
         let _ = std::fs::remove_dir_all(root);
     }
 

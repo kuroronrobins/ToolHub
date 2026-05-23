@@ -47,6 +47,31 @@ def make_manifest(app_dir: Path, mode: str = "gui") -> AppManifest:
 
 
 class DetachedRunnerTests(unittest.TestCase):
+    def test_visible_terminal_launch_records_success_without_waiting(self) -> None:
+        class FakeProcess:
+            pid = 12345
+
+        with workspace_tempdir() as root:
+            app_dir = root / "apps" / "detached_sample"
+            app_dir.mkdir(parents=True)
+            runner = BaseRunner(root, make_manifest(app_dir))
+
+            with patch.dict(os.environ, {"TOOLHUB_USER_DATA_ROOT": str(root)}), patch(
+                "toolhub_runner.base_runner.subprocess.Popen",
+                return_value=FakeProcess(),
+            ) as popen:
+                result = runner.start_visible_terminal([sys.executable, "main.py"], os.environ.copy())
+
+            self.assertTrue(result.ok)
+            payload = json.loads(Path(result.log_path or "").read_text(encoding="utf-8"))
+            self.assertEqual(payload["pid"], 12345)
+            self.assertEqual(payload["user_message"], "ターミナルを開きました。")
+            launched_command = popen.call_args.args[0]
+            if os.name == "nt":
+                self.assertEqual(launched_command[:2], ["cmd.exe", "/K"])
+            else:
+                self.assertEqual(launched_command, [sys.executable, "main.py"])
+
     def test_detached_immediate_exit_is_failure_with_stderr(self) -> None:
         with workspace_tempdir() as root:
             app_dir = root / "apps" / "detached_sample"

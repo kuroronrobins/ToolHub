@@ -41,6 +41,7 @@ class Run:
     entry: str
     mode: str
     env_id: str = ""
+    show_terminal: bool = False
 
 
 @dataclass
@@ -122,6 +123,7 @@ def manifest_from_dict(data: Dict[str, Any], app_dir: Path) -> AppManifest:
         entry=require_str(run_data, "entry"),
         mode=require_str(run_data, "mode"),
         env_id=str(run_data.get("env_id") or ""),
+        show_terminal=optional_bool(run_data, "show_terminal"),
     )
     validate_run(run)
 
@@ -175,6 +177,21 @@ def optional_str_list(data: Dict[str, Any], key: str) -> List[str]:
     if not isinstance(value, list):
         raise ManifestError(f"{key} must be a list")
     return [str(item) for item in value]
+
+
+def optional_bool(data: Dict[str, Any], key: str) -> bool:
+    value = data.get(key, False)
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "1", "on"}:
+            return True
+        if normalized in {"false", "no", "0", "off", ""}:
+            return False
+    raise ManifestError(f"{key} must be a boolean")
 
 
 def validate_run(run: Run) -> None:

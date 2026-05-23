@@ -92,6 +92,17 @@ def _directory_stats(path: Path) -> dict[str, int]:
     return {"files": files, "bytes": total_bytes}
 
 
+def _source_stats(path: Path) -> dict[str, int]:
+    stats = _directory_stats(path)
+    src_stats = _directory_stats(path / "src")
+    return {
+        "files": stats["files"],
+        "bytes": stats["bytes"],
+        "src_files": src_stats["files"],
+        "src_bytes": src_stats["bytes"],
+    }
+
+
 def _format_bytes(value: int) -> str:
     amount = float(value)
     for unit in ("B", "KB", "MB", "GB"):
@@ -101,6 +112,16 @@ def _format_bytes(value: int) -> str:
             return f"{amount:.1f} {unit}"
         amount /= 1024
     return f"{value} B"
+
+
+def _payload_detail(payload: dict[str, Any]) -> str:
+    return (
+        f"run_entry={payload['run_entry']}; "
+        f"sha256={payload['run_entry_sha256']}; "
+        f"files={payload['files']}; bytes={payload['bytes']} ({_format_bytes(int(payload['bytes']))}); "
+        f"src_files={payload['src_files']}; src_bytes={payload['src_bytes']} ({_format_bytes(int(payload['src_bytes']))}); "
+        f"runtime_check={payload['runtime_check_evidence']}"
+    )
 
 
 def write_registration_copy_report(
@@ -205,9 +226,16 @@ def apply_registration(
     manifest_path = context.repo_root / "release" / "app_manifest.json"
     original_manifest = copy.deepcopy(load_app_manifest_json(manifest_path)) if manifest_path.is_file() else None
     backup_root: Path | None = None
+    registration_mutated = False
     try:
+        with _registration_step(records, "final_app_payload_gate", f"path={final_app_dir}") as record:
+            payload = validate_final_app_registration_payload(final_app_dir, output_dir)
+            record.update(payload)
+            record["detail"] = _payload_detail(payload)
+
         with _registration_step(records, "backup_existing_total"):
             backup_root = backup_existing(context.repo_root, context.app_id, breakdown=records)
+            registration_mutated = backup_root is not None
 
         apps_dir = context.repo_root / "apps"
         target = apps_dir / context.app_id
@@ -215,15 +243,40 @@ def apply_registration(
         with _registration_step(records, "remove_existing_app", f"path={target}"):
             if target.exists():
                 shutil.rmtree(target)
-        stats = _directory_stats(final_app_dir)
-        with _registration_step(records, "final_app_payload_gate", f"path={final_app_dir}"):
-            validate_no_forbidden_payload(final_app_dir)
+                registration_mutated = True
         with _registration_step(
             records,
             "copy_final_app_to_apps",
-            f"files={stats['files']}; bytes={stats['bytes']} ({_format_bytes(stats['bytes'])})",
-        ):
+            (
+                f"files={payload['files']}; bytes={payload['bytes']} ({_format_bytes(int(payload['bytes']))}); "
+                f"src_files={payload['src_files']}"
+            ),
+        ) as record:
             shutil.copytree(final_app_dir, target)
+            registration_mutated = True
+            copied_entry = require_app_relative_file(target, str(payload["run_entry"]), "run.entry")
+            copied_sha256 = file_sha256(copied_entry)
+            if copied_sha256 != payload["run_entry_sha256"]:
+                raise ValueError(
+                    "Copied run.entry SHA256 does not match final_app pre-copy gate: "
+                    f"{payload['run_entry']} ({copied_sha256} != {payload['run_entry_sha256']})"
+                )
+            copied = _source_stats(target)
+            record.update(
+                {
+                    "run_entry": payload["run_entry"],
+                    "run_entry_sha256": copied_sha256,
+                    "copied_files": copied["files"],
+                    "copied_bytes": copied["bytes"],
+                    "copied_src_files": copied["src_files"],
+                    "copied_src_bytes": copied["src_bytes"],
+                }
+            )
+            record["detail"] = (
+                f"run_entry={payload['run_entry']}; sha256={copied_sha256}; "
+                f"files={copied['files']}; bytes={copied['bytes']} ({_format_bytes(copied['bytes'])}); "
+                f"src_files={copied['src_files']}; src_bytes={copied['src_bytes']} ({_format_bytes(copied['src_bytes'])})"
+            )
 
         manifest_path = context.repo_root / "release" / "app_manifest.json"
         with _registration_step(records, "manifest_update_before_pack", f"path={manifest_path}"):
@@ -233,26 +286,93 @@ def apply_registration(
             manifest.setdefault("apps", {})
             manifest["apps"][context.app_id] = manifest_entry_from_app_source(target, context, plan)
             write_json(manifest_path, manifest)
+            registration_mutated = True
         with _registration_step(records, "package_app_pack_total"):
             package_path = package_app_pack(context.repo_root, context.app_id, breakdown=records)
         with _registration_step(records, "copy_pack_to_output_mirror", f"path={output_dir / 'app_pack'}"):
             copy_pack_to_output(package_path, output_dir)
         return package_path
     except Exception:
-        try:
-            rollback_registration(context.repo_root, context.app_id, backup_root, original_manifest, records)
-        except Exception as rollback_exc:
-            records.append(
-                {
-                    "name": "rollback_registration",
-                    "status": "fail",
-                    "detail": f"{type(rollback_exc).__name__}: {rollback_exc}",
-                    "duration_seconds": 0.0,
-                }
-            )
+        if registration_mutated or backup_root is not None:
+            try:
+                rollback_registration(context.repo_root, context.app_id, backup_root, original_manifest, records)
+            except Exception as rollback_exc:
+                records.append(
+                    {
+                        "name": "rollback_registration",
+                        "status": "fail",
+                        "detail": f"{type(rollback_exc).__name__}: {rollback_exc}",
+                        "duration_seconds": 0.0,
+                    }
+                )
         raise
     finally:
         write_registration_copy_report(output_dir, context, records)
+
+
+def validate_final_app_registration_payload(final_app_dir: Path, output_dir: Path | None = None) -> dict[str, Any]:
+    validate_no_forbidden_payload(final_app_dir)
+    run_entry = require_app_yaml_file(final_app_dir, "run", "entry", "run.entry")
+    run_entry_path = app_relative_path(final_app_dir, run_entry)
+    run_entry_sha256 = file_sha256(run_entry_path)
+    stats = _source_stats(final_app_dir)
+    payload: dict[str, Any] = {
+        "run_entry": run_entry,
+        "run_entry_sha256": run_entry_sha256,
+        "files": stats["files"],
+        "bytes": stats["bytes"],
+        "src_files": stats["src_files"],
+        "src_bytes": stats["src_bytes"],
+        "runtime_check_evidence": "not_available",
+    }
+    compare_runtime_run_entry_evidence(final_app_dir, run_entry, run_entry_sha256, output_dir, payload)
+    return payload
+
+
+def compare_runtime_run_entry_evidence(
+    final_app_dir: Path,
+    run_entry: str,
+    run_entry_sha256: str,
+    output_dir: Path | None,
+    payload: dict[str, Any],
+) -> None:
+    if output_dir is None:
+        return
+    runtime_result_path = output_dir / "runtime_check_result.json"
+    if not runtime_result_path.is_file():
+        return
+    data = json.loads(runtime_result_path.read_text(encoding="utf-8"))
+    evidence = data.get("evidence") if isinstance(data, dict) else None
+    if not isinstance(evidence, dict):
+        payload["runtime_check_evidence"] = "missing"
+        return
+
+    recorded_entry = evidence.get("final_app_run_entry")
+    recorded_sha256 = evidence.get("final_app_run_entry_sha256")
+    compared = False
+    if recorded_entry:
+        normalized_entry = normalize_app_relative_entry(
+            str(recorded_entry),
+            final_app_dir,
+            "runtime_check_result.json final_app_run_entry",
+        )
+        if normalized_entry != run_entry:
+            raise ValueError(
+                "final_app run.entry does not match runtime_check_result.json: "
+                f"{run_entry} != {normalized_entry}"
+            )
+        payload["runtime_check_run_entry"] = normalized_entry
+        compared = True
+    if recorded_sha256:
+        recorded_sha256_text = str(recorded_sha256)
+        if recorded_sha256_text != run_entry_sha256:
+            raise ValueError(
+                "final_app run.entry SHA256 does not match runtime_check_result.json: "
+                f"{run_entry} ({run_entry_sha256} != {recorded_sha256_text})"
+            )
+        payload["runtime_check_run_entry_sha256"] = recorded_sha256_text
+        compared = True
+    payload["runtime_check_evidence"] = "matched" if compared else "not_recorded"
 
 
 def validate_no_forbidden_payload(final_app_dir: Path) -> None:

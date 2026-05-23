@@ -16,6 +16,22 @@
         "pdf_workbench"
       ],
       "last_used_at": "2026-05-22T22:41:01"
+    },
+    "py313-win_amd64-flet0283-fletdesktop0283-cac27e37": {
+      "path": "runtime\\envs\\py313-win_amd64-flet0283-fletdesktop0283-cac27e37",
+      "requirements_lock_sha256": "5d299b228b2f7ae80db953faaa3f5d65ca0c65d55ce11787d4ae18b13cf00bd4",
+      "apps": [
+        "app_20260201_agendasnap"
+      ],
+      "last_used_at": "2026-05-23T23:06:39"
+    },
+    "py313-win_amd64-playwright1550-27ead7db": {
+      "path": "runtime\\envs\\py313-win_amd64-playwright1550-27ead7db",
+      "requirements_lock_sha256": "2428c0c8d1068f7cc4a15e069d80581243ed4408883d807f694fe99461b4bb32",
+      "apps": [
+        "run_3dx_create_ids"
+      ],
+      "last_used_at": "2026-05-23T23:15:22"
     }
   }
 }

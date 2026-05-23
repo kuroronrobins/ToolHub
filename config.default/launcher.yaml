@@ -9,6 +9,6 @@ paths:
 
 updates:
   channel: stable
+  manifest_url: https://github.com/kuroronrobins/ToolHub/releases/latest/download/manifest.json
   manifest: release/manifest.json
   app_manifest: release/app_manifest.json
-

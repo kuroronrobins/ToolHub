@@ -51,6 +51,7 @@ const INITIAL_REQUEST: AppStudioUpdateRequest = {
   buildMode: "auto",
   iconPrompt: "",
   metadata: createEmptyAppStudioMetadata(),
+  showTerminal: false,
   createAppEnv: false,
   rebuildAppEnv: false,
   generateLock: false,
@@ -318,6 +319,7 @@ export function AppStudioUpdateWizard() {
     buildMode: request.buildMode,
     iconPrompt: request.iconPrompt,
     buildProfile: request.buildProfile,
+    showTerminal: request.showTerminal,
     createAppEnv: request.createAppEnv,
     rebuildAppEnv: request.rebuildAppEnv,
     generateLock: request.generateLock,
@@ -505,6 +507,7 @@ function cleanRequest(request: AppStudioUpdateRequest, newVersion: string): AppS
     iconPrompt: request.iconPrompt?.trim() || undefined,
     metadata: cleanEditableMetadata(request.metadata),
     iconOverride: cleanIconOverride(request.iconOverride),
+    showTerminal: Boolean(request.showTerminal),
   };
 }
 

@@ -1,24 +1,24 @@
 {
-  "apps": {
-    "pdf_workbench": {
-      "enabled": true,
-      "package": "app_packs/pdf_workbench-0.2.0.zip",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": "python-shared-env:py313-win_amd64-runtime-37c71daf",
-      "sha256": "f3bc675ae968db7cdc517a014beb31d4e1d52efc9d3eae4e1ed251b0289e4e04",
-      "version": "0.2.0"
-    },
-    "app_20251123_excelbatchreplace": {
-      "version": "0.1.0",
-      "package": "app_packs/app_20251123_excelbatchreplace-0.1.0.zip",
-      "sha256": "e79c6d4a42f3c62e4d04887b1b632302ec0c24317886344e370c0c01df7f4e83",
-      "required_core": ">=0.1.0",
-      "required_runner": ">=0.1.0",
-      "required_runtime": "python-shared-env:py313-win_amd64-pywin32310-dd4d21f1",
-      "enabled": true
-    }
-  },
-  "channel": "stable",
-  "schema_version": 1
+    "apps":  {
+                 "app_20251123_excelbatchreplace":  {
+                                                        "enabled":  true,
+                                                        "package":  "app_packs/app_20251123_excelbatchreplace-0.1.0.zip",
+                                                        "required_core":  "\u003e=0.1.0",
+                                                        "required_runner":  "\u003e=0.1.0",
+                                                        "required_runtime":  "python-shared-env:py313-win_amd64-pywin32310-dd4d21f1",
+                                                        "sha256":  "6affd80cd4228caa45dece4506482420a14b41e909ff8055571f7b21daa09f2f",
+                                                        "version":  "0.1.0"
+                                                    },
+                 "pdf_workbench":  {
+                                       "enabled":  true,
+                                       "package":  "app_packs/pdf_workbench-0.2.0.zip",
+                                       "required_core":  "\u003e=0.1.0",
+                                       "required_runner":  "\u003e=0.1.0",
+                                       "required_runtime":  "python-shared-env:py313-win_amd64-runtime-37c71daf",
+                                       "sha256":  "6951e82d7cfafd4cd2efc387baef45ac0b396ba32ba9ea7c8425397ade9ef60a",
+                                       "version":  "0.2.0"
+                                   }
+             },
+    "channel":  "stable",
+    "schema_version":  1
 }

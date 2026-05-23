@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -189,6 +190,57 @@ class BaseRunner:
             pid=pid,
             stdout_log_path=str(paths.stdout_log) if paths.stdout_log.exists() else None,
             stderr_log_path=str(paths.stderr_log) if paths.stderr_log.exists() else None,
+        )
+
+        if ok:
+            return self.success_result(user_message, events, paths.json_log)
+        return self.failure_result(events, paths.json_log, user_message)
+
+    def start_visible_terminal(self, command: list[str], env: dict[str, str], cwd: Path | None = None) -> RunnerResult:
+        paths = create_run_log_paths(self.project_root, self.manifest.id)
+        start = now_iso()
+        events = [RunnerEvent(type="status", message="ターミナルを開いています", progress=10)]
+        admin_error = ""
+        pid: int | None = None
+        exit_code: Optional[int] = None
+        visible_command = command
+
+        try:
+            creationflags = 0
+            if os.name == "nt":
+                visible_command = ["cmd.exe", "/K", subprocess.list2cmdline(command)]
+                creationflags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+            process = subprocess.Popen(
+                visible_command,
+                cwd=str(cwd or self.manifest.app_dir),
+                env=env,
+                close_fds=True,
+                creationflags=creationflags,
+            )
+            pid = process.pid
+            release_detached_process(process)
+            events.append(RunnerEvent(type="success", message="ターミナルを開きました", progress=100))
+        except Exception as exc:
+            admin_error = repr(exc)
+            events.append(RunnerEvent(type="error", message=USER_FAILURE_MESSAGE, progress=100))
+
+        end = now_iso()
+        ok = not admin_error
+        user_message = "ターミナルを開きました。" if ok else USER_FAILURE_MESSAGE
+        save_run_log(
+            paths,
+            app_id=self.manifest.id,
+            app_name=self.manifest.name,
+            start_time=start,
+            end_time=end,
+            exit_code=exit_code,
+            stdout="",
+            stderr="",
+            events=events,
+            user_message=user_message,
+            admin_error=admin_error,
+            command=visible_command,
+            pid=pid,
         )
 
         if ok:

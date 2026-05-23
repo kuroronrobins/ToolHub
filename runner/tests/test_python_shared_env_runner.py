@@ -30,7 +30,7 @@ def workspace_tempdir():
         shutil.rmtree(path, ignore_errors=True)
 
 
-def make_manifest(app_dir: Path) -> AppManifest:
+def make_manifest(app_dir: Path, show_terminal: bool = False) -> AppManifest:
     return AppManifest(
         id="shared_sample",
         name="Shared Sample",
@@ -38,7 +38,7 @@ def make_manifest(app_dir: Path) -> AppManifest:
         display=Display(icon="icon.svg", short_description="desc", categories=["cat"]),
         detail=Detail(description="desc"),
         search=Search(),
-        run=Run(runner="python_shared_env", entry="main.py", mode="cli", env_id="py313-demo"),
+        run=Run(runner="python_shared_env", entry="main.py", mode="cli", env_id="py313-demo", show_terminal=show_terminal),
         admin=Admin(),
     )
 
@@ -49,12 +49,20 @@ class CapturingSharedEnvRunner(PythonSharedEnvRunner):
         self.captured_command: list[str] = []
         self.captured_env: dict[str, str] = {}
         self.captured_cwd: Path | None = None
+        self.captured_visible_terminal = False
 
     def run_blocking(self, command: list[str], env: dict[str, str], cwd: Path | None = None) -> RunnerResult:
         self.captured_command = command
         self.captured_env = env
         self.captured_cwd = cwd
         return RunnerResult(ok=True, app_id=self.manifest.id, user_message="ok", log_path=None)
+
+    def start_visible_terminal(self, command: list[str], env: dict[str, str], cwd: Path | None = None) -> RunnerResult:
+        self.captured_visible_terminal = True
+        self.captured_command = command
+        self.captured_env = env
+        self.captured_cwd = cwd
+        return RunnerResult(ok=True, app_id=self.manifest.id, user_message="terminal", log_path=None)
 
 
 class PythonSharedEnvRunnerTests(unittest.TestCase):
@@ -91,6 +99,29 @@ class PythonSharedEnvRunnerTests(unittest.TestCase):
             self.assertEqual(path_entries[0], str(bundled_python.parent))
             self.assertIn(str(scripts), path_entries)
             self.assertIn(str(pywin32_system32), path_entries)
+            self.assertEqual(runner.captured_cwd, app_dir)
+
+    def test_show_terminal_routes_shared_env_launch_to_visible_terminal(self) -> None:
+        with workspace_tempdir() as root:
+            app_dir = root / "apps" / "shared_sample"
+            app_dir.mkdir(parents=True)
+            entry = app_dir / "main.py"
+            entry.write_text("input('go')\n", encoding="utf-8")
+
+            bundled_python = root / "runtime" / "python" / ("python.exe" if os.name == "nt" else "bin/python")
+            bundled_python.parent.mkdir(parents=True)
+            bundled_python.write_text("", encoding="utf-8")
+
+            env_root = root / "runtime" / "envs" / "py313-demo"
+            site_packages = env_root / "Lib" / "site-packages"
+            site_packages.mkdir(parents=True)
+
+            runner = CapturingSharedEnvRunner(root, make_manifest(app_dir, show_terminal=True))
+            result = runner.run()
+
+            self.assertTrue(result.ok)
+            self.assertTrue(runner.captured_visible_terminal)
+            self.assertEqual(Path(runner.captured_command[3]), entry)
             self.assertEqual(runner.captured_cwd, app_dir)
 
 

@@ -133,6 +133,18 @@ admin:
         self.assertIn("python_shared_env", SUPPORTED_RUNNERS)
         self.assertEqual(manifest.run.env_id, "py313-demo")
 
+    def test_run_show_terminal_defaults_to_false_and_parses_true(self) -> None:
+        default_manifest = manifest_from_dict(dict(VALID_DATA), ROOT / "apps" / "sample")
+        self.assertFalse(default_manifest.run.show_terminal)
+
+        data = dict(VALID_DATA)
+        data["run"] = dict(VALID_DATA["run"])
+        data["run"]["show_terminal"] = True
+
+        manifest = manifest_from_dict(data, ROOT / "apps" / "sample")
+
+        self.assertTrue(manifest.run.show_terminal)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -52,6 +52,36 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\Shared\scripts\beta_vm\vm
 
 Do not install Python, Node.js, Rust, npm, cargo, or Tauri CLI in the VM before the test.
 
+## Run Through VirtualBox Guest Control
+
+Use this path when the VM is a VirtualBox Windows guest and the host should run the VM validation script.
+
+Prerequisites:
+
+- VirtualBox Guest Additions must be installed and running in the guest.
+- The Windows guest user must have a non-empty password. Blank passwords usually fail Guest Control logon on Windows unless the guest security policy is weakened.
+- The generated package must be visible from the guest. For the current VirtualBox setup, the default path is `\\VBOXSVR\beta_vm\package\ToolHub_Beta_VM_Test`.
+
+If the guest user currently has a blank password, set one inside the VM first:
+
+```powershell
+net user ToolHub_Test *
+```
+
+Then run a host-side Guest Control login and shared-folder probe:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\beta_vm\run_guestcontrol_vm_test.ps1
+```
+
+The script prompts for the guest Windows password and does not store it. After the probe passes, run the VM validation script through Guest Control:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\beta_vm\run_guestcontrol_vm_test.ps1 -RunInstallTest -SkipUninstall -SkipReinstall
+```
+
+Use `-SkipUninstall -SkipReinstall` for the current already-installed VM state. For a clean proof, restore a clean VM snapshot and run with only `-RunInstallTest`.
+
 ## What It Checks
 
 - developer tools are absent from `PATH`.

@@ -51,7 +51,7 @@ from app_studio.secret_scanner import scan_ai_payload_text
 from app_studio.shared_runtime import KnownGoodProbe, companion_flet_desktop_requirement, ensure_framework_runtime_packages, initial_lock_from_probe
 from app_studio.timing import TimingRecorder
 from app_studio.trace import planned_build_env_path, planned_build_env_python
-from app_studio.util import write_json, write_text
+from app_studio.util import file_sha256, write_json, write_text
 from main import parse_args as parse_app_studio_args, run_icon_regenerate, run_import
 
 
@@ -173,6 +173,36 @@ build:
   build_mode: frozen-folder
 """,
     )
+
+
+def write_shared_env_final_app(final_app: Path, app_id: str, *, include_entry: bool = True, entry_text: str = "print('ok')\n") -> None:
+    write_text(
+        final_app / "app.yaml",
+        f"""id: {app_id}
+name: Demo Shared
+display:
+  icon: icon.png
+run:
+  runner: python_shared_env
+  entry: src/main.py
+  mode: gui
+  env_id: py313-test
+admin:
+  version: 0.1.0
+  requirements: requirements.txt
+runtime:
+  distribution_mode: shared_env
+  required_runtime: python-shared-env:py313-test
+  requirements_lock: requirements.lock
+""",
+    )
+    write_text(final_app / "README.md", "# Demo Shared\n")
+    write_text(final_app / "requirements.txt", "")
+    write_text(final_app / "requirements.lock", "")
+    (final_app / "icon.png").parent.mkdir(parents=True, exist_ok=True)
+    (final_app / "icon.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    if include_entry:
+        write_text(final_app / "src" / "main.py", entry_text)
 
 
 def write_execution_result(
@@ -1278,6 +1308,125 @@ build:
             self.assertIn(f"{context.app_id}/icon.png", names)
             self.assertIn(f"{context.app_id}/bin/{context.app_id}/{context.app_id}.exe", names)
 
+    def test_apply_registration_rejects_missing_final_app_run_entry_before_state_changes(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root, "demo_shared")
+            write_minimal_registered_app(context.repo_root, context.app_id, enabled=True)
+            original_manifest = json.loads((context.repo_root / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+            original_main = (context.repo_root / "apps" / context.app_id / "main.py").read_text(encoding="utf-8")
+            final_app = context.output_dir / "final_app"
+            write_shared_env_final_app(final_app, context.app_id, include_entry=False)
+
+            with self.assertRaisesRegex(FileNotFoundError, "run.entry"):
+                apply_registration(
+                    context,
+                    BuildPlan(
+                        "shared-env",
+                        "python_shared_env",
+                        "src/main.py",
+                        "python-shared-env:py313-test",
+                        [],
+                        env_id="py313-test",
+                    ),
+                    final_app,
+                    context.output_dir,
+                )
+
+            app_dir = context.repo_root / "apps" / context.app_id
+            self.assertEqual((app_dir / "main.py").read_text(encoding="utf-8"), original_main)
+            restored_manifest = json.loads((context.repo_root / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(restored_manifest, original_manifest)
+            self.assertFalse((context.repo_root / "backups").exists())
+            report = json.loads((context.output_dir / "registration_copy_breakdown.json").read_text(encoding="utf-8"))
+            records = report["records"]
+            self.assertEqual(records[0]["name"], "final_app_payload_gate")
+            self.assertEqual(records[0]["status"], "fail")
+            self.assertNotIn("remove_existing_app", {record["name"] for record in records})
+            self.assertNotIn("copy_final_app_to_apps", {record["name"] for record in records})
+
+    def test_apply_registration_rejects_runtime_checked_run_entry_hash_mismatch(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root, "demo_shared")
+            write_minimal_registered_app(context.repo_root, context.app_id, enabled=True)
+            original_manifest = json.loads((context.repo_root / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+            final_app = context.output_dir / "final_app"
+            write_shared_env_final_app(final_app, context.app_id, entry_text="print('changed')\n")
+            write_json(
+                context.output_dir / "runtime_check_result.json",
+                {
+                    "app_id": context.app_id,
+                    "overall_status": "pass",
+                    "evidence": {
+                        "final_app_run_entry": "src/main.py",
+                        "final_app_run_entry_sha256": "0" * 64,
+                    },
+                },
+            )
+
+            with self.assertRaisesRegex(ValueError, "runtime_check_result.json"):
+                apply_registration(
+                    context,
+                    BuildPlan(
+                        "shared-env",
+                        "python_shared_env",
+                        "src/main.py",
+                        "python-shared-env:py313-test",
+                        [],
+                        env_id="py313-test",
+                    ),
+                    final_app,
+                    context.output_dir,
+                )
+
+            restored_manifest = json.loads((context.repo_root / "release" / "app_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(restored_manifest, original_manifest)
+            self.assertFalse((context.repo_root / "backups").exists())
+
+    def test_apply_registration_copies_shared_env_run_entry_and_reports_src_stats(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root, "demo_shared")
+            final_app = context.output_dir / "final_app"
+            write_shared_env_final_app(final_app, context.app_id)
+            write_json(
+                context.output_dir / "runtime_check_result.json",
+                {
+                    "app_id": context.app_id,
+                    "overall_status": "pass",
+                    "evidence": {
+                        "final_app_run_entry": "src/main.py",
+                        "final_app_run_entry_sha256": file_sha256(final_app / "src" / "main.py"),
+                    },
+                },
+            )
+
+            package_path = apply_registration(
+                context,
+                BuildPlan(
+                    "shared-env",
+                    "python_shared_env",
+                    "src/main.py",
+                    "python-shared-env:py313-test",
+                    [],
+                    env_id="py313-test",
+                ),
+                final_app,
+                context.output_dir,
+            )
+
+            registered_entry = context.repo_root / "apps" / context.app_id / "src" / "main.py"
+            self.assertTrue(registered_entry.is_file())
+            with zipfile.ZipFile(package_path) as archive:
+                names = {name.replace("\\", "/") for name in archive.namelist()}
+            self.assertIn(f"{context.app_id}/src/main.py", names)
+            report = json.loads((context.output_dir / "registration_copy_breakdown.json").read_text(encoding="utf-8"))
+            gate = next(record for record in report["records"] if record["name"] == "final_app_payload_gate")
+            copy_record = next(record for record in report["records"] if record["name"] == "copy_final_app_to_apps")
+            self.assertEqual(gate["runtime_check_evidence"], "matched")
+            self.assertEqual(gate["run_entry"], "src/main.py")
+            self.assertGreaterEqual(gate["src_files"], 1)
+            self.assertEqual(copy_record["run_entry"], "src/main.py")
+            self.assertGreaterEqual(copy_record["copied_src_files"], 1)
+
     def test_apply_registration_rolls_back_app_and_manifest_on_pack_failure(self) -> None:
         with workspace_tempdir() as root:
             context = make_context(root, "demo_frozen")
@@ -1869,14 +2018,40 @@ class OpenAIFallbackTests(unittest.TestCase):
 
             self.assertIn("model is not configured", metadata["_ai_generation_report"])
 
-    def test_high_secret_skips_ai(self) -> None:
+    def test_package_secret_warning_does_not_skip_safe_metadata_prompt(self) -> None:
         with workspace_tempdir() as root:
             context = make_context(root)
             report = SecretScanReport([SecretFinding(context.entry, "content", "high", "OPENAI_API_KEY", affects_ai_submission=True)])
+            payload = {
+                "short_description": "安全なAI説明です。",
+                "description": "安全なAI詳細です。",
+                "categories": ["業務ツール"],
+                "use_cases": ["登録"],
+                "inputs": ["入力"],
+                "outputs": ["出力"],
+                "notes": ["確認"],
+                "keywords": ["安全"],
+                "examples": ["起動"],
+            }
 
-            metadata = suggest_metadata(context, report)
+            client = types.SimpleNamespace(responses=types.SimpleNamespace(create=lambda **_: types.SimpleNamespace(output_text=json.dumps(payload))))
+            with patch.dict("os.environ", {"TOOLHUB_APP_STUDIO_AI_ENABLED": "true", "TOOLHUB_APP_STUDIO_TEXT_MODEL": "text-model", "OPENAI_API_KEY": DUMMY_OPENAI_API_KEY}, clear=True):
+                with patch.dict(sys.modules, {"openai": types.SimpleNamespace(OpenAI=lambda: client)}):
+                    metadata = suggest_metadata(context, report)
 
-            self.assertIn("secret scan blocked AI submission", metadata["_ai_generation_report"])
+            self.assertEqual(metadata["short_description"], "安全なAI説明です。")
+            self.assertIn("package_secret_scan_status: blocked", metadata["_ai_generation_report"])
+            self.assertIn("ai_payload_secret_scan_status: passed", metadata["_ai_generation_report"])
+
+    def test_metadata_prompt_secret_skips_ai(self) -> None:
+        with workspace_tempdir() as root:
+            context = make_context(root)
+            context.name = "sk-" + ("a" * 24)
+
+            metadata = suggest_metadata(context)
+
+            self.assertIn("metadata prompt secret scan blocked AI submission", metadata["_ai_generation_report"])
+            self.assertIn("ai_payload_secret_scan_status: blocked", metadata["_ai_generation_report"])
 
     def test_metadata_prompt_requests_japanese_output(self) -> None:
         with workspace_tempdir() as root:

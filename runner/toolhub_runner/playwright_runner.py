@@ -14,5 +14,7 @@ class PlaywrightPythonRunner(BaseRunner):
         env["TOOLHUB_BROWSER_PROFILE_DIR"] = str(profile_dir)
         env["TOOLHUB_FIRST_SETUP_MESSAGE"] = "初回設定が必要です。表示される画面でログインを完了してください。次回以降はそのまま使用できます。"
         command = [sys.executable, str(entry)]
+        if self.manifest.run.show_terminal:
+            return self.start_visible_terminal(command, env)
         return self.run_blocking(command, env)
 

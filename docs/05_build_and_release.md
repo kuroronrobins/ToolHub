@@ -132,6 +132,90 @@ runtime実体まで必須にする場合:
 .\scripts\build_release.ps1 -RequireRuntime
 ```
 
+## GitHub Release Publish Flow
+
+GitHub Releases を更新配布元にする場合は、まず release artifact を生成・検証し、その後 GitHub Release へ `manifest.json`、`app_manifest.json`、installer、`checksums.sha256.txt` を登録します。
+
+公開前の読み取り確認:
+
+```powershell
+.\scripts\publish_github_release.ps1 -DryRun -SkipBuild -SkipVerify -SkipTag -SkipRemoteVerify -AllowDirty
+```
+
+公開対象フォルダだけを作成して目視確認する場合:
+
+```powershell
+.\scripts\publish_github_release.ps1 -PrepareTargetOnly -SkipBuild -SkipVerify -SkipTag -SkipRemoteVerify -AllowDirty
+```
+
+このコマンドは `release/github_release_targets/v<version>/` に、GitHub Release へ upload する installer、`manifest.json`、`app_manifest.json`、`checksums.sha256.txt` だけを集約します。同じフォルダの `release_target_manifest.json` には source path、target path、sha256、size、tag の対象 commit が記録されます。実 publish でもこのフォルダを作り直し、そこにある upload 対象を `gh release` へ渡します。この target folder は生成物なので `.gitkeep` 以外は Git 管理しません。
+
+target folder の検証:
+
+```powershell
+.\scripts\verify_release_target_folder.ps1 -TargetDir .\release\github_release_targets\v<version> -Version <version>
+```
+
+この検証は `publish_github_release.ps1` が target folder を作成した直後にも自動実行します。`checksums.sha256.txt`、`release_target_manifest.json`、installer の `sha256` / `size` が揃わない場合は publish 前に停止します。
+
+Beta / Pre-release を実 endpoint で検証する場合は、`latest` ではなく tag 固定の manifest URL を使います。GitHub の `latest` は prerelease を指さない場合があるためです。
+
+```powershell
+.\scripts\publish_github_release.ps1 `
+  -Prerelease `
+  -Tag v<version>-beta.1 `
+  -AllowDirty `
+  -SkipBuild `
+  -SkipVerify
+```
+
+この場合、publish 後の remote verify は既定で次の tag 固定 URL を検証します。
+
+```text
+https://github.com/kuroronrobins/ToolHub/releases/download/v<version>-beta.1/manifest.json
+```
+
+実 publish の標準形:
+
+```powershell
+.\scripts\publish_github_release.ps1
+```
+
+この標準形は、`build_release.ps1 -RequireRuntime`、`verify_release.ps1 -RequireInstaller -RequireAppPacks -RequireRuntime -Strict`、tag 作成、GitHub Release 作成 / asset upload、remote manifest verify を順番に実行します。
+
+tag の対象 commit は既定で現在の `HEAD` です。別 commit / branch に紐づける場合は `-TargetCommitish <commit-or-branch>` を指定します。dirty worktree で `-AllowDirty` を使う場合、生成 asset は未コミット変更を含み得ますが、GitHub tag の source snapshot は `target_commitish` の commit だけを指します。正式 publish では、原則として build / verify 対象の変更を commit してから実行します。
+
+既存 Release へ再アップロードする場合、dirty tree で意図的に実行する場合、または manifest に installer URL を書き込む場合は明示 option を使います。
+
+```powershell
+.\scripts\publish_github_release.ps1 -AllowDirty -AllowExistingRelease -UpdateManifestInstallerUrl
+```
+
+remote manifest だけを検証する場合:
+
+```powershell
+.\scripts\verify_github_release_assets.ps1 `
+  -ManifestUrl https://github.com/kuroronrobins/ToolHub/releases/latest/download/manifest.json `
+  -ExpectedVersion <version>
+```
+
+GitHub Release 自体、必須 asset、latest manifest URL をまとめて read-only 確認する場合:
+
+```powershell
+.\scripts\check_github_release_endpoint.ps1 -Json
+```
+
+installer 本体の download と sha256 照合まで確認する場合:
+
+```powershell
+.\scripts\verify_github_release_assets.ps1 `
+  -ManifestUrl https://github.com/kuroronrobins/ToolHub/releases/latest/download/manifest.json `
+  -ExpectedVersion <version> `
+  -DownloadInstaller
+```
+
+App Studio の `公開準備` タブからも、preflight、publish dry-run、publish target作成、release build / verify、remote verify、実 publish を実行できます。実 publish は管理者認証に加え、UI と backend の両方で明示確認を要求します。
+
 ## Individual Commands
 
 App Pack作成:

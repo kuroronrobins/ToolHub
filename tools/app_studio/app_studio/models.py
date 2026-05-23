@@ -35,6 +35,7 @@ class ImportOptions:
     verify_runtime: bool = False
     metadata_override_path: Path | None = None
     build_profile_path: Path | None = None
+    show_terminal: bool = False
 
 
 @dataclass
@@ -50,6 +51,7 @@ class StudioContext:
     requested_build_mode: str
     build_mode: str
     version: str = "0.1.0"
+    show_terminal: bool = False
 
     @property
     def entry_relative(self) -> Path:

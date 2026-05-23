@@ -1,9 +1,33 @@
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
 from ..errors import EngineError, dependency_missing
+
+_DLL_DIRECTORY_HANDLES: list[Any] = []
+
+
+def _add_pymupdf_dll_directory() -> None:
+    if not hasattr(os, "add_dll_directory"):
+        return
+
+    candidates = [
+        Path(sys.executable).resolve().parent / "Lib" / "site-packages" / "pymupdf",
+    ]
+    for parent in Path(__file__).resolve().parents:
+        candidates.append(parent / "python" / "Lib" / "site-packages" / "pymupdf")
+
+    for candidate in candidates:
+        if not (candidate / "mupdfcpp64.dll").is_file():
+            continue
+        try:
+            _DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(str(candidate)))
+        except OSError:
+            pass
+        return
 
 
 def _import_pypdf() -> Any:
@@ -31,6 +55,7 @@ def _silence_fitz_diagnostics(fitz: Any) -> None:
 
 
 def _import_fitz() -> Any:
+    _add_pymupdf_dll_directory()
     try:
         import fitz
     except ImportError as exc:  # pragma: no cover - depends on local env

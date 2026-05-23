@@ -60,6 +60,7 @@ def generate_app_yaml(context: StudioContext, plan: BuildPlan, metadata: dict[st
         f"  entry: {plan.entry}",
         f"  mode: {mode}",
         *([f"  env_id: {yaml_scalar(shared_env_id)}"] if shared_env_id else []),
+        *(["  show_terminal: true"] if context.show_terminal else []),
         "",
         "admin:",
         f"  version: {context.version}",

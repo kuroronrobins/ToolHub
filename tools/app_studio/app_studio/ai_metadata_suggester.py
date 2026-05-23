@@ -6,6 +6,7 @@ from typing import Any
 
 from .models import DependencyReport, IconDesignBrief, SecretScanReport, StudioContext
 from .openai_client import complete_json, ai_enabled, has_api_key, text_model
+from .secret_scanner import ai_submission_block_reason, scan_ai_payload_text, secret_scan_status
 
 
 ACTION_NORMALIZATION: dict[str, tuple[str, ...]] = {
@@ -42,7 +43,9 @@ GENERIC_AVOID_ELEMENTS = [
 
 
 def suggest_metadata(context: StudioContext, secret_report: SecretScanReport | None = None) -> dict[str, Any]:
-    if secret_report and secret_report.blocks_ai_submission:
+    prompt = metadata_prompt(context)
+    payload_report = scan_ai_payload_text(prompt, context.source_root, "metadata_prompt")
+    if payload_report.blocks_ai_submission:
         metadata = fallback_metadata(context)
         metadata["_ai_generation_report"] = "\n".join(
             [
@@ -51,8 +54,11 @@ def suggest_metadata(context: StudioContext, secret_report: SecretScanReport | N
                 f"model: {text_model()}",
                 f"ai_enabled: {str(ai_enabled()).lower()}",
                 f"api_key_present: {str(has_api_key()).lower()}",
+                f"package_secret_scan_status: {secret_scan_status(secret_report)}",
+                f"ai_payload_secret_scan_status: {secret_scan_status(payload_report)}",
+                f"ai_submission_block_reason: {ai_submission_block_reason(payload_report)}",
                 "parse_status: not_attempted",
-                "fallback_reason: secret scan blocked AI submission, AI skipped",
+                "fallback_reason: metadata prompt secret scan blocked AI submission, AI skipped",
             ]
         )
         return metadata
@@ -63,21 +69,47 @@ def suggest_metadata(context: StudioContext, secret_report: SecretScanReport | N
             "All human-facing values must be natural Japanese. "
             "Do not include secrets, credentials, or local absolute paths."
         ),
-        metadata_prompt(context),
+        prompt,
     )
     if result.ok:
         parsed = parse_metadata_json(result.content)
         if parsed:
-            parsed["_ai_generation_report"] = append_parse_status(result.report, "success", "")
+            parsed["_ai_generation_report"] = append_metadata_secret_scan_status(
+                append_parse_status(result.report, "success", ""),
+                secret_report,
+                payload_report,
+            )
             return parsed
 
     metadata = fallback_metadata(context)
-    metadata["_ai_generation_report"] = append_parse_status(
-        result.report,
-        "failed" if result.ok else "not_attempted",
-        "metadata JSON parse failed" if result.ok else "",
+    metadata["_ai_generation_report"] = append_metadata_secret_scan_status(
+        append_parse_status(
+            result.report,
+            "failed" if result.ok else "not_attempted",
+            "metadata JSON parse failed" if result.ok else "",
+        ),
+        secret_report,
+        payload_report,
     )
     return metadata
+
+
+def append_metadata_secret_scan_status(
+    report: str,
+    package_report: SecretScanReport | None,
+    payload_report: SecretScanReport | None,
+) -> str:
+    return (
+        (report or "").rstrip()
+        + "\n"
+        + "\n".join(
+            [
+                f"package_secret_scan_status: {secret_scan_status(package_report)}",
+                f"ai_payload_secret_scan_status: {secret_scan_status(payload_report)}",
+                f"ai_submission_block_reason: {ai_submission_block_reason(payload_report)}",
+            ]
+        )
+    )
 
 
 def _legacy_suggest_icon_prompt_removed(context: StudioContext, revision_prompt: str | None = None, allow_ai: bool = True) -> tuple[str, str]:
@@ -555,7 +587,7 @@ def metadata_prompt(context: StudioContext) -> str:
         if app_yaml.is_file():
             app_names.append(app_dir.name)
     readme = context.source_root / "README.md"
-    readme_excerpt = readme.read_text(encoding="utf-8", errors="replace")[:1200] if readme.is_file() else ""
+    readme_excerpt = sanitize_ai_text(readme.read_text(encoding="utf-8", errors="replace"), 1200) if readme.is_file() else ""
     return json.dumps(
         {
             "app_id": context.app_id,
@@ -570,7 +602,7 @@ def metadata_prompt(context: StudioContext) -> str:
                 "READMEやファイル内容を丸ごと引用しない。",
                 "APIキー、パスワード、token、credential、secret値を含めない。",
             ],
-            "source_files": [path.name for path in sorted(context.source_root.glob("*.py"))[:20]],
+            "source_files": safe_source_file_names(context)[:20],
             "readme_excerpt": readme_excerpt,
             "existing_app_ids": app_names[:20],
             "required_schema": {

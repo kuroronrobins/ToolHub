@@ -14,6 +14,7 @@ export interface AppStudioImportRequest {
   metadata?: AppStudioEditableMetadata;
   iconOverride?: AppStudioIconOverride;
   buildProfile?: AppStudioBuildProfile;
+  showTerminal: boolean;
   createAppEnv: boolean;
   rebuildAppEnv: boolean;
   generateLock: boolean;
@@ -35,6 +36,7 @@ export interface AppStudioUpdateRequest {
   metadata?: AppStudioEditableMetadata;
   iconOverride?: AppStudioIconOverride;
   buildProfile?: AppStudioBuildProfile;
+  showTerminal: boolean;
   createAppEnv: boolean;
   rebuildAppEnv: boolean;
   generateLock: boolean;
@@ -226,6 +228,120 @@ export interface AppStudioPreflightResult {
   runtimePythonExists: boolean;
   warnings: string[];
   errors: string[];
+}
+
+export interface AppStudioPublishCheck {
+  id: string;
+  status: "pass" | "warning" | "fail" | string;
+  message: string;
+}
+
+export interface AppStudioPublishAsset {
+  name: string;
+  sourcePath?: string | null;
+  targetPath: string;
+  sourceExists: boolean;
+  targetExists: boolean;
+  sourceSha256?: string | null;
+  targetSha256?: string | null;
+  sourceSize?: number | null;
+  targetSize?: number | null;
+  generated: boolean;
+  upload: boolean;
+}
+
+export interface AppStudioPublishPreflightResult {
+  ok: boolean;
+  generatedAt: string;
+  repoRoot: string;
+  releaseDir: string;
+  releaseTargetDir: string;
+  releaseTargetManifestPath: string;
+  branch?: string | null;
+  remoteName: string;
+  remoteUrl?: string | null;
+  githubOwner?: string | null;
+  githubRepo?: string | null;
+  version?: string | null;
+  tag?: string | null;
+  releaseUrl?: string | null;
+  latestManifestUrl?: string | null;
+  tagManifestUrl?: string | null;
+  updateManifestUrl?: string | null;
+  manifestPath: string;
+  appManifestPath: string;
+  installerFile?: string | null;
+  installerPath?: string | null;
+  installerExists: boolean;
+  installerSha256?: string | null;
+  manifestInstallerSha256?: string | null;
+  installerSize?: number | null;
+  manifestInstallerSize?: number | null;
+  releaseTargetAssets: AppStudioPublishAsset[];
+  dirtyFiles: string[];
+  dirtyReleaseFiles: string[];
+  dirtyRuntimeDataFiles: string[];
+  dirtySourceFiles: string[];
+  dirtyOtherFiles: string[];
+  readinessSummary?: Record<string, unknown> | null;
+  betaReadyBlockers: number;
+  betaReadyWarnings: number;
+  betaReadyManualChecks: number;
+  betaReadyFutureFormalOnly: number;
+  checks: AppStudioPublishCheck[];
+}
+
+export interface AppStudioPublishRunResult {
+  ok: boolean;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  commandLine: string;
+  startedAt: string;
+  finishedAt: string;
+  processWallClockSeconds: number;
+  userMessage: string;
+  report?: AppStudioRemoteVerificationReport | null;
+  preflight: AppStudioPublishPreflightResult;
+}
+
+export interface AppStudioPublishRemoteVerifyRequest {
+  manifestUrl?: string | null;
+  expectedVersion?: string | null;
+  downloadInstaller: boolean;
+}
+
+export interface AppStudioPublishRequest {
+  confirmPublish: boolean;
+  allowDirty: boolean;
+  allowExistingRelease: boolean;
+  updateManifestInstallerUrl: boolean;
+  draft: boolean;
+  prerelease: boolean;
+  downloadInstallerForRemoteVerify: boolean;
+  releaseNotes?: string | null;
+}
+
+export interface AppStudioRemoteVerificationCheck {
+  id?: string;
+  status?: "pass" | "warning" | "fail" | string;
+  message?: string;
+  details?: unknown;
+}
+
+export interface AppStudioRemoteVerificationReport {
+  ok?: boolean;
+  generated_at?: string;
+  project_root?: string;
+  manifest_url?: string | null;
+  installer_url?: string | null;
+  expected_version?: string | null;
+  remote_version?: string | null;
+  installer_file?: string | null;
+  installer_sha256?: string | null;
+  installer_size?: number | string | null;
+  downloaded_installer?: string | null;
+  checks?: AppStudioRemoteVerificationCheck[];
 }
 
 export interface AppStudioResultSummary {

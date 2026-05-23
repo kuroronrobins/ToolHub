@@ -73,6 +73,7 @@ pub(crate) fn import_request_from_update(
         metadata: request.metadata.clone(),
         icon_override: request.icon_override.clone(),
         build_profile: request.build_profile.clone(),
+        show_terminal: request.show_terminal,
         create_app_env: request.create_app_env,
         rebuild_app_env: request.rebuild_app_env,
         generate_lock: request.generate_lock,
@@ -138,6 +139,9 @@ pub(crate) fn build_import_cli_args(
     if let Some(path) = overrides.build_profile {
         cli_args.push("--build-profile".to_string());
         cli_args.push(path.display().to_string());
+    }
+    if request.show_terminal {
+        cli_args.push("--show-terminal".to_string());
     }
     if request.create_app_env {
         cli_args.push("--create-app-env".to_string());
@@ -275,6 +279,7 @@ mod tests {
             metadata: None,
             icon_override: None,
             build_profile: None,
+            show_terminal: false,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: true,
@@ -324,6 +329,7 @@ mod tests {
         request.icon_prompt = Some(" blue tool ".to_string());
         request.icon_style_preset = Some("flat".to_string());
         request.icon_style_custom = Some("thin lines".to_string());
+        request.show_terminal = true;
 
         let args = build_import_cli_args(
             script,
@@ -353,6 +359,7 @@ mod tests {
         assert!(args.contains(&"--metadata-override".to_string()));
         assert!(args.contains(&"--icon-override".to_string()));
         assert!(args.contains(&"--build-profile".to_string()));
+        assert!(args.contains(&"--show-terminal".to_string()));
         assert!(args.contains(&"--generate-lock".to_string()));
         assert!(!args.contains(&"--build-frozen-folder".to_string()));
         assert!(args.contains(&"--verify-runtime".to_string()));
@@ -403,6 +410,7 @@ mod tests {
                 candidate_id: Some("candidate-1".to_string()),
             }),
             build_profile: Some(json!({"hidden_imports": ["pkg"]})),
+            show_terminal: true,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: true,
@@ -431,6 +439,7 @@ mod tests {
             Some("adopted_png")
         );
         assert!(import.build_profile.is_some());
+        assert!(import.show_terminal);
     }
 
     #[test]

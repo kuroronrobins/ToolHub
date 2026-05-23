@@ -93,8 +93,17 @@
 - [x] Web自動化用ランタイムをHeavy Runtimeとして扱う方針がdocsに記載されている
 - [x] `scripts/package_app_pack.ps1` でApp Pack zipとsha256を生成できる
 - [x] `scripts/verify_release.ps1` でApp Pack sha256を検証できる
-- [ ] 自動更新本体は未実装
-- [ ] 更新ダウンロード、展開、原子的置き換え、ロールバックの実処理は未実装
+- [x] remote manifest を取得し、現在 version と比較できる
+- [x] installer を `update_cache` へ download し、sha256 / size を検証できる
+- [x] 検証済み `ToolHub_Setup_<version>.exe` だけを起動できる
+- [x] updater safety の Rust unit tests で `http://` 拒否、unsupported scheme 拒否、local fixture copy、`update_cache` 境界、installer file name 制限、更新後 version 確認 annotation を検証している
+- [x] GitHub Release verifier fixture tests で local installer の sha256 match / mismatch を検証している
+- [x] GitHub Release への publish dry-run / remote verify / 実 publish 導線がある
+- [x] GitHub Release endpoint check script で Release 存在、必須 asset、latest manifest URL を read-only で分類できる
+- [ ] 実 GitHub Release endpoint と実 installer で update flow を確認する
+- [ ] 実 GitHub Release `v0.1.0` を作成し、`latest/download/manifest.json` が 200 で取得できる状態にする。2026-05-24 の read-only 確認では `latest/download/manifest.json` は 404、`gh release view v0.1.0` は `release not found`。
+- [ ] clean Windows VM / clean user profile で更新後 version 上昇を確認する
+- [ ] ToolHub 内での展開、原子的置き換え、ロールバックの実処理は未実装
 
 ## Regression
 
@@ -167,6 +176,7 @@
 - [x] [blocker] updater result log が実装されている。`%LOCALAPPDATA%\ToolHub\data\logs\updater\latest_update_result.json` に check / download / launch 結果を記録する。
 - [x] [blocker] updater は `http://` を拒否し、Beta 本番 endpoint は `https://` 前提にする。`file://` / 相対パスは local test 専用。
 - [x] [blocker] installer 起動時に `cachePath` を canonicalize し、`update_cache` 外、`.exe` / `.msi` 以外、`ToolHub_Setup` 以外の file name を拒否する。
+- [x] [blocker] updater safety tests を `check_all.ps1` に組み込み、local fixture / unsafe source / unsafe path の退行を検出できる。
 
 ### Manual Check
 
@@ -186,6 +196,9 @@
 
 - [x] installer artifact preflight: `release/dist_installer/ToolHub_Setup_0.1.0.exe` は存在し、`release/manifest.json` の `sha256` / `size` と一致する。
 - [x] staging manifest preflight: `release/staging/installer_payload/staging_manifest.json` は存在する。
+- [x] GitHub Release publish target: `publish_github_release.ps1 -PrepareTargetOnly` で `release/github_release_targets/v<version>/` に upload 対象 asset と `release_target_manifest.json` を作成し、公開対象フォルダを publish 前に確認できる実装にした。
+- [x] GitHub Release target verification: `verify_release_target_folder.ps1` で target folder 内の upload asset、`checksums.sha256.txt`、`release_target_manifest.json`、installer `sha256` / `size` を検証できる。
+- [x] Beta / Pre-release remote verify: prerelease publish では `latest` ではなく tag 固定 `releases/download/<tag>/manifest.json` を検証対象にする。
 - [ ] current PC install / uninstall: 未実施。現在の Windows profile には既存の `%LOCALAPPDATA%\ToolHub\` user data が存在するため、clean install 検証としては使わない。
 - [ ] clean Windows user profile または VM での install / launch / uninstall / reinstall 検証: 未実施。
 

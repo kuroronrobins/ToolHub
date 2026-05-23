@@ -123,17 +123,36 @@ function Test-TauriIconAssets {
 function Test-TauriBundleResources {
     param(
         [string]$ConfigPath,
-        [object[]]$Resources,
+        [object]$Resources,
         [string]$Label = "bundle resource"
     )
 
     $ConfigDir = Split-Path -Parent $ConfigPath
-    if (-not $Resources -or $Resources.Count -eq 0) {
+    if (-not $Resources) {
         Warn "Tauri $Label list is empty."
         return
     }
 
-    foreach ($Resource in $Resources) {
+    $ResourceEntries = New-Object System.Collections.Generic.List[object]
+    if ($Resources -is [System.Array]) {
+        foreach ($Resource in $Resources) {
+            $ResourceEntries.Add([ordered]@{ source = [string]$Resource; destination = "" }) | Out-Null
+        }
+    } elseif ($Resources -is [string]) {
+        $ResourceEntries.Add([ordered]@{ source = [string]$Resources; destination = "" }) | Out-Null
+    } else {
+        foreach ($Property in @($Resources.PSObject.Properties)) {
+            $ResourceEntries.Add([ordered]@{ source = [string]$Property.Name; destination = [string]$Property.Value }) | Out-Null
+        }
+    }
+
+    if ($ResourceEntries.Count -eq 0) {
+        Warn "Tauri $Label list is empty."
+        return
+    }
+
+    foreach ($Entry in $ResourceEntries) {
+        $Resource = [string]$Entry.source
         if (-not $Resource) {
             continue
         }
@@ -145,10 +164,15 @@ function Test-TauriBundleResources {
             $ResourcePath = Join-Path $ConfigDir $ResourceText
         }
 
-        if (Test-Path -LiteralPath $ResourcePath) {
-            Pass "Tauri $Label exists: $ResourceText"
+        $ResourceLabel = if ([string]::IsNullOrWhiteSpace([string]$Entry.destination)) {
+            $ResourceText
         } else {
-            Warn "Tauri $Label missing: $ResourceText ($ResourcePath)"
+            "$ResourceText -> $($Entry.destination)"
+        }
+        if (Test-Path -LiteralPath $ResourcePath) {
+            Pass "Tauri $Label exists: $ResourceLabel"
+        } else {
+            Warn "Tauri $Label missing: $ResourceLabel ($ResourcePath)"
         }
     }
 }
@@ -207,8 +231,8 @@ function Test-TauriBundleConfig {
         } else {
             Fail "Tauri bundle targets should include nsis or msi"
         }
-        Test-TauriBundleResources -ConfigPath $ConfigPath -Resources @($Config.bundle.icon) -Label "bundle icon"
-        Test-TauriBundleResources -ConfigPath $ConfigPath -Resources @($Config.bundle.resources) -Label "bundle resource"
+        Test-TauriBundleResources -ConfigPath $ConfigPath -Resources $Config.bundle.icon -Label "bundle icon"
+        Test-TauriBundleResources -ConfigPath $ConfigPath -Resources $Config.bundle.resources -Label "bundle resource"
     } catch {
         Fail "Tauri config could not be parsed"
     }
@@ -238,6 +262,11 @@ try {
     Require-Path "scripts/prepare_runtime.ps1"
     Require-Path "scripts/verify_runtime.ps1"
     Require-Path "scripts/verify_release.ps1"
+    Require-Path "scripts/publish_github_release.ps1"
+    Require-Path "scripts/verify_github_release_assets.ps1"
+    Require-Path "scripts/verify_release_target_folder.ps1"
+    Require-Path "scripts/test_github_release_verification.ps1"
+    Require-Path "scripts/check_github_release_endpoint.ps1"
     Require-Path "scripts/diagnose_app_manifest.ps1"
     Require-Path "scripts/diagnose_active_root_staleness.ps1"
     Require-Path "scripts/report_release_readiness.ps1"
@@ -254,6 +283,7 @@ try {
     Require-Path "docs/08_update_design.md"
     Require-Path "docs/09_app_pack_spec.md"
     Require-Path "docs/10_runtime_packaging.md"
+    Require-Path "docs/35_github_release_updater_implementation_plan.md"
     Require-Path "docs/17_app_management_model.md"
     Require-Path "docs/18_app_delete_execution_plan.md"
     Require-Path "docs/19_full_delete_executor_design.md"
@@ -322,6 +352,26 @@ try {
         & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\report_release_readiness.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
     }
 
+    Run-Step "GitHub release publish script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\publish_github_release.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "GitHub release verification script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\verify_github_release_assets.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "GitHub release target folder verification script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\verify_release_target_folder.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "GitHub release verification test script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\test_github_release_verification.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "GitHub release endpoint check script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\check_github_release_endpoint.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
     Run-Step "Runtime preparation script syntax" {
         & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\prepare_runtime.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
     }
@@ -387,8 +437,13 @@ try {
             Push-Location "launcher/src-tauri"
             try { & cargo "test" "full_delete" "--" "--nocapture" } finally { Pop-Location }
         }
+        Run-Step "Rust updater safety tests" {
+            Push-Location "launcher/src-tauri"
+            try { & cargo "test" "update_safety" "--" "--nocapture" } finally { Pop-Location }
+        }
     } else {
         Skip "Rust full delete safety tests: cargo was not found."
+        Skip "Rust updater safety tests: cargo was not found."
     }
 
     Run-Step "Python runner tests" {
@@ -397,6 +452,30 @@ try {
 
     Run-Step "ToolHub App Studio tests" {
         & $Python "-m" "unittest" "discover" "-s" "tools/app_studio/tests"
+    }
+
+    Run-Step "GitHub release verification fixture tests" {
+        & ".\scripts\test_github_release_verification.ps1"
+    }
+
+    $ReleaseManifest = Get-Content -Raw -Encoding UTF8 "release/manifest.json" | ConvertFrom-Json
+    $ReleaseVersion = [string]$ReleaseManifest.toolhub.version
+    $ReleaseInstallerFile = [string]$ReleaseManifest.toolhub.installer.file
+    $ReleaseInstallerPath = if ($ReleaseInstallerFile) { Join-Path "release\dist_installer" $ReleaseInstallerFile } else { "" }
+    if ($ReleaseInstallerPath -and (Test-Path -LiteralPath $ReleaseInstallerPath -PathType Leaf)) {
+        Run-Step "GitHub release publish dry-run" {
+            & ".\scripts\publish_github_release.ps1" -DryRun -SkipBuild -SkipVerify -SkipTag -SkipRemoteVerify -AllowDirty
+        }
+    } else {
+        Skip "GitHub release publish dry-run: installer artifact is missing."
+    }
+    $ReleaseTargetPath = if ($ReleaseVersion) { Join-Path "release\github_release_targets" "v$ReleaseVersion" } else { "" }
+    if ($ReleaseTargetPath -and (Test-Path -LiteralPath $ReleaseTargetPath -PathType Container)) {
+        Run-Step "GitHub release target folder verification" {
+            & ".\scripts\verify_release_target_folder.ps1" -TargetDir $ReleaseTargetPath -Version $ReleaseVersion
+        }
+    } else {
+        Skip "GitHub release target folder verification: target folder is missing."
     }
 
     Run-Step "Release manifest verification" {

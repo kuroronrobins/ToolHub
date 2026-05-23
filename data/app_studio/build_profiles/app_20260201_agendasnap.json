@@ -221,7 +221,7 @@
     "source_root_origin": "entry_parent",
     "entry_relative": "main.py",
     "included_count": 67,
-    "excluded_count": 55,
+    "excluded_count": 56,
     "blocked_count": 0,
     "manual_check_count": 10,
     "excluded_directory_count": 25,

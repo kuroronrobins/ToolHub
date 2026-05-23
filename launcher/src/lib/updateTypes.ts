@@ -66,6 +66,7 @@ export interface UpdateDownloadResult {
 export interface UpdateLaunchRequest {
   cachePath: string;
   expectedSha256: string;
+  targetVersion?: string | null;
 }
 
 export interface UpdateLaunchResult {
@@ -74,6 +75,8 @@ export interface UpdateLaunchResult {
   message: string;
   failureReason?: string | null;
   checkedAt: string;
+  currentVersion: string;
+  targetVersion?: string | null;
   cachePath: string;
   sourceKind: string;
   expectedSha256: string;

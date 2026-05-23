@@ -12,7 +12,16 @@ pub fn append_launcher_log(_root: &Path, message: &str) {
     }
 
     let path = log_dir.join("tauri_backend.log");
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "{} {}", Local::now().format("%Y-%m-%d %H:%M:%S"), message);
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(
+            file,
+            "{} {}",
+            Local::now().format("%Y-%m-%d %H:%M:%S"),
+            message
+        );
     }
 }

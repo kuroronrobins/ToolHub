@@ -1,5 +1,7 @@
-import { X } from "lucide-react";
-import type { UpdateItem, UpdateSummary } from "../lib/updateTypes";
+import { Download, ExternalLink, Loader2, X } from "lucide-react";
+import { useState } from "react";
+import { downloadUpdateInstaller, launchVerifiedUpdateInstaller } from "../lib/api";
+import type { UpdateDownloadResult, UpdateItem, UpdateLaunchResult, UpdateSummary } from "../lib/updateTypes";
 
 const UNSUPPORTED_ACTION_LABELS: Record<string, string> = {
   download: "ダウンロード",
@@ -33,8 +35,68 @@ function VersionRow({ item }: { item: UpdateItem }) {
 }
 
 export function UpdateSummaryDialog({ summary, onClose }: Props) {
+  const [busy, setBusy] = useState<"download" | "launch" | null>(null);
+  const [downloadResult, setDownloadResult] = useState<UpdateDownloadResult | null>(null);
+  const [launchResult, setLaunchResult] = useState<UpdateLaunchResult | null>(null);
+  const [error, setError] = useState("");
+
   if (!summary) {
     return null;
+  }
+
+  const canDownload = Boolean(summary.installerUrl && summary.installerSha256 && !busy);
+  const canLaunch = Boolean(downloadResult?.verified && downloadResult.cachePath && summary.installerSha256 && !busy);
+  const targetVersion = updateTargetVersion(summary);
+
+  async function handleDownload() {
+    if (!summary?.installerUrl || !summary.installerSha256) {
+      setError("更新ファイルの情報が不足しています。管理者に確認してください。");
+      return;
+    }
+    setBusy("download");
+    setError("");
+    setLaunchResult(null);
+    try {
+      const result = await downloadUpdateInstaller({
+        manifestUrl: summary.remoteManifestUrl ?? summary.updateSourceUrl ?? null,
+        installerUrl: summary.installerUrl,
+        installerFile: summary.installerFile ?? null,
+        expectedSha256: summary.installerSha256,
+        expectedSize: summary.installerSize ?? null,
+      });
+      setDownloadResult(result);
+      if (!result.verified) {
+        setError("更新ファイルを確認できませんでした。既存のToolHubは変更されていません。");
+      }
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : "更新ファイルを取得できませんでした。");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleLaunch() {
+    if (!downloadResult?.verified || !downloadResult.cachePath || !summary?.installerSha256) {
+      setError("検証済みの更新ファイルがありません。先に更新を取得してください。");
+      return;
+    }
+    setBusy("launch");
+    setError("");
+    try {
+      const result = await launchVerifiedUpdateInstaller({
+        cachePath: downloadResult.cachePath,
+        expectedSha256: summary.installerSha256,
+        targetVersion,
+      });
+      setLaunchResult(result);
+      if (!result.ok) {
+        setError("更新の開始に失敗しました。既存のToolHubは変更されていません。");
+      }
+    } catch (launchError) {
+      setError(launchError instanceof Error ? launchError.message : "更新を開始できませんでした。");
+    } finally {
+      setBusy(null);
+    }
   }
 
   return (
@@ -63,6 +125,28 @@ export function UpdateSummaryDialog({ summary, onClose }: Props) {
               <strong>{summary.remoteManifestVersion ?? summary.localManifestVersion ?? "未確認"}</strong>
             </div>
           </div>
+          <div className="update-action-panel">
+            <button className="primary-button" type="button" onClick={() => void handleDownload()} disabled={!canDownload}>
+              {busy === "download" ? <Loader2 className="spin" size={17} aria-hidden="true" /> : <Download size={17} aria-hidden="true" />}
+              更新を取得
+            </button>
+            <button className="secondary-button" type="button" onClick={() => void handleLaunch()} disabled={!canLaunch}>
+              {busy === "launch" ? <Loader2 className="spin" size={17} aria-hidden="true" /> : <ExternalLink size={17} aria-hidden="true" />}
+              更新を開始
+            </button>
+          </div>
+          <p className="update-guidance-text">更新を開始したら、画面の案内に従ってToolHubを閉じてください。設定やログは保持されます。</p>
+          {downloadResult ? (
+            <p className={downloadResult.verified ? "admin-success" : "admin-warning"}>
+              {downloadResult.verified ? "更新ファイルを確認しました。更新を開始できます。" : "更新ファイルの確認に失敗しました。"}
+            </p>
+          ) : null}
+          {launchResult?.ok ? (
+            <p className="admin-success">
+              更新インストーラーを起動しました。次回起動時にversion {launchResult.targetVersion ?? targetVersion ?? "-"} を確認します。
+            </p>
+          ) : null}
+          {error ? <p className="admin-error">{error}</p> : null}
         </section>
 
         <details className="admin-details">
@@ -99,5 +183,9 @@ export function UpdateSummaryDialog({ summary, onClose }: Props) {
       </section>
     </div>
   );
+}
+
+function updateTargetVersion(summary: UpdateSummary): string | null {
+  return summary.remoteManifestVersion ?? summary.core?.nextVersion ?? null;
 }
 

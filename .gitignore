@@ -22,6 +22,8 @@ release/dist_installer/*
 !release/dist_installer/.gitkeep
 release/staging/*
 !release/staging/.gitkeep
+release/github_release_targets/*
+!release/github_release_targets/.gitkeep
 scripts/beta_sandbox/results/*
 !scripts/beta_sandbox/results/.gitkeep
 scripts/beta_isolated_path/results/*

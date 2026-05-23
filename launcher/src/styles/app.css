@@ -651,6 +651,19 @@ button {
   font-size: 0.86rem;
 }
 
+.update-action-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.update-guidance-text {
+  margin: 10px 0 0;
+  color: #475467;
+  line-height: 1.55;
+}
+
 .admin-details dl div {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
@@ -1794,6 +1807,78 @@ button {
   border: 1px solid #fecaca;
   background: #fef2f2;
   color: #991b1b;
+}
+
+.dirty-file-groups {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.dirty-file-group {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #dfe5ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.dirty-file-group.warn {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.dirty-file-group strong {
+  color: #111827;
+}
+
+.dirty-file-group p {
+  margin: 0;
+}
+
+.publish-readiness-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.publish-readiness-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 9px;
+  border: 1px solid #dfe5ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.publish-readiness-item.ok {
+  border-color: #b6d4d0;
+  background: #f2fbfa;
+  color: #0f5f58;
+}
+
+.publish-readiness-item.warn {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.publish-readiness-item div {
+  display: grid;
+  gap: 3px;
+}
+
+.publish-readiness-item strong {
+  color: #111827;
+}
+
+.publish-readiness-item span {
+  color: #5b6675;
+  line-height: 1.45;
 }
 
 .studio-approval-mode {
@@ -3219,7 +3304,8 @@ button {
     .studio-icon-compact-body,
     .studio-compact-result dl,
     .studio-approval-checklist dl,
-    .studio-technical-list {
+    .studio-technical-list,
+    .publish-readiness-list {
     grid-template-columns: 1fr;
   }
 

@@ -17,6 +17,8 @@ class PythonRunner(BaseRunner):
 
         command = [sys.executable, str(entry)]
         env = build_app_env(self.project_root, self.manifest)
+        if self.manifest.run.show_terminal:
+            return self.start_visible_terminal(command, env)
         if self.manifest.run.mode == "gui":
             return self.start_detached(command, env)
         return self.run_blocking(command, env)

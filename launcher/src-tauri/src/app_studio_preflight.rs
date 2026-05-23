@@ -246,6 +246,7 @@ mod tests {
             metadata: None,
             icon_override: None,
             build_profile: None,
+            show_terminal: false,
             create_app_env: false,
             rebuild_app_env: false,
             generate_lock: false,

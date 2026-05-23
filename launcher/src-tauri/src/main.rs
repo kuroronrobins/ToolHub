@@ -70,6 +70,12 @@ fn main() {
             app_studio_commands::app_studio_open_output_dir,
             app_studio_commands::app_studio_preflight,
             app_studio_commands::app_studio_update_preflight,
+            app_studio_commands::app_studio_publish_preflight,
+            app_studio_commands::app_studio_publish_dry_run,
+            app_studio_commands::app_studio_publish_prepare_target,
+            app_studio_commands::app_studio_publish_build_verify,
+            app_studio_commands::app_studio_publish_remote_verify,
+            app_studio_commands::app_studio_publish_release,
             app_studio_commands::app_studio_pick_entry_file
         ])
         .run(tauri::generate_context!())

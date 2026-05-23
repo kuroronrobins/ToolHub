@@ -104,6 +104,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--icon-override")
     parser.add_argument("--icon-png")
     parser.add_argument("--build-profile")
+    parser.add_argument("--show-terminal", action="store_true")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--suggest", action="store_true")
@@ -161,6 +162,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         verify_runtime=args.verify_runtime,
         metadata_override_path=Path(args.metadata_override) if args.metadata_override else None,
         build_profile_path=Path(args.build_profile) if args.build_profile else None,
+        show_terminal=args.show_terminal,
     )
     context = create_context(options, repo_root)
     timings = TimingRecorder(context, action)
@@ -288,6 +290,7 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
         "registration_policy": NORMAL_REGISTRATION_POLICY,
         "runner": plan.runner,
         "run_entry": plan.entry,
+        "show_terminal": context.show_terminal,
         "required_runtime": plan.required_runtime,
         "secret_high_findings": secret_report.has_high,
         "package_secret_scan_status": secret_scan_status(secret_report),

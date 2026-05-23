@@ -35,6 +35,8 @@ run:
   entry: src/main.py
   mode: gui
   env_id: <env_id>
+  # Optional only for apps that require console interaction:
+  # show_terminal: true
 
 runtime:
   distribution_mode: shared_env
