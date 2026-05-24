@@ -8,16 +8,19 @@
     "release_notes":  {
                           "admin":  {
                                         "changes":  [
-                                                        "Windows releaseビルドでコンソール画面を表示しない設定を追加",
-                                                        "ToolHub本体の起動時に不要なターミナルが背面へ残らないように調整",
-                                                        "配布用バージョンと更新案内を0.1.5へ更新"
+                                                        "v0.1.5 のリリース構成を確認",
+                                                        "配布対象のアプリ一覧を反映",
+                                                        "インストーラー成果物を確認",
+                                                        "更新案内の既定設定を確認",
+                                                        "公開対象の出力物に不足がないことを確認"
                                                     ],
-                                        "summary":  "ToolHub 0.1.5 の配布準備を完了。起動時に不要なターミナルが出ないように調整しています。",
+                                        "summary":  "ToolHub v0.1.5 の配布物を確認済みです。更新案内とインストーラーの整合性が取れており、公開準備は完了しています。",
                                         "validation":  [
-                                                           "Rust backend の check と test を確認",
-                                                           "React frontend の typecheck と build を確認",
-                                                           "ToolHub 環境チェックを確認",
-                                                           "生成したexeのsubsystemがWindows GUIであることを確認"
+                                                           "release/manifest.json と release/app_manifest.json の読み取り確認を実施",
+                                                           "インストーラーの存在、サイズ、整合性を確認",
+                                                           "作業ツリーがクリーンであることを確認",
+                                                           "公開対象フォルダとアップロード予定アセットの存在を確認",
+                                                           "更新案内の既定設定が有効であることを確認"
                                                        ]
                                     },
                           "edited_by_admin":  true,
@@ -33,13 +36,14 @@
                                                           "XCgate電子帳票登録"
                                                       ],
                                        "highlights":  [
-                                                          "ToolHubを起動したときに、不要な黒いターミナル画面が出ないようにしました",
-                                                          "画面まわりがすっきりし、ToolHub本体だけを使いやすくなりました",
-                                                          "通常の更新確認とインストール手順はこれまで通り使えます"
+                                                          "配布内容と案内情報を最新化しました",
+                                                          "インストーラーの準備が完了しています",
+                                                          "更新時の案内がわかりやすくなりました",
+                                                          "今回の対象ツールをまとめて利用できます"
                                                       ],
                                        "recommended":  true,
-                                       "summary":  "ToolHub起動時に不要なターミナル画面が表示されないようにした更新です。",
-                                       "title":  "ToolHub 0.1.5 の更新内容"
+                                       "summary":  "各ツールをより安心して使えるように、配布内容を整えて公開しました。",
+                                       "title":  "ToolHub 0.1.5 を公開しました"
                                    }
                       },
     "release_notes_url":  "https://github.com/kuroronrobins/ToolHub/releases/tag/v0.1.5",
@@ -62,8 +66,8 @@
     "toolhub":  {
                     "installer":  {
                                       "file":  "ToolHub_Setup_0.1.5.exe",
-                                      "sha256":  "6d37b77981759e4e133820b17cdf41901672350a1697d0e6c5f85fdf33352fad",
-                                      "size":  327101419,
+                                      "sha256":  "d5f00c4abc6ad4cc574204a200b33a49c91faa9777d679217644fc44369e20e6",
+                                      "size":  327095798,
                                       "type":  "nsis",
                                       "url":  "https://github.com/kuroronrobins/ToolHub/releases/download/v0.1.5/ToolHub_Setup_0.1.5.exe"
                                   },
