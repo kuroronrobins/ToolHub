@@ -45,6 +45,7 @@ Codex の初動では [00_AI_CONTEXT.md](00_AI_CONTEXT.md) を優先します。
 | Beta installer / updater の現行計画 | [22_beta_installer_updater_plan.md](22_beta_installer_updater_plan.md) |
 | Beta installer / updater の実行 handoff | [24_beta_installer_updater_execution_handoff.md](24_beta_installer_updater_execution_handoff.md) |
 | GitHub Releases を使った更新配布の実装方針 | [35_github_release_updater_implementation_plan.md](35_github_release_updater_implementation_plan.md) |
+| ワンクリック公開と更新内容表示の実装方針 | [36_one_click_release_cockpit_plan.md](36_one_click_release_cockpit_plan.md) |
 | VirtualBox で 2 アプリ入り installer を検証する | [34_virtualbox_two_app_validation_plan.md](34_virtualbox_two_app_validation_plan.md) |
 
 ## 検証プロトコルと未完了計画

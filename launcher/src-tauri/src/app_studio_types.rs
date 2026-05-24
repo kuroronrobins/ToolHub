@@ -417,6 +417,33 @@ pub struct AppStudioPublishRunResult {
     pub preflight: AppStudioPublishPreflightResult,
 }
 
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioReleaseNotesDraftResult {
+    pub ok: bool,
+    pub source: String,
+    pub message: String,
+    pub github_release_notes: String,
+    pub manifest_release_notes_json: String,
+    pub ai_report: Option<String>,
+    pub preflight: AppStudioPublishPreflightResult,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioSaveReleaseNotesRequest {
+    pub manifest_release_notes_json: String,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioSaveReleaseNotesResult {
+    pub ok: bool,
+    pub message: String,
+    pub manifest_path: String,
+    pub preflight: AppStudioPublishPreflightResult,
+}
+
 #[derive(Debug, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppStudioPublishRemoteVerifyRequest {

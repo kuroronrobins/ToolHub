@@ -20,6 +20,13 @@ param(
     [switch]$UpdateManifestInstallerUrl,
     [switch]$SkipRemoteVerify,
     [switch]$DownloadInstallerForRemoteVerify,
+    [switch]$SignInstaller,
+    [switch]$RequireInstallerSignature,
+    [string]$CodeSignCertificateThumbprint,
+    [string]$CodeSignCertificateSubject,
+    [string]$CodeSignTimestampUrl,
+    [string]$SignToolPath,
+    [string[]]$SignToolExtraArgs = @(),
     [switch]$PrepareTargetOnly,
     [switch]$DryRun
 )
@@ -271,6 +278,17 @@ function Assert-InstallerMatchesManifest {
     }
 }
 
+function Assert-InstallerSignature {
+    param([string]$Path)
+
+    $Signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($Signature.Status -ne "Valid") {
+        Fail "Installer Authenticode signature is not valid. status=$($Signature.Status) path=$Path"
+    }
+    $Subject = if ($Signature.SignerCertificate) { $Signature.SignerCertificate.Subject } else { "unknown signer" }
+    Write-Host "[OK] Installer Authenticode signature is valid: $Subject"
+}
+
 function Initialize-ReleaseTargetDirectory {
     param(
         [string]$TargetDir
@@ -494,6 +512,10 @@ Write-Host "Version: $Version"
 Write-Host "Tag: $Tag"
 Write-Host "Release target folder: $ReleaseTargetDir"
 
+if ($SkipBuild -and $SignInstaller -and -not $DryRun) {
+    Fail "-SignInstaller cannot be applied when -SkipBuild is used. Run scripts/package_installer.ps1 -SignInstaller first, or omit -SkipBuild."
+}
+
 Assert-CleanWorktree
 $ResolvedTargetCommitish = Resolve-TargetCommitish -Value $TargetCommitish
 Write-Host "Target commitish: $ResolvedTargetCommitish"
@@ -510,14 +532,37 @@ Assert-VersionMatch -Label "release/manifest.json core" -Actual ([string](Get-Js
 
 if (-not $SkipBuild) {
     Write-Step "Build release artifacts"
-    Invoke-External (Join-Path $Root "scripts\build_release.ps1") @("-RequireRuntime")
+    $BuildArgs = @("-RequireRuntime")
+    if ($SignInstaller) { $BuildArgs += "-SignInstaller" }
+    if ($RequireInstallerSignature) { $BuildArgs += "-RequireInstallerSignature" }
+    if (-not [string]::IsNullOrWhiteSpace($CodeSignCertificateThumbprint)) {
+        $BuildArgs += @("-CodeSignCertificateThumbprint", $CodeSignCertificateThumbprint)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CodeSignCertificateSubject)) {
+        $BuildArgs += @("-CodeSignCertificateSubject", $CodeSignCertificateSubject)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CodeSignTimestampUrl)) {
+        $BuildArgs += @("-CodeSignTimestampUrl", $CodeSignTimestampUrl)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($SignToolPath)) {
+        $BuildArgs += @("-SignToolPath", $SignToolPath)
+    }
+    if (@($SignToolExtraArgs).Count -gt 0) {
+        $BuildArgs += "-SignToolExtraArgs"
+        $BuildArgs += $SignToolExtraArgs
+    }
+    Invoke-External (Join-Path $Root "scripts\build_release.ps1") $BuildArgs
 } else {
     Write-Host "[SKIP] release build"
 }
 
 if (-not $SkipVerify) {
     Write-Step "Verify release artifacts"
-    Invoke-External (Join-Path $Root "scripts\verify_release.ps1") @("-RequireInstaller", "-RequireAppPacks", "-RequireRuntime", "-Strict")
+    $VerifyArgs = @("-RequireInstaller", "-RequireAppPacks", "-RequireRuntime", "-Strict")
+    if ($RequireInstallerSignature -or $SignInstaller) {
+        $VerifyArgs += "-RequireInstallerSignature"
+    }
+    Invoke-External (Join-Path $Root "scripts\verify_release.ps1") $VerifyArgs
 } else {
     Write-Host "[SKIP] release verification"
 }
@@ -525,6 +570,9 @@ if (-not $SkipVerify) {
 Write-Step "Validate publish assets"
 $Manifest = Read-JsonFile $ManifestPath
 $InstallerInfo = Assert-InstallerMatchesManifest -Manifest $Manifest -ExpectedVersion $Version
+if ($RequireInstallerSignature -or $SignInstaller) {
+    Assert-InstallerSignature -Path $InstallerInfo.Path
+}
 
 $ReleaseUrl = "https://github.com/$Repository/releases/tag/$Tag"
 $LatestManifestUrl = "https://github.com/$Repository/releases/latest/download/manifest.json"

@@ -1,6 +1,12 @@
 param(
     [string]$Version,
-    [switch]$AllowMissingBundle
+    [switch]$AllowMissingBundle,
+    [switch]$SignInstaller,
+    [string]$CodeSignCertificateThumbprint,
+    [string]$CodeSignCertificateSubject,
+    [string]$CodeSignTimestampUrl,
+    [string]$SignToolPath,
+    [string[]]$SignToolExtraArgs = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -173,6 +179,35 @@ if ($Exe) {
     Write-Host "[WARN] Tauri bundle output was not found. Staging was created and installer sha256 remains empty."
 } else {
     throw "No Tauri bundle installer was found under $BundleDir. Run npm run tauri build first, or pass -AllowMissingBundle for staging-only packaging."
+}
+
+$SignScript = Join-Path $PSScriptRoot "sign_installer.ps1"
+if ($SignInstaller -and (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) {
+    if (-not (Test-Path -LiteralPath $SignScript -PathType Leaf)) {
+        throw "Installer signing script was not found: $SignScript"
+    }
+    $SignArgs = @{
+        Path = $InstallerPath
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CodeSignCertificateThumbprint)) {
+        $SignArgs.CertificateThumbprint = $CodeSignCertificateThumbprint
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CodeSignCertificateSubject)) {
+        $SignArgs.CertificateSubject = $CodeSignCertificateSubject
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CodeSignTimestampUrl)) {
+        $SignArgs.TimestampUrl = $CodeSignTimestampUrl
+    }
+    if (-not [string]::IsNullOrWhiteSpace($SignToolPath)) {
+        $SignArgs.SignToolPath = $SignToolPath
+    }
+    if (@($SignToolExtraArgs).Count -gt 0) {
+        $SignArgs.SignToolExtraArgs = $SignToolExtraArgs
+    }
+    & $SignScript @SignArgs
+    if (-not $?) { exit 1 }
+} elseif ($SignInstaller) {
+    throw "Cannot sign installer because no installer artifact was collected."
 }
 
 $Manifest.toolhub.installer.file = $InstallerFileName

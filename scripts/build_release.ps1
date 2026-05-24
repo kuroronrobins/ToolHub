@@ -7,7 +7,14 @@ param(
     [switch]$SkipVerify,
     [switch]$AllowMissingBundle,
     [switch]$Strict,
-    [switch]$RequireRuntime
+    [switch]$RequireRuntime,
+    [switch]$SignInstaller,
+    [switch]$RequireInstallerSignature,
+    [string]$CodeSignCertificateThumbprint,
+    [string]$CodeSignCertificateSubject,
+    [string]$CodeSignTimestampUrl,
+    [string]$SignToolPath,
+    [string[]]$SignToolExtraArgs = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -109,6 +116,22 @@ if (-not $SkipInstallerPackage) {
     Write-Host "== 5. Package Installer Artifacts =="
     $InstallerArgs = @{}
     if ($AllowMissingBundle) { $InstallerArgs.AllowMissingBundle = $true }
+    if ($SignInstaller) { $InstallerArgs.SignInstaller = $true }
+    if (-not [string]::IsNullOrWhiteSpace($CodeSignCertificateThumbprint)) {
+        $InstallerArgs.CodeSignCertificateThumbprint = $CodeSignCertificateThumbprint
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CodeSignCertificateSubject)) {
+        $InstallerArgs.CodeSignCertificateSubject = $CodeSignCertificateSubject
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CodeSignTimestampUrl)) {
+        $InstallerArgs.CodeSignTimestampUrl = $CodeSignTimestampUrl
+    }
+    if (-not [string]::IsNullOrWhiteSpace($SignToolPath)) {
+        $InstallerArgs.SignToolPath = $SignToolPath
+    }
+    if (@($SignToolExtraArgs).Count -gt 0) {
+        $InstallerArgs.SignToolExtraArgs = $SignToolExtraArgs
+    }
     & (Join-Path $Root "scripts\package_installer.ps1") @InstallerArgs
     if (-not $?) { exit 1 }
 } else {
@@ -122,6 +145,7 @@ if (-not $SkipVerify) {
     if (-not $AllowMissingBundle) { $VerifyArgs.RequireInstaller = $true }
     if (-not $SkipAppPacks) { $VerifyArgs.RequireAppPacks = $true }
     if ($RequireRuntime) { $VerifyArgs.RequireRuntime = $true }
+    if ($RequireInstallerSignature -or $SignInstaller) { $VerifyArgs.RequireInstallerSignature = $true }
     if ($Strict) { $VerifyArgs.Strict = $true }
     & (Join-Path $Root "scripts\verify_release.ps1") @VerifyArgs
     if (-not $?) { exit 1 }

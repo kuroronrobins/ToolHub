@@ -14,8 +14,11 @@ import type {
   AppStudioPublishRequest,
   AppStudioPublishRunResult,
   AppStudioRegisteredApp,
+  AppStudioReleaseNotesDraftResult,
   AppStudioResultSummary,
   AppStudioRunResult,
+  AppStudioSaveReleaseNotesRequest,
+  AppStudioSaveReleaseNotesResult,
   AppStudioUpdateRequest,
 } from "./appStudioTypes";
 
@@ -96,6 +99,14 @@ export async function appStudioUpdatePreflight(request: AppStudioUpdateRequest):
 
 export async function appStudioPublishPreflight(): Promise<AppStudioPublishPreflightResult> {
   return invoke<AppStudioPublishPreflightResult>("app_studio_publish_preflight");
+}
+
+export async function appStudioPublishSuggestReleaseNotes(): Promise<AppStudioReleaseNotesDraftResult> {
+  return invoke<AppStudioReleaseNotesDraftResult>("app_studio_publish_suggest_release_notes");
+}
+
+export async function appStudioPublishSaveReleaseNotes(request: AppStudioSaveReleaseNotesRequest): Promise<AppStudioSaveReleaseNotesResult> {
+  return invoke<AppStudioSaveReleaseNotesResult>("app_studio_publish_save_release_notes", { request });
 }
 
 export async function appStudioPublishDryRun(): Promise<AppStudioPublishRunResult> {

@@ -149,6 +149,7 @@ export default function App() {
       <UpdateNotice
         summary={showUpdateNotice ? updateSummary : null}
         onOpen={() => setUpdateDialogOpen(true)}
+        onDetails={() => setUpdateDialogOpen(true)}
         onDismiss={handleDismissUpdateNotice}
       />
 

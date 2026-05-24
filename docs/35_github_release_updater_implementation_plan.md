@@ -37,7 +37,7 @@
 
 - 実 endpoint / 実 installer での remote check、download、sha256 match / mismatch、verified launch gating は未完了。
 - clean Windows VM または clean Windows user profile での install / update / uninstall / user data 保持は未検証。
-- code signing と manifest signing は正式版向け future/formal 項目として残っている。
+- installer code signing は release pipeline で opt-in 実行できる。証明書署名済み artifact の生成、manifest signing、信頼済み配布経路の決定は正式版向け future/formal 項目として残っている。
 
 2026-05-24 の read-only 実 endpoint 確認では、`scripts/check_github_release_endpoint.ps1 -Json` により、`https://github.com/kuroronrobins/ToolHub/releases/latest/download/manifest.json` は `404 Not Found`、`gh release view v0.1.0 --repo kuroronrobins/ToolHub` は `release not found` と分類された。更新機能の実 endpoint 検証は GitHub Release 作成後に再実施する。
 
@@ -131,8 +131,8 @@ scripts/verify_github_release_assets.ps1
 1. release version を決定する。
 2. `launcher/package.json`、`launcher/src-tauri/Cargo.toml`、`launcher/src-tauri/tauri.conf.json`、`release/manifest.json` の version 整合を確認する。
 3. `scripts/build_release.ps1 -RequireRuntime` または指定された release build command を実行する。
-4. `scripts/verify_release.ps1 -RequireInstaller -RequireAppPacks -RequireRuntime -Strict` を実行する。
-5. `release/dist_installer/ToolHub_Setup_<version>.exe` の sha256 / size と `release/manifest.json` を照合する。
+4. `scripts/verify_release.ps1 -RequireInstaller -RequireAppPacks -RequireRuntime -Strict` を実行する。署名済み公開では `-RequireInstallerSignature` も指定する。
+5. `release/dist_installer/ToolHub_Setup_<version>.exe` の sha256 / size と `release/manifest.json` を照合する。署名済み公開では Authenticode signature も照合する。
 6. `release/github_release_targets/v<version>/` を作成し、GitHub Release に upload する対象だけを集約する。
 7. `release_target_manifest.json` に upload asset、source path、sha256、size、tag の対象 commit を記録し、管理者が公開対象フォルダを確認できるようにする。
 8. `verify_release_target_folder.ps1` で target folder の `checksums.sha256.txt`、`release_target_manifest.json`、installer `sha256` / `size` を検証する。
@@ -409,6 +409,6 @@ clean Windows VM または clean Windows user profile で確認する。
 6. App Studio `公開準備` タブを read-only preflight から実装する。
 7. `公開準備` タブから local build / GitHub publish を実行できるようにする。
 8. clean Windows VM で install / update / uninstall を検証する。
-9. code signing / manifest signing / App Pack 単位更新 / runtime 単位更新を正式版向けに分離設計する。
+9. 証明書署名済み artifact の実生成 / manifest signing / App Pack 単位更新 / runtime 単位更新を正式版向けに分離設計する。
 
 2026-05-23 時点では 1-7 と local verification fixture / local installer sha256 match-mismatch / publish dry-run / Rust updater safety tests の継続検証を実装済み。8 は実環境検証待ち、9 は正式版向け future/formal 項目として残す。

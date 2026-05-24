@@ -256,6 +256,7 @@ try {
     Require-Path "launcher/src-tauri/Cargo.lock"
     Test-TauriIconAssets
     Require-Path "scripts/package_installer.ps1"
+    Require-Path "scripts/sign_installer.ps1"
     Require-Path "scripts/package_app_pack.ps1"
     Require-Path "scripts/utf8_no_bom.ps1"
     Require-Path "scripts/test_utf8_no_bom.ps1"
@@ -338,6 +339,10 @@ try {
 
     Run-Step "Installer package script syntax" {
         & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\package_installer.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
+    }
+
+    Run-Step "Installer signing script syntax" {
+        & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-Command" '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content .\scripts\sign_installer.ps1 -Raw), [ref]$errors); if ($errors) { $errors | Format-List *; exit 1 }'
     }
 
     Run-Step "App manifest diagnostic script syntax" {

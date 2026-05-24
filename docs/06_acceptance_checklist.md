@@ -71,6 +71,7 @@
 - [x] ユーザーデータ保存先がdocsに記載されている
 - [x] ユーザーがPython / Node.js / Rust / Web自動化用ランタイムを手動導入しない方針がdocsに記載されている
 - [x] `scripts/package_installer.ps1` が存在する
+- [x] `scripts/sign_installer.ps1` が存在する
 - [x] `scripts/verify_release.ps1` が存在する
 - [x] `release/manifest.json` が拡張されている
 - [x] `release/app_manifest.json` が存在する
@@ -79,7 +80,8 @@
 - [x] 完全単一exeを正式方式にしない理由がdocsに記載されている
 - [x] フォルダ配布を正式方式にしない理由がdocsに記載されている
 - [x] 実際の `ToolHub_Setup.exe` が生成されている
-- [ ] `ToolHub_Setup.exe` のコード署名が完了している
+- [x] `ToolHub_Setup.exe` のコード署名を release pipeline で実行できる
+- [ ] `ToolHub_Setup.exe` の証明書署名済み artifact を生成し、`Get-AuthenticodeSignature` が `Valid` である
 
 ## Update Design
 
@@ -129,7 +131,9 @@
 - [x] `prepare_runtime.ps1` がruntime雛形を作成できる
 - [x] `package_installer.ps1` がstagingを作成できる
 - [x] `package_installer.ps1` がbundle成果物を `release/dist_installer/` へ収集できる構造になっている
+- [x] `package_installer.ps1 -SignInstaller` が署名後に installer sha256 / size を `release/manifest.json` へ記録する構造になっている
 - [x] `verify_release.ps1` がmanifest / app pack / staging / runtimeを検証できる
+- [x] `verify_release.ps1 -RequireInstallerSignature` が installer Authenticode 署名を release gate にできる
 - [x] `release/manifest.json` がinstaller file/type/sha256/sizeを保持する
 - [x] `release/app_manifest.json` がApp Pack package/sha256/runtime要求を保持する
 - [x] `npm run tauri build` でTauri標準のNSIS/MSI成果物を生成できた
@@ -266,7 +270,8 @@ clean profile / VM で記録する結果:
 
 ### Future / Formal Release Only
 
-- [ ] [future/formal] `ToolHub_Setup.exe` の code signing が完了している。Beta では後回し可能だが formal release blocker。
+- [x] [future/formal] `ToolHub_Setup.exe` の code signing pipeline がある。Beta では後回し可能だが formal release では証明書署名済み artifact が blocker。
+- [ ] [future/formal] `ToolHub_Setup.exe` の証明書署名済み artifact を作成し、`verify_release.ps1 -RequireInstallerSignature` を通す。
 - [ ] [future/formal] manifest signing または信頼済み配布経路が決まっている。
 - [ ] [future/formal] backup / rollback が実装されている。
 - [ ] [future/formal] App Pack 単位更新と runtime 単位更新の正式版方針が決まっている。
@@ -309,7 +314,7 @@ clean profile / VM で記録する結果:
 
 - `scripts/check_all.ps1` 内のVitest/Vite build: sandbox内では `esbuild` の `spawn EPERM` によりWARN。sandbox外の `npm run tauri build` ではVite build通過
 - 実インストール / アンインストール検証: 未実施
-- コード署名: 未実装
+- コード署名: pipeline は実装済み。証明書署名済み artifact の生成は未実施
 
 未完了項目:
 
@@ -317,7 +322,7 @@ clean profile / VM で記録する結果:
 - app_env実体生成
 - Web自動化用ランタイム実体同梱
 - 自動更新本体
-- コード署名
+- 証明書署名済み artifact の生成
 - 実インストール / アンインストール検証
 
 次に人間が確認すべき項目:

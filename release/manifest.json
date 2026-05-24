@@ -27,8 +27,39 @@
                     "web_automation_runtime":  {
                                                    "id":  "web-runtime-001",
                                                    "version":  "",
-                                                   "required":  false
+                                   "required":  false
                                                }
                 },
+    "release_notes":  {
+                          "schema_version":  1,
+                          "generated_by":  "admin",
+                          "edited_by_admin":  true,
+                          "user":  {
+                                       "title":  "新しいバージョンがあります",
+                                       "summary":  "新しい業務アプリが追加され、更新確認もより分かりやすくなりました。",
+                                       "highlights":  [
+                                                          "会議メモ作成を支援するアプリを追加しました",
+                                                          "3DX / XCgate 関連の作業アプリを追加しました",
+                                                          "更新があるときに、内容を確認してから進められるようにしました"
+                                                      ],
+                                       "added_apps":  [
+                                                          "AgendaSnap",
+                                                          "3DX / XCgate workflow apps"
+                                                      ],
+                                       "recommended":  true
+                                   },
+                          "admin":  {
+                                        "summary":  "ToolHub 0.1.3 release with app catalog additions and updater visibility improvements.",
+                                        "changes":  [
+                                                        "Added release notes metadata to the release manifest.",
+                                                        "Added user-facing release notes parsing for updater dialogs.",
+                                                        "Updated update notice copy to keep the main screen lightweight."
+                                                    ],
+                                        "validation":  [
+                                                           "cargo test update_release_notes",
+                                                           "launcher npm build"
+                                                       ]
+                                    }
+                      },
     "apps_manifest":  "app_manifest.json"
 }

@@ -71,6 +71,8 @@ fn main() {
             app_studio_commands::app_studio_preflight,
             app_studio_commands::app_studio_update_preflight,
             app_studio_commands::app_studio_publish_preflight,
+            app_studio_commands::app_studio_publish_suggest_release_notes,
+            app_studio_commands::app_studio_publish_save_release_notes,
             app_studio_commands::app_studio_publish_dry_run,
             app_studio_commands::app_studio_publish_prepare_target,
             app_studio_commands::app_studio_publish_build_verify,

@@ -4,6 +4,28 @@ export interface UpdateItem {
   nextVersion: string;
 }
 
+export interface UpdateReleaseNotesUser {
+  title?: string | null;
+  summary?: string | null;
+  highlights?: string[];
+  addedApps?: string[];
+  recommended?: boolean | null;
+}
+
+export interface UpdateReleaseNotesAdmin {
+  summary?: string | null;
+  changes?: string[];
+  validation?: string[];
+}
+
+export interface UpdateReleaseNotes {
+  schemaVersion?: number | null;
+  generatedBy?: string | null;
+  editedByAdmin?: boolean | null;
+  user?: UpdateReleaseNotesUser | null;
+  admin?: UpdateReleaseNotesAdmin | null;
+}
+
 export interface UpdateSummary {
   title: string;
   message: string;
@@ -27,6 +49,7 @@ export interface UpdateSummary {
   installerUrl?: string | null;
   installerSha256?: string | null;
   installerSize?: number | null;
+  releaseNotes?: UpdateReleaseNotes | null;
   updateCachePath?: string | null;
   lastUpdateResult?: unknown | null;
   core?: UpdateItem;

@@ -5,24 +5,32 @@ import type { UpdateSummary } from "../lib/updateTypes";
 interface Props {
   summary: UpdateSummary | null;
   onOpen: () => void;
+  onDetails?: () => void;
   onDismiss: () => void;
 }
 
-export function UpdateNotice({ summary, onOpen, onDismiss }: Props) {
+export function UpdateNotice({ summary, onOpen, onDetails, onDismiss }: Props) {
   if (!shouldShowUserUpdateNotice(summary)) {
     return null;
   }
+
+  const userNotes = summary.releaseNotes?.user;
+  const title = userNotes?.title?.trim() || `${updateNoticeTargetLabel(summary)} を利用できます`;
+  const body = userNotes?.summary?.trim() || "新しい機能や改善を反映できます。最新の状態で使うため更新をおすすめします。";
 
   return (
     <section className="update-notice" role="status">
       <Download size={20} aria-hidden="true" />
       <div>
-        <strong>{updateNoticeTargetLabel(summary)} を利用できます</strong>
-        <p>不具合修正、配布アプリ、ランタイムの更新を反映できます。作業前の更新を推奨します。</p>
+        <strong>{title}</strong>
+        <p>{body}</p>
       </div>
       <div className="notice-actions">
         <button className="primary-button" type="button" onClick={onOpen}>
           更新する
+        </button>
+        <button className="secondary-button" type="button" onClick={onDetails ?? onOpen}>
+          更新内容を見る
         </button>
         <button className="secondary-button" type="button" onClick={onDismiss}>
           あとで

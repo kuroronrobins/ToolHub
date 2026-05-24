@@ -42,11 +42,12 @@ use crate::app_studio_types::{
     AppStudioIconRegenerateRequest, AppStudioImportRequest, AppStudioManagedApp,
     AppStudioManagementActionResult, AppStudioPreflightResult, AppStudioPublishAsset,
     AppStudioPublishCheck, AppStudioPublishPreflightResult, AppStudioPublishRemoteVerifyRequest,
-    AppStudioPublishRequest, AppStudioPublishRunResult, AppStudioRegisteredApp, AppStudioRunResult,
-    AppStudioUpdateRequest,
+    AppStudioPublishRequest, AppStudioPublishRunResult, AppStudioRegisteredApp,
+    AppStudioReleaseNotesDraftResult, AppStudioRunResult, AppStudioSaveReleaseNotesRequest,
+    AppStudioSaveReleaseNotesResult, AppStudioUpdateRequest,
 };
 use chrono::Utc;
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 use std::fs;
@@ -155,6 +156,26 @@ pub fn app_studio_publish_preflight(
     session.require_authenticated()?;
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
     Ok(build_publish_preflight(&root))
+}
+
+#[tauri::command]
+pub async fn app_studio_publish_suggest_release_notes(
+    session: State<'_, AdminSessionState>,
+) -> Result<AppStudioReleaseNotesDraftResult, String> {
+    session.require_authenticated()?;
+    tauri::async_runtime::spawn_blocking(run_publish_suggest_release_notes)
+        .await
+        .map_err(|_| "Release notes draft generation could not complete.".to_string())?
+}
+
+#[tauri::command]
+pub fn app_studio_publish_save_release_notes(
+    request: AppStudioSaveReleaseNotesRequest,
+    session: State<AdminSessionState>,
+) -> Result<AppStudioSaveReleaseNotesResult, String> {
+    session.require_authenticated()?;
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    save_publish_release_notes(&root, request)
 }
 
 #[tauri::command]
@@ -1215,6 +1236,191 @@ fn build_publish_preflight(root: &Path) -> AppStudioPublishPreflightResult {
         beta_ready_future_formal_only,
         checks,
     }
+}
+
+fn run_publish_suggest_release_notes() -> Result<AppStudioReleaseNotesDraftResult, String> {
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    let preflight = build_publish_preflight(&root);
+    let python_candidate = find_python_candidate(&root).ok_or_else(python_missing_message)?;
+    let script = resolve_app_studio_script_for_action(&root, "release-notes-draft")?;
+    let ai_env = build_ai_env_plan();
+    let context = build_release_notes_context(&root, &preflight);
+    let context_path = std::env::temp_dir().join(format!(
+        "toolhub_release_notes_context_{}_{}.json",
+        std::process::id(),
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    ));
+    fs::write(
+        &context_path,
+        serde_json::to_string_pretty(&context).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| format!("Release notes context could not be written: {error}"))?;
+
+    let args = vec![
+        script.display().to_string(),
+        "release-notes-draft".to_string(),
+        "--context-file".to_string(),
+        context_path.display().to_string(),
+    ];
+    let command_line = command_line_for_log(&python_candidate.path, &args);
+    append_app_studio_gui_log(
+        "release-notes-draft started",
+        &[
+            ("command", command_line.clone()),
+            ("python_source", python_candidate.source.clone()),
+            ("ai_enabled", ai_env.diagnostics.ai_enabled.to_string()),
+            ("api_key_source", ai_env.diagnostics.api_key_source.clone()),
+            ("text_model", ai_env.diagnostics.text_model.clone()),
+        ],
+    );
+
+    let mut command = Command::new(&python_candidate.path);
+    for arg in &args {
+        command.arg(arg);
+    }
+    command.current_dir(&root);
+    apply_ai_environment(&mut command, &ai_env);
+    let output = command
+        .output()
+        .map_err(|error| format!("Release notes draft generation could not start: {error}"))?;
+    let stdout = mask_sensitive(&String::from_utf8_lossy(&output.stdout));
+    let stderr = mask_sensitive(&String::from_utf8_lossy(&output.stderr));
+    let _ = fs::remove_file(&context_path);
+    append_app_studio_gui_log(
+        "release-notes-draft finished",
+        &[
+            ("exit_code", output.status.code().unwrap_or(-1).to_string()),
+            ("ok", output.status.success().to_string()),
+        ],
+    );
+    if !output.status.success() {
+        return Err(format!(
+            "Release notes draft generation failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        ));
+    }
+
+    let parsed: Value = serde_json::from_str(stdout.trim()).map_err(|error| {
+        format!("Release notes draft output was not valid JSON: {error}\nstdout:\n{stdout}")
+    })?;
+    let manifest_release_notes = parsed
+        .get("manifest_release_notes")
+        .cloned()
+        .ok_or_else(|| "Release notes draft did not include manifest_release_notes.".to_string())?;
+    let manifest_release_notes_json =
+        serde_json::to_string_pretty(&manifest_release_notes).map_err(|error| error.to_string())?;
+
+    Ok(AppStudioReleaseNotesDraftResult {
+        ok: parsed
+            .get("ok")
+            .and_then(Value::as_bool)
+            .unwrap_or(output.status.success()),
+        source: json_path_string(&parsed, &["source"]).unwrap_or_else(|| "fallback".to_string()),
+        message: json_path_string(&parsed, &["message"])
+            .unwrap_or_else(|| "Release notes draft was generated.".to_string()),
+        github_release_notes: json_path_string(&parsed, &["github_release_notes"])
+            .unwrap_or_else(|| release_notes_markdown_from_manifest(&manifest_release_notes)),
+        manifest_release_notes_json,
+        ai_report: json_path_string(&parsed, &["ai_report"]),
+        preflight,
+    })
+}
+
+fn save_publish_release_notes(
+    root: &Path,
+    request: AppStudioSaveReleaseNotesRequest,
+) -> Result<AppStudioSaveReleaseNotesResult, String> {
+    let release_notes: Value = serde_json::from_str(&request.manifest_release_notes_json)
+        .map_err(|error| format!("release_notes JSON is invalid: {error}"))?;
+    let mut release_notes_object = release_notes
+        .as_object()
+        .cloned()
+        .ok_or_else(|| "release_notes must be a JSON object.".to_string())?;
+    release_notes_object.insert("edited_by_admin".to_string(), Value::Bool(true));
+
+    let manifest_path = root.join("release").join("manifest.json");
+    let manifest = read_json_value(&manifest_path).ok_or_else(|| {
+        format!(
+            "release manifest is missing or invalid: {}",
+            manifest_path.display()
+        )
+    })?;
+    let mut manifest_object = manifest
+        .as_object()
+        .cloned()
+        .ok_or_else(|| "release manifest must be a JSON object.".to_string())?;
+    manifest_object.insert(
+        "release_notes".to_string(),
+        Value::Object(release_notes_object),
+    );
+    fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&Value::Object(manifest_object))
+            .map_err(|error| error.to_string())?
+            + "\n",
+    )
+    .map_err(|error| format!("release manifest could not be written: {error}"))?;
+
+    append_app_studio_gui_log(
+        "release-notes saved",
+        &[("manifest_path", manifest_path.display().to_string())],
+    );
+
+    Ok(AppStudioSaveReleaseNotesResult {
+        ok: true,
+        message: "release/manifest.json に release_notes を保存しました。".to_string(),
+        manifest_path: manifest_path.display().to_string(),
+        preflight: build_publish_preflight(root),
+    })
+}
+
+fn build_release_notes_context(root: &Path, preflight: &AppStudioPublishPreflightResult) -> Value {
+    let apps = crate::manifest::load_apps(root)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|app| {
+            json!({
+                "id": app.id,
+                "name": app.name,
+                "enabled": app.enabled,
+                "short_description": app.short_description,
+                "version": app.admin.and_then(|admin| admin.version),
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "repo_root": root.display().to_string(),
+        "version": preflight.version.clone(),
+        "tag": preflight.tag.clone(),
+        "branch": preflight.branch.clone(),
+        "github_owner": preflight.github_owner.clone(),
+        "github_repo": preflight.github_repo.clone(),
+        "installer_file": preflight.installer_file.clone(),
+        "release_url": preflight.release_url.clone(),
+        "apps": apps,
+        "dirty_source_files": preflight.dirty_source_files.clone(),
+        "dirty_release_files": preflight.dirty_release_files.clone(),
+        "dirty_other_files": preflight.dirty_other_files.clone(),
+        "checks": preflight.checks.clone(),
+    })
+}
+
+fn release_notes_markdown_from_manifest(notes: &Value) -> String {
+    let user_summary = json_path_string(notes, &["user", "summary"])
+        .unwrap_or_else(|| "新しい業務アプリや改善を利用できるようになりました。".to_string());
+    let mut lines = vec![user_summary, String::new(), "## 利用者向け".to_string()];
+    if let Some(items) = notes
+        .get("user")
+        .and_then(|value| value.get("highlights"))
+        .and_then(Value::as_array)
+    {
+        lines.extend(
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|item| format!("- {item}")),
+        );
+    }
+    lines.join("\n")
 }
 
 fn run_publish_dry_run() -> Result<AppStudioPublishRunResult, String> {

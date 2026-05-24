@@ -1,8 +1,16 @@
-import { CheckCircle2, CircleAlert, FileCheck2, FolderCheck, Hammer, Loader2, PlayCircle, RefreshCw, ShieldCheck, TriangleAlert, UploadCloud } from "lucide-react";
+import { CheckCircle2, CircleAlert, FileCheck2, FolderCheck, Hammer, Loader2, PlayCircle, RefreshCw, Save, ShieldCheck, Sparkles, TriangleAlert, UploadCloud } from "lucide-react";
 import { useState } from "react";
-import { appStudioPublishBuildVerify, appStudioPublishDryRun, appStudioPublishPreflight, appStudioPublishPrepareTarget, appStudioPublishRelease, appStudioPublishRemoteVerify } from "../../../lib/appStudioApi";
-import type { AppStudioPublishAsset, AppStudioPublishCheck, AppStudioPublishPreflightResult, AppStudioPublishRunResult, AppStudioRemoteVerificationCheck, AppStudioRemoteVerificationReport } from "../../../lib/appStudioTypes";
+import { appStudioPublishBuildVerify, appStudioPublishDryRun, appStudioPublishPreflight, appStudioPublishPrepareTarget, appStudioPublishRelease, appStudioPublishRemoteVerify, appStudioPublishSaveReleaseNotes, appStudioPublishSuggestReleaseNotes } from "../../../lib/appStudioApi";
+import type { AppStudioPublishAsset, AppStudioPublishCheck, AppStudioPublishPreflightResult, AppStudioPublishRunResult, AppStudioReleaseNotesDraftResult, AppStudioRemoteVerificationCheck, AppStudioRemoteVerificationReport, AppStudioSaveReleaseNotesResult } from "../../../lib/appStudioTypes";
 import { formatAdminError } from "../adminUi";
+
+type PublishPhaseStatus = "pending" | "running" | "passed" | "failed" | "skipped";
+
+interface PublishProcessItem {
+  label: string;
+  status: PublishPhaseStatus;
+  message: string;
+}
 
 export function AppStudioPublishPanel() {
   const [result, setResult] = useState<AppStudioPublishPreflightResult | null>(null);
@@ -11,12 +19,18 @@ export function AppStudioPublishPanel() {
   const [buildVerifyResult, setBuildVerifyResult] = useState<AppStudioPublishRunResult | null>(null);
   const [remoteVerifyResult, setRemoteVerifyResult] = useState<AppStudioPublishRunResult | null>(null);
   const [publishResult, setPublishResult] = useState<AppStudioPublishRunResult | null>(null);
+  const [notesDraftResult, setNotesDraftResult] = useState<AppStudioReleaseNotesDraftResult | null>(null);
+  const [saveNotesResult, setSaveNotesResult] = useState<AppStudioSaveReleaseNotesResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [dryRunBusy, setDryRunBusy] = useState(false);
   const [prepareTargetBusy, setPrepareTargetBusy] = useState(false);
   const [buildVerifyBusy, setBuildVerifyBusy] = useState(false);
   const [remoteVerifyBusy, setRemoteVerifyBusy] = useState(false);
   const [publishBusy, setPublishBusy] = useState(false);
+  const [notesDraftBusy, setNotesDraftBusy] = useState(false);
+  const [saveNotesBusy, setSaveNotesBusy] = useState(false);
+  const [flowBusy, setFlowBusy] = useState(false);
+  const [flowMessage, setFlowMessage] = useState("");
   const [downloadInstallerForVerify, setDownloadInstallerForVerify] = useState(false);
   const [confirmPublish, setConfirmPublish] = useState(false);
   const [allowDirty, setAllowDirty] = useState(false);
@@ -26,6 +40,7 @@ export function AppStudioPublishPanel() {
   const [prerelease, setPrerelease] = useState(false);
   const [downloadInstallerAfterPublish, setDownloadInstallerAfterPublish] = useState(false);
   const [releaseNotes, setReleaseNotes] = useState("");
+  const [manifestReleaseNotesJson, setManifestReleaseNotesJson] = useState("");
   const [error, setError] = useState("");
 
   async function runPreflight() {
@@ -65,6 +80,41 @@ export function AppStudioPublishPanel() {
       setError(formatAdminError(targetError, "リリース対象フォルダの作成に失敗しました。"));
     } finally {
       setPrepareTargetBusy(false);
+    }
+  }
+
+  async function runSuggestReleaseNotes() {
+    setNotesDraftBusy(true);
+    setError("");
+    try {
+      const nextResult = await appStudioPublishSuggestReleaseNotes();
+      setNotesDraftResult(nextResult);
+      setResult(nextResult.preflight);
+      setReleaseNotes(nextResult.githubReleaseNotes);
+      setManifestReleaseNotesJson(nextResult.manifestReleaseNotesJson);
+    } catch (draftError) {
+      setError(formatAdminError(draftError, "更新内容のAI文案作成に失敗しました。"));
+    } finally {
+      setNotesDraftBusy(false);
+    }
+  }
+
+  async function runSaveReleaseNotes() {
+    const nextNotes = manifestReleaseNotesJson.trim();
+    if (!nextNotes) {
+      setError("manifest に保存する release_notes JSON が空です。先にAI文案を作成するか、JSONを入力してください。");
+      return;
+    }
+    setSaveNotesBusy(true);
+    setError("");
+    try {
+      const nextResult = await appStudioPublishSaveReleaseNotes({ manifestReleaseNotesJson: nextNotes });
+      setSaveNotesResult(nextResult);
+      setResult(nextResult.preflight);
+    } catch (saveError) {
+      setError(formatAdminError(saveError, "release/manifest.json への更新内容保存に失敗しました。"));
+    } finally {
+      setSaveNotesBusy(false);
     }
   }
 
@@ -123,8 +173,117 @@ export function AppStudioPublishPanel() {
     }
   }
 
-  const anyBusy = busy || dryRunBusy || prepareTargetBusy || buildVerifyBusy || remoteVerifyBusy || publishBusy;
+  async function runOneClickPublishFlow() {
+    if (!confirmPublish) {
+      setError("一括公開を実行するには「GitHub Release への公開を実行する」を有効にしてください。");
+      return;
+    }
+
+    setFlowBusy(true);
+    setError("");
+    setFlowMessage("公開前チェックを実行しています。");
+    let nextReleaseNotes = releaseNotes.trim();
+    let nextManifestReleaseNotesJson = manifestReleaseNotesJson.trim();
+    try {
+      setBusy(true);
+      const preflight = await appStudioPublishPreflight();
+      setResult(preflight);
+      setBusy(false);
+      if (!preflight.ok) {
+        throw new Error("公開前チェックに失敗項目があります。内容を確認してください。");
+      }
+
+      if (!nextReleaseNotes || !nextManifestReleaseNotesJson) {
+        setFlowMessage("更新内容のAI文案を作成しています。");
+        setNotesDraftBusy(true);
+        const draftResult = await appStudioPublishSuggestReleaseNotes();
+        setNotesDraftResult(draftResult);
+        setResult(draftResult.preflight);
+        nextReleaseNotes = nextReleaseNotes || draftResult.githubReleaseNotes.trim();
+        nextManifestReleaseNotesJson = nextManifestReleaseNotesJson || draftResult.manifestReleaseNotesJson.trim();
+        setReleaseNotes(nextReleaseNotes);
+        setManifestReleaseNotesJson(nextManifestReleaseNotesJson);
+        setNotesDraftBusy(false);
+      }
+
+      if (!nextManifestReleaseNotesJson) {
+        throw new Error("利用者向け release_notes JSON が空です。公開前に更新内容を保存してください。");
+      }
+
+      setFlowMessage("更新内容を release/manifest.json に保存しています。");
+      setSaveNotesBusy(true);
+      const saveResult = await appStudioPublishSaveReleaseNotes({ manifestReleaseNotesJson: nextManifestReleaseNotesJson });
+      setSaveNotesResult(saveResult);
+      setResult(saveResult.preflight);
+      setSaveNotesBusy(false);
+
+      setFlowMessage("release build / verify を実行しています。");
+      setBuildVerifyBusy(true);
+      const buildResult = await appStudioPublishBuildVerify();
+      setBuildVerifyResult(buildResult);
+      setResult(buildResult.preflight);
+      setBuildVerifyBusy(false);
+      if (!buildResult.ok) {
+        throw new Error("release build / verify に失敗しました。");
+      }
+
+      setFlowMessage("リリース対象フォルダを作成しています。");
+      setPrepareTargetBusy(true);
+      const targetResult = await appStudioPublishPrepareTarget();
+      setPrepareTargetResult(targetResult);
+      setResult(targetResult.preflight);
+      setPrepareTargetBusy(false);
+      if (!targetResult.ok) {
+        throw new Error("リリース対象フォルダの作成に失敗しました。");
+      }
+
+      setFlowMessage("publish dry-run を実行しています。");
+      setDryRunBusy(true);
+      const dryRun = await appStudioPublishDryRun();
+      setDryRunResult(dryRun);
+      setResult(dryRun.preflight);
+      setDryRunBusy(false);
+      if (!dryRun.ok) {
+        throw new Error("publish dry-run に失敗しました。");
+      }
+
+      setFlowMessage("GitHub Release へ公開しています。");
+      setPublishBusy(true);
+      const publish = await appStudioPublishRelease({
+        confirmPublish,
+        allowDirty,
+        allowExistingRelease,
+        updateManifestInstallerUrl,
+        draft,
+        prerelease,
+        downloadInstallerForRemoteVerify: downloadInstallerAfterPublish,
+        releaseNotes: nextReleaseNotes || null,
+      });
+      setPublishResult(publish);
+      setResult(publish.preflight);
+      setPublishBusy(false);
+      if (!publish.ok) {
+        throw new Error("GitHub Release の公開に失敗しました。");
+      }
+
+      setFlowMessage("一括公開フローが完了しました。");
+    } catch (flowError) {
+      setError(formatAdminError(flowError, "一括公開フローに失敗しました。"));
+      setBusy(false);
+      setNotesDraftBusy(false);
+      setSaveNotesBusy(false);
+      setPrepareTargetBusy(false);
+      setBuildVerifyBusy(false);
+      setDryRunBusy(false);
+      setPublishBusy(false);
+    } finally {
+      setFlowBusy(false);
+    }
+  }
+
+  const anyBusy = busy || dryRunBusy || prepareTargetBusy || buildVerifyBusy || remoteVerifyBusy || publishBusy || notesDraftBusy || saveNotesBusy || flowBusy;
   const canPublish = confirmPublish && !anyBusy;
+  const canRunOneClickFlow = confirmPublish && !anyBusy;
   const uploadAssets = result?.releaseTargetAssets?.filter((asset) => asset.upload) ?? [];
   const releaseTargetReady = uploadAssets.length > 0 && uploadAssets.every((asset) => asset.targetExists);
   const publishReadiness = [
@@ -162,6 +321,43 @@ export function AppStudioPublishPanel() {
         : result
           ? "未コミット変更はありません。"
           : "未コミット変更は未確認です。",
+    },
+  ];
+  const processItems: PublishProcessItem[] = [
+    {
+      label: "公開前チェック",
+      status: phaseFromPreflight(result, busy),
+      message: result ? (result.ok ? "公開前チェックは通過しています。" : "確認が必要な項目があります。") : "公開前確認を実行してください。",
+    },
+    {
+      label: "AI文案",
+      status: notesDraftBusy ? "running" : notesDraftResult ? (notesDraftResult.source === "ai" ? "passed" : "skipped") : releaseNotes.trim() && manifestReleaseNotesJson.trim() ? "passed" : "pending",
+      message: notesDraftResult ? notesDraftResult.message : releaseNotes.trim() && manifestReleaseNotesJson.trim() ? "入力済みの更新内容を使用します。" : "利用者向けと管理者向けの文案を作成します。",
+    },
+    {
+      label: "更新内容保存",
+      status: saveNotesBusy ? "running" : saveNotesResult?.ok ? "passed" : "pending",
+      message: saveNotesResult?.message ?? "release/manifest.json に利用者向け更新内容を保存します。",
+    },
+    {
+      label: "build / verify",
+      status: phaseFromRun(buildVerifyResult, buildVerifyBusy),
+      message: buildVerifyResult ? buildVerifyResult.userMessage : "installer、App Pack、runtime を build / verify します。",
+    },
+    {
+      label: "リリース対象フォルダ",
+      status: phaseFromRun(prepareTargetResult, prepareTargetBusy),
+      message: prepareTargetResult ? prepareTargetResult.userMessage : "GitHub Release に載せるファイルを確認用フォルダにまとめます。",
+    },
+    {
+      label: "GitHub publish",
+      status: phaseFromRun(publishResult, publishBusy),
+      message: publishResult ? publishResult.userMessage : "tag、Release、asset upload、remote verify を実行します。",
+    },
+    {
+      label: "remote verify",
+      status: phaseFromRun(remoteVerifyResult, remoteVerifyBusy),
+      message: remoteVerifyResult ? remoteVerifyResult.userMessage : "公開済み manifest と installer 情報を確認します。",
     },
   ];
 
@@ -212,6 +408,18 @@ export function AppStudioPublishPanel() {
           <span>実公開は .\scripts\publish_github_release.ps1 を明示実行します。dirty tree は既定で拒否します。</span>
         </div>
       </div>
+      <div className="publish-flow-panel">
+        <div>
+          <strong>最新版を公開</strong>
+          <span>{confirmPublish ? "公開前確認からGitHub Release作成までを順番に実行します。文案が未入力の場合は先に下書きを作成します。" : "下の「GitHub Release への公開を実行する」を有効にすると、一括公開を実行できます。"}</span>
+        </div>
+        <button className="primary-button" type="button" onClick={() => void runOneClickPublishFlow()} disabled={!canRunOneClickFlow}>
+          {flowBusy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <UploadCloud size={17} aria-hidden="true" />}
+          一括公開を実行
+        </button>
+      </div>
+      {flowMessage ? <p className="admin-muted publish-flow-message">{flowMessage}</p> : null}
+      <PublishProcessTimeline items={processItems} />
       <label className="admin-toggle">
         <input
           type="checkbox"
@@ -221,6 +429,39 @@ export function AppStudioPublishPanel() {
         />
         remote verify で installer も取得して sha256 を確認する
       </label>
+      <details className="admin-details" open>
+        <summary>更新内容 / AI文案</summary>
+        <div className="studio-action-row">
+          <button className="secondary-button" type="button" onClick={() => void runSuggestReleaseNotes()} disabled={anyBusy}>
+            {notesDraftBusy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <Sparkles size={17} aria-hidden="true" />}
+            AI文案を作成
+          </button>
+          <button className="secondary-button" type="button" onClick={() => void runSaveReleaseNotes()} disabled={anyBusy || !manifestReleaseNotesJson.trim()}>
+            {saveNotesBusy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <Save size={17} aria-hidden="true" />}
+            manifestへ保存
+          </button>
+        </div>
+        <label className="admin-field">
+          GitHub Release notes
+          <textarea className="studio-textarea" rows={7} value={releaseNotes} disabled={anyBusy} onChange={(event) => setReleaseNotes(event.currentTarget.value)} placeholder="GitHub Release本文。AI文案を作成後、公開前に編集してください。" />
+        </label>
+        <label className="admin-field">
+          利用者向け release_notes JSON
+          <textarea className="studio-textarea studio-json-textarea" rows={10} value={manifestReleaseNotesJson} disabled={anyBusy} onChange={(event) => setManifestReleaseNotesJson(event.currentTarget.value)} placeholder="更新通知の詳細画面に表示する内容です。利用者向け文言には技術的な詳細を入れないでください。" />
+        </label>
+        {notesDraftResult ? (
+          <p className={notesDraftResult.source === "ai" ? "admin-success" : "admin-warning"}>
+            {notesDraftResult.source === "ai" ? "AI文案を作成しました。公開前に内容を確認してください。" : `AI文案は利用できなかったため、編集用の下書きを作成しました。${notesDraftResult.message}`}
+          </p>
+        ) : null}
+        {saveNotesResult?.ok ? <p className="admin-success">{saveNotesResult.message}</p> : null}
+        {notesDraftResult?.aiReport ? (
+          <details className="admin-details">
+            <summary>AI文案生成ログ</summary>
+            <pre className="studio-log">{notesDraftResult.aiReport}</pre>
+          </details>
+        ) : null}
+      </details>
       <details className="admin-details" open>
         <summary>実 publish options</summary>
         <PublishReadinessChecklist items={publishReadiness} />
@@ -254,10 +495,6 @@ export function AppStudioPublishPanel() {
             publish 後に installer download verify まで実行
           </label>
         </div>
-        <label className="admin-field">
-          Release notes
-          <textarea className="studio-textarea" rows={4} value={releaseNotes} disabled={anyBusy} onChange={(event) => setReleaseNotes(event.currentTarget.value)} placeholder="未入力なら script の標準 release note を使います。" />
-        </label>
         <p className="admin-muted">実 publish は `publish_github_release.ps1` を DryRun なしで実行します。通常は preflight、dry-run、release build / verify を確認してから実行してください。</p>
       </details>
 
@@ -287,6 +524,22 @@ function PublishReadinessChecklist({ items }: { items: Array<{ label: string; ok
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function PublishProcessTimeline({ items }: { items: PublishProcessItem[] }) {
+  return (
+    <div className="publish-process-list" aria-label="公開プロセス">
+      {items.map((item) => (
+        <div className={`publish-process-item ${item.status}`} key={item.label}>
+          <span>{PROCESS_STATUS_LABELS[item.status]}</span>
+          <div>
+            <strong>{item.label}</strong>
+            <small>{item.message}</small>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -349,6 +602,34 @@ function PublishSummary({ result }: { result: AppStudioPublishPreflightResult })
       </details>
     </>
   );
+}
+
+const PROCESS_STATUS_LABELS: Record<PublishPhaseStatus, string> = {
+  pending: "待機",
+  running: "実行中",
+  passed: "完了",
+  failed: "失敗",
+  skipped: "要確認",
+};
+
+function phaseFromRun(result: AppStudioPublishRunResult | null, busy: boolean): PublishPhaseStatus {
+  if (busy) {
+    return "running";
+  }
+  if (!result) {
+    return "pending";
+  }
+  return result.ok ? "passed" : "failed";
+}
+
+function phaseFromPreflight(result: AppStudioPublishPreflightResult | null, busy: boolean): PublishPhaseStatus {
+  if (busy) {
+    return "running";
+  }
+  if (!result) {
+    return "pending";
+  }
+  return result.ok ? "passed" : "failed";
 }
 
 function ReleaseTargetAssets({ assets }: { assets: AppStudioPublishAsset[] }) {

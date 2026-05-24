@@ -317,6 +317,27 @@ export interface AppStudioPublishRunResult {
   preflight: AppStudioPublishPreflightResult;
 }
 
+export interface AppStudioReleaseNotesDraftResult {
+  ok: boolean;
+  source: string;
+  message: string;
+  githubReleaseNotes: string;
+  manifestReleaseNotesJson: string;
+  aiReport?: string | null;
+  preflight: AppStudioPublishPreflightResult;
+}
+
+export interface AppStudioSaveReleaseNotesRequest {
+  manifestReleaseNotesJson: string;
+}
+
+export interface AppStudioSaveReleaseNotesResult {
+  ok: boolean;
+  message: string;
+  manifestPath: string;
+  preflight: AppStudioPublishPreflightResult;
+}
+
 export interface AppStudioPublishRemoteVerifyRequest {
   manifestUrl?: string | null;
   expectedVersion?: string | null;

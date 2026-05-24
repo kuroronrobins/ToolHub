@@ -118,7 +118,8 @@ ToolHubは配布アプリケーションなので、lock fileを管理対象に�
 4. `npm ci` または `npm install`
 5. `npm run tauri build`
 6. installer成果物収集とstaging作成
-7. release検証
+7. 必要に応じて installer 署名
+8. release検証
 
 Tauri bundleをまだ生成できない環境でも、App Pack、runtime雛形、staging、manifest検証を進める場合:
 
@@ -131,6 +132,18 @@ runtime実体まで必須にする場合:
 ```powershell
 .\scripts\build_release.ps1 -RequireRuntime
 ```
+
+正式配布で `ToolHub_Setup_<version>.exe` に Authenticode 署名を付ける場合:
+
+```powershell
+.\scripts\build_release.ps1 `
+  -RequireRuntime `
+  -SignInstaller `
+  -RequireInstallerSignature `
+  -CodeSignCertificateThumbprint <thumbprint>
+```
+
+`-SignInstaller` は installer を `release/dist_installer/` へ収集した直後、sha256 / size を `release/manifest.json` に書く前に署名します。これにより manifest、GitHub Release target、updater の sha256 検証は署名後の配布物を対象にします。
 
 ## GitHub Release Publish Flow
 
@@ -182,6 +195,17 @@ https://github.com/kuroronrobins/ToolHub/releases/download/v<version>-beta.1/man
 ```
 
 この標準形は、`build_release.ps1 -RequireRuntime`、`verify_release.ps1 -RequireInstaller -RequireAppPacks -RequireRuntime -Strict`、tag 作成、GitHub Release 作成 / asset upload、remote manifest verify を順番に実行します。
+
+GitHub Release に署名済み installer だけを公開する場合:
+
+```powershell
+.\scripts\publish_github_release.ps1 `
+  -SignInstaller `
+  -RequireInstallerSignature `
+  -CodeSignCertificateThumbprint <thumbprint>
+```
+
+`-SignInstaller` を付けた publish は build / package 中に署名し、upload target 作成前にも `Get-AuthenticodeSignature` が `Valid` であることを確認します。`-SkipBuild` と同時には使いません。既存 artifact を使う場合は、先に `package_installer.ps1 -SignInstaller` を実行し、その後 `publish_github_release.ps1 -SkipBuild -RequireInstallerSignature` を使います。
 
 tag の対象 commit は既定で現在の `HEAD` です。別 commit / branch に紐づける場合は `-TargetCommitish <commit-or-branch>` を指定します。dirty worktree で `-AllowDirty` を使う場合、生成 asset は未コミット変更を含み得ますが、GitHub tag の source snapshot は `target_commitish` の commit だけを指します。正式 publish では、原則として build / verify 対象の変更を commit してから実行します。
 
@@ -242,6 +266,14 @@ runtime雛形準備:
 .\scripts\package_installer.ps1
 ```
 
+インストーラー成果物収集と署名:
+
+```powershell
+.\scripts\package_installer.ps1 `
+  -SignInstaller `
+  -CodeSignCertificateThumbprint <thumbprint>
+```
+
 Tauri bundleがまだない状態でstagingだけ作る場合:
 
 ```powershell
@@ -260,11 +292,22 @@ release検証:
 .\scripts\verify_release.ps1 -RequireInstaller -RequireAppPacks -RequireRuntime -Strict
 ```
 
+署名を release gate として要求する場合:
+
+```powershell
+.\scripts\verify_release.ps1 `
+  -RequireInstaller `
+  -RequireInstallerSignature `
+  -RequireAppPacks `
+  -RequireRuntime `
+  -Strict
+```
+
 ## Installer Artifact Rules
 
 Tauri bundleでNSISまたはMSIを生成します。`scripts/package_installer.ps1` は `launcher/src-tauri/target/release/bundle/` から成果物を収集し、`release/dist_installer/` に配置します。
 
-現状では `scripts/build_release.ps1 -SkipInstall` により、Tauri標準NSIS/MSI bundle生成、正式配布名 `release/dist_installer/ToolHub_Setup_0.1.0.exe` への収集、installer `sha256` / `size` の確定まで確認済みです。実インストール検証、コード署名、runtime実体同梱は未完了として扱います。
+現状では `scripts/build_release.ps1 -SkipInstall` により、Tauri標準NSIS/MSI bundle生成、正式配布名 `release/dist_installer/ToolHub_Setup_0.1.0.exe` への収集、installer `sha256` / `size` の確定まで確認済みです。実インストール検証、証明書を使った実署名、runtime実体同梱は未完了として扱います。
 
 優先順位:
 
@@ -274,6 +317,8 @@ Tauri bundleでNSISまたはMSIを生成します。`scripts/package_installer.p
 
 `release/manifest.json` の `toolhub.installer.file`、`type`、`sha256`、`size` は `package_installer.ps1` が更新します。
 Release JSON と App Pack metadata JSON は PowerShell 5.1 / 7 の差異を避けるため、`scripts/utf8_no_bom.ps1` の helper で UTF-8 no BOM として書き出します。`scripts/check_all.ps1` は `release/manifest.json` と `release/app_manifest.json` の BOM 有無を直接検査し、helper test は App Pack 内 `pack_manifest.json` と同じ JSON 書き込み経路が BOM を付けないことを検査します。
+
+`-SignInstaller` を指定した場合、`package_installer.ps1` は `scripts/sign_installer.ps1` を呼び出します。証明書は repo に置かず、`-CodeSignCertificateThumbprint` / `-CodeSignCertificateSubject` / `-SignToolExtraArgs`、または `TOOLHUB_CODESIGN_CERT_THUMBPRINT` などの環境変数から渡します。
 
 ## Staging and Tauri Resources
 
@@ -358,9 +403,12 @@ PowerShell script execution policy:
 
 ## Signing and Hash Verification
 
-初回改修ではコード署名は未実装です。正式配布では以下を追加します。
+正式配布では、GitHub Release へ upload する前に installer 署名と署名後 hash の一致を release gate にします。
 
-- `ToolHub_Setup.exe` のコード署名
+- `scripts/sign_installer.ps1` による `ToolHub_Setup.exe` の Authenticode 署名
+- `verify_release.ps1 -RequireInstallerSignature` による署名検証
 - `release/manifest.json` と `release/app_manifest.json` の署名または信頼済み配布経路
 - 各配布物のsha256検証
 - CI上のrelease生成と検証
+
+署名後に installer を変更すると Authenticode 署名が壊れるため、署名は installer 収集後、manifest の sha256 / size 記録前に行います。`checksums.sha256.txt` と `release_target_manifest.json` は署名後のファイルから作成します。

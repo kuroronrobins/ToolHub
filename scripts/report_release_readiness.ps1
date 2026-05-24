@@ -277,7 +277,34 @@ function Add-BetaReadyClassifications {
         Add-BetaReadyItem "blockers" (New-BetaReadyRecord -Category "beta_ready_blocker" -Id "update_command_source_missing" -State "missing" -Reason "The update command source file is missing, so update readiness cannot be checked." -RecommendedAction "Restore launcher/src-tauri/src/commands.rs." -Path (To-RelativePath $CommandsPath) -Phase $Phase2)
     }
 
-    Add-BetaReadyItem "future_formal_only" (New-BetaReadyRecord -Category "future_formal_only" -Id "installer_code_signing" -State "formal_release_required" -Reason "Code signing may be deferred for internal Beta, but it is a formal release blocker unless policy explicitly says otherwise." -RecommendedAction "Decide signing policy before formal release; stop Beta if the distribution policy requires signing." -Phase $Phase5)
+    $SignScriptPath = Join-Path $Root "scripts\sign_installer.ps1"
+    $VerifyReleaseScriptPath = Join-Path $Root "scripts\verify_release.ps1"
+    $SigningPipelineImplemented =
+        (Test-Path -LiteralPath $SignScriptPath -PathType Leaf) -and
+        (Test-Path -LiteralPath $VerifyReleaseScriptPath -PathType Leaf) -and
+        ((Get-Content -Raw -Encoding UTF8 -LiteralPath $VerifyReleaseScriptPath) -match "RequireInstallerSignature")
+    $InstallerSignatureState = "formal_release_required"
+    $InstallerSignatureReason = "Code signing may be deferred for internal Beta, but it is a formal release blocker unless policy explicitly says otherwise."
+    $InstallerSignatureAction = "Decide signing policy before formal release; stop Beta if the distribution policy requires signing."
+    $InstallerSignaturePath = if (Test-Path -LiteralPath $SignScriptPath -PathType Leaf) { To-RelativePath $SignScriptPath } else { "" }
+    if ($SigningPipelineImplemented) {
+        $InstallerSignatureState = "pipeline_available"
+        $InstallerSignatureReason = "Installer signing and verification gates exist, but this report has not proven a certificate-signed release artifact."
+        $InstallerSignatureAction = "Run package_installer.ps1 -SignInstaller and verify_release.ps1 -RequireInstallerSignature on the release build machine."
+    }
+    if ($ReleaseManifest -and $ReleaseManifest.toolhub -and $ReleaseManifest.toolhub.installer -and $ReleaseManifest.toolhub.installer.file) {
+        $InstallerPathForSignature = Join-Path (Join-Path $ReleaseDir "dist_installer") ([string]$ReleaseManifest.toolhub.installer.file)
+        if (Test-Path -LiteralPath $InstallerPathForSignature -PathType Leaf) {
+            $InstallerSignaturePath = To-RelativePath $InstallerPathForSignature
+            $InstallerSignature = Get-AuthenticodeSignature -LiteralPath $InstallerPathForSignature
+            if ($InstallerSignature.Status -eq "Valid") {
+                $InstallerSignatureState = "signature_valid"
+                $InstallerSignatureReason = "The current installer has a valid Authenticode signature."
+                $InstallerSignatureAction = "Keep RequireInstallerSignature enabled for formal release verification."
+            }
+        }
+    }
+    Add-BetaReadyItem "future_formal_only" (New-BetaReadyRecord -Category "future_formal_only" -Id "installer_code_signing" -State $InstallerSignatureState -Reason $InstallerSignatureReason -RecommendedAction $InstallerSignatureAction -Path $InstallerSignaturePath -Phase $Phase5)
     Add-BetaReadyItem "future_formal_only" (New-BetaReadyRecord -Category "future_formal_only" -Id "manifest_signing" -State "formal_release_required" -Reason "Manifest authenticity is not guaranteed by sha256 alone if the manifest itself is compromised." -RecommendedAction "Add manifest signing or use a trusted release distribution path before formal release." -Phase $Phase5)
     Add-BetaReadyItem "future_formal_only" (New-BetaReadyRecord -Category "future_formal_only" -Id "backup_and_rollback" -State "formal_release_extension" -Reason "Backup and rollback are outside the Beta installer redistribution MVP." -RecommendedAction "Implement before differential or automatic updates." -Phase $Phase5)
     Add-BetaReadyItem "future_formal_only" (New-BetaReadyRecord -Category "future_formal_only" -Id "app_pack_and_runtime_unit_updates" -State "formal_release_extension" -Reason "App Pack and runtime unit updates are future extensions after whole-installer update works." -RecommendedAction "Keep Beta MVP on whole-installer redistribution first." -Phase $Phase5)

@@ -16,6 +16,34 @@ pub struct UpdateItem {
     pub next_version: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateReleaseNotesUser {
+    pub title: Option<String>,
+    pub summary: Option<String>,
+    pub highlights: Vec<String>,
+    pub added_apps: Vec<String>,
+    pub recommended: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateReleaseNotesAdmin {
+    pub summary: Option<String>,
+    pub changes: Vec<String>,
+    pub validation: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateReleaseNotes {
+    pub schema_version: Option<u64>,
+    pub generated_by: Option<String>,
+    pub edited_by_admin: Option<bool>,
+    pub user: Option<UpdateReleaseNotesUser>,
+    pub admin: Option<UpdateReleaseNotesAdmin>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateSummary {
@@ -36,6 +64,7 @@ pub struct UpdateSummary {
     pub installer_url: Option<String>,
     pub installer_sha256: Option<String>,
     pub installer_size: Option<u64>,
+    pub release_notes: Option<UpdateReleaseNotes>,
     pub update_cache_path: Option<String>,
     pub last_update_result: Option<Value>,
     pub core: Option<UpdateItem>,
@@ -248,6 +277,7 @@ pub fn check_updates_mvp() -> Result<UpdateSummary, String> {
         installer_url: None,
         installer_sha256: None,
         installer_size: None,
+        release_notes: manifest.as_ref().and_then(parse_release_notes),
         update_cache_path: Some(update_cache_dir().display().to_string()),
         last_update_result: read_last_update_result_for_current_version(&current_version),
         core,
@@ -313,6 +343,7 @@ pub fn check_updates_remote() -> Result<UpdateSummary, String> {
             installer_url: None,
             installer_sha256: None,
             installer_size: None,
+            release_notes: None,
             update_cache_path: Some(update_cache_path.display().to_string()),
             last_update_result,
             core: None,
@@ -363,6 +394,7 @@ pub fn check_updates_remote() -> Result<UpdateSummary, String> {
                 installer_url: None,
                 installer_sha256: None,
                 installer_size: None,
+                release_notes: None,
                 update_cache_path: Some(update_cache_path.display().to_string()),
                 last_update_result: read_last_update_result_for_current_version(&current_version),
                 core: None,
@@ -377,6 +409,7 @@ pub fn check_updates_remote() -> Result<UpdateSummary, String> {
 
     let remote_manifest_version = json_string(&remote_manifest, &["toolhub", "version"])
         .or_else(|| json_string(&remote_manifest, &["core", "version"]));
+    let release_notes = parse_release_notes(&remote_manifest);
     let core = remote_manifest_version
         .as_ref()
         .filter(|version| version_is_newer(version, &current_version))
@@ -481,6 +514,7 @@ pub fn check_updates_remote() -> Result<UpdateSummary, String> {
         installer_url,
         installer_sha256,
         installer_size,
+        release_notes,
         update_cache_path: Some(update_cache_path.display().to_string()),
         last_update_result: read_last_update_result_for_current_version(&current_version),
         core,
@@ -1345,6 +1379,109 @@ fn json_string(value: &Value, path: &[&str]) -> Option<String> {
         .map(str::to_string)
 }
 
+fn json_bool(value: &Value, path: &[&str]) -> Option<bool> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    current.as_bool().or_else(|| {
+        current
+            .as_str()
+            .and_then(|text| match text.trim().to_ascii_lowercase().as_str() {
+                "true" | "1" | "yes" | "on" => Some(true),
+                "false" | "0" | "no" | "off" => Some(false),
+                _ => None,
+            })
+    })
+}
+
+fn json_string_list(value: &Value, path: &[&str]) -> Vec<String> {
+    let mut current = value;
+    for key in path {
+        let Some(next) = current.get(*key) else {
+            return Vec::new();
+        };
+        current = next;
+    }
+    current
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_string)
+                .take(8)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_release_notes(manifest: &Value) -> Option<UpdateReleaseNotes> {
+    let value = manifest.get("release_notes")?;
+    let user = value
+        .get("user")
+        .and_then(parse_release_notes_user)
+        .filter(release_notes_user_has_content);
+    let admin = value
+        .get("admin")
+        .and_then(parse_release_notes_admin)
+        .filter(release_notes_admin_has_content);
+
+    if user.is_none() && admin.is_none() {
+        return None;
+    }
+
+    Some(UpdateReleaseNotes {
+        schema_version: json_u64(value, &["schema_version"]),
+        generated_by: json_string(value, &["generated_by"]),
+        edited_by_admin: json_bool(value, &["edited_by_admin"]),
+        user,
+        admin,
+    })
+}
+
+fn parse_release_notes_user(value: &Value) -> Option<UpdateReleaseNotesUser> {
+    if !value.is_object() {
+        return None;
+    }
+    Some(UpdateReleaseNotesUser {
+        title: json_string(value, &["title"]),
+        summary: json_string(value, &["summary"]),
+        highlights: json_string_list(value, &["highlights"]),
+        added_apps: json_string_list(value, &["added_apps"])
+            .into_iter()
+            .chain(json_string_list(value, &["addedApps"]))
+            .take(8)
+            .collect(),
+        recommended: json_bool(value, &["recommended"]),
+    })
+}
+
+fn parse_release_notes_admin(value: &Value) -> Option<UpdateReleaseNotesAdmin> {
+    if !value.is_object() {
+        return None;
+    }
+    Some(UpdateReleaseNotesAdmin {
+        summary: json_string(value, &["summary"]),
+        changes: json_string_list(value, &["changes"]),
+        validation: json_string_list(value, &["validation"]),
+    })
+}
+
+fn release_notes_user_has_content(value: &UpdateReleaseNotesUser) -> bool {
+    value.title.is_some()
+        || value.summary.is_some()
+        || !value.highlights.is_empty()
+        || !value.added_apps.is_empty()
+        || value.recommended.is_some()
+}
+
+fn release_notes_admin_has_content(value: &UpdateReleaseNotesAdmin) -> bool {
+    value.summary.is_some() || !value.changes.is_empty() || !value.validation.is_empty()
+}
+
 fn update_app_items(root: &Path, app_manifest: Option<&Value>) -> Vec<UpdateItem> {
     let mut items = Vec::new();
     let Ok(apps) = load_apps(root) else {
@@ -1454,6 +1591,56 @@ mod tests {
             fs::create_dir_all(parent).expect("test parent should be creatable");
         }
         fs::write(path, content).expect("test file should be writable");
+    }
+
+    #[test]
+    fn update_release_notes_parse_user_and_admin_sections() {
+        let manifest = json!({
+            "release_notes": {
+                "schema_version": 1,
+                "generated_by": "ai",
+                "edited_by_admin": true,
+                "user": {
+                    "title": "新しいバージョンがあります",
+                    "summary": "新しい業務アプリを使えるようになりました。",
+                    "highlights": ["会議メモ作成を支援するアプリを追加しました"],
+                    "added_apps": ["AgendaSnap"],
+                    "recommended": true
+                },
+                "admin": {
+                    "summary": "ToolHub release notes for administrators.",
+                    "changes": ["Added release notes manifest support."],
+                    "validation": ["cargo test"]
+                }
+            }
+        });
+
+        let notes = parse_release_notes(&manifest).expect("release notes should parse");
+
+        assert_eq!(notes.schema_version, Some(1));
+        assert_eq!(notes.generated_by.as_deref(), Some("ai"));
+        assert_eq!(notes.edited_by_admin, Some(true));
+        let user = notes.user.expect("user notes should exist");
+        assert_eq!(user.title.as_deref(), Some("新しいバージョンがあります"));
+        assert_eq!(user.highlights.len(), 1);
+        assert_eq!(user.added_apps, vec!["AgendaSnap".to_string()]);
+        let admin = notes.admin.expect("admin notes should exist");
+        assert_eq!(admin.validation, vec!["cargo test".to_string()]);
+    }
+
+    #[test]
+    fn update_release_notes_ignores_empty_shape() {
+        let manifest = json!({
+            "release_notes": {
+                "schema_version": 1,
+                "user": {
+                    "summary": "   ",
+                    "highlights": []
+                }
+            }
+        });
+
+        assert!(parse_release_notes(&manifest).is_none());
     }
 
     #[test]

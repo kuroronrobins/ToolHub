@@ -47,6 +47,12 @@ export function UpdateSummaryDialog({ summary, onClose }: Props) {
   const canDownload = Boolean(summary.installerUrl && summary.installerSha256 && !busy);
   const canLaunch = Boolean(downloadResult?.verified && downloadResult.cachePath && summary.installerSha256 && !busy);
   const targetVersion = updateTargetVersion(summary);
+  const userNotes = summary.releaseNotes?.user;
+  const adminNotes = summary.releaseNotes?.admin;
+  const userTitle = cleanText(userNotes?.title) || summary.title;
+  const userSummary = cleanText(userNotes?.summary) || summary.message;
+  const highlights = cleanList(userNotes?.highlights);
+  const addedApps = cleanList(userNotes?.addedApps);
 
   async function handleDownload() {
     if (!summary?.installerUrl || !summary.installerSha256) {
@@ -105,7 +111,7 @@ export function UpdateSummaryDialog({ summary, onClose }: Props) {
         <header className="dialog-header">
           <div>
             <p className="dialog-kicker">更新</p>
-            <h2 id="update-title">{summary.title}</h2>
+            <h2 id="update-title">{userTitle}</h2>
           </div>
           <button className="icon-button" type="button" onClick={onClose} title="閉じる">
             <X size={20} aria-hidden="true" />
@@ -113,8 +119,25 @@ export function UpdateSummaryDialog({ summary, onClose }: Props) {
         </header>
 
         <section className="detail-section">
-          <h3>内容</h3>
-          <p>{summary.message}</p>
+          <h3>今回の更新</h3>
+          <p>{userSummary}</p>
+          {highlights.length ? (
+            <ul className="update-highlight-list">
+              {highlights.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          ) : null}
+          {addedApps.length ? (
+            <div className="update-added-apps">
+              <strong>追加されたアプリ</strong>
+              <div>
+                {addedApps.map((item) => (
+                  <span key={item}>{item}</span>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div className="version-list">
             <div className="version-row">
               <span>現在のToolHub</span>
@@ -179,6 +202,31 @@ export function UpdateSummaryDialog({ summary, onClose }: Props) {
           {summary.unsupportedActions?.length ? (
             <p className="admin-muted">未実装: {summary.unsupportedActions.map((action) => UNSUPPORTED_ACTION_LABELS[action] ?? action).join("、")}</p>
           ) : null}
+          {adminNotes ? (
+            <div className="admin-release-notes">
+              {adminNotes.summary ? <p>{adminNotes.summary}</p> : null}
+              {adminNotes.changes?.length ? (
+                <>
+                  <strong>changes</strong>
+                  <ul className="update-note-list">
+                    {adminNotes.changes.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+              {adminNotes.validation?.length ? (
+                <>
+                  <strong>validation</strong>
+                  <ul className="update-note-list">
+                    {adminNotes.validation.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+            </div>
+          ) : null}
         </details>
       </section>
     </div>
@@ -187,5 +235,13 @@ export function UpdateSummaryDialog({ summary, onClose }: Props) {
 
 function updateTargetVersion(summary: UpdateSummary): string | null {
   return summary.remoteManifestVersion ?? summary.core?.nextVersion ?? null;
+}
+
+function cleanText(value?: string | null): string {
+  return value?.trim() ?? "";
+}
+
+function cleanList(values?: string[] | null): string[] {
+  return (values ?? []).map((value) => value.trim()).filter(Boolean).slice(0, 6);
 }
 

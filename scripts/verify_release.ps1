@@ -2,6 +2,7 @@ param(
     [switch]$RequireInstaller,
     [switch]$RequireAppPacks,
     [switch]$RequireRuntime,
+    [switch]$RequireInstallerSignature,
     [switch]$Strict
 )
 
@@ -55,6 +56,24 @@ function Require-Directory($Path) {
 
 function Require-File($Path) {
     if (Test-Path -LiteralPath $Path -PathType Leaf) { Pass "$Path exists" } else { Fail "$Path is missing" }
+}
+
+function Test-InstallerSignature {
+    param([string]$Path)
+
+    $Signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($Signature.Status -eq "Valid") {
+        $Subject = if ($Signature.SignerCertificate) { $Signature.SignerCertificate.Subject } else { "unknown signer" }
+        Pass "installer Authenticode signature is valid: $Subject"
+        return
+    }
+
+    $Message = "installer Authenticode signature is not valid: status=$($Signature.Status)"
+    if ($RequireInstallerSignature) {
+        Fail $Message
+    } else {
+        Write-Host "[WARN] $Message"
+    }
 }
 
 function Test-AppYamlReferencedFile {
@@ -279,6 +298,7 @@ if ($Manifest) {
             } else {
                 Warn "installer size is empty"
             }
+            Test-InstallerSignature -Path $InstallerPath
         } elseif ($RequireInstaller) {
             Fail "installer file is missing: $InstallerPath"
         } else {

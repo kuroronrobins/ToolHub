@@ -36,6 +36,7 @@ from app_studio.models import BUILD_MODES, NORMAL_REGISTRATION_BUILD_MODE, NORMA
 from app_studio.openai_client import test_image_generation_connection
 from app_studio.readme_generator import generate_readme
 from app_studio.registrar import apply_registration
+from app_studio.release_notes import build_release_notes_draft
 from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import ai_submission_block_reason, scan_secrets, secret_scan_status
@@ -76,6 +77,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         parser.add_argument("--icon-style-custom")
         parser.add_argument("--candidate-count", type=int, default=DEFAULT_ICON_REGENERATION_CANDIDATE_COUNT)
         parser.add_argument("--image-quality-mode", default="standard", choices=sorted(ICON_IMAGE_QUALITY_MODES))
+        return parser.parse_args(argv)
+
+    if argv and argv[0] == "release-notes-draft":
+        parser = argparse.ArgumentParser(description="Draft ToolHub release notes for GitHub Release and update manifest.")
+        parser.add_argument("command")
+        parser.add_argument("--context-file", required=True)
         return parser.parse_args(argv)
 
     if argv and argv[0] == "import":
@@ -129,10 +136,20 @@ def main(argv: list[str] | None = None) -> int:
             return run_image_test(args.image_model)
         if args.command == "icon-regenerate":
             return run_icon_regenerate(args, repo_root)
+        if args.command == "release-notes-draft":
+            return run_release_notes_draft(args)
         return run_import(args, repo_root)
     except Exception as exc:
         print(f"ToolHub App Studio error: {exc}", file=sys.stderr)
         return 1
+
+
+def run_release_notes_draft(args: argparse.Namespace) -> int:
+    context_path = Path(args.context_file)
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    result = build_release_notes_draft(context)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
 
 
 def run_import(args: argparse.Namespace, repo_root: Path) -> int:
