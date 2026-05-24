@@ -75,6 +75,7 @@ fn main() {
             app_studio_commands::app_studio_publish_save_release_notes,
             app_studio_commands::app_studio_publish_dry_run,
             app_studio_commands::app_studio_publish_prepare_target,
+            app_studio_commands::app_studio_publish_sign_installer,
             app_studio_commands::app_studio_publish_build_verify,
             app_studio_commands::app_studio_publish_remote_verify,
             app_studio_commands::app_studio_publish_release,

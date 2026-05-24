@@ -41,10 +41,11 @@ use crate::app_studio_types::{
     AppStudioAiDiagnostics, AppStudioDeletePlan, AppStudioFullDeleteResult,
     AppStudioIconRegenerateRequest, AppStudioImportRequest, AppStudioManagedApp,
     AppStudioManagementActionResult, AppStudioPreflightResult, AppStudioPublishAsset,
-    AppStudioPublishCheck, AppStudioPublishPreflightResult, AppStudioPublishRemoteVerifyRequest,
-    AppStudioPublishRequest, AppStudioPublishRunResult, AppStudioRegisteredApp,
-    AppStudioReleaseNotesDraftResult, AppStudioRunResult, AppStudioSaveReleaseNotesRequest,
-    AppStudioSaveReleaseNotesResult, AppStudioUpdateRequest,
+    AppStudioPublishBuildVerifyRequest, AppStudioPublishCheck, AppStudioPublishPreflightResult,
+    AppStudioPublishPrepareTargetRequest, AppStudioPublishRemoteVerifyRequest,
+    AppStudioPublishRequest, AppStudioPublishRunResult, AppStudioPublishSignInstallerRequest,
+    AppStudioRegisteredApp, AppStudioReleaseNotesDraftResult, AppStudioRunResult,
+    AppStudioSaveReleaseNotesRequest, AppStudioSaveReleaseNotesResult, AppStudioUpdateRequest,
 };
 use chrono::Utc;
 use serde_json::{json, Map, Value};
@@ -190,20 +191,33 @@ pub async fn app_studio_publish_dry_run(
 
 #[tauri::command]
 pub async fn app_studio_publish_prepare_target(
+    request: AppStudioPublishPrepareTargetRequest,
     session: State<'_, AdminSessionState>,
 ) -> Result<AppStudioPublishRunResult, String> {
     session.require_authenticated()?;
-    tauri::async_runtime::spawn_blocking(run_publish_prepare_target)
+    tauri::async_runtime::spawn_blocking(move || run_publish_prepare_target(request))
         .await
         .map_err(|_| "GitHub Release target preparation could not complete.".to_string())?
 }
 
 #[tauri::command]
-pub async fn app_studio_publish_build_verify(
+pub async fn app_studio_publish_sign_installer(
+    request: AppStudioPublishSignInstallerRequest,
     session: State<'_, AdminSessionState>,
 ) -> Result<AppStudioPublishRunResult, String> {
     session.require_authenticated()?;
-    tauri::async_runtime::spawn_blocking(run_publish_build_verify)
+    tauri::async_runtime::spawn_blocking(move || run_publish_sign_installer(request))
+        .await
+        .map_err(|_| "Installer signing could not complete.".to_string())?
+}
+
+#[tauri::command]
+pub async fn app_studio_publish_build_verify(
+    request: AppStudioPublishBuildVerifyRequest,
+    session: State<'_, AdminSessionState>,
+) -> Result<AppStudioPublishRunResult, String> {
+    session.require_authenticated()?;
+    tauri::async_runtime::spawn_blocking(move || run_publish_build_verify(request))
         .await
         .map_err(|_| "Release build/verify could not complete.".to_string())?
 }
@@ -1490,7 +1504,9 @@ fn run_publish_dry_run() -> Result<AppStudioPublishRunResult, String> {
     })
 }
 
-fn run_publish_prepare_target() -> Result<AppStudioPublishRunResult, String> {
+fn run_publish_prepare_target(
+    request: AppStudioPublishPrepareTargetRequest,
+) -> Result<AppStudioPublishRunResult, String> {
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
     let script = root.join("scripts").join("publish_github_release.ps1");
     if !script.is_file() {
@@ -1500,7 +1516,7 @@ fn run_publish_prepare_target() -> Result<AppStudioPublishRunResult, String> {
         ));
     }
 
-    let args = vec![
+    let mut args = vec![
         "-NoProfile".to_string(),
         "-ExecutionPolicy".to_string(),
         "Bypass".to_string(),
@@ -1513,10 +1529,19 @@ fn run_publish_prepare_target() -> Result<AppStudioPublishRunResult, String> {
         "-SkipRemoteVerify".to_string(),
         "-AllowDirty".to_string(),
     ];
+    if request.require_installer_signature {
+        args.push("-RequireInstallerSignature".to_string());
+    }
     let command_line = command_line_for_log(Path::new("powershell"), &args);
     append_app_studio_gui_log(
         "publish_prepare_target started",
-        &[("command", command_line.clone())],
+        &[
+            ("command", command_line.clone()),
+            (
+                "require_installer_signature",
+                request.require_installer_signature.to_string(),
+            ),
+        ],
     );
 
     let started_at = Utc::now().to_rfc3339();
@@ -1558,7 +1583,100 @@ fn run_publish_prepare_target() -> Result<AppStudioPublishRunResult, String> {
     })
 }
 
-fn run_publish_build_verify() -> Result<AppStudioPublishRunResult, String> {
+fn run_publish_sign_installer(
+    request: AppStudioPublishSignInstallerRequest,
+) -> Result<AppStudioPublishRunResult, String> {
+    let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
+    let package_script = root.join("scripts").join("package_installer.ps1");
+    let verify_script = root.join("scripts").join("verify_release.ps1");
+    if !package_script.is_file() {
+        return Err(format!(
+            "Installer packaging script is missing: {}",
+            package_script.display()
+        ));
+    }
+    if !verify_script.is_file() {
+        return Err(format!(
+            "Release verification script is missing: {}",
+            verify_script.display()
+        ));
+    }
+
+    let mut package_args = vec!["-SignInstaller".to_string()];
+    append_code_sign_certificate_args(
+        &mut package_args,
+        &request.code_sign_certificate_thumbprint,
+        &request.code_sign_certificate_subject,
+        &request.code_sign_timestamp_url,
+        &request.sign_tool_path,
+    );
+    let verify_args = vec![
+        "-RequireInstaller".to_string(),
+        "-RequireInstallerSignature".to_string(),
+    ];
+    let command_script = format!(
+        "$ErrorActionPreference = 'Stop'; {}; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}; {}; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}",
+        powershell_script_invocation(&package_script, &package_args),
+        powershell_script_invocation(&verify_script, &verify_args)
+    );
+    let args = vec![
+        "-NoProfile".to_string(),
+        "-ExecutionPolicy".to_string(),
+        "Bypass".to_string(),
+        "-Command".to_string(),
+        command_script,
+    ];
+    let command_line = command_line_for_log(Path::new("powershell"), &args);
+    append_app_studio_gui_log(
+        "publish_sign_installer started",
+        &[("command", command_line.clone())],
+    );
+
+    let started_at = Utc::now().to_rfc3339();
+    let started = Instant::now();
+    let output = Command::new("powershell")
+        .args(&args)
+        .current_dir(&root)
+        .output()
+        .map_err(|error| format!("Installer signing could not start: {error}"))?;
+    let process_wall_clock_seconds = started.elapsed().as_secs_f64();
+    let finished_at = Utc::now().to_rfc3339();
+    let exit_code = output.status.code().unwrap_or(-1);
+    let stdout = mask_sensitive(&sanitize_url_queries_in_text(&String::from_utf8_lossy(
+        &output.stdout,
+    )));
+    let stderr = mask_sensitive(&sanitize_url_queries_in_text(&String::from_utf8_lossy(
+        &output.stderr,
+    )));
+    let ok = output.status.success();
+    append_app_studio_gui_log(
+        "publish_sign_installer finished",
+        &[("exit_code", exit_code.to_string()), ("ok", ok.to_string())],
+    );
+
+    Ok(AppStudioPublishRunResult {
+        ok,
+        exit_code,
+        stdout,
+        stderr,
+        command_line,
+        started_at,
+        finished_at,
+        process_wall_clock_seconds,
+        user_message: if ok {
+            "Current NSIS installer was signed and release/manifest.json was refreshed.".to_string()
+        } else {
+            "Current NSIS installer signing failed. Review stdout/stderr and certificate settings."
+                .to_string()
+        },
+        report: None,
+        preflight: build_publish_preflight(&root),
+    })
+}
+
+fn run_publish_build_verify(
+    request: AppStudioPublishBuildVerifyRequest,
+) -> Result<AppStudioPublishRunResult, String> {
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
     let build_script = root.join("scripts").join("build_release.ps1");
     let verify_script = root.join("scripts").join("verify_release.ps1");
@@ -1575,10 +1693,30 @@ fn run_publish_build_verify() -> Result<AppStudioPublishRunResult, String> {
         ));
     }
 
+    let mut build_args = vec!["-RequireRuntime".to_string(), "-SkipInstall".to_string()];
+    append_installer_signing_args(
+        &mut build_args,
+        request.sign_installer,
+        request.require_installer_signature,
+        &request.code_sign_certificate_thumbprint,
+        &request.code_sign_certificate_subject,
+        &request.code_sign_timestamp_url,
+        &request.sign_tool_path,
+    );
+    let mut verify_args = vec![
+        "-RequireInstaller".to_string(),
+        "-RequireAppPacks".to_string(),
+        "-RequireRuntime".to_string(),
+        "-Strict".to_string(),
+    ];
+    if request.require_installer_signature || request.sign_installer {
+        verify_args.push("-RequireInstallerSignature".to_string());
+    }
+
     let command_script = format!(
-        "$ErrorActionPreference = 'Stop'; & {} -RequireRuntime; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}; & {} -RequireInstaller -RequireAppPacks -RequireRuntime -Strict; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}",
-        quote_powershell_single(&build_script.display().to_string()),
-        quote_powershell_single(&verify_script.display().to_string())
+        "$ErrorActionPreference = 'Stop'; {}; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}; {}; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}",
+        powershell_script_invocation(&build_script, &build_args),
+        powershell_script_invocation(&verify_script, &verify_args)
     );
     let args = vec![
         "-NoProfile".to_string(),
@@ -1590,7 +1728,14 @@ fn run_publish_build_verify() -> Result<AppStudioPublishRunResult, String> {
     let command_line = command_line_for_log(Path::new("powershell"), &args);
     append_app_studio_gui_log(
         "publish_build_verify started",
-        &[("command", command_line.clone())],
+        &[
+            ("command", command_line.clone()),
+            ("sign_installer", request.sign_installer.to_string()),
+            (
+                "require_installer_signature",
+                (request.require_installer_signature || request.sign_installer).to_string(),
+            ),
+        ],
     );
 
     let started_at = Utc::now().to_rfc3339();
@@ -1758,6 +1903,12 @@ fn run_publish_release(
                 .to_string(),
         );
     }
+    if request.skip_build && request.sign_installer {
+        return Err(
+            "Skip build cannot be used together with installer signing. Sign the current NSIS installer first, then publish with skip build."
+                .to_string(),
+        );
+    }
 
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
     let script = root.join("scripts").join("publish_github_release.ps1");
@@ -1793,6 +1944,21 @@ fn run_publish_release(
     if request.download_installer_for_remote_verify {
         args.push("-DownloadInstallerForRemoteVerify".to_string());
     }
+    if !request.skip_build {
+        args.push("-SkipInstall".to_string());
+    }
+    if request.skip_build {
+        args.push("-SkipBuild".to_string());
+    }
+    append_installer_signing_args(
+        &mut args,
+        request.sign_installer,
+        request.require_installer_signature,
+        &request.code_sign_certificate_thumbprint,
+        &request.code_sign_certificate_subject,
+        &request.code_sign_timestamp_url,
+        &request.sign_tool_path,
+    );
     if let Some(release_notes) = request
         .release_notes
         .as_deref()
@@ -1820,6 +1986,12 @@ fn run_publish_release(
             ),
             ("draft", request.draft.to_string()),
             ("prerelease", request.prerelease.to_string()),
+            ("skip_build", request.skip_build.to_string()),
+            ("sign_installer", request.sign_installer.to_string()),
+            (
+                "require_installer_signature",
+                (request.require_installer_signature || request.sign_installer).to_string(),
+            ),
         ],
     );
 
@@ -1884,6 +2056,70 @@ fn redact_remote_verify_command_args(args: &[String]) -> Vec<String> {
 
 fn redact_publish_command_args(args: &[String]) -> Vec<String> {
     redact_cli_arg_value(args, "-ReleaseNotes")
+}
+
+fn append_installer_signing_args(
+    args: &mut Vec<String>,
+    sign_installer: bool,
+    require_installer_signature: bool,
+    code_sign_certificate_thumbprint: &Option<String>,
+    code_sign_certificate_subject: &Option<String>,
+    code_sign_timestamp_url: &Option<String>,
+    sign_tool_path: &Option<String>,
+) {
+    if sign_installer {
+        args.push("-SignInstaller".to_string());
+    }
+    if require_installer_signature || sign_installer {
+        args.push("-RequireInstallerSignature".to_string());
+    }
+    append_code_sign_certificate_args(
+        args,
+        code_sign_certificate_thumbprint,
+        code_sign_certificate_subject,
+        code_sign_timestamp_url,
+        sign_tool_path,
+    );
+}
+
+fn append_code_sign_certificate_args(
+    args: &mut Vec<String>,
+    code_sign_certificate_thumbprint: &Option<String>,
+    code_sign_certificate_subject: &Option<String>,
+    code_sign_timestamp_url: &Option<String>,
+    sign_tool_path: &Option<String>,
+) {
+    if let Some(value) = clean_optional(code_sign_certificate_thumbprint) {
+        args.push("-CodeSignCertificateThumbprint".to_string());
+        args.push(value.to_string());
+    }
+    if let Some(value) = clean_optional(code_sign_certificate_subject) {
+        args.push("-CodeSignCertificateSubject".to_string());
+        args.push(value.to_string());
+    }
+    if let Some(value) = clean_optional(code_sign_timestamp_url) {
+        args.push("-CodeSignTimestampUrl".to_string());
+        args.push(value.to_string());
+    }
+    if let Some(value) = clean_optional(sign_tool_path) {
+        args.push("-SignToolPath".to_string());
+        args.push(value.to_string());
+    }
+}
+
+fn powershell_script_invocation(script: &Path, args: &[String]) -> String {
+    let mut parts = vec![
+        "&".to_string(),
+        quote_powershell_single(&script.display().to_string()),
+    ];
+    parts.extend(args.iter().map(|arg| {
+        if arg.starts_with('-') && !arg.chars().any(char::is_whitespace) {
+            arg.clone()
+        } else {
+            quote_powershell_single(arg)
+        }
+    }));
+    parts.join(" ")
 }
 
 fn quote_powershell_single(value: &str) -> String {
@@ -2664,6 +2900,8 @@ fn build_ai_env_plan() -> AiEnvPlan {
 }
 
 fn apply_ai_environment(command: &mut Command, plan: &AiEnvPlan) {
+    command.env("PYTHONUTF8", "1");
+    command.env("PYTHONIOENCODING", "utf-8");
     command.env(
         "TOOLHUB_APP_STUDIO_AI_ENABLED",
         if plan.diagnostics.ai_enabled {

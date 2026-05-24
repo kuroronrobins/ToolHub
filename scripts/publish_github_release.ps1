@@ -13,6 +13,7 @@ param(
     [switch]$Draft,
     [switch]$Prerelease,
     [switch]$SkipBuild,
+    [switch]$SkipInstall,
     [switch]$SkipVerify,
     [switch]$SkipTag,
     [switch]$AllowDirty,
@@ -533,6 +534,7 @@ Assert-VersionMatch -Label "release/manifest.json core" -Actual ([string](Get-Js
 if (-not $SkipBuild) {
     Write-Step "Build release artifacts"
     $BuildArgs = @("-RequireRuntime")
+    if ($SkipInstall) { $BuildArgs += "-SkipInstall" }
     if ($SignInstaller) { $BuildArgs += "-SignInstaller" }
     if ($RequireInstallerSignature) { $BuildArgs += "-RequireInstallerSignature" }
     if (-not [string]::IsNullOrWhiteSpace($CodeSignCertificateThumbprint)) {

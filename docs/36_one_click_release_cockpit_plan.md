@@ -21,12 +21,15 @@
 - AI が利用できない場合も公開作業を止めず、編集用の fallback 文案を作成する。
 - `一括公開を実行` で公開前確認、文案作成、manifest 保存、release target 作成、build / verify、dry-run、GitHub Release publish を順番に呼び出す。
 - 実 publish は既存の確認 checkbox が有効な場合だけ実行し、誤クリックでは公開されない構造にする。
+- 公開準備画面に installer 署名オプションを追加し、`release build / verify` と GitHub Release publish の両方へ同じ署名設定を渡す。
+- 署名後の installer sha256 / size が `release/manifest.json` と GitHub Release 対象 artifact に反映されるよう、既存 `scripts/build_release.ps1` / `scripts/publish_github_release.ps1` の署名経路を UI から呼び出す。
+- 個人向け Standard / Individual または OV のコード署名証明書を使い、GUIから現在のNSIS installerを署名し、署名済み installer を現在の GitHub Release 対象へ反映できるようにする。
 
 ## Non-Goals
 
 - インストール済み exe 版 ToolHub から GitHub Release を作成することは対象外。
 - 一般利用者環境に Git、GitHub CLI、Node、Rust、release 権限を要求しない。
-- ToolHub 自身による差分更新、原子的置換、署名検証、ロールバックはこの計画では実装しない。
+- ToolHub 自身による差分更新、原子的置換、利用者環境での署名チェーン検証、ロールバックはこの計画では実装しない。
 - AI 文案を無確認で公開しない。必ず開発者の確認・編集を挟む。
 
 ## Operating Boundary
@@ -60,7 +63,41 @@ Release Cockpit は dev source root でのみ有効にする。
 
 - `公開前チェック`
 - `更新内容をAIで作成`
+- `公開時に installer を署名する`
+- `installer 署名を検証必須にする`
+- `現在のNSIS installerを署名`
+- `現在の署名済み installer を既存 Release へ反映`
 - `最新版を公開`
+
+既定設定:
+
+- `公開時に installer を署名する`: 無効。証明書なしでも配布できるよう、署名なし release を標準にする。
+- `installer 署名を検証必須にする`: 無効。署名証明書が導入されるまでは release gate にしない。
+- `現在の署名済み installer を既存 Release へ反映`: 無効。通常は clean tree から build / verify した artifact を公開する。
+- `既存 Release への上書きを許可`: 無効。誤上書きを避け、新しい version / tag への公開を標準にする。
+- `manifest に installer URL を書き込む`: 有効。利用者側の更新検出が tag 固有の installer URL を参照できるようにする。
+- `publish 後に installer も検証`: 有効。公開済み installer を取得し、sha256 / size の一致を確認する。
+- `remote verify で installer も取得`: 有効。公開後確認で manifest と installer の整合を確認する。
+- `timestamp URL`: `http://timestamp.digicert.com`。コード署名の長期検証を前提に既定値として明示する。
+- `dirty tree での publish を許可`: 無効。意図しない作業ツリー状態での公開を避けるため、必要な場合だけ手動で有効にする。
+- `GitHub Release への公開を実行する`: 無効。実 publish は最後に管理者が明示確認する。
+- `Draft` / `Pre-release`: 無効。通常の正式公開を既定にする。
+- `証明書 thumbprint` / `証明書 subject` / `signtool.exe path`: 空欄。証明書ファイルや秘密情報を保存せず、環境変数または自動検出を使う。
+
+署名なし配布の安全策:
+
+- 公開前に `build_release.ps1 -SkipInstall -RequireRuntime` と `verify_release.ps1 -RequireInstaller -RequireAppPacks -RequireRuntime -Strict` を通す。
+- `release/manifest.json` の installer `sha256` / `size` と、公開対象フォルダの `checksums.sha256.txt` を必ず生成する。
+- GitHub Release 後に `verify_github_release_assets.ps1 -DownloadInstaller` を実行し、公開済み installer を再取得して manifest の sha256 / size と照合する。
+- `dirty tree` と既存 Release 上書きは既定で許可しない。
+- GitHub Release body には利用者向け内容だけを出し、内部パス、証明書情報、個人情報、secret を出さない。
+
+個人発行の運用:
+
+- 純粋な個人名で配布する場合は、個人向け `Standard Code Signing` / `Individual Code Signing` 証明書を使う。
+- 組織名、法人名、登録済み屋号を発行者として表示したい場合だけ、OV 証明書を使う。
+- USB token / HSM / cloud HSM のどの方式でも、ToolHub 側は `thumbprint`、`subject`、または環境変数経由で `signtool.exe` に渡す。
+- 証明書ファイル、秘密鍵、PIN、PFX password は repo、release notes、GitHub Release body、ログに保存しない。
 
 公開前に表示する情報:
 
@@ -82,12 +119,13 @@ Phase:
 3. Release Notes
 4. App Pack
 5. Build Installer
-6. Verify Local Release
-7. Commit
-8. Push
-9. GitHub Release
-10. Remote Verify
-11. Installed Update Detection Check
+6. Sign Installer
+7. Verify Local Release
+8. Commit
+9. Push
+10. GitHub Release
+11. Remote Verify
+12. Installed Update Detection Check
 
 各 phase の表示:
 
@@ -365,6 +403,7 @@ dev ToolHub
   -> admin edits notes
   -> version bump
   -> build_release.ps1
+  -> sign installer when enabled
   -> publish_github_release.ps1
   -> GitHub Release latest manifest
   -> installed ToolHub check_updates_remote
@@ -410,6 +449,8 @@ Preflight で止める条件:
 - release logs に credential を出さない。
 - GitHub Release body に内部パスや個人情報を出さない。
 - 利用者向け release notes に管理者向け情報を混ぜない。
+- 署名証明書ファイルや秘密鍵は repo に置かず、Windows 証明書ストア、環境変数、または開発者端末の secure な設定から `signtool.exe` に渡す。
+- UI に保存する署名情報は thumbprint / subject / timestamp URL / signtool path までとし、秘密情報を永続化しない。
 
 ## Implementation Phases
 
@@ -465,6 +506,11 @@ cargo test
 
 - version bump を UI から実行する。
 - build / verify / commit / push / release / remote verify を phase 実行する。
+- 署名が有効な場合は `build_release.ps1 -SignInstaller` と `publish_github_release.ps1 -SignInstaller` を呼び、署名後 artifact を manifest と upload target にする。
+- `-RequireInstallerSignature` を release gate として使い、未署名 artifact のまま公開されないようにする。
+- GUIからの release build / publish では、実行中の開発サーバーやWebViewが `node_modules` の native binding を掴んでいる場合があるため、既存 `node_modules` を使い `-SkipInstall` で `npm ci` を避ける。
+- 既に build 済みのNSIS installerを署名する場合は、GUIから `package_installer.ps1 -SignInstaller` を実行し、署名後に `verify_release.ps1 -RequireInstaller -RequireInstallerSignature` を通す。
+- 既存 GitHub Release へ現在の署名済み installer を反映する場合は、`publish_github_release.ps1 -SkipBuild -AllowExistingRelease -RequireInstallerSignature` の経路を使い、buildし直さずに署名済み artifact を upload target にする。
 - result log を保存する。
 - 成功時に GitHub Release URL と target folder を表示する。
 
@@ -473,6 +519,10 @@ Validation:
 ```powershell
 .\scripts\build_release.ps1 -SkipInstall -RequireRuntime
 .\scripts\publish_github_release.ps1 -Version <version> -Owner <owner> -Repo <repo> -Tag v<version> -SkipBuild -SkipVerify -DownloadInstallerForRemoteVerify
+.\scripts\build_release.ps1 -SkipInstall -RequireRuntime -SignInstaller -RequireInstallerSignature
+.\scripts\publish_github_release.ps1 -Version <version> -Owner <owner> -Repo <repo> -Tag v<version> -SignInstaller -RequireInstallerSignature -DownloadInstallerForRemoteVerify
+.\scripts\package_installer.ps1 -SignInstaller -CodeSignCertificateThumbprint <thumbprint>
+.\scripts\publish_github_release.ps1 -Version <version> -Owner <owner> -Repo <repo> -Tag v<version> -SkipBuild -AllowExistingRelease -RequireInstallerSignature -DownloadInstallerForRemoteVerify
 ```
 
 ### Phase 5: End-to-End Installed Update Confirmation
@@ -500,6 +550,9 @@ Get-Content "$env:LOCALAPPDATA\ToolHub\data\logs\updater\latest_update_result.js
 - インストール済み ToolHub が新 version を検出する。
 - 利用者はメイン画面を邪魔されず、必要時だけ更新内容を確認できる。
 - 利用者向け notes に技術的詳細が表示されない。
+- 署名を有効にした公開では installer が Authenticode 署名済みになり、署名後の sha256 / size が manifest と GitHub Release 対象に一致する。
+- GUIから現在のNSIS installerを個人向け Standard / Individual または OV のコード署名証明書で署名できる。
+- GUIから現在の署名済み installer を既存 GitHub Release に上書き反映するための skip-build publish を実行できる。
 - remote installer size / sha256 verify が通る。
 - release target folder が明確に残る。
 

@@ -1,21 +1,82 @@
-import { CheckCircle2, CircleAlert, FileCheck2, FolderCheck, Hammer, Loader2, PlayCircle, RefreshCw, Save, ShieldCheck, Sparkles, TriangleAlert, UploadCloud } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleAlert,
+  ClipboardCheck,
+  FileCheck2,
+  FolderCheck,
+  Hammer,
+  Loader2,
+  PlayCircle,
+  RefreshCw,
+  Rocket,
+  Save,
+  ShieldCheck,
+  Sparkles,
+  TriangleAlert,
+  UploadCloud,
+} from "lucide-react";
 import { useState } from "react";
-import { appStudioPublishBuildVerify, appStudioPublishDryRun, appStudioPublishPreflight, appStudioPublishPrepareTarget, appStudioPublishRelease, appStudioPublishRemoteVerify, appStudioPublishSaveReleaseNotes, appStudioPublishSuggestReleaseNotes } from "../../../lib/appStudioApi";
-import type { AppStudioPublishAsset, AppStudioPublishCheck, AppStudioPublishPreflightResult, AppStudioPublishRunResult, AppStudioReleaseNotesDraftResult, AppStudioRemoteVerificationCheck, AppStudioRemoteVerificationReport, AppStudioSaveReleaseNotesResult } from "../../../lib/appStudioTypes";
+import type { ReactNode } from "react";
+import {
+  appStudioPublishBuildVerify,
+  appStudioPublishDryRun,
+  appStudioPublishPreflight,
+  appStudioPublishPrepareTarget,
+  appStudioPublishRelease,
+  appStudioPublishRemoteVerify,
+  appStudioPublishSaveReleaseNotes,
+  appStudioPublishSignInstaller,
+  appStudioPublishSuggestReleaseNotes,
+} from "../../../lib/appStudioApi";
+import type {
+  AppStudioPublishAsset,
+  AppStudioPublishCheck,
+  AppStudioPublishPreflightResult,
+  AppStudioPublishRunResult,
+  AppStudioReleaseNotesDraftResult,
+  AppStudioRemoteVerificationCheck,
+  AppStudioRemoteVerificationReport,
+  AppStudioSaveReleaseNotesResult,
+} from "../../../lib/appStudioTypes";
 import { formatAdminError } from "../adminUi";
 
 type PublishPhaseStatus = "pending" | "running" | "passed" | "failed" | "skipped";
+type RecommendedActionTone = "neutral" | "success" | "warn";
 
-interface PublishProcessItem {
-  label: string;
+interface PublishStepItem {
+  number: string;
+  title: string;
+  summary: string;
   status: PublishPhaseStatus;
-  message: string;
+  icon: ReactNode;
+  actions?: ReactNode;
+  children?: ReactNode;
 }
+
+interface RecommendedAction {
+  title: string;
+  message: string;
+  label?: string;
+  tone: RecommendedActionTone;
+  onAction?: () => void;
+  disabled?: boolean;
+}
+
+const DEFAULT_CODE_SIGN_TIMESTAMP_URL = "http://timestamp.digicert.com";
+
+const RECOMMENDED_RELEASE_SETTING_NOTES = [
+  "署名なし installer を clean tree から build / verify して公開します。",
+  "manifest の sha256 / size、checksums.sha256.txt、公開後の installer 再取得検証を標準で有効にします。",
+  "公開実行、dirty tree 許可、既存 Release 上書きは、安全のため手動で有効にします。",
+  "署名証明書がある場合だけ、公開時署名または現在の署名済み installer 反映を任意で有効にします。",
+  "証明書 thumbprint / subject / signtool path は保存せず、空欄時は環境変数または自動検出を使います。",
+];
 
 export function AppStudioPublishPanel() {
   const [result, setResult] = useState<AppStudioPublishPreflightResult | null>(null);
   const [dryRunResult, setDryRunResult] = useState<AppStudioPublishRunResult | null>(null);
   const [prepareTargetResult, setPrepareTargetResult] = useState<AppStudioPublishRunResult | null>(null);
+  const [signCurrentInstallerResult, setSignCurrentInstallerResult] = useState<AppStudioPublishRunResult | null>(null);
   const [buildVerifyResult, setBuildVerifyResult] = useState<AppStudioPublishRunResult | null>(null);
   const [remoteVerifyResult, setRemoteVerifyResult] = useState<AppStudioPublishRunResult | null>(null);
   const [publishResult, setPublishResult] = useState<AppStudioPublishRunResult | null>(null);
@@ -24,6 +85,7 @@ export function AppStudioPublishPanel() {
   const [busy, setBusy] = useState(false);
   const [dryRunBusy, setDryRunBusy] = useState(false);
   const [prepareTargetBusy, setPrepareTargetBusy] = useState(false);
+  const [signCurrentInstallerBusy, setSignCurrentInstallerBusy] = useState(false);
   const [buildVerifyBusy, setBuildVerifyBusy] = useState(false);
   const [remoteVerifyBusy, setRemoteVerifyBusy] = useState(false);
   const [publishBusy, setPublishBusy] = useState(false);
@@ -31,17 +93,39 @@ export function AppStudioPublishPanel() {
   const [saveNotesBusy, setSaveNotesBusy] = useState(false);
   const [flowBusy, setFlowBusy] = useState(false);
   const [flowMessage, setFlowMessage] = useState("");
-  const [downloadInstallerForVerify, setDownloadInstallerForVerify] = useState(false);
+  const [downloadInstallerForVerify, setDownloadInstallerForVerify] = useState(true);
   const [confirmPublish, setConfirmPublish] = useState(false);
   const [allowDirty, setAllowDirty] = useState(false);
   const [allowExistingRelease, setAllowExistingRelease] = useState(false);
-  const [updateManifestInstallerUrl, setUpdateManifestInstallerUrl] = useState(false);
+  const [updateManifestInstallerUrl, setUpdateManifestInstallerUrl] = useState(true);
   const [draft, setDraft] = useState(false);
   const [prerelease, setPrerelease] = useState(false);
-  const [downloadInstallerAfterPublish, setDownloadInstallerAfterPublish] = useState(false);
+  const [downloadInstallerAfterPublish, setDownloadInstallerAfterPublish] = useState(true);
+  const [useCurrentInstallerForPublish, setUseCurrentInstallerForPublish] = useState(false);
+  const [signInstaller, setSignInstaller] = useState(false);
+  const [requireInstallerSignature, setRequireInstallerSignature] = useState(false);
+  const [codeSignCertificateThumbprint, setCodeSignCertificateThumbprint] = useState("");
+  const [codeSignCertificateSubject, setCodeSignCertificateSubject] = useState("");
+  const [codeSignTimestampUrl, setCodeSignTimestampUrl] = useState(DEFAULT_CODE_SIGN_TIMESTAMP_URL);
+  const [signToolPath, setSignToolPath] = useState("");
   const [releaseNotes, setReleaseNotes] = useState("");
   const [manifestReleaseNotesJson, setManifestReleaseNotesJson] = useState("");
   const [error, setError] = useState("");
+
+  function applyRecommendedReleaseDefaults() {
+    setDownloadInstallerForVerify(true);
+    setConfirmPublish(false);
+    setAllowDirty(false);
+    setAllowExistingRelease(false);
+    setUpdateManifestInstallerUrl(true);
+    setDraft(false);
+    setPrerelease(false);
+    setDownloadInstallerAfterPublish(true);
+    setUseCurrentInstallerForPublish(false);
+    setSignInstaller(false);
+    setRequireInstallerSignature(false);
+    setCodeSignTimestampUrl(DEFAULT_CODE_SIGN_TIMESTAMP_URL);
+  }
 
   async function runPreflight() {
     setBusy(true);
@@ -73,13 +157,42 @@ export function AppStudioPublishPanel() {
     setPrepareTargetBusy(true);
     setError("");
     try {
-      const nextResult = await appStudioPublishPrepareTarget();
+      const nextResult = await appStudioPublishPrepareTarget({
+        requireInstallerSignature: requireInstallerSignature || signInstaller || useCurrentInstallerForPublish,
+      });
       setPrepareTargetResult(nextResult);
       setResult(nextResult.preflight);
     } catch (targetError) {
       setError(formatAdminError(targetError, "リリース対象フォルダの作成に失敗しました。"));
     } finally {
       setPrepareTargetBusy(false);
+    }
+  }
+
+  async function runSignCurrentInstaller() {
+    setSignCurrentInstallerBusy(true);
+    setError("");
+    try {
+      const nextResult = await appStudioPublishSignInstaller({
+        codeSignCertificateThumbprint: emptyToNull(codeSignCertificateThumbprint),
+        codeSignCertificateSubject: emptyToNull(codeSignCertificateSubject),
+        codeSignTimestampUrl: emptyToNull(codeSignTimestampUrl),
+        signToolPath: emptyToNull(signToolPath),
+      });
+      setSignCurrentInstallerResult(nextResult);
+      setResult(nextResult.preflight);
+      if (nextResult.ok) {
+        setRequireInstallerSignature(true);
+        setUseCurrentInstallerForPublish(true);
+        setAllowExistingRelease(true);
+        setUpdateManifestInstallerUrl(true);
+        setDownloadInstallerAfterPublish(true);
+        setDownloadInstallerForVerify(true);
+      }
+    } catch (signError) {
+      setError(formatAdminError(signError, "現在のNSIS installer署名に失敗しました。"));
+    } finally {
+      setSignCurrentInstallerBusy(false);
     }
   }
 
@@ -122,7 +235,14 @@ export function AppStudioPublishPanel() {
     setBuildVerifyBusy(true);
     setError("");
     try {
-      const nextResult = await appStudioPublishBuildVerify();
+      const nextResult = await appStudioPublishBuildVerify({
+        signInstaller,
+        requireInstallerSignature: requireInstallerSignature || signInstaller,
+        codeSignCertificateThumbprint: emptyToNull(codeSignCertificateThumbprint),
+        codeSignCertificateSubject: emptyToNull(codeSignCertificateSubject),
+        codeSignTimestampUrl: emptyToNull(codeSignTimestampUrl),
+        signToolPath: emptyToNull(signToolPath),
+      });
       setBuildVerifyResult(nextResult);
       setResult(nextResult.preflight);
     } catch (buildError) {
@@ -137,7 +257,7 @@ export function AppStudioPublishPanel() {
     setError("");
     try {
       const nextResult = await appStudioPublishRemoteVerify({
-        manifestUrl: result?.updateManifestUrl ?? result?.latestManifestUrl ?? null,
+        manifestUrl: prerelease ? result?.tagManifestUrl ?? result?.updateManifestUrl ?? result?.latestManifestUrl ?? null : result?.updateManifestUrl ?? result?.latestManifestUrl ?? null,
         expectedVersion: result?.version ?? null,
         downloadInstaller: downloadInstallerForVerify,
       });
@@ -162,6 +282,13 @@ export function AppStudioPublishPanel() {
         draft,
         prerelease,
         downloadInstallerForRemoteVerify: downloadInstallerAfterPublish,
+        skipBuild: useCurrentInstallerForPublish && !signInstaller,
+        signInstaller,
+        requireInstallerSignature: requireInstallerSignature || signInstaller || useCurrentInstallerForPublish,
+        codeSignCertificateThumbprint: emptyToNull(codeSignCertificateThumbprint),
+        codeSignCertificateSubject: emptyToNull(codeSignCertificateSubject),
+        codeSignTimestampUrl: emptyToNull(codeSignTimestampUrl),
+        signToolPath: emptyToNull(signToolPath),
         releaseNotes: releaseNotes.trim() ? releaseNotes : null,
       });
       setPublishResult(nextResult);
@@ -217,19 +344,32 @@ export function AppStudioPublishPanel() {
       setResult(saveResult.preflight);
       setSaveNotesBusy(false);
 
-      setFlowMessage("release build / verify を実行しています。");
-      setBuildVerifyBusy(true);
-      const buildResult = await appStudioPublishBuildVerify();
-      setBuildVerifyResult(buildResult);
-      setResult(buildResult.preflight);
-      setBuildVerifyBusy(false);
-      if (!buildResult.ok) {
-        throw new Error("release build / verify に失敗しました。");
+      if (useCurrentInstallerForPublish && !signInstaller) {
+        setFlowMessage("現在の署名済み installer を使用します。release build はスキップします。");
+      } else {
+        setFlowMessage("release build / verify を実行しています。");
+        setBuildVerifyBusy(true);
+        const buildResult = await appStudioPublishBuildVerify({
+          signInstaller,
+          requireInstallerSignature: requireInstallerSignature || signInstaller,
+          codeSignCertificateThumbprint: emptyToNull(codeSignCertificateThumbprint),
+          codeSignCertificateSubject: emptyToNull(codeSignCertificateSubject),
+          codeSignTimestampUrl: emptyToNull(codeSignTimestampUrl),
+          signToolPath: emptyToNull(signToolPath),
+        });
+        setBuildVerifyResult(buildResult);
+        setResult(buildResult.preflight);
+        setBuildVerifyBusy(false);
+        if (!buildResult.ok) {
+          throw new Error("release build / verify に失敗しました。");
+        }
       }
 
       setFlowMessage("リリース対象フォルダを作成しています。");
       setPrepareTargetBusy(true);
-      const targetResult = await appStudioPublishPrepareTarget();
+      const targetResult = await appStudioPublishPrepareTarget({
+        requireInstallerSignature: requireInstallerSignature || signInstaller || useCurrentInstallerForPublish,
+      });
       setPrepareTargetResult(targetResult);
       setResult(targetResult.preflight);
       setPrepareTargetBusy(false);
@@ -257,6 +397,13 @@ export function AppStudioPublishPanel() {
         draft,
         prerelease,
         downloadInstallerForRemoteVerify: downloadInstallerAfterPublish,
+        skipBuild: useCurrentInstallerForPublish && !signInstaller,
+        signInstaller,
+        requireInstallerSignature: requireInstallerSignature || signInstaller || useCurrentInstallerForPublish,
+        codeSignCertificateThumbprint: emptyToNull(codeSignCertificateThumbprint),
+        codeSignCertificateSubject: emptyToNull(codeSignCertificateSubject),
+        codeSignTimestampUrl: emptyToNull(codeSignTimestampUrl),
+        signToolPath: emptyToNull(signToolPath),
         releaseNotes: nextReleaseNotes || null,
       });
       setPublishResult(publish);
@@ -273,6 +420,7 @@ export function AppStudioPublishPanel() {
       setNotesDraftBusy(false);
       setSaveNotesBusy(false);
       setPrepareTargetBusy(false);
+      setSignCurrentInstallerBusy(false);
       setBuildVerifyBusy(false);
       setDryRunBusy(false);
       setPublishBusy(false);
@@ -281,157 +429,145 @@ export function AppStudioPublishPanel() {
     }
   }
 
-  const anyBusy = busy || dryRunBusy || prepareTargetBusy || buildVerifyBusy || remoteVerifyBusy || publishBusy || notesDraftBusy || saveNotesBusy || flowBusy;
+  const anyBusy = busy || dryRunBusy || prepareTargetBusy || signCurrentInstallerBusy || buildVerifyBusy || remoteVerifyBusy || publishBusy || notesDraftBusy || saveNotesBusy || flowBusy;
   const canPublish = confirmPublish && !anyBusy;
   const canRunOneClickFlow = confirmPublish && !anyBusy;
+  const hasCodeSignSelector = Boolean(codeSignCertificateThumbprint.trim() || codeSignCertificateSubject.trim());
   const uploadAssets = result?.releaseTargetAssets?.filter((asset) => asset.upload) ?? [];
   const releaseTargetReady = uploadAssets.length > 0 && uploadAssets.every((asset) => asset.targetExists);
+  const notesHaveDraft = Boolean(releaseNotes.trim() || manifestReleaseNotesJson.trim() || notesDraftResult);
+  const notesStatus: PublishPhaseStatus = notesDraftBusy || saveNotesBusy ? "running" : saveNotesResult?.ok ? "passed" : "pending";
+  const buildStageStatus: PublishPhaseStatus = (() => {
+    if (signCurrentInstallerBusy || buildVerifyBusy) {
+      return "running";
+    }
+    if (signCurrentInstallerResult?.ok === false || buildVerifyResult?.ok === false) {
+      return "failed";
+    }
+    if (buildVerifyResult?.ok || (useCurrentInstallerForPublish && signCurrentInstallerResult?.ok)) {
+      return "passed";
+    }
+    return "pending";
+  })();
+  const targetStageStatus: PublishPhaseStatus = (() => {
+    if (prepareTargetBusy || dryRunBusy) {
+      return "running";
+    }
+    if (prepareTargetResult?.ok === false || dryRunResult?.ok === false) {
+      return "failed";
+    }
+    if (releaseTargetReady && dryRunResult?.ok) {
+      return "passed";
+    }
+    return "pending";
+  })();
+  const remoteStageStatus: PublishPhaseStatus = (() => {
+    if (remoteVerifyBusy) {
+      return "running";
+    }
+    if (remoteVerifyResult?.ok === false) {
+      return "failed";
+    }
+    if (remoteVerifyResult?.ok || publishResult?.report?.ok) {
+      return "passed";
+    }
+    return "pending";
+  })();
   const publishReadiness = [
     {
-      label: "preflight",
+      label: "公開前確認",
       ok: result?.ok === true,
-      message: result ? (result.ok ? "公開前チェックは失敗なしです。" : "公開前チェックに失敗項目があります。") : "公開前確認をまだ実行していません。",
+      message: result ? (result.ok ? "失敗なしです。" : "失敗項目があります。") : "未実行です。",
     },
     {
-      label: "dry-run",
-      ok: dryRunResult?.ok === true,
-      message: dryRunResult ? (dryRunResult.ok ? "publish dry-run は通過済みです。" : "publish dry-run が失敗しています。") : "publish dry-run は未実行です。",
-    },
-    {
-      label: "target folder",
-      ok: releaseTargetReady,
-      message: result
-        ? releaseTargetReady
-          ? "GitHub Release に載せる対象フォルダを確認できます。"
-          : "publish target作成で、upload対象ファイルだけをまとめたフォルダを作成してください。"
-        : "リリース対象フォルダは未確認です。",
+      label: "更新内容",
+      ok: saveNotesResult?.ok === true,
+      message: saveNotesResult?.ok ? "manifest に保存済みです。" : notesHaveDraft ? "保存待ちです。" : "未作成です。",
     },
     {
       label: "build / verify",
-      ok: buildVerifyResult?.ok === true,
-      message: buildVerifyResult ? (buildVerifyResult.ok ? "release build / verify は通過済みです。" : "release build / verify が失敗しています。") : "release build / verify は未実行です。",
+      ok: buildVerifyResult?.ok === true || (useCurrentInstallerForPublish && signCurrentInstallerResult?.ok === true),
+      message: buildVerifyResult?.ok
+        ? "通過済みです。"
+        : useCurrentInstallerForPublish
+          ? "現在の署名済み installer を使用します。"
+          : "未実行です。",
+    },
+    {
+      label: "公開対象",
+      ok: releaseTargetReady && dryRunResult?.ok === true,
+      message: releaseTargetReady && dryRunResult?.ok ? "対象フォルダと dry-run は確認済みです。" : "対象フォルダ作成と dry-run が残っています。",
     },
     {
       label: "dirty tree",
       ok: !result?.dirtyFiles?.length || allowDirty,
       message: result?.dirtyFiles?.length
         ? allowDirty
-          ? "dirty tree を明示許可しています。分類を確認してください。"
-          : "未コミット変更があります。実 publish は script 側でも -AllowDirty が必要です。"
+          ? "dirty tree を明示許可しています。"
+          : "未コミット変更があります。"
         : result
           ? "未コミット変更はありません。"
-          : "未コミット変更は未確認です。",
+          : "未確認です。",
+    },
+    {
+      label: "installer信頼性",
+      ok: !signInstaller || hasCodeSignSelector || useCurrentInstallerForPublish,
+      message: signInstaller
+        ? hasCodeSignSelector
+          ? "指定証明書で署名します。"
+          : "環境変数または証明書入力が必要です。"
+        : useCurrentInstallerForPublish
+          ? "署名済み installer を使用します。"
+          : requireInstallerSignature
+            ? "署名検証を必須にします。"
+            : "署名なしで公開し、sha256 / size 検証で補強します。",
     },
   ];
-  const processItems: PublishProcessItem[] = [
+  const recommendedAction = buildRecommendedAction({
+    result,
+    dryRunResult,
+    buildVerifyResult,
+    prepareTargetResult,
+    publishResult,
+    remoteVerifyResult,
+    saveNotesResult,
+    notesHaveDraft,
+    releaseTargetReady,
+    confirmPublish,
+    useCurrentInstallerForPublish,
+    anyBusy,
+    runPreflight: () => void runPreflight(),
+    runSuggestReleaseNotes: () => void runSuggestReleaseNotes(),
+    runSaveReleaseNotes: () => void runSaveReleaseNotes(),
+    runBuildVerify: () => void runBuildVerify(),
+    runPrepareTarget: () => void runPrepareTarget(),
+    runDryRun: () => void runDryRun(),
+    runPublishRelease: () => void runPublishRelease(),
+    runRemoteVerify: () => void runRemoteVerify(),
+  });
+  const releaseSteps: PublishStepItem[] = [
     {
-      label: "公開前チェック",
+      number: "1",
+      title: "状態確認",
+      summary: result ? (result.ok ? "公開前チェックは通過しています。" : "失敗項目を解消してください。") : "最初に読み取り専用チェックを実行します。",
       status: phaseFromPreflight(result, busy),
-      message: result ? (result.ok ? "公開前チェックは通過しています。" : "確認が必要な項目があります。") : "公開前確認を実行してください。",
+      icon: busy ? <Loader2 className="studio-spinner" size={20} aria-hidden="true" /> : <ClipboardCheck size={20} aria-hidden="true" />,
+      actions: (
+        <button className="secondary-button" type="button" onClick={() => void runPreflight()} disabled={anyBusy}>
+          {busy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <RefreshCw size={17} aria-hidden="true" />}
+          公開前確認
+        </button>
+      ),
+      children: result ? <ReleaseSnapshot result={result} /> : null,
     },
     {
-      label: "AI文案",
-      status: notesDraftBusy ? "running" : notesDraftResult ? (notesDraftResult.source === "ai" ? "passed" : "skipped") : releaseNotes.trim() && manifestReleaseNotesJson.trim() ? "passed" : "pending",
-      message: notesDraftResult ? notesDraftResult.message : releaseNotes.trim() && manifestReleaseNotesJson.trim() ? "入力済みの更新内容を使用します。" : "利用者向けと管理者向けの文案を作成します。",
-    },
-    {
-      label: "更新内容保存",
-      status: saveNotesBusy ? "running" : saveNotesResult?.ok ? "passed" : "pending",
-      message: saveNotesResult?.message ?? "release/manifest.json に利用者向け更新内容を保存します。",
-    },
-    {
-      label: "build / verify",
-      status: phaseFromRun(buildVerifyResult, buildVerifyBusy),
-      message: buildVerifyResult ? buildVerifyResult.userMessage : "installer、App Pack、runtime を build / verify します。",
-    },
-    {
-      label: "リリース対象フォルダ",
-      status: phaseFromRun(prepareTargetResult, prepareTargetBusy),
-      message: prepareTargetResult ? prepareTargetResult.userMessage : "GitHub Release に載せるファイルを確認用フォルダにまとめます。",
-    },
-    {
-      label: "GitHub publish",
-      status: phaseFromRun(publishResult, publishBusy),
-      message: publishResult ? publishResult.userMessage : "tag、Release、asset upload、remote verify を実行します。",
-    },
-    {
-      label: "remote verify",
-      status: phaseFromRun(remoteVerifyResult, remoteVerifyBusy),
-      message: remoteVerifyResult ? remoteVerifyResult.userMessage : "公開済み manifest と installer 情報を確認します。",
-    },
-  ];
-
-  return (
-    <section className="admin-panel-section nested-section">
-      <div className="admin-section-head">
-        <div>
-          <p className="dialog-kicker">公開準備</p>
-          <h3>GitHub Release 配布前確認</h3>
-        </div>
-        <span className={`admin-status-pill ${result?.ok ? "ok" : ""}`}>{result ? (result.ok ? "Ready" : "Review") : "Not checked"}</span>
-      </div>
-
-      <div className="admin-card-grid">
-        <button className="admin-work-card" type="button" onClick={() => void runPreflight()} disabled={anyBusy}>
-          {busy ? <Loader2 className="studio-spinner" size={22} aria-hidden="true" /> : <RefreshCw size={22} aria-hidden="true" />}
-          <strong>{busy ? "確認中" : "公開前確認"}</strong>
-          <span>manifest、installer、GitHub remote、readiness reportを読み取り専用で確認します。</span>
-        </button>
-        <button className="admin-work-card" type="button" onClick={() => void runDryRun()} disabled={anyBusy}>
-          {dryRunBusy ? <Loader2 className="studio-spinner" size={22} aria-hidden="true" /> : <PlayCircle size={22} aria-hidden="true" />}
-          <strong>{dryRunBusy ? "dry-run中" : "publish dry-run"}</strong>
-          <span>build、verify、tag、uploadをスキップし、公開scriptの事前判定だけを実行します。</span>
-        </button>
-        <button className="admin-work-card" type="button" onClick={() => void runPrepareTarget()} disabled={anyBusy}>
-          {prepareTargetBusy ? <Loader2 className="studio-spinner" size={22} aria-hidden="true" /> : <FolderCheck size={22} aria-hidden="true" />}
-          <strong>{prepareTargetBusy ? "作成中" : "publish target作成"}</strong>
-          <span>GitHub Releaseへuploadするファイルだけを確認用フォルダにまとめます。</span>
-        </button>
-        <button className="admin-work-card" type="button" onClick={() => void runBuildVerify()} disabled={anyBusy}>
-          {buildVerifyBusy ? <Loader2 className="studio-spinner" size={22} aria-hidden="true" /> : <Hammer size={22} aria-hidden="true" />}
-          <strong>{buildVerifyBusy ? "build/verify中" : "release build / verify"}</strong>
-          <span>runtime必須で release build を実行し、installer、App Pack、runtime を strict 検証します。</span>
-        </button>
-        <button className="admin-work-card" type="button" onClick={() => void runRemoteVerify()} disabled={anyBusy}>
-          {remoteVerifyBusy ? <Loader2 className="studio-spinner" size={22} aria-hidden="true" /> : <ShieldCheck size={22} aria-hidden="true" />}
-          <strong>{remoteVerifyBusy ? "確認中" : "remote verify"}</strong>
-          <span>公開済み manifest を取得し、version、installer URL、sha256、sizeを確認します。</span>
-        </button>
-        <button className="admin-work-card danger" type="button" onClick={() => void runPublishRelease()} disabled={!canPublish}>
-          {publishBusy ? <Loader2 className="studio-spinner" size={22} aria-hidden="true" /> : <UploadCloud size={22} aria-hidden="true" />}
-          <strong>{publishBusy ? "公開中" : "GitHub publish"}</strong>
-          <span>build、verify、tag、Release作成、asset upload、remote verifyを実行します。</span>
-        </button>
-        <div className="admin-work-card static">
-          <FileCheck2 size={22} aria-hidden="true" />
-          <strong>publish command</strong>
-          <span>実公開は .\scripts\publish_github_release.ps1 を明示実行します。dirty tree は既定で拒否します。</span>
-        </div>
-      </div>
-      <div className="publish-flow-panel">
-        <div>
-          <strong>最新版を公開</strong>
-          <span>{confirmPublish ? "公開前確認からGitHub Release作成までを順番に実行します。文案が未入力の場合は先に下書きを作成します。" : "下の「GitHub Release への公開を実行する」を有効にすると、一括公開を実行できます。"}</span>
-        </div>
-        <button className="primary-button" type="button" onClick={() => void runOneClickPublishFlow()} disabled={!canRunOneClickFlow}>
-          {flowBusy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <UploadCloud size={17} aria-hidden="true" />}
-          一括公開を実行
-        </button>
-      </div>
-      {flowMessage ? <p className="admin-muted publish-flow-message">{flowMessage}</p> : null}
-      <PublishProcessTimeline items={processItems} />
-      <label className="admin-toggle">
-        <input
-          type="checkbox"
-          checked={downloadInstallerForVerify}
-          disabled={anyBusy}
-          onChange={(event) => setDownloadInstallerForVerify(event.currentTarget.checked)}
-        />
-        remote verify で installer も取得して sha256 を確認する
-      </label>
-      <details className="admin-details" open>
-        <summary>更新内容 / AI文案</summary>
-        <div className="studio-action-row">
+      number: "2",
+      title: "更新内容",
+      summary: saveNotesResult?.ok ? "利用者向け更新内容を manifest に保存済みです。" : notesHaveDraft ? "文案を確認して manifest に保存します。" : "GitHub Release本文と更新通知文を作成します。",
+      status: notesStatus,
+      icon: notesDraftBusy || saveNotesBusy ? <Loader2 className="studio-spinner" size={20} aria-hidden="true" /> : <Sparkles size={20} aria-hidden="true" />,
+      actions: (
+        <>
           <button className="secondary-button" type="button" onClick={() => void runSuggestReleaseNotes()} disabled={anyBusy}>
             {notesDraftBusy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <Sparkles size={17} aria-hidden="true" />}
             AI文案を作成
@@ -440,72 +576,464 @@ export function AppStudioPublishPanel() {
             {saveNotesBusy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <Save size={17} aria-hidden="true" />}
             manifestへ保存
           </button>
+        </>
+      ),
+      children: (
+        <div className="publish-notes-editor">
+          <label className="admin-field">
+            GitHub Release notes
+            <textarea className="studio-textarea" rows={6} value={releaseNotes} disabled={anyBusy} onChange={(event) => setReleaseNotes(event.currentTarget.value)} placeholder="GitHub Release本文" />
+          </label>
+          <label className="admin-field">
+            利用者向け release_notes JSON
+            <textarea className="studio-textarea studio-json-textarea" rows={8} value={manifestReleaseNotesJson} disabled={anyBusy} onChange={(event) => setManifestReleaseNotesJson(event.currentTarget.value)} placeholder="更新通知に表示するJSON" />
+          </label>
+          {notesDraftResult ? (
+            <p className={notesDraftResult.source === "ai" ? "admin-success" : "admin-warning"}>
+              {notesDraftResult.source === "ai" ? "AI文案を作成しました。" : `AI文案は利用できませんでした。${notesDraftResult.message}`}
+            </p>
+          ) : null}
+          {saveNotesResult?.ok ? <p className="admin-success">{saveNotesResult.message}</p> : null}
+          {notesDraftResult?.aiReport ? (
+            <details className="admin-details">
+              <summary>AI文案生成ログ</summary>
+              <pre className="studio-log">{notesDraftResult.aiReport}</pre>
+            </details>
+          ) : null}
         </div>
-        <label className="admin-field">
-          GitHub Release notes
-          <textarea className="studio-textarea" rows={7} value={releaseNotes} disabled={anyBusy} onChange={(event) => setReleaseNotes(event.currentTarget.value)} placeholder="GitHub Release本文。AI文案を作成後、公開前に編集してください。" />
-        </label>
-        <label className="admin-field">
-          利用者向け release_notes JSON
-          <textarea className="studio-textarea studio-json-textarea" rows={10} value={manifestReleaseNotesJson} disabled={anyBusy} onChange={(event) => setManifestReleaseNotesJson(event.currentTarget.value)} placeholder="更新通知の詳細画面に表示する内容です。利用者向け文言には技術的な詳細を入れないでください。" />
-        </label>
-        {notesDraftResult ? (
-          <p className={notesDraftResult.source === "ai" ? "admin-success" : "admin-warning"}>
-            {notesDraftResult.source === "ai" ? "AI文案を作成しました。公開前に内容を確認してください。" : `AI文案は利用できなかったため、編集用の下書きを作成しました。${notesDraftResult.message}`}
-          </p>
-        ) : null}
-        {saveNotesResult?.ok ? <p className="admin-success">{saveNotesResult.message}</p> : null}
-        {notesDraftResult?.aiReport ? (
-          <details className="admin-details">
-            <summary>AI文案生成ログ</summary>
-            <pre className="studio-log">{notesDraftResult.aiReport}</pre>
-          </details>
-        ) : null}
-      </details>
-      <details className="admin-details" open>
-        <summary>実 publish options</summary>
-        <PublishReadinessChecklist items={publishReadiness} />
-        <div className="admin-two-column">
-          <label className="admin-toggle">
+      ),
+    },
+    {
+      number: "3",
+      title: "署名 / build / verify",
+      summary: useCurrentInstallerForPublish && !signInstaller ? "現在の署名済み installer を公開に使います。" : "installer、App Pack、runtime を生成して検証します。",
+      status: buildStageStatus,
+      icon: signCurrentInstallerBusy || buildVerifyBusy ? <Loader2 className="studio-spinner" size={20} aria-hidden="true" /> : <Hammer size={20} aria-hidden="true" />,
+      actions: (
+        <>
+          <button className="secondary-button" type="button" onClick={() => void runBuildVerify()} disabled={anyBusy || (useCurrentInstallerForPublish && !signInstaller)}>
+            {buildVerifyBusy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <Hammer size={17} aria-hidden="true" />}
+            build / verify
+          </button>
+          <button className="secondary-button" type="button" onClick={() => void runSignCurrentInstaller()} disabled={anyBusy}>
+            {signCurrentInstallerBusy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <ShieldCheck size={17} aria-hidden="true" />}
+            現在のinstallerを署名
+          </button>
+        </>
+      ),
+      children: (
+        <details className="publish-advanced-options">
+          <summary>署名設定</summary>
+          <SignatureOptions
+            anyBusy={anyBusy}
+            signInstaller={signInstaller}
+            requireInstallerSignature={requireInstallerSignature}
+            useCurrentInstallerForPublish={useCurrentInstallerForPublish}
+            codeSignCertificateThumbprint={codeSignCertificateThumbprint}
+            codeSignCertificateSubject={codeSignCertificateSubject}
+            codeSignTimestampUrl={codeSignTimestampUrl}
+            signToolPath={signToolPath}
+            setSignInstaller={(checked) => {
+              setSignInstaller(checked);
+              if (checked) {
+                setRequireInstallerSignature(true);
+                setUseCurrentInstallerForPublish(false);
+              }
+            }}
+            setRequireInstallerSignature={setRequireInstallerSignature}
+            setUseCurrentInstallerForPublish={(checked) => {
+              setUseCurrentInstallerForPublish(checked);
+              if (checked) {
+                setRequireInstallerSignature(true);
+                setAllowExistingRelease(true);
+              }
+            }}
+            setCodeSignCertificateThumbprint={setCodeSignCertificateThumbprint}
+            setCodeSignCertificateSubject={setCodeSignCertificateSubject}
+            setCodeSignTimestampUrl={setCodeSignTimestampUrl}
+            setSignToolPath={setSignToolPath}
+          />
+        </details>
+      ),
+    },
+    {
+      number: "4",
+      title: "公開対象確認",
+      summary: releaseTargetReady && dryRunResult?.ok ? "upload 対象フォルダと dry-run は確認済みです。" : "GitHub Release に載せるファイルをまとめ、publish dry-run で確認します。",
+      status: targetStageStatus,
+      icon: prepareTargetBusy || dryRunBusy ? <Loader2 className="studio-spinner" size={20} aria-hidden="true" /> : <FolderCheck size={20} aria-hidden="true" />,
+      actions: (
+        <>
+          <button className="secondary-button" type="button" onClick={() => void runPrepareTarget()} disabled={anyBusy}>
+            {prepareTargetBusy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <FolderCheck size={17} aria-hidden="true" />}
+            対象フォルダ作成
+          </button>
+          <button className="secondary-button" type="button" onClick={() => void runDryRun()} disabled={anyBusy}>
+            {dryRunBusy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <PlayCircle size={17} aria-hidden="true" />}
+            publish dry-run
+          </button>
+        </>
+      ),
+      children: result ? (
+        <details className="publish-advanced-options">
+          <summary>upload対象ファイル</summary>
+          <ReleaseTargetAssets assets={result.releaseTargetAssets ?? []} />
+        </details>
+      ) : null,
+    },
+    {
+      number: "5",
+      title: "GitHub公開",
+      summary: publishResult?.ok ? "GitHub Release 公開が完了しています。" : confirmPublish ? "確認済みです。公開ボタンを実行できます。" : "公開確認を有効にすると実 publish が実行可能になります。",
+      status: phaseFromRun(publishResult, publishBusy),
+      icon: publishBusy ? <Loader2 className="studio-spinner" size={20} aria-hidden="true" /> : <UploadCloud size={20} aria-hidden="true" />,
+      actions: (
+        <button className="primary-button publish-danger-button" type="button" onClick={() => void runPublishRelease()} disabled={!canPublish}>
+          {publishBusy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <UploadCloud size={17} aria-hidden="true" />}
+          GitHub publish
+        </button>
+      ),
+      children: (
+        <div className="publish-option-stack">
+          <PublishReadinessChecklist items={publishReadiness} />
+          <label className="admin-toggle publish-confirm-toggle">
             <input type="checkbox" checked={confirmPublish} disabled={anyBusy} onChange={(event) => setConfirmPublish(event.currentTarget.checked)} />
             GitHub Release への公開を実行する
           </label>
-          <label className="admin-toggle">
-            <input type="checkbox" checked={allowDirty} disabled={anyBusy} onChange={(event) => setAllowDirty(event.currentTarget.checked)} />
-            dirty tree での publish を許可
-          </label>
-          <label className="admin-toggle">
-            <input type="checkbox" checked={allowExistingRelease} disabled={anyBusy} onChange={(event) => setAllowExistingRelease(event.currentTarget.checked)} />
-            既存 Release への上書きを許可
-          </label>
-          <label className="admin-toggle">
-            <input type="checkbox" checked={updateManifestInstallerUrl} disabled={anyBusy} onChange={(event) => setUpdateManifestInstallerUrl(event.currentTarget.checked)} />
-            manifest に installer URL を書き込む
-          </label>
-          <label className="admin-toggle">
-            <input type="checkbox" checked={draft} disabled={anyBusy} onChange={(event) => setDraft(event.currentTarget.checked)} />
-            Draft Release として作成
-          </label>
-          <label className="admin-toggle">
-            <input type="checkbox" checked={prerelease} disabled={anyBusy} onChange={(event) => setPrerelease(event.currentTarget.checked)} />
-            Pre-release として作成
-          </label>
-          <label className="admin-toggle">
-            <input type="checkbox" checked={downloadInstallerAfterPublish} disabled={anyBusy} onChange={(event) => setDownloadInstallerAfterPublish(event.currentTarget.checked)} />
-            publish 後に installer download verify まで実行
-          </label>
+          <div className="publish-mode-row">
+            <label className="admin-toggle">
+              <input type="checkbox" checked={draft} disabled={anyBusy} onChange={(event) => setDraft(event.currentTarget.checked)} />
+              Draft
+            </label>
+            <label className="admin-toggle">
+              <input type="checkbox" checked={prerelease} disabled={anyBusy} onChange={(event) => setPrerelease(event.currentTarget.checked)} />
+              Pre-release
+            </label>
+            <label className="admin-toggle">
+              <input type="checkbox" checked={downloadInstallerAfterPublish} disabled={anyBusy} onChange={(event) => setDownloadInstallerAfterPublish(event.currentTarget.checked)} />
+              publish後にinstallerも検証
+            </label>
+          </div>
+          <details className="publish-advanced-options">
+            <summary>公開オプション</summary>
+            <div className="admin-two-column">
+              <label className="admin-toggle">
+                <input type="checkbox" checked={allowDirty} disabled={anyBusy} onChange={(event) => setAllowDirty(event.currentTarget.checked)} />
+                dirty tree での publish を許可
+              </label>
+              <label className="admin-toggle">
+                <input type="checkbox" checked={allowExistingRelease} disabled={anyBusy} onChange={(event) => setAllowExistingRelease(event.currentTarget.checked)} />
+                既存 Release への上書きを許可
+              </label>
+              <label className="admin-toggle">
+                <input type="checkbox" checked={updateManifestInstallerUrl} disabled={anyBusy} onChange={(event) => setUpdateManifestInstallerUrl(event.currentTarget.checked)} />
+                manifest に installer URL を書き込む
+              </label>
+              <label className="admin-toggle">
+                <input
+                  type="checkbox"
+                  checked={useCurrentInstallerForPublish}
+                  disabled={anyBusy || signInstaller}
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
+                    setUseCurrentInstallerForPublish(checked);
+                    if (checked) {
+                      setRequireInstallerSignature(true);
+                      setAllowExistingRelease(true);
+                    }
+                  }}
+                />
+                現在の署名済み installer を既存 Release へ反映
+              </label>
+            </div>
+          </details>
         </div>
-        <p className="admin-muted">実 publish は `publish_github_release.ps1` を DryRun なしで実行します。通常は preflight、dry-run、release build / verify を確認してから実行してください。</p>
-      </details>
+      ),
+    },
+    {
+      number: "6",
+      title: "公開後確認",
+      summary: remoteStageStatus === "passed" ? "公開済み manifest は確認済みです。" : "公開後の manifest、installer URL、sha256、size を確認します。",
+      status: remoteStageStatus,
+      icon: remoteVerifyBusy ? <Loader2 className="studio-spinner" size={20} aria-hidden="true" /> : <ShieldCheck size={20} aria-hidden="true" />,
+      actions: (
+        <button className="secondary-button" type="button" onClick={() => void runRemoteVerify()} disabled={anyBusy}>
+          {remoteVerifyBusy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <ShieldCheck size={17} aria-hidden="true" />}
+          remote verify
+        </button>
+      ),
+      children: (
+        <label className="admin-toggle">
+          <input type="checkbox" checked={downloadInstallerForVerify} disabled={anyBusy} onChange={(event) => setDownloadInstallerForVerify(event.currentTarget.checked)} />
+          remote verify で installer も取得して sha256 を確認する
+        </label>
+      ),
+    },
+  ];
 
-      {result ? <PublishSummary result={result} /> : null}
-      {dryRunResult ? <PublishRunSummary result={dryRunResult} title="publish dry-run result" /> : null}
-      {prepareTargetResult ? <PublishRunSummary result={prepareTargetResult} title="publish target result" /> : null}
-      {buildVerifyResult ? <PublishRunSummary result={buildVerifyResult} title="release build / verify result" /> : null}
-      {remoteVerifyResult ? <PublishRunSummary result={remoteVerifyResult} title="remote verify result" /> : null}
-      {publishResult ? <PublishRunSummary result={publishResult} title="GitHub publish result" /> : null}
+  return (
+    <section className="admin-panel-section nested-section">
+      <div className="publish-command-center">
+        <div className="publish-command-main">
+          <p className="dialog-kicker">公開準備</p>
+          <h3>Release Cockpit</h3>
+          <ReleaseOrderStrip steps={releaseSteps} />
+        </div>
+        <RecommendedActionPanel action={recommendedAction} />
+      </div>
+
+      <div className="publish-flow-panel">
+        <div className="publish-flow-copy">
+          <strong>推奨フロー</strong>
+          <span>
+            既定は「署名なし installer を clean tree から build / verify して新しい GitHub Release へ公開」です。
+            公開確認、dirty tree 許可、既存 Release 上書きだけは安全のため手動で有効にします。
+          </span>
+          <ul className="publish-default-list">
+            {RECOMMENDED_RELEASE_SETTING_NOTES.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="publish-flow-actions">
+          <button className="secondary-button" type="button" onClick={applyRecommendedReleaseDefaults} disabled={anyBusy}>
+            <RefreshCw size={17} aria-hidden="true" />
+            推奨設定を再適用
+          </button>
+          <button className="primary-button publish-danger-button" type="button" onClick={() => void runOneClickPublishFlow()} disabled={!canRunOneClickFlow}>
+            {flowBusy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <Rocket size={17} aria-hidden="true" />}
+            推奨フローを実行
+          </button>
+        </div>
+      </div>
+      {flowMessage ? <p className="admin-muted publish-flow-message">{flowMessage}</p> : null}
       {error ? <p className="admin-error" role="alert">{error}</p> : null}
+
+      <ReleaseStepList steps={releaseSteps} />
+
+      <section className="publish-results-section">
+        <div className="admin-section-head">
+          <div>
+            <p className="dialog-kicker">実行結果</p>
+            <h3>詳細ログと検査結果</h3>
+          </div>
+        </div>
+        {result ? <PublishSummary result={result} /> : <p className="admin-muted">公開前確認を実行すると詳細が表示されます。</p>}
+        {dryRunResult ? <PublishRunSummary result={dryRunResult} title="publish dry-run result" /> : null}
+        {prepareTargetResult ? <PublishRunSummary result={prepareTargetResult} title="publish target result" /> : null}
+        {signCurrentInstallerResult ? <PublishRunSummary result={signCurrentInstallerResult} title="installer signing result" /> : null}
+        {buildVerifyResult ? <PublishRunSummary result={buildVerifyResult} title="release build / verify result" /> : null}
+        {remoteVerifyResult ? <PublishRunSummary result={remoteVerifyResult} title="remote verify result" /> : null}
+        {publishResult ? <PublishRunSummary result={publishResult} title="GitHub publish result" /> : null}
+      </section>
     </section>
+  );
+}
+
+function buildRecommendedAction(input: {
+  result: AppStudioPublishPreflightResult | null;
+  dryRunResult: AppStudioPublishRunResult | null;
+  buildVerifyResult: AppStudioPublishRunResult | null;
+  prepareTargetResult: AppStudioPublishRunResult | null;
+  publishResult: AppStudioPublishRunResult | null;
+  remoteVerifyResult: AppStudioPublishRunResult | null;
+  saveNotesResult: AppStudioSaveReleaseNotesResult | null;
+  notesHaveDraft: boolean;
+  releaseTargetReady: boolean;
+  confirmPublish: boolean;
+  useCurrentInstallerForPublish: boolean;
+  anyBusy: boolean;
+  runPreflight: () => void;
+  runSuggestReleaseNotes: () => void;
+  runSaveReleaseNotes: () => void;
+  runBuildVerify: () => void;
+  runPrepareTarget: () => void;
+  runDryRun: () => void;
+  runPublishRelease: () => void;
+  runRemoteVerify: () => void;
+}): RecommendedAction {
+  const common = { disabled: input.anyBusy };
+  if (!input.result) {
+    return { ...common, title: "次は状態確認", message: "manifest、installer、GitHub remote を読み取り専用で確認します。", label: "公開前確認", tone: "neutral", onAction: input.runPreflight };
+  }
+  if (!input.result.ok) {
+    return { ...common, title: "確認が必要", message: "公開前チェックの失敗項目を解消してから再確認します。", label: "再確認", tone: "warn", onAction: input.runPreflight };
+  }
+  if (!input.notesHaveDraft) {
+    return { ...common, title: "次は更新内容", message: "GitHub Release本文と利用者向け更新通知を作成します。", label: "AI文案を作成", tone: "neutral", onAction: input.runSuggestReleaseNotes };
+  }
+  if (!input.saveNotesResult?.ok) {
+    return { ...common, title: "次はmanifest保存", message: "利用者向け更新通知を release/manifest.json に保存します。", label: "manifestへ保存", tone: "neutral", onAction: input.runSaveReleaseNotes };
+  }
+  if (!input.useCurrentInstallerForPublish && !input.buildVerifyResult?.ok) {
+    return { ...common, title: "次はbuild / verify", message: "installer、App Pack、runtime を生成して strict 検証します。", label: "build / verify", tone: "neutral", onAction: input.runBuildVerify };
+  }
+  if (!input.releaseTargetReady || input.prepareTargetResult?.ok === false) {
+    return { ...common, title: "次は対象フォルダ作成", message: "GitHub Release に upload するファイルだけをまとめます。", label: "対象フォルダ作成", tone: "neutral", onAction: input.runPrepareTarget };
+  }
+  if (!input.dryRunResult?.ok) {
+    return { ...common, title: "次はpublish dry-run", message: "公開scriptの事前判定を確認します。", label: "publish dry-run", tone: "neutral", onAction: input.runDryRun };
+  }
+  if (!input.confirmPublish) {
+    return { ...common, title: "公開確認が必要", message: "GitHub Release への公開を実行する確認を有効にします。", tone: "warn" };
+  }
+  if (!input.publishResult?.ok) {
+    return { ...common, title: "次はGitHub公開", message: "tag、Release、asset upload、remote verify を実行します。", label: "GitHub publish", tone: "warn", onAction: input.runPublishRelease };
+  }
+  if (!input.remoteVerifyResult?.ok && !input.publishResult.report?.ok) {
+    return { ...common, title: "次は公開後確認", message: "公開済み manifest と installer 情報を確認します。", label: "remote verify", tone: "neutral", onAction: input.runRemoteVerify };
+  }
+  return { ...common, title: "公開完了", message: "GitHub Release と公開後確認が完了しています。", tone: "success" };
+}
+
+function RecommendedActionPanel({ action }: { action: RecommendedAction }) {
+  return (
+    <aside className={`publish-next-action ${action.tone}`}>
+      <span>次の操作</span>
+      <strong>{action.title}</strong>
+      <p>{action.message}</p>
+      {action.label && action.onAction ? (
+        <button className={action.tone === "warn" ? "primary-button publish-danger-button" : "primary-button"} type="button" onClick={action.onAction} disabled={action.disabled}>
+          {action.disabled ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <CheckCircle2 size={17} aria-hidden="true" />}
+          {action.label}
+        </button>
+      ) : null}
+    </aside>
+  );
+}
+
+function ReleaseOrderStrip({ steps }: { steps: PublishStepItem[] }) {
+  return (
+    <ol className="publish-order-strip" aria-label="公開準備の順序">
+      {steps.map((step) => (
+        <li className={step.status} key={step.number}>
+          <span>{step.number}</span>
+          <strong>{step.title}</strong>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function ReleaseStepList({ steps }: { steps: PublishStepItem[] }) {
+  return (
+    <div className="publish-step-list">
+      {steps.map((step) => (
+        <section className={`publish-step-card ${step.status}`} key={step.number}>
+          <div className="publish-step-number">{step.number}</div>
+          <div className="publish-step-body">
+            <header className="publish-step-head">
+              <div className="publish-step-title">
+                {step.icon}
+                <div>
+                  <h4>{step.title}</h4>
+                  <p>{step.summary}</p>
+                </div>
+              </div>
+              <span>{PHASE_STATUS_LABELS[step.status]}</span>
+            </header>
+            {step.actions ? <div className="publish-step-actions">{step.actions}</div> : null}
+            {step.children ? <div className="publish-step-content">{step.children}</div> : null}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function ReleaseSnapshot({ result }: { result: AppStudioPublishPreflightResult }) {
+  return (
+    <div className={`publish-snapshot-grid ${result.ok ? "ok" : "warn"}`}>
+      <div><span>version</span><strong>{result.version ?? "-"}</strong></div>
+      <div><span>tag</span><strong>{result.tag ?? "-"}</strong></div>
+      <div><span>branch</span><strong>{result.branch ?? "-"}</strong></div>
+      <div><span>installer</span><strong>{result.installerExists ? "あり" : "なし"}</strong></div>
+      <div><span>blockers</span><strong>{result.betaReadyBlockers}</strong></div>
+      <div><span>warnings</span><strong>{result.betaReadyWarnings}</strong></div>
+      <div><span>manual checks</span><strong>{result.betaReadyManualChecks}</strong></div>
+      <div><span>dirty files</span><strong>{result.dirtyFiles.length}</strong></div>
+    </div>
+  );
+}
+
+function SignatureOptions({
+  anyBusy,
+  signInstaller,
+  requireInstallerSignature,
+  useCurrentInstallerForPublish,
+  codeSignCertificateThumbprint,
+  codeSignCertificateSubject,
+  codeSignTimestampUrl,
+  signToolPath,
+  setSignInstaller,
+  setRequireInstallerSignature,
+  setUseCurrentInstallerForPublish,
+  setCodeSignCertificateThumbprint,
+  setCodeSignCertificateSubject,
+  setCodeSignTimestampUrl,
+  setSignToolPath,
+}: {
+  anyBusy: boolean;
+  signInstaller: boolean;
+  requireInstallerSignature: boolean;
+  useCurrentInstallerForPublish: boolean;
+  codeSignCertificateThumbprint: string;
+  codeSignCertificateSubject: string;
+  codeSignTimestampUrl: string;
+  signToolPath: string;
+  setSignInstaller: (checked: boolean) => void;
+  setRequireInstallerSignature: (checked: boolean) => void;
+  setUseCurrentInstallerForPublish: (checked: boolean) => void;
+  setCodeSignCertificateThumbprint: (value: string) => void;
+  setCodeSignCertificateSubject: (value: string) => void;
+  setCodeSignTimestampUrl: (value: string) => void;
+  setSignToolPath: (value: string) => void;
+}) {
+  return (
+    <div className="signature-options-panel">
+      <div className="signature-options-head">
+        <ShieldCheck size={19} aria-hidden="true" />
+        <div>
+          <strong>Installer署名（任意）</strong>
+          <span>個人向け Standard / Individual または OV の Authenticode 対応証明書を使えます。証明書ファイルや秘密情報は repo に保存しません。</span>
+        </div>
+      </div>
+      <p className="signature-options-hint">
+        署名なし配布の既定では build / verify と公開後の sha256 検証を必ず通します。証明書を導入した後だけ、Individual / Standard Code Signing 証明書の thumbprint を指定し、「公開時に installer を署名する」または「現在の署名済み installer を公開に使う」を有効にします。
+      </p>
+      <div className="admin-two-column">
+        <label className="admin-toggle">
+          <input type="checkbox" checked={signInstaller} disabled={anyBusy} onChange={(event) => setSignInstaller(event.currentTarget.checked)} />
+          公開時に installer を署名する
+        </label>
+        <label className="admin-toggle">
+          <input type="checkbox" checked={requireInstallerSignature || signInstaller} disabled={anyBusy || signInstaller} onChange={(event) => setRequireInstallerSignature(event.currentTarget.checked)} />
+          installer 署名を検証必須にする
+        </label>
+        <label className="admin-toggle">
+          <input type="checkbox" checked={useCurrentInstallerForPublish} disabled={anyBusy || signInstaller} onChange={(event) => setUseCurrentInstallerForPublish(event.currentTarget.checked)} />
+          現在の署名済み installer を公開に使う
+        </label>
+      </div>
+      <div className="admin-two-column">
+        <label className="admin-field">
+          証明書 thumbprint
+          <input type="text" value={codeSignCertificateThumbprint} disabled={anyBusy} onChange={(event) => setCodeSignCertificateThumbprint(event.currentTarget.value)} placeholder="未入力なら環境変数を使用" />
+        </label>
+        <label className="admin-field">
+          証明書 subject
+          <input type="text" value={codeSignCertificateSubject} disabled={anyBusy} onChange={(event) => setCodeSignCertificateSubject(event.currentTarget.value)} placeholder="例: CN=..." />
+        </label>
+        <label className="admin-field">
+          timestamp URL
+          <input type="text" value={codeSignTimestampUrl} disabled={anyBusy} onChange={(event) => setCodeSignTimestampUrl(event.currentTarget.value)} placeholder={DEFAULT_CODE_SIGN_TIMESTAMP_URL} />
+        </label>
+        <label className="admin-field">
+          signtool.exe path
+          <input type="text" value={signToolPath} disabled={anyBusy} onChange={(event) => setSignToolPath(event.currentTarget.value)} placeholder="未入力なら自動検出" />
+        </label>
+      </div>
+    </div>
   );
 }
 
@@ -524,22 +1052,6 @@ function PublishReadinessChecklist({ items }: { items: Array<{ label: string; ok
           </div>
         );
       })}
-    </div>
-  );
-}
-
-function PublishProcessTimeline({ items }: { items: PublishProcessItem[] }) {
-  return (
-    <div className="publish-process-list" aria-label="公開プロセス">
-      {items.map((item) => (
-        <div className={`publish-process-item ${item.status}`} key={item.label}>
-          <span>{PROCESS_STATUS_LABELS[item.status]}</span>
-          <div>
-            <strong>{item.label}</strong>
-            <small>{item.message}</small>
-          </div>
-        </div>
-      ))}
     </div>
   );
 }
@@ -604,12 +1116,12 @@ function PublishSummary({ result }: { result: AppStudioPublishPreflightResult })
   );
 }
 
-const PROCESS_STATUS_LABELS: Record<PublishPhaseStatus, string> = {
-  pending: "待機",
+const PHASE_STATUS_LABELS: Record<PublishPhaseStatus, string> = {
+  pending: "未実行",
   running: "実行中",
   passed: "完了",
   failed: "失敗",
-  skipped: "要確認",
+  skipped: "任意",
 };
 
 function phaseFromRun(result: AppStudioPublishRunResult | null, busy: boolean): PublishPhaseStatus {
@@ -630,6 +1142,11 @@ function phaseFromPreflight(result: AppStudioPublishPreflightResult | null, busy
     return "pending";
   }
   return result.ok ? "passed" : "failed";
+}
+
+function emptyToNull(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 }
 
 function ReleaseTargetAssets({ assets }: { assets: AppStudioPublishAsset[] }) {

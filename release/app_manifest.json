@@ -6,7 +6,7 @@
                                                         "required_core":  "\u003e=0.1.0",
                                                         "required_runner":  "\u003e=0.1.0",
                                                         "required_runtime":  "python-shared-env:py313-win_amd64-pywin32310-dd4d21f1",
-                                                        "sha256":  "9fe78941c37ad5552e4e40f48eb32a2725a097b06722c840a00d8dc50348e4bd",
+                                                        "sha256":  "213759d312cf2c1b5ad2d15c9febd3910da65988cfcb7221e3a77ef79197f693",
                                                         "version":  "0.1.0"
                                                     },
                  "pdf_workbench":  {
@@ -15,13 +15,13 @@
                                        "required_core":  "\u003e=0.1.0",
                                        "required_runner":  "\u003e=0.1.0",
                                        "required_runtime":  "python-shared-env:py313-win_amd64-runtime-37c71daf",
-                                       "sha256":  "cd30cbf8e5ef790ecddf832f2f359fbab391ac9cf10f3eb7fc0de5c744cf2678",
+                                       "sha256":  "5fbdfc1ff2b06ad1c08ae5baec81265e93e357b15def730cd912d16e7ad070c3",
                                        "version":  "0.2.0"
                                    },
                  "run_3dx_create_ids":  {
                                             "version":  "0.1.0",
                                             "package":  "app_packs/run_3dx_create_ids-0.1.0.zip",
-                                            "sha256":  "1653947918be74286d4e9836f945990be3de51708d303bad3eaeddf838cd1559",
+                                            "sha256":  "bd223454ff121ca0933ed3fe23cc5636177605423165047d26b360af04a7ae4f",
                                             "required_core":  "\u003e=0.1.0",
                                             "required_runner":  "\u003e=0.1.0",
                                             "required_runtime":  "python-shared-env:py313-win_amd64-playwright1550-27ead7db",
@@ -30,7 +30,7 @@
                  "run_3dx_download_pdfs":  {
                                                "version":  "0.1.0",
                                                "package":  "app_packs/run_3dx_download_pdfs-0.1.0.zip",
-                                               "sha256":  "f87f79250b2c2fe85b4f980cef9ce3629851da781d407eac42024f8296ccb2eb",
+                                               "sha256":  "12c6e27f25feb534a68f1aa2f92c9cfabd851dc83a419e47626e57479344a84c",
                                                "required_core":  "\u003e=0.1.0",
                                                "required_runner":  "\u003e=0.1.0",
                                                "required_runtime":  "python-shared-env:py313-win_amd64-playwright1550-27ead7db",
@@ -39,7 +39,7 @@
                  "run_xcgate_upload":  {
                                            "version":  "0.1.0",
                                            "package":  "app_packs/run_xcgate_upload-0.1.0.zip",
-                                           "sha256":  "683bdd0d192f5565e3c8ecc8cfaef06c1a55bbfbe1e2203342b1bcf24df9cd24",
+                                           "sha256":  "4e137ee903599ed37eb7fb66820ffc147d1e533bd2a455d520a56bf67d4eeaea",
                                            "required_core":  "\u003e=0.1.0",
                                            "required_runner":  "\u003e=0.1.0",
                                            "required_runtime":  "python-shared-env:py313-win_amd64-playwright1550-27ead7db",
@@ -48,7 +48,7 @@
                  "app_20260201_agendasnap":  {
                                                  "version":  "0.1.0",
                                                  "package":  "app_packs/app_20260201_agendasnap-0.1.0.zip",
-                                                 "sha256":  "6f8375772346f5ee8e0073766017a48c54234a0fc10ab89df5c10c822a5e16b9",
+                                                 "sha256":  "0eff55c3a0643f44c8b514384dc2983451a98baebf501a8b8384138786129264",
                                                  "required_core":  "\u003e=0.1.0",
                                                  "required_runner":  "\u003e=0.1.0",
                                                  "required_runtime":  "python-shared-env:py313-win_amd64-flet0283-fletdesktop0283-cac27e37",

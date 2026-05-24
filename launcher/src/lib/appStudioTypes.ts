@@ -344,6 +344,26 @@ export interface AppStudioPublishRemoteVerifyRequest {
   downloadInstaller: boolean;
 }
 
+export interface AppStudioPublishPrepareTargetRequest {
+  requireInstallerSignature: boolean;
+}
+
+export interface AppStudioPublishBuildVerifyRequest {
+  signInstaller: boolean;
+  requireInstallerSignature: boolean;
+  codeSignCertificateThumbprint?: string | null;
+  codeSignCertificateSubject?: string | null;
+  codeSignTimestampUrl?: string | null;
+  signToolPath?: string | null;
+}
+
+export interface AppStudioPublishSignInstallerRequest {
+  codeSignCertificateThumbprint?: string | null;
+  codeSignCertificateSubject?: string | null;
+  codeSignTimestampUrl?: string | null;
+  signToolPath?: string | null;
+}
+
 export interface AppStudioPublishRequest {
   confirmPublish: boolean;
   allowDirty: boolean;
@@ -352,6 +372,13 @@ export interface AppStudioPublishRequest {
   draft: boolean;
   prerelease: boolean;
   downloadInstallerForRemoteVerify: boolean;
+  skipBuild: boolean;
+  signInstaller: boolean;
+  requireInstallerSignature: boolean;
+  codeSignCertificateThumbprint?: string | null;
+  codeSignCertificateSubject?: string | null;
+  codeSignTimestampUrl?: string | null;
+  signToolPath?: string | null;
   releaseNotes?: string | null;
 }
 

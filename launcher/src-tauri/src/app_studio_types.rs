@@ -454,6 +454,32 @@ pub struct AppStudioPublishRemoteVerifyRequest {
 
 #[derive(Debug, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct AppStudioPublishPrepareTargetRequest {
+    pub require_installer_signature: bool,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioPublishBuildVerifyRequest {
+    pub sign_installer: bool,
+    pub require_installer_signature: bool,
+    pub code_sign_certificate_thumbprint: Option<String>,
+    pub code_sign_certificate_subject: Option<String>,
+    pub code_sign_timestamp_url: Option<String>,
+    pub sign_tool_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioPublishSignInstallerRequest {
+    pub code_sign_certificate_thumbprint: Option<String>,
+    pub code_sign_certificate_subject: Option<String>,
+    pub code_sign_timestamp_url: Option<String>,
+    pub sign_tool_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct AppStudioPublishRequest {
     pub confirm_publish: bool,
     pub allow_dirty: bool,
@@ -462,6 +488,13 @@ pub struct AppStudioPublishRequest {
     pub draft: bool,
     pub prerelease: bool,
     pub download_installer_for_remote_verify: bool,
+    pub skip_build: bool,
+    pub sign_installer: bool,
+    pub require_installer_signature: bool,
+    pub code_sign_certificate_thumbprint: Option<String>,
+    pub code_sign_certificate_subject: Option<String>,
+    pub code_sign_timestamp_url: Option<String>,
+    pub sign_tool_path: Option<String>,
     pub release_notes: Option<String>,
 }
 

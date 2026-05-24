@@ -9,10 +9,13 @@ import type {
   AppStudioAiProposal,
   AppStudioAiDiagnostics,
   AppStudioPreflightResult,
+  AppStudioPublishBuildVerifyRequest,
   AppStudioPublishPreflightResult,
+  AppStudioPublishPrepareTargetRequest,
   AppStudioPublishRemoteVerifyRequest,
   AppStudioPublishRequest,
   AppStudioPublishRunResult,
+  AppStudioPublishSignInstallerRequest,
   AppStudioRegisteredApp,
   AppStudioReleaseNotesDraftResult,
   AppStudioResultSummary,
@@ -113,12 +116,16 @@ export async function appStudioPublishDryRun(): Promise<AppStudioPublishRunResul
   return invoke<AppStudioPublishRunResult>("app_studio_publish_dry_run");
 }
 
-export async function appStudioPublishPrepareTarget(): Promise<AppStudioPublishRunResult> {
-  return invoke<AppStudioPublishRunResult>("app_studio_publish_prepare_target");
+export async function appStudioPublishPrepareTarget(request: AppStudioPublishPrepareTargetRequest): Promise<AppStudioPublishRunResult> {
+  return invoke<AppStudioPublishRunResult>("app_studio_publish_prepare_target", { request });
 }
 
-export async function appStudioPublishBuildVerify(): Promise<AppStudioPublishRunResult> {
-  return invoke<AppStudioPublishRunResult>("app_studio_publish_build_verify");
+export async function appStudioPublishSignInstaller(request: AppStudioPublishSignInstallerRequest): Promise<AppStudioPublishRunResult> {
+  return invoke<AppStudioPublishRunResult>("app_studio_publish_sign_installer", { request });
+}
+
+export async function appStudioPublishBuildVerify(request: AppStudioPublishBuildVerifyRequest): Promise<AppStudioPublishRunResult> {
+  return invoke<AppStudioPublishRunResult>("app_studio_publish_build_verify", { request });
 }
 
 export async function appStudioPublishRemoteVerify(request: AppStudioPublishRemoteVerifyRequest): Promise<AppStudioPublishRunResult> {

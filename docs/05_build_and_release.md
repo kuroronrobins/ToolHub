@@ -196,6 +196,16 @@ https://github.com/kuroronrobins/ToolHub/releases/download/v<version>-beta.1/man
 
 この標準形は、`build_release.ps1 -RequireRuntime`、`verify_release.ps1 -RequireInstaller -RequireAppPacks -RequireRuntime -Strict`、tag 作成、GitHub Release 作成 / asset upload、remote manifest verify を順番に実行します。
 
+署名なし配布の推奨形:
+
+```powershell
+.\scripts\publish_github_release.ps1 `
+  -UpdateManifestInstallerUrl `
+  -DownloadInstallerForRemoteVerify
+```
+
+署名なしを標準にする場合も、公開前の strict verify、`release/manifest.json` の installer `sha256` / `size`、公開対象フォルダの `checksums.sha256.txt`、公開後の installer download verify は必須扱いにします。正式 publish では `-AllowDirty` と `-AllowExistingRelease` を既定では使わず、新しい version / tag に clean worktree から公開します。
+
 GitHub Release に署名済み installer だけを公開する場合:
 
 ```powershell
@@ -319,6 +329,8 @@ Tauri bundleでNSISまたはMSIを生成します。`scripts/package_installer.p
 Release JSON と App Pack metadata JSON は PowerShell 5.1 / 7 の差異を避けるため、`scripts/utf8_no_bom.ps1` の helper で UTF-8 no BOM として書き出します。`scripts/check_all.ps1` は `release/manifest.json` と `release/app_manifest.json` の BOM 有無を直接検査し、helper test は App Pack 内 `pack_manifest.json` と同じ JSON 書き込み経路が BOM を付けないことを検査します。
 
 `-SignInstaller` を指定した場合、`package_installer.ps1` は `scripts/sign_installer.ps1` を呼び出します。証明書は repo に置かず、`-CodeSignCertificateThumbprint` / `-CodeSignCertificateSubject` / `-SignToolExtraArgs`、または `TOOLHUB_CODESIGN_CERT_THUMBPRINT` などの環境変数から渡します。
+
+個人として ToolHub を配布する場合は、個人向け `Standard Code Signing` / `Individual Code Signing` 証明書を使います。組織名や法人名で発行者を表示したい場合だけ OV 証明書を使います。ToolHub の署名スクリプトは証明書種別には依存せず、Windows 証明書ストア、USB token / HSM / cloud HSM、または `signtool.exe` の追加引数で利用できる Authenticode 対応証明書を前提にします。
 
 ## Staging and Tauri Resources
 
