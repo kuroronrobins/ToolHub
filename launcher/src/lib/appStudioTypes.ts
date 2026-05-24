@@ -373,12 +373,16 @@ export interface AppStudioPublishRequest {
   prerelease: boolean;
   downloadInstallerForRemoteVerify: boolean;
   skipBuild: boolean;
+  skipVerify: boolean;
+  commitBeforePublish: boolean;
+  pushBeforePublish: boolean;
   signInstaller: boolean;
   requireInstallerSignature: boolean;
   codeSignCertificateThumbprint?: string | null;
   codeSignCertificateSubject?: string | null;
   codeSignTimestampUrl?: string | null;
   signToolPath?: string | null;
+  commitMessage?: string | null;
   releaseNotes?: string | null;
 }
 

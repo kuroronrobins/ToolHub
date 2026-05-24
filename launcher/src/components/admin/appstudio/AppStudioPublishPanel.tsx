@@ -85,9 +85,10 @@ const PUBLISH_PROGRESS_EVENT = "app-studio-publish-progress";
 const BUILD_VERIFY_STAGE_ORDER: BuildVerifyStageId[] = ["preflight", "app_packs", "runtime", "tauri_build", "installer", "signing", "strict_verify"];
 
 const RECOMMENDED_RELEASE_SETTING_NOTES = [
+  "AI文案作成後、変更を自動コミットしてGitHubへpushしてから公開します。",
   "署名なし installer を clean tree から build / verify して公開します。",
   "manifest の sha256 / size、checksums.sha256.txt、公開後の installer 再取得検証を標準で有効にします。",
-  "公開実行、dirty tree 許可、既存 Release 上書きは、安全のため手動で有効にします。",
+  "公開実行と既存 Release 上書きだけは、安全のため手動で有効にします。",
   "署名証明書がある場合だけ、公開時署名または現在の署名済み installer 反映を任意で有効にします。",
   "証明書 thumbprint / subject / signtool path は保存せず、空欄時は環境変数または自動検出を使います。",
 ];
@@ -367,13 +368,17 @@ export function AppStudioPublishPanel() {
         draft,
         prerelease,
         downloadInstallerForRemoteVerify: downloadInstallerAfterPublish,
-        skipBuild: useCurrentInstallerForPublish && !signInstaller,
+        skipBuild: skipBuildForPublish,
+        skipVerify: skipVerifyForPublish,
+        commitBeforePublish: false,
+        pushBeforePublish: false,
         signInstaller,
         requireInstallerSignature: requireInstallerSignature || signInstaller || useCurrentInstallerForPublish,
         codeSignCertificateThumbprint: emptyToNull(codeSignCertificateThumbprint),
         codeSignCertificateSubject: emptyToNull(codeSignCertificateSubject),
         codeSignTimestampUrl: emptyToNull(codeSignTimestampUrl),
         signToolPath: emptyToNull(signToolPath),
+        commitMessage: null,
         releaseNotes: releaseNotes.trim() ? releaseNotes : null,
       });
       setPublishResult(nextResult);
@@ -393,34 +398,20 @@ export function AppStudioPublishPanel() {
 
     setFlowBusy(true);
     setError("");
-    setFlowMessage("公開前チェックを実行しています。");
+    setFlowMessage("更新内容のAI文案を作成しています。");
     let nextReleaseNotes = releaseNotes.trim();
     let nextManifestReleaseNotesJson = manifestReleaseNotesJson.trim();
     let buildVerifyStarted = false;
     try {
-      setBusy(true);
-      const preflight = await appStudioPublishPreflight();
-      setResult(preflight);
-      setBusy(false);
-      if (!preflight.ok) {
-        throw new Error("公開前チェックに失敗項目があります。内容を確認してください。");
-      }
-      if (preflight.dirtyFiles.length > 0 && !allowDirty) {
-        throw new Error("未コミット変更があります。コミットするか、公開オプションの「dirty tree での publish を許可」を明示的に有効にしてください。");
-      }
-
-      if (!nextReleaseNotes || !nextManifestReleaseNotesJson) {
-        setFlowMessage("更新内容のAI文案を作成しています。");
-        setNotesDraftBusy(true);
-        const draftResult = await appStudioPublishSuggestReleaseNotes();
-        setNotesDraftResult(draftResult);
-        setResult(draftResult.preflight);
-        nextReleaseNotes = nextReleaseNotes || draftResult.githubReleaseNotes.trim();
-        nextManifestReleaseNotesJson = nextManifestReleaseNotesJson || draftResult.manifestReleaseNotesJson.trim();
-        setReleaseNotes(nextReleaseNotes);
-        setManifestReleaseNotesJson(nextManifestReleaseNotesJson);
-        setNotesDraftBusy(false);
-      }
+      setNotesDraftBusy(true);
+      const draftResult = await appStudioPublishSuggestReleaseNotes();
+      setNotesDraftResult(draftResult);
+      setResult(draftResult.preflight);
+      nextReleaseNotes = draftResult.githubReleaseNotes.trim() || nextReleaseNotes;
+      nextManifestReleaseNotesJson = draftResult.manifestReleaseNotesJson.trim() || nextManifestReleaseNotesJson;
+      setReleaseNotes(nextReleaseNotes);
+      setManifestReleaseNotesJson(nextManifestReleaseNotesJson);
+      setNotesDraftBusy(false);
 
       if (!nextManifestReleaseNotesJson) {
         throw new Error("利用者向け release_notes JSON が空です。公開前に更新内容を保存してください。");
@@ -433,74 +424,40 @@ export function AppStudioPublishPanel() {
       setResult(saveResult.preflight);
       setSaveNotesBusy(false);
 
-      if (useCurrentInstallerForPublish && !signInstaller) {
-        setFlowMessage("現在の署名済み installer を使用します。release build はスキップします。");
-      } else {
-        setFlowMessage("release build / verify を実行しています。");
+      setFlowMessage("変更を自動コミットし、GitHubへpushしてから公開します。build / verify / target作成 / remote verify まで自動実行します。");
+      const publishSkipsBuild = useCurrentInstallerForPublish && !signInstaller;
+      setPublishBusy(true);
+      if (!publishSkipsBuild) {
         setBuildVerifyBusy(true);
         buildVerifyStarted = true;
-        beginBuildVerifyProgress("推奨フロー内で release build / verify を開始しています。");
-        const buildResult = await appStudioPublishBuildVerify({
-          signInstaller,
-          requireInstallerSignature: requireInstallerSignature || signInstaller,
-          codeSignCertificateThumbprint: emptyToNull(codeSignCertificateThumbprint),
-          codeSignCertificateSubject: emptyToNull(codeSignCertificateSubject),
-          codeSignTimestampUrl: emptyToNull(codeSignTimestampUrl),
-          signToolPath: emptyToNull(signToolPath),
-        });
-        setBuildVerifyResult(buildResult);
-        setResult(buildResult.preflight);
-        finishBuildVerifyProgress(buildResult.ok);
-        buildVerifyStarted = false;
-        setBuildVerifyBusy(false);
-        if (!buildResult.ok) {
-          throw new Error("release build / verify に失敗しました。");
-        }
+        beginBuildVerifyProgress("GitHub publish 内で release build / verify を開始しています。");
       }
-
-      setFlowMessage("リリース対象フォルダを作成しています。");
-      setPrepareTargetBusy(true);
-      const targetResult = await appStudioPublishPrepareTarget({
-        requireInstallerSignature: requireInstallerSignature || signInstaller || useCurrentInstallerForPublish,
-      });
-      setPrepareTargetResult(targetResult);
-      setResult(targetResult.preflight);
-      setPrepareTargetBusy(false);
-      if (!targetResult.ok) {
-        throw new Error("リリース対象フォルダの作成に失敗しました。");
-      }
-
-      setFlowMessage("publish dry-run を実行しています。");
-      setDryRunBusy(true);
-      const dryRun = await appStudioPublishDryRun();
-      setDryRunResult(dryRun);
-      setResult(dryRun.preflight);
-      setDryRunBusy(false);
-      if (!dryRun.ok) {
-        throw new Error("publish dry-run に失敗しました。");
-      }
-
-      setFlowMessage("GitHub Release へ公開しています。");
-      setPublishBusy(true);
       const publish = await appStudioPublishRelease({
         confirmPublish,
-        allowDirty,
+        allowDirty: false,
         allowExistingRelease,
         updateManifestInstallerUrl,
         draft,
         prerelease,
         downloadInstallerForRemoteVerify: downloadInstallerAfterPublish,
-        skipBuild: useCurrentInstallerForPublish && !signInstaller,
+        skipBuild: publishSkipsBuild,
+        skipVerify: publishSkipsBuild,
+        commitBeforePublish: true,
+        pushBeforePublish: true,
         signInstaller,
         requireInstallerSignature: requireInstallerSignature || signInstaller || useCurrentInstallerForPublish,
         codeSignCertificateThumbprint: emptyToNull(codeSignCertificateThumbprint),
         codeSignCertificateSubject: emptyToNull(codeSignCertificateSubject),
         codeSignTimestampUrl: emptyToNull(codeSignTimestampUrl),
         signToolPath: emptyToNull(signToolPath),
+        commitMessage: `Prepare ToolHub ${saveResult.preflight.version ?? "release"} release`,
         releaseNotes: nextReleaseNotes || null,
       });
       setPublishResult(publish);
       setResult(publish.preflight);
+      finishBuildVerifyProgress(publish.ok);
+      buildVerifyStarted = false;
+      setBuildVerifyBusy(false);
       setPublishBusy(false);
       if (!publish.ok) {
         throw new Error("GitHub Release の公開に失敗しました。");
@@ -536,6 +493,8 @@ export function AppStudioPublishPanel() {
   const releaseNotesReady = saveNotesResult?.ok === true;
   const publishTargetReady = releaseTargetReady && dryRunResult?.ok === true;
   const publishTrustReady = !signInstaller || hasCodeSignSelector || useCurrentInstallerForPublish;
+  const skipBuildForPublish = (buildVerifyResult?.ok === true && !signInstaller) || (useCurrentInstallerForPublish && !signInstaller);
+  const skipVerifyForPublish = skipBuildForPublish && (buildVerifyResult?.ok === true || useCurrentInstallerForPublish);
   const publishBlockReason = getPublishBlockReason({
     confirmPublish,
     preflightOk: result?.ok === true,
@@ -547,7 +506,7 @@ export function AppStudioPublishPanel() {
     publishTrustReady,
   });
   const canPublish = !anyBusy && !publishBlockReason;
-  const canRunOneClickFlow = confirmPublish && dirtyTreeAllowed && !anyBusy;
+  const canRunOneClickFlow = confirmPublish && !anyBusy;
   const notesStatus: PublishPhaseStatus = notesDraftBusy || saveNotesBusy ? "running" : saveNotesResult?.ok ? "passed" : "pending";
   const buildStageStatus: PublishPhaseStatus = (() => {
     if (signCurrentInstallerBusy || buildVerifyBusy) {
@@ -916,8 +875,8 @@ export function AppStudioPublishPanel() {
         <div className="publish-flow-copy">
           <strong>推奨フロー</strong>
           <span>
-            既定は「署名なし installer を clean tree から build / verify して新しい GitHub Release へ公開」です。
-            公開確認、dirty tree 許可、既存 Release 上書きだけは安全のため手動で有効にします。
+            既定は「AI文案を作成し、変更を自動コミット/pushしてから、署名なし installer を clean tree で build / verify して新しい GitHub Release へ公開」です。
+            公開確認と既存 Release 上書きだけは安全のため手動で有効にします。
           </span>
           <ul className="publish-default-list">
             {RECOMMENDED_RELEASE_SETTING_NOTES.map((note) => (

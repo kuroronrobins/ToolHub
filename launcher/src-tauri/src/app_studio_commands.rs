@@ -242,9 +242,10 @@ pub async fn app_studio_publish_remote_verify(
 pub async fn app_studio_publish_release(
     request: AppStudioPublishRequest,
     session: State<'_, AdminSessionState>,
+    app: AppHandle,
 ) -> Result<AppStudioPublishRunResult, String> {
     session.require_authenticated()?;
-    tauri::async_runtime::spawn_blocking(move || run_publish_release(request))
+    tauri::async_runtime::spawn_blocking(move || run_publish_release(request, app))
         .await
         .map_err(|_| "GitHub Release publish could not complete.".to_string())?
 }
@@ -1921,6 +1922,7 @@ fn run_publish_remote_verify(
 
 fn run_publish_release(
     request: AppStudioPublishRequest,
+    app: AppHandle,
 ) -> Result<AppStudioPublishRunResult, String> {
     if !request.confirm_publish {
         return Err(
@@ -1942,6 +1944,15 @@ fn run_publish_release(
             "GitHub Release publish script is missing: {}",
             script.display()
         ));
+    }
+    if request.commit_before_publish || request.push_before_publish {
+        auto_commit_and_push_for_publish(
+            &root,
+            &app,
+            request.commit_before_publish,
+            request.push_before_publish,
+            request.commit_message.as_deref(),
+        )?;
     }
 
     let mut args = vec![
@@ -1974,6 +1985,9 @@ fn run_publish_release(
     }
     if request.skip_build {
         args.push("-SkipBuild".to_string());
+    }
+    if request.skip_verify {
+        args.push("-SkipVerify".to_string());
     }
     append_installer_signing_args(
         &mut args,
@@ -2012,6 +2026,15 @@ fn run_publish_release(
             ("draft", request.draft.to_string()),
             ("prerelease", request.prerelease.to_string()),
             ("skip_build", request.skip_build.to_string()),
+            ("skip_verify", request.skip_verify.to_string()),
+            (
+                "commit_before_publish",
+                request.commit_before_publish.to_string(),
+            ),
+            (
+                "push_before_publish",
+                request.push_before_publish.to_string(),
+            ),
             ("sign_installer", request.sign_installer.to_string()),
             (
                 "require_installer_signature",
@@ -2022,10 +2045,14 @@ fn run_publish_release(
 
     let started_at = Utc::now().to_rfc3339();
     let started = Instant::now();
-    let output = Command::new("powershell")
-        .args(&args)
-        .current_dir(&root)
-        .output()
+    emit_publish_progress(
+        &app,
+        "build_verify",
+        "preflight",
+        "running",
+        "GitHub publish を開始しています。",
+    );
+    let output = run_powershell_with_publish_progress(&root, &args, &app)
         .map_err(|error| format!("GitHub Release publish could not start: {error}"))?;
     let process_wall_clock_seconds = started.elapsed().as_secs_f64();
     let finished_at = Utc::now().to_rfc3339();
@@ -2037,6 +2064,17 @@ fn run_publish_release(
         &output.stderr,
     )));
     let ok = output.status.success();
+    emit_publish_progress(
+        &app,
+        "build_verify",
+        if ok { "complete" } else { "failed" },
+        if ok { "passed" } else { "failed" },
+        if ok {
+            "GitHub publish が完了しました。"
+        } else {
+            "GitHub publish が失敗しました。"
+        },
+    );
     append_app_studio_gui_log(
         "publish_release finished",
         &[("exit_code", exit_code.to_string()), ("ok", ok.to_string())],
@@ -2060,6 +2098,64 @@ fn run_publish_release(
         report: None,
         preflight: build_publish_preflight(&root),
     })
+}
+
+fn auto_commit_and_push_for_publish(
+    root: &Path,
+    app: &AppHandle,
+    commit_before_publish: bool,
+    push_before_publish: bool,
+    commit_message: Option<&str>,
+) -> Result<(), String> {
+    if commit_before_publish {
+        emit_publish_progress(
+            app,
+            "build_verify",
+            "preflight",
+            "running",
+            "公開前の変更をコミットしています。",
+        );
+        let dirty_files = git_lines(root, &["status", "--porcelain"]);
+        if !dirty_files.is_empty() {
+            let dirty_groups = classify_dirty_files(&dirty_files);
+            if !dirty_groups.runtime_data_files.is_empty() {
+                return Err(format!(
+                    "Runtime/data/config paths are dirty and will not be auto-committed: {}",
+                    dirty_groups.runtime_data_files.join(", ")
+                ));
+            }
+            run_git_checked(root, &["add", "-A", "--", "."], "git add")?;
+            let staged_files = git_lines(root, &["diff", "--cached", "--name-only"]);
+            if !staged_files.is_empty() {
+                let version = read_release_version(root).unwrap_or_else(|| "release".to_string());
+                let message = commit_message
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("Prepare ToolHub {version} release"));
+                run_git_checked(root, &["commit", "-m", &message], "git commit")?;
+            }
+        }
+    }
+
+    if push_before_publish {
+        emit_publish_progress(
+            app,
+            "build_verify",
+            "preflight",
+            "running",
+            "公開対象commitをGitHubへpushしています。",
+        );
+        let branch = git_output(root, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .ok_or_else(|| "Current git branch could not be resolved before publish.".to_string())?;
+        if branch == "HEAD" {
+            return Err("Cannot auto-push from a detached HEAD. Checkout a branch first.".to_string());
+        }
+        let refspec = format!("HEAD:{branch}");
+        run_git_checked(root, &["push", "origin", &refspec], "git push")?;
+    }
+
+    Ok(())
 }
 
 fn redact_remote_verify_command_args(args: &[String]) -> Vec<String> {
@@ -2620,6 +2716,38 @@ fn git_lines(root: &Path, args: &[&str]) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn run_git_checked(root: &Path, args: &[&str], label: &str) -> Result<String, String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .map_err(|error| format!("{label} could not start: {error}"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !output.status.success() {
+        let mut message = format!(
+            "{label} failed with exit code {}.",
+            output.status.code().unwrap_or(-1)
+        );
+        if !stdout.is_empty() {
+            message.push_str(" stdout: ");
+            message.push_str(&stdout);
+        }
+        if !stderr.is_empty() {
+            message.push_str(" stderr: ");
+            message.push_str(&stderr);
+        }
+        return Err(mask_sensitive(&sanitize_url_queries_in_text(&message)));
+    }
+    Ok(mask_sensitive(&sanitize_url_queries_in_text(&stdout)))
+}
+
+fn read_release_version(root: &Path) -> Option<String> {
+    read_json_value(&root.join("release").join("manifest.json"))
+        .as_ref()
+        .and_then(|value| json_path_string(value, &["toolhub", "version"]))
 }
 
 fn parse_github_remote(remote: &str) -> Option<(String, String)> {
