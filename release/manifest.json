@@ -3,22 +3,21 @@
     "channel":  "stable",
     "core":  {
                  "minimum_supported_app_manifest":  1,
-                 "version":  "0.1.4"
+                 "version":  "0.1.5"
              },
     "release_notes":  {
                           "admin":  {
                                         "changes":  [
-                                                        "公開準備画面の推奨フローをAI文案作成からGitHub公開まで一続きに調整",
-                                                        "長時間処理中も実施中のステップが分かるように進捗表示を整理",
-                                                        "未コミット変更を公開前に自動コミットしてから公開する経路を追加",
-                                                        "署名なし配布を標準とし、sha256、size、公開後検証で信頼性を補強"
+                                                        "Windows releaseビルドでコンソール画面を表示しない設定を追加",
+                                                        "ToolHub本体の起動時に不要なターミナルが背面へ残らないように調整",
+                                                        "配布用バージョンと更新案内を0.1.5へ更新"
                                                     ],
-                                        "summary":  "ToolHub 0.1.4 の配布準備を完了。公開作業を一括で進めやすくし、進捗と更新内容の確認性を改善しています。",
+                                        "summary":  "ToolHub 0.1.5 の配布準備を完了。起動時に不要なターミナルが出ないように調整しています。",
                                         "validation":  [
                                                            "Rust backend の check と test を確認",
                                                            "React frontend の typecheck と build を確認",
                                                            "ToolHub 環境チェックを確認",
-                                                           "公開用のバージョンと更新案内を確認"
+                                                           "生成したexeのsubsystemがWindows GUIであることを確認"
                                                        ]
                                     },
                           "edited_by_admin":  true,
@@ -34,19 +33,18 @@
                                                           "XCgate電子帳票登録"
                                                       ],
                                        "highlights":  [
-                                                          "更新準備から公開までの流れが止まりにくくなりました",
-                                                          "長い処理でも、いま何をしているか分かりやすくなりました",
-                                                          "更新内容を確認しやすくなりました",
-                                                          "署名なし配布でも、ファイル確認をより丁寧に行うようにしています"
+                                                          "ToolHubを起動したときに、不要な黒いターミナル画面が出ないようにしました",
+                                                          "画面まわりがすっきりし、ToolHub本体だけを使いやすくなりました",
+                                                          "通常の更新確認とインストール手順はこれまで通り使えます"
                                                       ],
                                        "recommended":  true,
-                                       "summary":  "ToolHubの更新作業が分かりやすくなり、公開までの待ち時間中も状況を確認しやすくなりました。",
-                                       "title":  "ToolHub 0.1.4 の更新内容"
+                                       "summary":  "ToolHub起動時に不要なターミナル画面が表示されないようにした更新です。",
+                                       "title":  "ToolHub 0.1.5 の更新内容"
                                    }
                       },
-    "release_notes_url":  "https://github.com/kuroronrobins/ToolHub/releases/tag/v0.1.4",
+    "release_notes_url":  "https://github.com/kuroronrobins/ToolHub/releases/tag/v0.1.5",
     "runner":  {
-                   "version":  "0.1.4"
+                   "version":  "0.1.5"
                },
     "runtime":  {
                     "python":  {
@@ -63,13 +61,13 @@
     "schema_version":  1,
     "toolhub":  {
                     "installer":  {
-                                      "file":  "ToolHub_Setup_0.1.4.exe",
-                                      "sha256":  "98d5780a75e81b056699b5bf2856f1c775a4d9e1c8e93a218757a68b0c7c2561",
-                                      "size":  327163810,
+                                      "file":  "ToolHub_Setup_0.1.5.exe",
+                                      "sha256":  "6d37b77981759e4e133820b17cdf41901672350a1697d0e6c5f85fdf33352fad",
+                                      "size":  327101419,
                                       "type":  "nsis",
-                                      "url":  "https://github.com/kuroronrobins/ToolHub/releases/download/v0.1.4/ToolHub_Setup_0.1.4.exe"
+                                      "url":  "https://github.com/kuroronrobins/ToolHub/releases/download/v0.1.5/ToolHub_Setup_0.1.5.exe"
                                   },
                     "name":  "ToolHub",
-                    "version":  "0.1.4"
+                    "version":  "0.1.5"
                 }
 }

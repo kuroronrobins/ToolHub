@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod admin_audit;
 mod admin_auth;
 mod admin_commands;
