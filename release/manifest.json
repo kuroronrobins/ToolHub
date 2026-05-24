@@ -3,20 +3,20 @@
     "channel":  "stable",
     "toolhub":  {
                     "name":  "ToolHub",
-                    "version":  "0.1.1",
+                    "version":  "0.1.2",
                     "installer":  {
-                                      "file":  "ToolHub_Setup_0.1.1.exe",
+                                      "file":  "ToolHub_Setup_0.1.2.exe",
                                       "type":  "nsis",
-                                      "sha256":  "91865da0dbff265b4f04558c703626046b2867c4f8f44af424ebb07958354a9d",
-                                      "size":  321185374
+                                      "sha256":  "15399582297ad546dda7f4284c63f0ffb3d94980d6c89a23fa484013060d5726",
+                                      "size":  321158344
                                   }
                 },
     "core":  {
-                 "version":  "0.1.1",
+                 "version":  "0.1.2",
                  "minimum_supported_app_manifest":  1
              },
     "runner":  {
-                   "version":  "0.1.1"
+                   "version":  "0.1.2"
                },
     "runtime":  {
                     "python":  {

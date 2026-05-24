@@ -6,7 +6,7 @@
                                                         "required_core":  "\u003e=0.1.0",
                                                         "required_runner":  "\u003e=0.1.0",
                                                         "required_runtime":  "python-shared-env:py313-win_amd64-pywin32310-dd4d21f1",
-                                                        "sha256":  "8fedbad1f76d25d6d8989f08d0930ae088300d5838c7b26f28a2596037fef5b1",
+                                                        "sha256":  "73ea32112154ee86ab1199b57d1c7cc06777450bcf28ef4c5edecd05c475f813",
                                                         "version":  "0.1.0"
                                                     },
                  "pdf_workbench":  {
@@ -15,7 +15,7 @@
                                        "required_core":  "\u003e=0.1.0",
                                        "required_runner":  "\u003e=0.1.0",
                                        "required_runtime":  "python-shared-env:py313-win_amd64-runtime-37c71daf",
-                                       "sha256":  "c7797968fb67d0a265a37cd47178bbfff9335b1e717e9f49723034b3ca3e7494",
+                                       "sha256":  "ac29ab5ffaadd40a329f40d929ad712b42040d840a62437fc4fa8059e70fad6b",
                                        "version":  "0.2.0"
                                    }
              },

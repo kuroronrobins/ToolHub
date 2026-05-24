@@ -550,10 +550,11 @@ pub fn download_update_installer(
     ));
     let _ = fs::remove_file(&temp_path);
 
-    if let Err(error) = fetch_source_to_file(
+    if let Err(error) = fetch_source_to_file_with_timeout(
         &crate::manifest::project_root().map_err(|error| error.to_string())?,
         &request.installer_url,
         &temp_path,
+        300,
     ) {
         result.status = "download_failed".to_string();
         result.message = format!("Installer download failed: {error}");
@@ -762,17 +763,39 @@ fn read_update_config(root: &Path) -> UpdateConfigLookup {
     let user_config_path = crate::setup::user_data_root()
         .join("config")
         .join("launcher.yaml");
+    read_update_config_with_user_path(root, &user_config_path)
+}
+
+fn read_update_config_with_user_path(root: &Path, user_config_path: &Path) -> UpdateConfigLookup {
     if user_config_path.is_file() {
-        match read_update_source_url(&user_config_path) {
-            Ok(source_url) => {
-                let mut notes = Vec::new();
-                if source_url.is_none() {
-                    notes.push("ユーザー設定に更新元URLが設定されていません。".to_string());
-                }
+        match read_update_source_url(user_config_path) {
+            Ok(Some(source_url)) => {
                 return UpdateConfigLookup {
-                    source_url,
+                    source_url: Some(source_url),
                     config_source: "user".to_string(),
-                    config_path: Some(user_config_path),
+                    config_path: Some(user_config_path.to_path_buf()),
+                    notes: Vec::new(),
+                };
+            }
+            Ok(None) => {
+                let default_lookup = read_default_update_config(root);
+                if default_lookup.source_url.is_some() {
+                    let mut notes = vec![format!(
+                        "ユーザー設定に更新元URLが設定されていないためdefault設定を参照しました: {}",
+                        user_config_path.display()
+                    )];
+                    notes.extend(default_lookup.notes);
+                    return UpdateConfigLookup {
+                        notes,
+                        ..default_lookup
+                    };
+                }
+                let mut notes = vec!["ユーザー設定に更新元URLが設定されていません。".to_string()];
+                notes.extend(default_lookup.notes);
+                return UpdateConfigLookup {
+                    source_url: None,
+                    config_source: "user".to_string(),
+                    config_path: Some(user_config_path.to_path_buf()),
                     notes,
                 };
             }
@@ -859,12 +882,22 @@ fn read_update_source_url(path: &Path) -> Result<Option<String>, String> {
 
 fn fetch_manifest_json(root: &Path, source: &str) -> Result<Value, String> {
     let cache_path = update_cache_dir().join("remote_manifest.json");
-    fetch_source_to_file(root, source, &cache_path)?;
+    fetch_source_to_file_with_timeout(root, source, &cache_path, 30)?;
     let text = fs::read_to_string(&cache_path).map_err(|error| error.to_string())?;
     serde_json::from_str(&text).map_err(|error| error.to_string())
 }
 
+#[cfg(test)]
 fn fetch_source_to_file(root: &Path, source: &str, destination: &Path) -> Result<(), String> {
+    fetch_source_to_file_with_timeout(root, source, destination, 120)
+}
+
+fn fetch_source_to_file_with_timeout(
+    root: &Path,
+    source: &str,
+    destination: &Path,
+    timeout_seconds: u32,
+) -> Result<(), String> {
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
@@ -873,17 +906,17 @@ fn fetch_source_to_file(root: &Path, source: &str, destination: &Path) -> Result
         return Err("http:// update sources are not allowed. Use https:// for Beta distribution or file:// / relative paths for local tests.".to_string());
     }
     if is_https_url(source) {
-        let script = "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri $args[0] -OutFile $args[1]";
         let status = Command::new("powershell")
             .args([
                 "-NoProfile",
                 "-ExecutionPolicy",
                 "Bypass",
                 "-Command",
-                script,
+                powershell_webrequest_script(),
             ])
             .arg(source)
             .arg(destination)
+            .arg(timeout_seconds.to_string())
             .status()
             .map_err(|error| error.to_string())?;
         if status.success() {
@@ -902,6 +935,10 @@ fn fetch_source_to_file(root: &Path, source: &str, destination: &Path) -> Result
     fs::copy(&source_path, destination)
         .map(|_| ())
         .map_err(|error| format!("{} ({error})", source_path.display()))
+}
+
+fn powershell_webrequest_script() -> &'static str {
+    "& { param([string]$Uri, [string]$OutFile, [int]$TimeoutSec) $ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -TimeoutSec $TimeoutSec -UserAgent 'ToolHub-Updater' -Uri $Uri -OutFile $OutFile }"
 }
 
 fn is_https_url(source: &str) -> bool {
@@ -1417,6 +1454,70 @@ mod tests {
             fs::create_dir_all(parent).expect("test parent should be creatable");
         }
         fs::write(path, content).expect("test file should be writable");
+    }
+
+    #[test]
+    fn update_config_uses_user_manifest_url_when_present() {
+        let root = update_safety_test_dir("config_user_wins_root");
+        let user_root = update_safety_test_dir("config_user_wins_user");
+        let default_url = "https://example.test/default/manifest.json";
+        let user_url = "https://example.test/user/manifest.json";
+        write_test_file(
+            &root.join("config.default").join("launcher.yaml"),
+            format!("updates:\n  manifest_url: {default_url}\n").as_bytes(),
+        );
+        let user_config = user_root.join("config").join("launcher.yaml");
+        write_test_file(
+            &user_config,
+            format!("updates:\n  manifest_url: {user_url}\n").as_bytes(),
+        );
+
+        let lookup = read_update_config_with_user_path(&root, &user_config);
+
+        assert_eq!(lookup.source_url.as_deref(), Some(user_url));
+        assert_eq!(lookup.config_source, "user");
+        assert_eq!(lookup.config_path.as_deref(), Some(user_config.as_path()));
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(user_root);
+    }
+
+    #[test]
+    fn update_config_falls_back_to_default_when_user_manifest_url_is_missing() {
+        let root = update_safety_test_dir("config_default_fallback_root");
+        let user_root = update_safety_test_dir("config_default_fallback_user");
+        let default_url = "https://example.test/default/manifest.json";
+        write_test_file(
+            &root.join("config.default").join("launcher.yaml"),
+            format!("updates:\n  manifest_url: {default_url}\n").as_bytes(),
+        );
+        let user_config = user_root.join("config").join("launcher.yaml");
+        write_test_file(
+            &user_config,
+            b"updates:\n  channel: stable\n  manifest: release/manifest.json\n",
+        );
+
+        let lookup = read_update_config_with_user_path(&root, &user_config);
+        let default_config = root.join("config.default").join("launcher.yaml");
+
+        assert_eq!(lookup.source_url.as_deref(), Some(default_url));
+        assert_eq!(lookup.config_source, "default");
+        assert_eq!(
+            lookup.config_path.as_deref(),
+            Some(default_config.as_path())
+        );
+        assert!(lookup.notes.iter().any(|note| note.contains("default")));
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(user_root);
+    }
+
+    #[test]
+    fn update_fetch_script_forces_tls12_and_timeout_argument() {
+        let script = powershell_webrequest_script();
+
+        assert!(script.contains("SecurityProtocolType]::Tls12"));
+        assert!(script.contains("param([string]$Uri, [string]$OutFile, [int]$TimeoutSec)"));
+        assert!(script.contains("TimeoutSec $TimeoutSec"));
+        assert!(script.contains("ToolHub-Updater"));
     }
 
     #[test]

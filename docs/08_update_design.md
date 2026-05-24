@@ -15,7 +15,8 @@ ToolHubは将来、ToolHub本体と内蔵アプリを安全に更新できる構
 - 更新対象とUser Dataを分離する設計docs
 - GitHub Releases 向け更新確認 / installer 起動MVP
   - 起動後に `check_updates_remote` Tauri command を呼ぶ
-  - 更新設定は `%LOCALAPPDATA%\ToolHub\config\launcher.yaml` のユーザー設定を優先し、存在しない場合だけ `config.default/launcher.yaml` にフォールバックする
+  - 更新設定は `%LOCALAPPDATA%\ToolHub\config\launcher.yaml` のユーザー設定を優先する
+  - 既存ユーザー設定に `updates.manifest_url` / `updates.source_url` / `updates.url` がない場合は、互換維持のため `config.default/launcher.yaml` の更新元URLへフォールバックする
   - `updates.source_url` / `updates.manifest_url` / `updates.url` が未設定の場合は `source_not_configured` として扱う
   - remote manifest を取得し、現在の ToolHub version と比較する
   - app単位の更新候補は `release/app_manifest.json` の `enabled=true` かつ `apps/<app_id>/app.yaml` がある active app を主対象にする
@@ -23,6 +24,7 @@ ToolHubは将来、ToolHub本体と内蔵アプリを安全に更新できる構
   - 通常ユーザー向け通知は `update_available` の場合だけ表示する
   - 通常画面には「更新する」「あとで」の更新バナーを出し、同一セッション内の同一 current -> target version だけ dismiss できる
   - `download_update_installer` は installer を `%LOCALAPPDATA%\ToolHub\update_cache\` に保存し、manifest の sha256 / size と照合する
+  - GitHub Releases からの取得は Windows PowerShell 経由で行い、TLS 1.2 を明示して GitHub の HTTPS endpoint に接続する
   - `launch_verified_update_installer` は検証済み installer だけを起動する
   - installer 起動時は `update_cache` 外、`.exe` / `.msi` 以外、`ToolHub_Setup` を含まない file name を拒否する
   - `http://` update source は拒否し、Beta 本番は `https://` を前提にする
