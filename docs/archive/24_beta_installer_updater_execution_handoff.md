@@ -1,5 +1,7 @@
 # Beta Installer / Updater Execution Handoff
 
+Status: superseded. This was the initial Beta MVP implementation handoff. As of ToolHub `0.1.5`, beta blockers are cleared, GitHub Release Latest exists, and VM install / launch / app behavior has separate evidence in [06_acceptance_checklist.md](06_acceptance_checklist.md). Do not use this as the current starting prompt; use [22_beta_installer_updater_plan.md](22_beta_installer_updater_plan.md), [35_github_release_updater_implementation_plan.md](35_github_release_updater_implementation_plan.md), and [36_one_click_release_cockpit_plan.md](36_one_click_release_cockpit_plan.md) for the current release/updater path.
+
 この文書は、次の Codex 実装ターンで ToolHub の Beta Installer / Updater を途中で見失わず進めるための実行司令書である。
 
 実装者は、ユーザーが席を外していても、停止条件に当たらない限り途中確認せず、実装、セルフレビュー、検証、報告まで進める。

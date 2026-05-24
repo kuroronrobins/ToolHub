@@ -1,5 +1,7 @@
 # App Registration Stale Flow Remediation Plan
 
+Status: historical remediation record. The current `main.py` bootstrap is source-only except for `--check`, normal App Studio registration is `shared-env`, and the stale release-root / old app.yaml failure described below is kept as diagnostic context rather than the current flow.
+
 ## Purpose
 
 ToolHub のアプリ登録後、単体で動く Python アプリが ToolHub 上でも同じ状態で起動できるようにする。

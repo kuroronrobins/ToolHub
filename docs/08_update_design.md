@@ -6,7 +6,7 @@ ToolHubは将来、ToolHub本体と内蔵アプリを安全に更新できる構
 
 ## Implementation Status
 
-2026-05-23 時点で実装済み:
+2026-05-24 時点で実装済み:
 
 - `release/manifest.json` と `release/app_manifest.json` の雛形
 - App Pack zip生成とsha256記録
@@ -37,16 +37,17 @@ ToolHubは将来、ToolHub本体と内蔵アプリを安全に更新できる構
   - Beta / Pre-release では `latest` ではなく `releases/download/<tag>/manifest.json` を remote verify 対象にできる
   - `scripts/verify_github_release_assets.ps1` で remote manifest、installer URL、sha256、size を検証できる
   - App Studio の `公開準備` タブから preflight、dry-run、publish target作成、release build / verify、remote verify、実 publish を実行できる
+  - `v0.1.5` の GitHub Release が Latest として存在し、`latest/download/manifest.json` から `ToolHub_Setup_0.1.5.exe` を download して size / sha256 が remote manifest と一致することを確認済み
 
 未実装:
 
-- installer 内での更新適用後確認を clean VM で完了すること
+- installed updater command で remote check、download、sha256 match / mismatch、cache 外 path 拒否、verified launch gating を clean installed environment で確認すること
 - 更新ファイルの展開と原子的置き換えを ToolHub 自身が行うこと
 - 更新対象ファイルの削除
 - 更新前バックアップとロールバックの実処理
 - manifestやinstallerの署名検証
 
-この文書は現時点では将来設計を含みます。現在動くのは remote manifest 確認、installer download、sha256 検証、検証済み installer 起動までです。ToolHub 自身が install dir を直接上書きする展開、置換、削除、バックアップ、ロールバック、署名検証が動作することを意味しません。
+この文書は現時点では将来設計を含みます。現在動くのは remote manifest 確認、installer download、sha256 検証、検証済み installer 起動までです。`v0.1.5` の実 endpoint / 実 installer asset では script level の download / hash 検証まで確認済みですが、ToolHub 自身が install dir を直接上書きする展開、置換、削除、バックアップ、ロールバック、署名検証が動作することを意味しません。
 
 ## Update Units
 
@@ -116,9 +117,9 @@ ToolHubを更新できます。
 
 管理者画面では以下を確認できます。
 
-- ToolHub Core: `0.1.0` -> `0.2.0`
-- Runner: `0.1.0` -> `0.1.1`
-- アプリ: `1.0.0` -> `1.1.0`
+- ToolHub Core: `0.1.4` -> `0.1.5`
+- Runner: `0.1.4` -> `0.1.5`
+- アプリ: `0.1.0` -> `0.2.0`
 - Web自動化用ランタイム更新あり
 - 参照した設定ファイル: user / default / missing
 - ローカル `release/manifest.json` / `release/app_manifest.json` の参照path

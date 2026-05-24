@@ -10,7 +10,7 @@
 
 ## 現行仕様の前提
 
-2026-05-16 時点の実装上、通常新規登録は `shared-env` 固定である。
+2026-05-25 時点の実装上、通常新規登録は `shared-env` 固定である。
 
 - GUI の初期値は `buildMode: shared-env`、`generateLock: true`、`buildFrozenFolder: false`、`verifyRuntime: true`。
 - 通常新規登録では `.exe` は受け付けず、Python ソースを entry とする。

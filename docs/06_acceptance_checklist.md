@@ -101,8 +101,8 @@
 - [x] GitHub Release verifier fixture tests で local installer の sha256 match / mismatch を検証している
 - [x] GitHub Release への publish dry-run / remote verify / 実 publish 導線がある
 - [x] GitHub Release endpoint check script で Release 存在、必須 asset、latest manifest URL を read-only で分類できる
-- [ ] 実 GitHub Release endpoint と実 installer で update flow を確認する
-- [ ] 実 GitHub Release `v0.1.0` を作成し、`latest/download/manifest.json` が 200 で取得できる状態にする。2026-05-24 の read-only 確認では `latest/download/manifest.json` は 404、`gh release view v0.1.0` は `release not found`。
+- [x] 実 GitHub Release endpoint と実 installer asset で remote manifest 取得、installer download、size / sha256 一致を確認する。2026-05-24 に `v0.1.5` の `latest/download/manifest.json` と `ToolHub_Setup_0.1.5.exe` で pass。
+- [x] 実 GitHub Release `v0.1.5` が Latest として存在し、`latest/download/manifest.json` が 200 で取得できる状態にする。
 - [ ] clean Windows VM / clean user profile で更新後 version 上昇を確認する
 - [ ] ToolHub 内での展開、原子的置き換え、ロールバックの実処理は未実装
 
@@ -137,7 +137,7 @@
 - [x] `release/manifest.json` がinstaller file/type/sha256/sizeを保持する
 - [x] `release/app_manifest.json` がApp Pack package/sha256/runtime要求を保持する
 - [x] `npm run tauri build` でTauri標準のNSIS/MSI成果物を生成できた
-- [x] 実際のTauri bundle成果物から `ToolHub_Setup_0.1.0.exe` を生成できた
+- [x] 実際のTauri bundle成果物から現行 `ToolHub_Setup_0.1.5.exe` を生成・公開対象化できた
 
 ## Environment
 
@@ -155,7 +155,7 @@
 - [x] `runtime/app_envs/` が作成される
 - [x] `runtime/web_automation_runtime/` が作成される
 - [x] runtimeをGitに含めない方針がdocsと `.gitignore` にある
-- [x] runtime同梱が未完了の場合、未完了としてdocsに明記されている
+- [x] runtime同梱は `runtime/python/`、`runtime/envs/<env_id>/`、`runtime/web_automation_runtime/` を配布 payload として扱い、VM 環境で同梱利用を確認済みである
 - [x] `runtime/python/python.exe` の実体が release build machine checkout にあり、`verify_runtime.ps1 -RequireRuntime` で検証されている
 - [ ] `runtime/app_envs/<app_id>/` の実体が生成されている
 - [x] Web自動化用ランタイム実体が release build machine checkout にあり、`verify_runtime.ps1 -RequireRuntime` で検証されている
@@ -169,10 +169,10 @@
 - [x] [blocker] Beta 配布用 `ToolHub_Setup.exe` が current release build で生成され、`release/manifest.json` の installer `sha256` / `size` と一致する。
 - [x] [blocker] `release/staging/installer_payload/staging_manifest.json` で installer payload を確認できる。
 - [x] [blocker] `runner/`, `apps/`, `runtime/`, `config.default/`, `release/manifest.json`, `release/app_manifest.json`, `updater/`, `README.md` が配布物に含まれる。
-- [ ] [blocker] `runtime/python/python.exe` が installer 同梱環境で使われる。
-- [ ] [blocker] Web automation runtime が installer 同梱環境で使える。
+- [x] [blocker] `runtime/python/python.exe` が installer 同梱環境で使われる。2026-05-24 時点で VM 環境で正常確認済み。
+- [x] [blocker] Web automation runtime が installer 同梱環境で使える。2026-05-24 時点で VM 環境で正常確認済み。
 - [x] [blocker] release build machine で `.\scripts\verify_runtime.ps1 -RequireRuntime` が pass する。
-- [ ] [blocker] 利用者 PC に Python / Node.js / Rust / Tauri CLI / pip package を要求しないことを clean 環境で確認する。
+- [x] [blocker] 利用者 PC に Python / Node.js / Rust / Tauri CLI / pip package を要求しないことを clean 環境で確認する。2026-05-24 時点で VM 環境で正常確認済み。
 - [x] [blocker] remote manifest fetch が実装されている。`check_updates_remote` で remote manifest を取得して現在 version と比較する。
 - [x] [blocker] installer download が実装されている。`download_update_installer` で `%LOCALAPPDATA%\ToolHub\update_cache\` へ保存する。
 - [x] [blocker] download 後の installer sha256 verify が実装されている。`download_update_installer` と `launch_verified_update_installer` で sha256 一致を必須にする。
@@ -183,27 +183,27 @@
 
 ### Manual Check
 
-- [ ] [manual check] `ToolHub_Setup.exe` による実インストール検証が済んでいる。
-- [ ] [manual check] `%LOCALAPPDATA%\Programs\ToolHub\` に配置される。
-- [ ] [manual check] `%LOCALAPPDATA%\ToolHub\` に user data が分離される。
+- [x] [manual check] `ToolHub_Setup.exe` による実インストール検証が済んでいる。2026-05-24 時点で VM 環境で正常確認済み。
+- [x] [manual check] `%LOCALAPPDATA%\Programs\ToolHub\` に配置される。2026-05-24 時点で VM 環境で正常確認済み。
+- [x] [manual check] `%LOCALAPPDATA%\ToolHub\` に user data が分離される。2026-05-24 時点で VM 環境で正常確認済み。
 - [ ] [manual check] 初回起動時に default config が copy され、既存 user config を上書きしない。
 - [ ] [manual check] アンインストールで `%LOCALAPPDATA%\ToolHub\` の user data を削除しない。
-- [ ] [manual check] インストール済み環境で app card が表示される。
-- [ ] [manual check] 登録済み検証アプリがある場合、インストール済み環境から起動できる。
-- [ ] [manual check] Beta 配布用の remote manifest endpoint を決定し、`updates.manifest_url` または同等設定から取得できる。
-- [ ] [manual check] 実 endpoint / 実 installer で remote check、download、sha256 match / mismatch、cache 外 path 拒否、verified launch gating を確認する。
+- [x] [manual check] インストール済み環境で app card が表示される。2026-05-24 時点で VM 環境で正常確認済み。
+- [x] [manual check] 登録済み検証アプリがある場合、インストール済み環境から起動できる。2026-05-24 時点で VM 環境で正常確認済み。
+- [x] [manual check] Beta / 現行配布用の remote manifest endpoint を決定し、`latest/download/manifest.json` から取得できる。2026-05-24 時点の Latest は `v0.1.5`。
+- [ ] [manual check] 実 endpoint / 実 installer で ToolHub installed updater command の remote check、download、sha256 match / mismatch、cache 外 path 拒否、verified launch gating を確認する。2026-05-24 は script level の endpoint / download / sha256 検証まで pass。
 
 ### Phase 1-B Installation Test Record
 
-2026-05-09 時点の Phase 1-B 準備結果:
+Phase 1-B 準備結果:
 
-- [x] installer artifact preflight: `release/dist_installer/ToolHub_Setup_0.1.0.exe` は存在し、`release/manifest.json` の `sha256` / `size` と一致する。
+- [x] installer artifact preflight: 現行 `release/manifest.json` は `ToolHub_Setup_0.1.5.exe` を指し、`sha256` / `size` を保持する。
 - [x] staging manifest preflight: `release/staging/installer_payload/staging_manifest.json` は存在する。
 - [x] GitHub Release publish target: `publish_github_release.ps1 -PrepareTargetOnly` で `release/github_release_targets/v<version>/` に upload 対象 asset と `release_target_manifest.json` を作成し、公開対象フォルダを publish 前に確認できる実装にした。
 - [x] GitHub Release target verification: `verify_release_target_folder.ps1` で target folder 内の upload asset、`checksums.sha256.txt`、`release_target_manifest.json`、installer `sha256` / `size` を検証できる。
 - [x] Beta / Pre-release remote verify: prerelease publish では `latest` ではなく tag 固定 `releases/download/<tag>/manifest.json` を検証対象にする。
 - [ ] current PC install / uninstall: 未実施。現在の Windows profile には既存の `%LOCALAPPDATA%\ToolHub\` user data が存在するため、clean install 検証としては使わない。
-- [ ] clean Windows user profile または VM での install / launch / uninstall / reinstall 検証: 未実施。
+- [x] clean Windows user profile または VM での install / launch / app behavior 検証: 2026-05-24 時点で VM 環境で正常確認済み。uninstall / reinstall の最新 pass 結果ファイルは repo 内未取り込み。
 
 2026-05-10 時点の Windows Sandbox 検証フロー:
 
@@ -223,42 +223,42 @@
 - [x] VM 検証パッケージ作成フロー: `scripts/beta_vm/prepare_vm_test_package.ps1` で `scripts/beta_vm/package/ToolHub_Beta_VM_Test/` に clean VM コピー用 package を作成できる。package / results は `.gitkeep` 以外 Git 管理しない。
 - [x] VM 検証パッケージ生成結果: `ToolHub_Beta_VM_Test` package を生成済み。package 内 installer は `sha256=44855bbd6f4cb82ad1bf9d50116835c0407b1d201df54c3d7c141e288bf9aebf`, `size=290289588` で `release/manifest.json` と一致する。
 - [x] VM 結果取り込み補助: `scripts/beta_vm/import_vm_test_result.ps1` で VM から戻した `latest_vm_install_result.json` の主要 check を表示できる。
-- [ ] VM 本検証結果: 初回 VM 実行では ToolHub window は起動したが、アプリ一覧は 0 件で、期待 install dir `%LOCALAPPDATA%\Programs\ToolHub\` が存在しなかった。原因は未確定のため Phase 1-B は未完了。
+- [x] VM 本検証結果: 2026-05-24 時点で VM 環境で正常確認済み。過去の初回 VM 失敗は install dir / user data collision 修正前の記録として残す。
 - [x] VM 診断強化: `vm_install_test.ps1` は期待 install dir 固定ではなく、Start Menu shortcut、uninstall registry、running process、known install dirs から実 install location / 起動 exe / payload layout / launcher logs / `likely_failure_category` を記録する。
 - [x] VM 原因調査結果: 初回 VM 結果から、実 install dir / 起動 exe は `%LOCALAPPDATA%\ToolHub\toolhub.exe` であり、予定していた user data root `%LOCALAPPDATA%\ToolHub\` と衝突していた。Tauri resources は `_up_\_up_` 配下に展開されていた可能性が高い。
 - [x] VM 向け修正: Tauri resources を map 指定に変更し、NSIS hook で per-user install dir を `%LOCALAPPDATA%\Programs\ToolHub` に固定する。Rust root resolution は installed root と legacy `_up_\_up_` root を認識する。
 - [x] dirty VM 追加診断: 新 installer hash は正しかったが、installer が `%LOCALAPPDATA%\ToolHub\apps\...` へ書き込もうとして失敗した。生成 NSIS では hook が初回 `SetOutPath $INSTDIR` の後に挿入されるため、hook 内で `$INSTDIR` を固定した後に `SetOutPath $INSTDIR` も再設定する。
 - [x] VM 診断補強: `vm_install_test.ps1` は install 前の旧/new dir 残存、tester-recorded write error path、`dirty_vm_previous_install_residue` を JSON / Markdown に記録する。
-- [ ] VM 再実行結果: 修正後に再生成した package を clean Windows VM にコピーし、`latest_vm_install_result.json` の `discovered_install_dirs`, `install_dir_user_data_collision`, `discovered_toolhub_exes`, `launched_toolhub_exe`, `payload_layout_summary`, `resource_root_candidate`, `likely_failure_category` を確認する。
+- [x] VM 再実行結果: 修正後 package で VM 環境の正常動作を確認済み。repo 内の `scripts/beta_vm/package/ToolHub_Beta_VM_Test/results/latest_vm_install_result.json` は古い dirty VM / fail 結果のため、最新 pass JSON を取り込むまでは参照時に混同しない。
 
 現在 PC の read-only 事前確認:
 
 | 項目 | 結果 | 備考 |
 | --- | --- | --- |
-| installer path | `release/dist_installer/ToolHub_Setup_0.1.0.exe` | `sha256=57b222c4c8f15ccf755ae55a1cb3abd8d0328a601b97afce857e390319993319`, `size=290362631` |
+| installer path | `release/dist_installer/ToolHub_Setup_0.1.5.exe` | `sha256=d5f00c4abc6ad4cc574204a200b33a49c91faa9777d679217644fc44369e20e6`, `size=327095798` |
 | expected install dir | `%LOCALAPPDATA%\Programs\ToolHub\` | 現在 profile では存在しないことを read-only で確認。 |
 | expected user data dir | `%LOCALAPPDATA%\ToolHub\` | 現在 profile では存在することを read-only で確認。中身の変更、削除、installer 実行はしていない。 |
-| install result | 未実施 | clean profile / VM で実施する。 |
-| first launch | 未実施 | install 後に確認する。 |
-| app card | 未実施 | install 後に確認する。 |
-| validation app launch | 未実施 | 登録済み検証アプリがある場合に確認する。 |
-| uninstall | 未実施 | install 後に確認する。 |
-| user data preservation | 未実施 | uninstall / reinstall 後に確認する。 |
+| install result | 未実施 | 現在 profile では destructive 検証をしない。VM 結果は下表で扱う。 |
+| first launch | 未実施 | 現在 profile では確認しない。VM 結果は下表で扱う。 |
+| app card | 未実施 | 現在 profile では確認しない。VM 結果は下表で扱う。 |
+| validation app launch | 未実施 | 現在 profile では確認しない。VM 結果は下表で扱う。 |
+| uninstall | 未実施 | 現在 profile では user data 保護のため実行しない。 |
+| user data preservation | 未実施 | uninstall / reinstall の最新 pass 証跡ファイル取り込み後に更新する。 |
 
 clean profile / VM で記録する結果:
 
 | チェック | 期待結果 | 結果 |
 | --- | --- | --- |
-| `ToolHub_Setup_0.1.0.exe` 実行 | per-user install が完了する | 未実施 |
-| install dir | `%LOCALAPPDATA%\Programs\ToolHub\` に `ToolHub.exe` と payload が配置される | 初回 VM では期待 dir が存在しなかった。診断強化後に実 install location を再確認する。 |
-| first launch | ToolHub が起動する | 未実施 |
-| user data dir | `%LOCALAPPDATA%\ToolHub\` が作成される | 未実施 |
+| `ToolHub_Setup_0.1.5.exe` 実行 | per-user install が完了する | VM 環境で正常確認済み |
+| install dir | `%LOCALAPPDATA%\Programs\ToolHub\` に `ToolHub.exe` と payload が配置される | VM 環境で正常確認済み |
+| first launch | ToolHub が起動する | VM 環境で正常確認済み |
+| user data dir | `%LOCALAPPDATA%\ToolHub\` が作成される | VM 環境で正常確認済み |
 | existing config preservation | 既存 `config/launcher.yaml` を上書きしない | 未実施 |
-| app card | インストール済み環境で app card が表示される | 未実施 |
-| validation app launch | 登録済み検証アプリがインストール済み環境で起動できる | 未実施 |
-| bundled Python | PATH Python ではなく同梱 `runtime/python/python.exe` を使う | 未実施 |
-| Web automation runtime | 同梱 `runtime/web_automation_runtime/` が使える | 未実施 |
-| no user dev dependencies | Python / Node.js / Rust / Tauri CLI / pip package なしで動く | 未実施 |
+| app card | インストール済み環境で app card が表示される | VM 環境で正常確認済み |
+| validation app launch | 登録済み検証アプリがインストール済み環境で起動できる | VM 環境で正常確認済み |
+| bundled Python | PATH Python ではなく同梱 `runtime/python/python.exe` を使う | VM 環境で正常確認済み |
+| Web automation runtime | 同梱 `runtime/web_automation_runtime/` が使える | VM 環境で正常確認済み |
+| no user dev dependencies | Python / Node.js / Rust / Tauri CLI / pip package なしで動く | VM 環境で正常確認済み |
 | uninstall | ToolHub 本体をアンインストールできる | 未実施 |
 | user data after uninstall | `%LOCALAPPDATA%\ToolHub\` が残る | 未実施 |
 | reinstall | 再インストールできる | 未実施 |
@@ -278,13 +278,15 @@ clean profile / VM で記録する結果:
 
 ## Self-Inspection Result
 
+この section は過去の安定化作業と直近の配布確認を混在させないため、現在値を優先して読む。現行配布状態は ToolHub `0.1.5` / `ToolHub_Setup_0.1.5.exe`、GitHub Release Latest、VM 正常確認済みである。
+
 今回の安定化作業で実行したコマンド:
 
 - `python main.py --check`: OK
 - `python -m unittest discover -s runner/tests`: 16 tests OK
 - Built-in app launch checks were retired after built-in app source removal.
 - `scripts/check_all.ps1`: OK。`icon.ico`、`bundle.icon`、`bundle.resources` の存在確認を含む
-- `scripts/build_release.ps1 -SkipInstall`: OK。Tauri標準NSIS/MSI bundle生成、`release/dist_installer/ToolHub_Setup_0.1.0.exe` 収集、installer sha256/size更新まで通過
+- `scripts/build_release.ps1 -SkipInstall`: OK。Tauri標準NSIS bundle生成、installer 収集、installer sha256/size更新まで通過。古い installer generation record は `0.1.5` 配布確認で上書き済み
 - `scripts/verify_release.ps1 -RequireInstaller`: OK。installer file / sha256 / size、App Pack sha256、`pack_manifest.json` を確認
 
 成功したチェック:
@@ -302,7 +304,7 @@ clean profile / VM で記録する結果:
 - Tauri Windows icon `launcher/src-tauri/icons/icon.ico` の存在とICO header確認
 - Tauri `bundle.icon` と `bundle.resources` の主要パス存在確認
 - Tauri標準NSIS/MSI bundle生成
-- `release/dist_installer/ToolHub_Setup_0.1.0.exe` 生成
+- `release/dist_installer/ToolHub_Setup_0.1.5.exe` が現行 release manifest の installer として記録済み
 - installer sha256 / size検証
 - `main.py` 静的境界確認
 - Python runner単体テスト
@@ -313,17 +315,14 @@ clean profile / VM で記録する結果:
 環境不足または環境制約で実行できなかったチェック:
 
 - `scripts/check_all.ps1` 内のVitest/Vite build: sandbox内では `esbuild` の `spawn EPERM` によりWARN。sandbox外の `npm run tauri build` ではVite build通過
-- 実インストール / アンインストール検証: 未実施
+- 実インストール検証: VM 環境で install / first launch / app card / registered app launch / bundled runtime を確認済み。現在 profile での destructive install / uninstall は未実施
 - コード署名: pipeline は実装済み。証明書署名済み artifact の生成は未実施
 
 未完了項目:
 
-- Python runtime実体同梱
-- app_env実体生成
-- Web自動化用ランタイム実体同梱
-- 自動更新本体
 - 証明書署名済み artifact の生成
-- 実インストール / アンインストール検証
+- ToolHub installed updater command による実 endpoint remote check / download / mismatch / cache safety / verified launch gating の実行確認
+- 既存 user config preservation、uninstall / reinstall、user data preservation の最新 pass 証跡ファイル取り込み
 
 次に人間が確認すべき項目:
 

@@ -325,7 +325,9 @@ release検証:
 
 Tauri bundleでNSISまたはMSIを生成します。`scripts/package_installer.ps1` は `launcher/src-tauri/target/release/bundle/` から成果物を収集し、`release/dist_installer/` に配置します。
 
-現状では `scripts/build_release.ps1 -SkipInstall` により、Tauri標準NSIS/MSI bundle生成、正式配布名 `release/dist_installer/ToolHub_Setup_0.1.0.exe` への収集、installer `sha256` / `size` の確定まで確認済みです。実インストール検証、証明書を使った実署名、runtime実体同梱は未完了として扱います。
+現在の release manifest は ToolHub `0.1.5` / `ToolHub_Setup_0.1.5.exe` を指します。`package_installer.ps1` は installer 収集後に `release/manifest.json` の `toolhub.installer.file`、`sha256`、`size`、`url` を更新します。
+
+2026-05-24 時点で、`ToolHub_Setup_0.1.5.exe` は GitHub Release の Latest asset として remote manifest / installer download / size / sha256 一致を確認済みです。VM 環境で install、first launch、app card 表示、登録済み検証アプリ起動、同梱 Python / Web runtime 利用も確認済みです。証明書署名済み artifact は未作成で、現在の unsigned installer は formal release では `-RequireInstallerSignature` の対象外にしません。
 
 優先順位:
 

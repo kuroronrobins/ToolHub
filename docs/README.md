@@ -42,20 +42,17 @@ Codex の初動では [00_AI_CONTEXT.md](00_AI_CONTEXT.md) を優先します。
 | Windows build 環境 | [11_build_environment.md](11_build_environment.md) |
 | トラブルシュート | [12_troubleshooting.md](12_troubleshooting.md) |
 | release readiness の分類 | [20_release_readiness_cleanup.md](20_release_readiness_cleanup.md) |
-| Beta installer / updater の現行計画 | [22_beta_installer_updater_plan.md](22_beta_installer_updater_plan.md) |
-| Beta installer / updater の実行 handoff | [24_beta_installer_updater_execution_handoff.md](24_beta_installer_updater_execution_handoff.md) |
+| Beta installer / updater の履歴と現在の残作業 | [22_beta_installer_updater_plan.md](22_beta_installer_updater_plan.md) |
 | GitHub Releases を使った更新配布の実装方針 | [35_github_release_updater_implementation_plan.md](35_github_release_updater_implementation_plan.md) |
 | ワンクリック公開と更新内容表示の実装方針 | [36_one_click_release_cockpit_plan.md](36_one_click_release_cockpit_plan.md) |
-| VirtualBox で 2 アプリ入り installer を検証する | [34_virtualbox_two_app_validation_plan.md](34_virtualbox_two_app_validation_plan.md) |
+| VirtualBox で現行有効アプリ入り installer を検証する | [34_virtualbox_two_app_validation_plan.md](34_virtualbox_two_app_validation_plan.md) |
 
-## 検証プロトコルと未完了計画
+## 検証プロトコル
 
 | 文書 | 位置づけ |
 | --- | --- |
 | [29_app_registration_zero_stress_validation_protocol.md](29_app_registration_zero_stress_validation_protocol.md) | App Studio が「main.py 指定だけ」で登録できるかを検証する protocol。 |
-| [32_toolhub_agendasnap_launch_parity_fix_plan.md](32_toolhub_agendasnap_launch_parity_fix_plan.md) | AgendaSnap 登録時に見つかった起動 parity 問題の記録。 |
-| [33_app_registration_stale_flow_remediation_plan.md](33_app_registration_stale_flow_remediation_plan.md) | dev/release root の混同と古い app.yaml を防ぐための現行 remediation plan。 |
 
 ## Archive の扱い
 
-[archive/](archive/) は過去資料の入口だけを残しています。完了済みの調査記録、古い実装計画、検証 evidence、役目を終えた handoff は現在仕様ではないため削除しました。過去経緯が必要な場合だけ Git 履歴から確認してください。
+[archive/](archive/) は過去資料の入口です。完了済みの調査記録、古い実装計画、検証 evidence、役目を終えた handoff は現在仕様ではないため、通常の作業開始時には読みません。過去経緯が必要な場合だけ確認してください。

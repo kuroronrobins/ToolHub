@@ -66,8 +66,8 @@
     "toolhub":  {
                     "installer":  {
                                       "file":  "ToolHub_Setup_0.1.5.exe",
-                                      "sha256":  "d5f00c4abc6ad4cc574204a200b33a49c91faa9777d679217644fc44369e20e6",
-                                      "size":  327095798,
+                                      "sha256":  "b63fabf4fff9a83c756be7c890482d5c47462a72b2a398d372151ae83c474713",
+                                      "size":  327203232,
                                       "type":  "nsis",
                                       "url":  "https://github.com/kuroronrobins/ToolHub/releases/download/v0.1.5/ToolHub_Setup_0.1.5.exe"
                                   },

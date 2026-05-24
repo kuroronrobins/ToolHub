@@ -42,26 +42,25 @@ search:
     - CSVをまとめたい
 
 run:
-  runner: python
-  entry: main.py
+  runner: python_shared_env
+  entry: src/main.py
   mode: gui
+  env_id: py313-win_amd64-sample
 
 admin:
-  version: 1.0.0
+  version: 0.1.0
   owner: admin
   requirements: requirements.txt
   log_dir: logs
 
-# Optional future distribution metadata.
-# The current launcher UI does not display these fields.
 runtime:
-  required_runtime: python-embedded-toolhub-001
-  app_env: sample_csv_merger
+  distribution_mode: shared_env
+  app_env: null
+  required_runtime: python-shared-env:py313-win_amd64-sample
   requirements_lock: requirements.lock
-
-distribution:
-  mode: app_env
-  package: app_packs/sample_csv_merger-1.0.0.zip
+  shared_env:
+    env_id: py313-win_amd64-sample
+    scope: versioned
 ```
 
 ## Required Fields
@@ -81,10 +80,12 @@ distribution:
 
 | Value | Purpose |
 | --- | --- |
-| `python` | GUIまたは通常のPythonアプリ |
-| `cli` | 標準出力中心のCLIアプリ |
-| `exe` | 既にexe化済みの外部アプリ |
-| `playwright_python` | Web自動化を行うPythonアプリ |
+| `python_shared_env` | 現行 App Studio 標準。`runtime/python/python.exe` と `runtime/envs/<env_id>` を使う Python アプリ |
+| `python` | 互換用の通常 Python runner |
+| `cli` | 互換用の標準出力中心 CLI runner |
+| `exe` | 既に exe 化済みの外部アプリ、または legacy frozen-folder app |
+| `playwright_python` | 互換用の Web 自動化 Python runner |
+| `python_app_env` | legacy app-env runner。通常新規登録では使わない |
 
 ## Mode Values
 
@@ -106,7 +107,7 @@ distribution:
 
 `業務支援`, `業務効率化`, `業務ツール`, `自動化` のような汎用語は利用者向けカテゴリとして増やしません。COMPASS上で3DX文書を取得するようなアプリは `target_categories: [COMPASS, 3DX]` の順にし、同じCOMPASS操作としてまとまるようにします。既存候補にない新しい対象システムや用途を追加する場合は、App Studioで新カテゴリ候補としてレビューし、承認後にtaxonomyへ追加します。
 
-`runtime` と `distribution` は将来の配布・更新管理用の任意フィールドです。初回実装では必須ではなく、利用者向けUIには表示しません。依存関係や実行方式の情報は管理者向けdocs、manifest、検収で扱います。
+通常の App Studio 新規登録では `runtime.distribution_mode: shared_env`、`runtime.required_runtime`、`runtime.requirements_lock`、`run.env_id` を生成します。既存 app 互換のため optional な runner / runtime 形式は残しますが、現行標準は `python_shared_env` です。依存関係や実行方式の情報は管理者向けdocs、manifest、検収で扱い、利用者向けUIには表示しません。
 
 メイン画面に以下は表示しません。
 

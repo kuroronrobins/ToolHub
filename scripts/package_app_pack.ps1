@@ -527,7 +527,8 @@ foreach ($Id in $TargetAppIds) {
 
     if (-not $Reused) {
         Reset-Directory $StageAppDir
-        Copy-Item -LiteralPath $AppDir -Destination $StageAppDir -Recurse -Force
+        Get-ChildItem -LiteralPath $AppDir -Force |
+            Copy-Item -Destination $StageAppDir -Recurse -Force
 
         Get-ChildItem -Path $StageAppDir -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue |
             Remove-Item -Recurse -Force -ErrorAction SilentlyContinue

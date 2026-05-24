@@ -134,21 +134,25 @@ OneDriveやネットワーク同期配下では、Node.jsの実行ファイル�
 .\scripts\verify_release.ps1
 ```
 
-## Python command was not found
+## Bundled Python or shared runtime not found
 
 症状:
 
-- ランチャーからアプリ起動時にPython runnerを呼べず、起動失敗になる。
+- インストール済み ToolHub から `python_shared_env` app を起動すると失敗する。
+- runner log に `runtime/python/python.exe`、`runtime/envs/<env_id>`、または package import の不足が出る。
 
 原因:
 
-- 現行のRust backendは暫定的にPATH上の `python` / `py` を探します。
-- 正式配布では `runtime/python/python.exe` などの同梱runtimeへ切り替える予定ですが、現時点では未実装です。
+- 現行の通常 App Studio 登録は `python_shared_env` で、インストール済み環境では同梱 `runtime/python/python.exe` と `runtime/envs/<env_id>/Lib/site-packages` を使います。
+- release build machine の runtime 実体、App Studio が生成した shared env、または installer payload が不足していると起動できません。
+- 開発中に legacy `python` runner を直接使う場合だけ、PATH 上の Python が切り分け対象になります。
 
 対応:
 
-- 開発環境ではPython 3.10以降をPATHから実行できる状態にする。
-- 正式配布前の残作業として、Rust runnerのPython探索を同梱runtime優先へ変更する。
+- `runtime/python/python.exe` が存在することを確認する。
+- `runtime/envs/<env_id>/Scripts/python.exe` と `runtime/envs/<env_id>/Lib/site-packages` が存在することを確認する。
+- `apps/<app_id>/app.yaml` の `run.env_id` と `runtime.required_runtime` が同じ env id を指していることを確認する。
+- release build machine で `.\scripts\verify_runtime.ps1 -RequireRuntime` と `.\scripts\verify_release.ps1 -RequireInstaller -RequireAppPacks -RequireRuntime -Strict` を実行する。
 
 ## Logs are not under project data
 
@@ -171,7 +175,7 @@ Get-ChildItem "$env:LOCALAPPDATA\ToolHub\data\logs" -Recurse
 
 症状:
 
-- `release/dist_installer/ToolHub_Setup_0.1.0.exe` が存在しない。
+- `release/dist_installer/ToolHub_Setup_<version>.exe` が存在しない。
 - `verify_release.ps1 -RequireInstaller` が失敗する。
 
 切り分け:

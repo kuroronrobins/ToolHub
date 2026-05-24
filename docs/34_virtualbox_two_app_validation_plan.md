@@ -1,35 +1,42 @@
-# VirtualBox Two-App Installer Validation Plan
+# VirtualBox Installer Validation Plan
 
-この文書は、現在 ToolHub に登録されている 2 つのアプリを含めた installer を作成し、VirtualBox 上の Windows にインストールして、ランチャー内から両アプリが正常に起動・動作するかを確認するための方針です。
+この文書は、現在 ToolHub に登録されている有効アプリを含めた installer を作成し、VirtualBox 上の Windows にインストールして、ランチャー内から各アプリが正常に表示・起動できるかを確認するための方針です。
+
+ファイル名には初期計画時の `two_app` が残っていますが、現行の確認対象は `release/app_manifest.json` の enabled app 全件です。
 
 これは確認方針であり、実施済み証跡ではありません。実行結果は `scripts/beta_vm/results/latest_vm_install_result.json` / `.md` と、必要に応じて `docs/06_acceptance_checklist.md` に記録します。
 
 ## 0. 確認対象
 
-現在の `release/app_manifest.json` で `enabled=true` のアプリを対象にします。
+現在の `release/app_manifest.json` で `enabled=true` のアプリを対象にします。2026-05-25 時点の read-only report では、enabled with source は 6 件です。
 
 | app id | 表示名 | 起動方式 | runtime |
 | --- | --- | --- | --- |
 | `pdf_workbench` | `PDF Workbench` | `python_shared_env` / GUI | `python-shared-env:py313-win_amd64-runtime-37c71daf` |
 | `app_20251123_excelbatchreplace` | `ExcelBatchReplace` | `python_shared_env` / GUI | `python-shared-env:py313-win_amd64-pywin32310-dd4d21f1` |
+| `app_20260201_agendasnap` | `20260201 AgendaSnap` | `python_shared_env` / GUI | `python-shared-env:py313-win_amd64-flet0283-fletdesktop0283-cac27e37` |
+| `run_3dx_create_ids` | `COMPASSのID一括取得` | `python_shared_env` / GUI | `python-shared-env:py313-win_amd64-playwright1550-27ead7db` |
+| `run_3dx_download_pdfs` | `COMPASSの文書一括ダウンロード` | `python_shared_env` / GUI | `python-shared-env:py313-win_amd64-playwright1550-27ead7db` |
+| `run_xcgate_upload` | `XCgate電子帳票登録` | `python_shared_env` / GUI | `python-shared-env:py313-win_amd64-playwright1550-27ead7db` |
 
 確認の目的は、次の 3 点を分けて判定することです。
 
 1. installer と payload が clean Windows VM に正しく配置される。
-2. ToolHub ランチャーが 2 つのアプリカードを表示し、各アプリを runner 経由で起動できる。
+2. ToolHub ランチャーが有効アプリ全件のカードを表示し、各アプリを runner 経由で起動できる。
 3. 各アプリの最小業務シナリオが、必要な外部前提を満たした状態で成功する。
 
 ## 1. Host 側事前確認
 
 1. 変更対象を固定する。
-   - `release/app_manifest.json` の有効アプリが上記 2 件だけであることを確認する。
-   - `apps/pdf_workbench/app.yaml` と `apps/app_20251123_excelbatchreplace/app.yaml` が存在することを確認する。
-   - 2 件の `requirements.lock` が存在することを確認する。
+   - `release/app_manifest.json` の有効アプリが上記 6 件であることを確認する。
+   - 各 `apps/<app_id>/app.yaml` が存在することを確認する。
+   - 各アプリの `requirements.lock` が存在することを確認する。
 2. runtime の前提を確認する。
-   - 両アプリは `python_shared_env` 方式なので、`runtime/python/python.exe` と `runtime/envs/<env_id>/Lib/site-packages` が installer payload に含まれる必要がある。
+   - 現行有効アプリは `python_shared_env` 方式なので、`runtime/python/python.exe` と `runtime/envs/<env_id>/Lib/site-packages` が installer payload に含まれる必要がある。
    - VM 上で Python / pip package を別途導入して動いた場合は、配布検証としては成功扱いにしない。
 3. 開発ツール依存を除外する前提を確認する。
    - VM には Python、Node.js、npm、Rust、cargo、Tauri CLI、pip package を事前導入しない。
+   - AgendaSnap は Flet runtime、COMPASS / XCgate 系は Web automation runtime を使うため、shared env と Web automation runtime の両方を確認対象にする。
    - `ExcelBatchReplace` の業務機能まで確認する場合は、Microsoft Excel デスクトップ版だけを外部業務前提として明示する。Excel 未導入 VM では、Excel COM を使う本機能の成功判定は `Not run` とする。
 
 ## 2. Host 側 build / package
@@ -98,6 +105,8 @@ scripts\beta_vm\package\ToolHub_Beta_VM_Test\
 3. 業務アプリ確認用のサンプルを用意する。
    - `PDF Workbench`: 破壊してよい小さな PDF サンプルと出力先フォルダを用意する。
    - `ExcelBatchReplace`: 破壊してよい Excel サンプル、テンプレート、バックアップ先を用意する。業務機能まで確認する場合は Microsoft Excel デスクトップ版を用意する。
+   - `AgendaSnap`: 外部 API key や音声入力が必要な機能は `Not run` にし、GUI 起動と設定画面遷移までを最小確認にできる。
+   - `COMPASS` / `XCgate` 系: 本番認証情報や業務サイト接続が必要な処理は `Not run` にし、GUI 起動、設定読込、ログイン前までの安全な画面遷移を最小確認にできる。
 4. VM の結果 folder を共有または後で host へコピーできるようにする。
 
 ## 5. VM 内 installer 実行
@@ -124,13 +133,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\vm_install_test.ps1 -Share
 
 ToolHub 起動後に、利用者画面で次を確認します。
 
-1. アプリカードが 2 件表示される。
-2. `PDF Workbench` が表示される。
-3. `ExcelBatchReplace` が表示される。
-4. 検索やカテゴリ絞り込み後も、対象アプリを選択できる。
-5. 管理者向け内部情報や不要な技術詳細が利用者画面に露出していない。
+1. アプリカードが有効アプリ全件分表示される。
+2. `PDF Workbench`、`ExcelBatchReplace`、`20260201 AgendaSnap`、`COMPASSのID一括取得`、`COMPASSの文書一括ダウンロード`、`XCgate電子帳票登録` が表示される。
+3. 検索やカテゴリ絞り込み後も、対象アプリを選択できる。
+4. 管理者向け内部情報や不要な技術詳細が利用者画面に露出していない。
 
-アプリが 0 件、1 件、または想定外の件数で表示された場合は、アプリ起動確認へ進まず、`release/app_manifest.json`、installed payload の `apps\`、launcher log、`likely_failure_category` を確認します。
+アプリが 0 件、または想定外の件数で表示された場合は、アプリ起動確認へ進まず、`release/app_manifest.json`、installed payload の `apps\`、launcher log、`likely_failure_category` を確認します。
 
 ## 7. アプリ別起動確認
 
@@ -158,6 +166,12 @@ PDF サンプルでの実操作を行わなかった場合は、`起動確認の
 
 Excel 未導入 VM では、GUI 起動と依存エラーの出方までは確認できますが、Excel 操作を伴う業務機能は成功扱いにしません。
 
+### 7.3 その他の有効アプリ
+
+`20260201 AgendaSnap`、`COMPASSのID一括取得`、`COMPASSの文書一括ダウンロード`、`XCgate電子帳票登録` は、まず ToolHub カードから GUI が起動し、runner / shared runtime / module import の致命的エラーがないことを確認します。
+
+外部 API key、音声入力、本番サイト認証、業務データ操作が必要な処理は、準備できていない場合は `Not run` と記録します。外部前提なしで安全に確認できる画面表示、設定読込、ログイン前画面までを最小確認として扱います。
+
 ## 8. アンインストール / 再インストール確認
 
 1. ToolHub を終了する。
@@ -165,8 +179,8 @@ Excel 未導入 VM では、GUI 起動と依存エラーの出方までは確認
 3. `%LOCALAPPDATA%\Programs\ToolHub\` が削除されることを確認する。
 4. `%LOCALAPPDATA%\ToolHub\` が削除されず残ることを確認する。
 5. 同じ installer で再インストールする。
-6. ToolHub を再起動し、2 つのアプリカードが再表示されることを確認する。
-7. 必要に応じて 2 アプリの起動確認だけを再実行する。
+6. ToolHub を再起動し、有効アプリ全件のカードが再表示されることを確認する。
+7. 必要に応じて代表アプリの起動確認だけを再実行する。
 
 アンインストール時に user data を削除する選択肢が表示された場合は選択しません。誤って user data を消した場合、その VM 結果は user data preservation の証跡として使いません。
 
@@ -182,7 +196,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\beta_vm\import_vm_
 
 - `scripts\beta_vm\results\latest_vm_install_result.json`
 - `scripts\beta_vm\results\latest_vm_install_result.md`
-- ToolHub 画面で 2 アプリが表示されている screenshot
+- ToolHub 画面で有効アプリ全件が表示されている screenshot
 - 各アプリの起動後画面 screenshot
 - PDF / Excel の最小業務シナリオに使ったサンプル名と期待結果
 - 失敗時の launcher / runner / app log 抜粋
@@ -194,17 +208,19 @@ Pass とする条件:
 1. Host 側 build / package / release verify が pass している。
 2. VM に開発ツールを導入せずに installer が完了している。
 3. `%LOCALAPPDATA%\Programs\ToolHub\` と `%LOCALAPPDATA%\ToolHub\` が分離されている。
-4. installer payload に 2 アプリと各 shared runtime が含まれている。
-5. ToolHub が起動し、2 つのアプリカードが表示されている。
-6. `PDF Workbench` が ToolHub から起動し、最小業務シナリオが成功している。
-7. `ExcelBatchReplace` が ToolHub から起動し、Excel を含む最小業務シナリオが成功している。
-8. アンインストール後も user data が保持され、再インストール後も 2 アプリが表示される。
+4. installer payload に有効アプリ全件と各 shared runtime が含まれている。
+5. ToolHub が起動し、有効アプリ全件のカードが表示されている。
+6. 有効アプリ全件が ToolHub から起動し、runner / shared runtime / module import の致命的エラーがない。
+7. `PDF Workbench` が ToolHub から起動し、最小業務シナリオが成功している。
+8. `ExcelBatchReplace` が ToolHub から起動し、Excel を含む最小業務シナリオが成功している。Excel 未導入 VM の場合は業務機能を `Not run` として分離する。
+9. AgendaSnap、COMPASS、XCgate 系の外部前提がない機能は `Not run` として分離し、安全な GUI 起動確認は pass / fail で記録する。
+10. アンインストール後も user data が保持され、再インストール後も有効アプリ全件が表示される。
 
 Fail または Incomplete とする例:
 
 - installer hash / size が manifest と一致しない。
 - install dir が `%LOCALAPPDATA%\ToolHub\` になり、user data root と衝突している。
-- アプリカードが 2 件表示されない。
+- アプリカードが有効アプリ全件分表示されない。
 - `runtime/envs/<env_id>/Scripts/python.exe` が payload にない。
 - VM 側に入れた Python や pip package に依存して起動している。
 - runner error、module import error、`pywin32` error、Excel COM error、PDF 処理 error が残る。

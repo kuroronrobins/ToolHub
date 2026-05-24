@@ -9,6 +9,7 @@ Codex は通常、このファイルだけで現在の前提を把握する。�
 - アプリ起動は `runner/` に集約し、launcher / Rust backend に個別アプリ専用分岐を入れない。
 - App Studio の通常新規登録は `shared-env` 標準。
 - 配布は installer 型が基本。runtime 実体、App Pack、installer は release artifact として扱う。
+- 現行 release manifest は ToolHub `0.1.5` / `ToolHub_Setup_0.1.5.exe`。GitHub Release Latest の remote manifest / installer hash 検証と VM install / launch / bundled runtime 確認は済み。証明書署名済み artifact は未作成。
 - 有効アプリは docs ではなく `release/app_manifest.json` と `apps/<app_id>/app.yaml` で確認する。
 
 ## Repository Map

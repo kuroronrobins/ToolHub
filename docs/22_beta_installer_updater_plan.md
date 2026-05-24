@@ -4,7 +4,11 @@
 
 ToolHub を早期にベータ展開するため、インストーラー化と ToolHub 全体アップデート機能の完成条件を固定する。
 
-この文書は実装開始前の計画書であり、今後の Codex 実装依頼ではこの方針を基準にする。コード実装、manifest schema の破壊的変更、runtime / installer 実体の変更、ユーザーデータ削除はこの文書の対象外とする。
+この文書は実装開始前の計画書として始まったが、2026-05-24 時点では ToolHub `0.1.5` の GitHub Release Latest、remote manifest / installer hash 検証、VM install / launch / app behavior 検証まで進んでいる。
+
+現在の実装入口としては、最新状態を [06_acceptance_checklist.md](06_acceptance_checklist.md)、GitHub Release 運用を [35_github_release_updater_implementation_plan.md](35_github_release_updater_implementation_plan.md)、公開 UI / 署名運用を [36_one_click_release_cockpit_plan.md](36_one_click_release_cockpit_plan.md) と合わせて読む。この文書内の古い `0.1.0` Phase 記録は履歴であり、現行 release manifest の現在値は `0.1.5` である。
+
+コード実装、manifest schema の破壊的変更、runtime / installer 実体の変更、ユーザーデータ削除はこの文書の対象外とする。
 
 優先する成果は以下である。
 
@@ -470,7 +474,7 @@ Phase 0 実施状況:
 
 Phase 1-A / 1-B 実施状況:
 
-- Phase 1-A: `release/dist_installer/ToolHub_Setup_0.1.0.exe` を生成済み。`release/manifest.json` の installer `sha256` / `size` と一致し、`verify_release.ps1 -RequireInstaller -RequireRuntime` は pass。
+- Phase 1-A: 現行 release manifest は `release/dist_installer/ToolHub_Setup_0.1.5.exe` を配布 installer として記録し、installer `sha256` / `size` を保持する。
 - Phase 1-A: `release/staging/installer_payload/staging_manifest.json` を生成済み。payload に `runner/`, `apps/`, `runtime/`, `config.default/`, `release/manifest.json`, `release/app_manifest.json`, `updater/`, `README.md` が含まれる。
 - Phase 1-B: 現在 PC で read-only 事前確認を実施。`%LOCALAPPDATA%\Programs\ToolHub\` は存在せず、`%LOCALAPPDATA%\ToolHub\` は既存 user data として存在する。
 - Phase 1-B: 現在 PC は clean profile ではなく、既存 user data を壊すリスクを避けるため installer 実行、起動、uninstall、reinstall は未実施。
@@ -479,8 +483,8 @@ Phase 1-A / 1-B 実施状況:
 - Phase 1-B: PATH 隔離テストは現在プロセスだけ PATH を最小化し、host の開発ツールを消さずに ToolHub 起動の補助確認を行う。ただしこれは clean PC の完全証明ではない。
 - Phase 1-B: PATH 隔離テストを DryRun なしで実行済み。`overall_status=pass`、ToolHub は isolated PATH で15秒以上起動し、隔離された `LOCALAPPDATA` 配下に user data dir を作成した。初回起動だけでは `.log` / `.json` file が作成されず `isolated_logs_created=warning` のため、log 生成確認は VM / installed workflow 側に残す。
 - Phase 1-B: VM 検証フローを `scripts/beta_vm/` に作成済み。VirtualBox / VMware / Hyper-V / 手動 VM の共有フォルダから installer を実行し、開発ツールなし環境での install / launch / runtime / uninstall / user data preservation を JSON / Markdown に記録する。
-- Phase 1-B: VM コピー用 package は `scripts/beta_vm/prepare_vm_test_package.ps1` で `scripts/beta_vm/package/ToolHub_Beta_VM_Test/` に作成する。package には `release/manifest.json`、`ToolHub_Setup_0.1.0.exe`、`staging_manifest.json`、`vm_install_test.ps1`、`VM_TEST_PACKAGE_README.md`、checksum、results folder を含める。
-- Phase 1-B: VM package は host で生成済み。package 内 installer の sha256 / size は `release/manifest.json` と一致する。VM 実行は未実施であり、clean Windows VM に package をコピーしてから実施する。
+- Phase 1-B: VM コピー用 package は `scripts/beta_vm/prepare_vm_test_package.ps1` で `scripts/beta_vm/package/ToolHub_Beta_VM_Test/` に作成する。package には `release/manifest.json`、現行 `ToolHub_Setup_<version>.exe`、`staging_manifest.json`、`vm_install_test.ps1`、`VM_TEST_PACKAGE_README.md`、checksum、results folder を含める。
+- Phase 1-B: VM package は host で生成済み。package 内 installer の sha256 / size は `release/manifest.json` と一致する。初期記録では VM 実行未実施だったが、2026-05-24 時点で VM 環境の正常動作は確認済み。
 - Phase 1-B: 初回 VM 実行では ToolHub window は起動したが、アプリ一覧は 0 件で、期待 install dir `%LOCALAPPDATA%\Programs\ToolHub\` が存在しなかった。実 install location と起動 exe が未特定のため、root 解決や payload 欠落をまだ断定しない。
 - Phase 1-B: `scripts/beta_vm/vm_install_test.ps1` は install location discovery、ToolHub.exe discovery、process path logging、payload layout summary、launcher log scan、`likely_failure_category` を記録するように強化済み。VM から戻した `latest_vm_install_result.json` は `scripts/beta_vm/import_vm_test_result.ps1` で要約し、`docs/06_acceptance_checklist.md` へ反映する。
 - Phase 1-B: 初回 VM 診断結果から、実 install location / 起動 exe は `%LOCALAPPDATA%\ToolHub\toolhub.exe` であり、予定していた user data root と衝突していた。また payload は Tauri の相対 resources layout により `_up_\_up_` 配下に存在する可能性が高い。
@@ -488,8 +492,14 @@ Phase 1-A / 1-B 実施状況:
 - Phase 1-B: Beta 配布物は `ToolHub_Setup.exe` を優先するため、Tauri bundle target は NSIS のみに絞る。MSI 生成は正式版候補として残し、Phase 1-B の完了条件には含めない。
 - Phase 1-B: dirty VM 再実行では新 installer hash が正しいにもかかわらず `%LOCALAPPDATA%\ToolHub\apps\...` への write error が発生した。生成 NSIS では `NSIS_HOOK_PREINSTALL` が Tauri の初回 `SetOutPath $INSTDIR` の後に挿入されるため、hook 内で `$INSTDIR` 固定後に `SetOutPath $INSTDIR` も再設定する方針へ補強した。
 - Phase 1-B: VM 診断は install 前の旧/new dir 残存、tester-recorded installer write error path、`dirty_vm_previous_install_residue` を記録する。旧 `%LOCALAPPDATA%\ToolHub` は user data として削除せず、clean proof とは分けて扱う。
-- Phase 1-B: 修正後 installer / VM package を再生成したうえで、clean Windows VM で `%LOCALAPPDATA%\Programs\ToolHub` 配置、`install_dir_user_data_collision=false`、app card 表示、登録済み検証アプリ起動、uninstall 後 user data 保持を再確認する。
-- Phase 1-B: 実 install / launch / registered validation app / uninstall / user data preservation は clean Windows VM または clean Windows user profile の manual check として残す。installer / uninstaller UI と 登録済み検証アプリ起動は人間確認を伴うため、検証結果を確認するまで完了済みとはしない。
+- Phase 1-B: 修正後 installer / VM package により、VM 環境で `%LOCALAPPDATA%\Programs\ToolHub` 配置、app card 表示、登録済み検証アプリ起動、同梱 runtime 利用を確認済み。uninstall / reinstall / existing config preservation は、最新 pass 結果ファイルを取り込むまで個別の manual evidence として扱う。
+
+2026-05-24 follow-up:
+
+- Phase 1-B: VM 環境での正常動作は確認済み。`docs/06_acceptance_checklist.md` は VM 正常確認済みとして更新した。
+- Phase 1-B: repo 内の `scripts/beta_vm/package/ToolHub_Beta_VM_Test/results/latest_vm_install_result.json` は古い dirty VM / fail 結果のため、最新 pass JSON が取り込まれるまでは VM 成否の根拠として混同しない。
+- Phase 2 / 3: `v0.1.5` の GitHub Release が Latest として存在し、`latest/download/manifest.json` から `ToolHub_Setup_0.1.5.exe` を download して size / sha256 が remote manifest と一致することを確認済み。
+- Phase 5: 現行 installer は `Get-AuthenticodeSignature` で `NotSigned`。署名 pipeline はあるが、証明書署名済み artifact は未作成。
 
 ### Phase 2: remote manifest による更新検知
 
@@ -819,11 +829,10 @@ Windows Application Control が `rustc.exe` / `cargo.exe` をブロックする�
 
 ## 次にCodexへ依頼する実装候補
 
-実装開始時は、まず [24_beta_installer_updater_execution_handoff.md](24_beta_installer_updater_execution_handoff.md) を読む。ユーザー不在でも停止条件に当たらない限り、同 handoff の順番で実装、検証、報告まで進める。
+旧 [24_beta_installer_updater_execution_handoff.md](archive/24_beta_installer_updater_execution_handoff.md) は初期実装用の handoff であり、現行の開始点としては使わない。次の作業は、`0.1.5` の現在状態を前提に次へ進む。
 
-1. Phase 1-B 補助検証: `scripts/beta_isolated_path/README.md` に従い、PATH 隔離テストを実行して ToolHub が host の開発ツール PATH に依存していないことを補助確認してください。これは完全証明ではありません。
-2. Phase 1-B 本検証: `scripts/beta_vm/README.md` に従い、clean Windows VM または clean Windows user profile で `ToolHub_Setup_0.1.0.exe` の install / first launch / registered validation app / uninstall / reinstall / user data preservation を記録してください。
-3. Phase 2 検証: 実 endpoint または mock manifest で `check_updates_remote` の `no_update` / `update_available` / fetch failure を確認してください。
-4. Phase 3 検証: 実 installer または mock file で `download_update_installer` の download / size mismatch / sha256 mismatch / verified launch gating を確認してください。
-5. Phase 4 実装: 再起動後 version 確認と failure diagnosis 表示を追加してください。check / download / launch result log と release readiness report 連携は実装済みです。
-6. Phase 5 設計: signature、backup、rollback、App Pack 単位更新、runtime 単位更新、CI / GitHub Releases 連携の正式版設計を分割してください。
+1. Installed updater command 検証: 実 endpoint / 実 installer で `check_updates_remote`、`download_update_installer`、sha256 mismatch、cache 外 path 拒否、verified launch gating を確認する。
+2. VM 結果取り込み: 最新 pass 結果ファイルを repo に取り込み、uninstall / reinstall / user data preservation / existing config preservation の証跡を `docs/06_acceptance_checklist.md` に反映する。
+3. Strict policy 整理: normal shared-env app に対する `runtime/app_envs/<app_id>` missing warning を formal gate と矛盾しないように整理する。
+4. 署名 artifact: 証明書署名済み installer を生成し、`verify_release.ps1 -RequireInstallerSignature` と GitHub Release publish 経路で署名後 hash を確認する。
+5. 正式版設計: manifest authenticity、backup、rollback、App Pack 単位更新、runtime 単位更新を Beta MVP から分離して設計する。

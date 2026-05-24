@@ -6,10 +6,11 @@ ToolHubはインストーラー型配布を正式方針にします。
 
 ## Current Status
 
-- Tauri標準のNSIS/MSI bundle生成は確認済みです。
-- 正式配布名 `release/dist_installer/ToolHub_Setup_0.1.0.exe` への収集、`release/manifest.json` のinstaller `sha256` / `size` 更新、`verify_release.ps1 -RequireInstaller` は確認済みです。
-- 実インストール検証、コード署名は未完了です。
-- runtime実体やWeb自動化用ランタイム実体はローカルrelease artifactとして存在する場合がありますが、installerへの正式同梱検証は未完了です。
+- 現行 release manifest は ToolHub `0.1.5` / `ToolHub_Setup_0.1.5.exe` を指します。
+- Tauri標準のNSIS bundle生成、`release/dist_installer/` への収集、`release/manifest.json` の installer `sha256` / `size` 更新、`verify_release.ps1 -RequireInstaller` は確認済みです。
+- 2026-05-24 時点で、GitHub Release Latest の `manifest.json` と `ToolHub_Setup_0.1.5.exe` は remote download 後の size / sha256 一致を確認済みです。
+- VM 環境で、per-user install、first launch、app card 表示、登録済み検証アプリ起動、同梱 Python / Web runtime 利用を確認済みです。最新 pass 結果ファイルが repo に取り込まれていない場合は、`docs/06_acceptance_checklist.md` の記録と混同せず扱います。
+- コード署名 pipeline はありますが、証明書署名済み artifact は未作成です。
 
 ## User Flow
 
@@ -37,7 +38,8 @@ ToolHubはインストーラー型配布を正式方針にします。
 ├─ apps/
 ├─ runtime/
 │  ├─ python/
-│  ├─ app_envs/
+│  ├─ envs/
+│  ├─ app_envs/        # legacy compatibility only
 │  └─ web_automation_runtime/
 ├─ config.default/
 ├─ release/

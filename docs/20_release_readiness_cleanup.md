@@ -8,7 +8,9 @@ this document were cleaned from `release/app_manifest.json`. App Packs for all s
 operations are scripted for local archives, and this checkout now has Python/Web runtime files expanded from local
 runtime sources. The archives and expanded runtime files remain Git-ignored release artifacts.
 Phase 6 cleanup itself did not delete source-present apps or build installers. Later Beta Phase 1-A work generated the
-current installer artifact and staging manifest; Phase 1-B real install / uninstall validation is still manual.
+current installer artifact and staging manifest. Later release work published `v0.1.5`; VM install / launch / app-card /
+registered-app / bundled-runtime behavior is recorded in `docs/06_acceptance_checklist.md`, while current-profile
+install/uninstall remains intentionally unrun.
 
 ## Current Report Command
 
@@ -26,11 +28,11 @@ blocked local-environment items, and Beta Ready readiness items. It does not wri
 
 The current repository snapshot from `.\scripts\report_release_readiness.ps1` is:
 
-- manifest entries: 5
-- app sources: 5
-- enabled with source: 4
+- manifest entries: 6
+- app sources: 6
+- enabled with source: 6
 - enabled missing source: 0
-- disabled with source: 1
+- disabled with source: 0
 - disabled stale: 0
 - source missing from manifest: 0
 - package path missing: 0
@@ -41,7 +43,12 @@ The current repository snapshot from `.\scripts\report_release_readiness.ps1` is
 
 Enabled apps with source:
 
-- none
+- `app_20251123_excelbatchreplace`
+- `app_20260201_agendasnap`
+- `pdf_workbench`
+- `run_3dx_create_ids`
+- `run_3dx_download_pdfs`
+- `run_xcgate_upload`
 
 Disabled apps with source:
 
@@ -114,9 +121,9 @@ Current runtime readiness items:
 - `runtime/python/python.exe` exists and passes `verify_runtime.ps1 -RequireRuntime`.
 - `runtime/web_automation_runtime/` contains Web automation runtime files and passes `verify_runtime.ps1 -RequireRuntime`.
 
-These are local release artifacts in this checkout. They do not prove that an installer has bundled the runtime or that
-an installed ToolHub uses it. Installer-bundled runtime behavior remains a Beta Phase 1 manual check. These are shared
-runtime packaging tasks and must not be resolved by deleting apps.
+These are local release artifacts in this checkout. The read-only report alone does not prove installed behavior, but
+the 2026-05-24 VM follow-up recorded in `docs/06_acceptance_checklist.md` confirms bundled Python and Web runtime use in
+an installed environment. These are shared runtime packaging tasks and must not be resolved by deleting apps.
 
 ## Beta Ready Report Section
 
@@ -148,13 +155,14 @@ Current runtime packaging status:
 
 Current installer readiness items:
 
-- `release/dist_installer/ToolHub_Setup_0.1.0.exe` exists as a generated, Git-ignored release artifact.
-- `release/manifest.json` records installer `sha256=57b222c4c8f15ccf755ae55a1cb3abd8d0328a601b97afce857e390319993319` and `size=290362631`.
+- `release/manifest.json` points to `ToolHub_Setup_0.1.5.exe` as the current installer artifact.
+- `release/manifest.json` records installer `sha256=d5f00c4abc6ad4cc574204a200b33a49c91faa9777d679217644fc44369e20e6` and `size=327095798`.
 - `scripts/verify_release.ps1 -RequireInstaller -RequireRuntime` passes for the current generated artifact set.
 - `release/staging/installer_payload/staging_manifest.json` exists and captures the installer payload.
 
-These checks prove artifact and manifest consistency only. They do not prove real install, first launch, bundled runtime
-selection in an installed environment, uninstall, or user data preservation.
+These checks prove artifact and manifest consistency only. `docs/06_acceptance_checklist.md` carries the VM install /
+first-launch / app-card / registered-app / bundled-runtime confirmation. Uninstall / reinstall and existing config
+preservation remain separate manual evidence items until the latest pass result files are imported.
 
 ## Phase 1-B Install Validation Status
 
@@ -193,13 +201,13 @@ is unavailable. Keep the Sandbox flow for machines that support it, but use the 
   user data directory, bundled runtime, ToolHub launch, manual app checks, uninstall, and user data preservation.
 - `scripts/beta_vm/prepare_vm_test_package.ps1` creates the ignored VM copy package under
   `scripts/beta_vm/package/ToolHub_Beta_VM_Test/`. It validates installer sha256 / size against `release/manifest.json`
-  before copying and writes package checksum / summary files. VM execution remains manual until a clean Windows VM is
-  available.
-- The VM package has been generated on the host. The packaged installer matches `release/manifest.json`
-  (`sha256=44855bbd6f4cb82ad1bf9d50116835c0407b1d201df54c3d7c141e288bf9aebf`, `size=290289588`). This only proves the
-  package contents and hash consistency; it does not prove VM install / launch yet.
-- An initial clean Windows VM run launched the ToolHub window, but the app list was empty and the expected install dir
-  `%LOCALAPPDATA%\Programs\ToolHub\` did not exist. Do not assume a single root cause yet.
+  before copying and writes package checksum / summary files. The latest docs status treats the old package result under
+  `scripts/beta_vm/package/.../results/` as stale unless a newer pass result is imported.
+- The 2026-05-24 follow-up confirmed VM install / first launch / app card / registered app launch / bundled runtime
+  behavior for the current release path. The repo-local `scripts/beta_vm/package/ToolHub_Beta_VM_Test/results/`
+  snapshot may still contain an older dirty-VM failure and must not be used as the latest pass evidence.
+- An initial VM run launched the ToolHub window but exposed an install-dir / user-data collision. Keep this as historical
+  root-cause evidence only; it was followed by the install-dir hook and resource-root fixes.
 - `scripts/beta_vm/vm_install_test.ps1` now records install location discovery, discovered `ToolHub*.exe` candidates,
   the launched/running process path, payload layout under discovered dirs and `resources`, launcher log matches, and a
   `likely_failure_category` value.
@@ -228,15 +236,16 @@ Normal verification can warn for:
 - missing app-specific `runtime/app_envs/<app_id>` folders
 
 The missing app_env warnings are intentional under the current normal App Studio model because App Studio creates
-frozen-folder apps under `apps/<app_id>/`, not user runtime environments under `runtime/app_envs/<app_id>`.
+shared-env apps under `apps/<app_id>/` and uses `runtime/envs/<env_id>`, not per-app environments under
+`runtime/app_envs/<app_id>`.
 
 ## Docs / Check Adjustment Candidates
 
 Before strict/formal release, decide the strict policy for app-specific `runtime/app_envs/<app_id>`:
 
 - Keep as strict fail only for apps that explicitly use an app-env execution mode.
-- Downgrade missing app_env to a warning for frozen-folder apps.
-- Or require app.yaml metadata that distinguishes frozen-folder apps from app-env apps in release verification.
+- Downgrade missing app_env to a warning for normal shared-env apps.
+- Or require app.yaml metadata that distinguishes shared-env apps from app-env apps in release verification.
 
 This is not an app deletion candidate. It is a validation policy decision because current normal App Studio registration
 does not create `runtime/app_envs/<app_id>`.
@@ -280,9 +289,13 @@ PowerShell, or use another release build machine.
 5. If Windows Sandbox is available, run `.\scripts\beta_sandbox\run_sandbox_test.ps1 -DryRun`, then run the Sandbox
    install flow. On Windows Home / Core, run `.\scripts\beta_isolated_path\run_isolated_path_test.ps1 -DryRun` as a
    smoke test, then run the clean VM flow in `scripts/beta_vm/`.
-6. Decide and implement the strict `runtime/app_envs/<app_id>` policy for frozen-folder apps.
-7. Move to endpoint validation for the Beta updater.
-8. Move to strict/formal verification after generated artifacts, install validation, and strict policy are handled.
+6. Decide and implement the strict `runtime/app_envs/<app_id>` policy for normal shared-env apps.
+7. Exercise the installed updater command against the `v0.1.5` endpoint for remote check, download, mismatch, cache
+   boundary, and verified launch gating.
+8. Generate a certificate-signed installer artifact and run `verify_release.ps1 -RequireInstallerSignature` when the
+   release channel requires formal trust.
+9. Move to strict/formal verification after generated artifacts, install validation, updater command checks, and strict
+   policy are handled.
 
 ## Remaining Work This Phase Does Not Do
 

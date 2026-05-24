@@ -6,11 +6,11 @@
 
 利用者側では、ToolHub 起動時に GitHub Releases 上の remote manifest を確認し、自分の ToolHub が古い場合は、複雑な操作なしで最新版へ更新できるようにする。
 
-この文書は、実装途中に方針がぶれないようにするための実装基準である。既存の `docs/22_beta_installer_updater_plan.md` と `docs/24_beta_installer_updater_execution_handoff.md` を上書きするものではなく、GitHub Releases を実運用配布元にするための追加方針として扱う。
+この文書は、実装途中に方針がぶれないようにするための実装基準である。既存の `docs/22_beta_installer_updater_plan.md` と archived handoff `docs/archive/24_beta_installer_updater_execution_handoff.md` を上書きするものではなく、GitHub Releases を実運用配布元にするための追加方針として扱う。
 
 ## 確認済みの現状
 
-2026-05-23 時点の確認では、利用者側 updater の Beta MVP 実装は大部分が存在する。
+2026-05-24 時点の確認では、利用者側 updater の Beta MVP 実装と GitHub Release 公開導線は成立している。
 
 - `check_updates_remote` は remote manifest を取得し、現在 version と比較できる。
 - `download_update_installer` は installer を `%LOCALAPPDATA%\ToolHub\update_cache\` に保存し、manifest の sha256 と照合できる。
@@ -20,6 +20,7 @@
 - 起動時の通常画面は `checkUpdatesRemote()` を呼び、`update_available` の場合だけ更新候補を表示する。
 - 管理者画面には更新確認、installer 取得、検証済み installer 起動の入口がある。
 - `scripts/report_release_readiness.ps1` では `beta_ready_blockers: 0` まで到達している。
+- `v0.1.5` の GitHub Release が Latest として存在し、`latest/download/manifest.json` から `ToolHub_Setup_0.1.5.exe` を download して size / sha256 が remote manifest と一致することを確認済み。
 
 2026-05-23 の実装で、GitHub Releases を使う基本導線として次を追加した。
 
@@ -35,11 +36,11 @@
 
 一方で、GitHub Releases を使う実運用には次が残っている。
 
-- 実 endpoint / 実 installer での remote check、download、sha256 match / mismatch、verified launch gating は未完了。
-- clean Windows VM または clean Windows user profile での install / update / uninstall / user data 保持は未検証。
+- ToolHub installed updater command としての remote check、download、sha256 match / mismatch、cache 外 path 拒否、verified launch gating は、実 endpoint / 実 installer でまだ完了していない。2026-05-24 は script level の endpoint / download / sha256 検証まで pass。
+- clean Windows VM での install / launch / app card / registered app launch / bundled runtime use は確認済み。uninstall / reinstall / user data 保持 / existing config preservation は最新 pass 証跡ファイル取り込みまで個別 manual evidence として残す。
 - installer code signing は release pipeline で opt-in 実行できる。証明書署名済み artifact の生成、manifest signing、信頼済み配布経路の決定は正式版向け future/formal 項目として残っている。
 
-2026-05-24 の read-only 実 endpoint 確認では、`scripts/check_github_release_endpoint.ps1 -Json` により、`https://github.com/kuroronrobins/ToolHub/releases/latest/download/manifest.json` は `404 Not Found`、`gh release view v0.1.0 --repo kuroronrobins/ToolHub` は `release not found` と分類された。更新機能の実 endpoint 検証は GitHub Release 作成後に再実施する。
+2026-05-24 の follow-up では、`v0.1.5` の GitHub Release が Latest として存在し、`https://github.com/kuroronrobins/ToolHub/releases/latest/download/manifest.json` から manifest を取得できる状態になった。GitHub Release 未作成時点の endpoint failure 記録は解消済みの履歴として扱う。
 
 ## 基本方針
 

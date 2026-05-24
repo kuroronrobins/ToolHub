@@ -27,7 +27,7 @@ Generated or derived locations:
 - `release/app_packs/<app_id>-<version>.zip`
 - `release/staging/`
 - `runtime/envs/<env_id>/`
-- `runtime/app_envs/<app_id>/`
+- `runtime/app_envs/<app_id>/` for legacy app-env compatibility only
 
 History locations:
 

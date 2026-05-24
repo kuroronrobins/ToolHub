@@ -2,6 +2,8 @@
 
 作成日: 2026-05-16
 
+Status: historical remediation record. Current normal App Studio registration is `shared-env` / `python_shared_env`; AgendaSnap is registered as `python_shared_env` with `run.entry: src/main.py`. Keep this document as the root-cause and contract reference for GUI parity issues, not as the current registration flow.
+
 ## 目的
 
 AgendaSnap を ToolHub に登録したとき、単体実行と同じ画面遷移、同じサブ画面起動、同じ起動完了判定になるようにする。
