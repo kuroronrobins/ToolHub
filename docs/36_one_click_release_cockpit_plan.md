@@ -509,6 +509,9 @@ cargo test
 - 署名が有効な場合は `build_release.ps1 -SignInstaller` と `publish_github_release.ps1 -SignInstaller` を呼び、署名後 artifact を manifest と upload target にする。
 - `-RequireInstallerSignature` を release gate として使い、未署名 artifact のまま公開されないようにする。
 - GUIからの release build / publish では、実行中の開発サーバーやWebViewが `node_modules` の native binding を掴んでいる場合があるため、既存 `node_modules` を使い `-SkipInstall` で `npm ci` を避ける。
+- GUIからの release build / publish では、`build_release.ps1 -SkipVerify` の後に `verify_release.ps1 -RequireInstaller -RequireAppPacks -RequireRuntime -Strict` を1回だけ実行し、同じ検証の二重実行を避ける。
+- App Pack は source fingerprint と package sha256 / size が一致する場合だけ `release/app_packs/.pack_cache.json` に基づいて再利用し、変更なしの再圧縮を省く。cache 不一致時は zip 内容を source と照合し、照合できない場合は再生成する。
+- `署名 / build / verify` では実行中 stdout の stage marker を frontend に通知し、環境確認、App Pack、runtime、Tauri build、installer、署名、strict verify の進捗を実行中リング / 完了チェック / 失敗で表示する。
 - 既に build 済みのNSIS installerを署名する場合は、GUIから `package_installer.ps1 -SignInstaller` を実行し、署名後に `verify_release.ps1 -RequireInstaller -RequireInstallerSignature` を通す。
 - 既存 GitHub Release へ現在の署名済み installer を反映する場合は、`publish_github_release.ps1 -SkipBuild -AllowExistingRelease -RequireInstallerSignature` の経路を使い、buildし直さずに署名済み artifact を upload target にする。
 - result log を保存する。

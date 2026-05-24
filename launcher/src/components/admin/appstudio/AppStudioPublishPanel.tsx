@@ -1,6 +1,7 @@
 import {
   CheckCircle2,
   CircleAlert,
+  CircleDot,
   ClipboardCheck,
   FileCheck2,
   FolderCheck,
@@ -15,7 +16,8 @@ import {
   TriangleAlert,
   UploadCloud,
 } from "lucide-react";
-import { useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
   appStudioPublishBuildVerify,
@@ -42,6 +44,7 @@ import { formatAdminError } from "../adminUi";
 
 type PublishPhaseStatus = "pending" | "running" | "passed" | "failed" | "skipped";
 type RecommendedActionTone = "neutral" | "success" | "warn";
+type BuildVerifyStageId = "preflight" | "app_packs" | "runtime" | "tauri_build" | "installer" | "signing" | "strict_verify";
 
 interface PublishStepItem {
   number: string;
@@ -62,7 +65,24 @@ interface RecommendedAction {
   disabled?: boolean;
 }
 
+interface PublishProcessStep {
+  id: BuildVerifyStageId;
+  title: string;
+  detail: string;
+  status: PublishPhaseStatus;
+}
+
+interface AppStudioPublishProgressEvent {
+  operation?: string;
+  stage?: string;
+  status?: PublishPhaseStatus;
+  message?: string;
+  timestamp?: string;
+}
+
 const DEFAULT_CODE_SIGN_TIMESTAMP_URL = "http://timestamp.digicert.com";
+const PUBLISH_PROGRESS_EVENT = "app-studio-publish-progress";
+const BUILD_VERIFY_STAGE_ORDER: BuildVerifyStageId[] = ["preflight", "app_packs", "runtime", "tauri_build", "installer", "signing", "strict_verify"];
 
 const RECOMMENDED_RELEASE_SETTING_NOTES = [
   "署名なし installer を clean tree から build / verify して公開します。",
@@ -93,6 +113,9 @@ export function AppStudioPublishPanel() {
   const [saveNotesBusy, setSaveNotesBusy] = useState(false);
   const [flowBusy, setFlowBusy] = useState(false);
   const [flowMessage, setFlowMessage] = useState("");
+  const [buildVerifyActiveStage, setBuildVerifyActiveStage] = useState<BuildVerifyStageId | null>(null);
+  const [buildVerifyStepStatuses, setBuildVerifyStepStatuses] = useState<Partial<Record<BuildVerifyStageId, PublishPhaseStatus>>>({});
+  const [buildVerifyProgressMessage, setBuildVerifyProgressMessage] = useState("");
   const [downloadInstallerForVerify, setDownloadInstallerForVerify] = useState(true);
   const [confirmPublish, setConfirmPublish] = useState(false);
   const [allowDirty, setAllowDirty] = useState(false);
@@ -125,6 +148,59 @@ export function AppStudioPublishPanel() {
     setSignInstaller(false);
     setRequireInstallerSignature(false);
     setCodeSignTimestampUrl(DEFAULT_CODE_SIGN_TIMESTAMP_URL);
+  }
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    void listen<AppStudioPublishProgressEvent>(PUBLISH_PROGRESS_EVENT, (event) => {
+      const payload = event.payload;
+      if (payload.operation !== "build_verify") {
+        return;
+      }
+      const stage = normalizeBuildVerifyStage(payload.stage);
+      const status = normalizePhaseStatus(payload.status);
+      if (stage && status === "running") {
+        setBuildVerifyActiveStage(stage);
+        setBuildVerifyProgressMessage(payload.message ?? "");
+        setBuildVerifyStepStatuses((current) => markBuildVerifyRunning(current, stage));
+        return;
+      }
+      if (status === "passed") {
+        setBuildVerifyActiveStage(null);
+        setBuildVerifyProgressMessage(payload.message ?? "release build / verify が完了しました。");
+        setBuildVerifyStepStatuses((current) => markBuildVerifyComplete(current, "passed"));
+        return;
+      }
+      if (status === "failed") {
+        setBuildVerifyProgressMessage(payload.message ?? "release build / verify が失敗しました。");
+        setBuildVerifyStepStatuses((current) => markBuildVerifyFailed(current));
+      }
+    }).then((nextUnlisten) => {
+      if (disposed) {
+        nextUnlisten();
+      } else {
+        unlisten = nextUnlisten;
+      }
+    });
+    return () => {
+      disposed = true;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []);
+
+  function beginBuildVerifyProgress(message = "release build / verify を開始しています。") {
+    setBuildVerifyResult(null);
+    setBuildVerifyActiveStage("preflight");
+    setBuildVerifyProgressMessage(message);
+    setBuildVerifyStepStatuses({ preflight: "running" });
+  }
+
+  function finishBuildVerifyProgress(ok: boolean) {
+    setBuildVerifyActiveStage(null);
+    setBuildVerifyStepStatuses((current) => ok ? markBuildVerifyComplete(current, "passed") : markBuildVerifyFailed(current));
   }
 
   async function runPreflight() {
@@ -234,6 +310,7 @@ export function AppStudioPublishPanel() {
   async function runBuildVerify() {
     setBuildVerifyBusy(true);
     setError("");
+    beginBuildVerifyProgress();
     try {
       const nextResult = await appStudioPublishBuildVerify({
         signInstaller,
@@ -245,7 +322,9 @@ export function AppStudioPublishPanel() {
       });
       setBuildVerifyResult(nextResult);
       setResult(nextResult.preflight);
+      finishBuildVerifyProgress(nextResult.ok);
     } catch (buildError) {
+      finishBuildVerifyProgress(false);
       setError(formatAdminError(buildError, "release build / verify に失敗しました。"));
     } finally {
       setBuildVerifyBusy(false);
@@ -271,8 +350,14 @@ export function AppStudioPublishPanel() {
   }
 
   async function runPublishRelease() {
+    if (publishBlockReason) {
+      setPublishResult(null);
+      setError(publishBlockReason);
+      return;
+    }
     setPublishBusy(true);
     setError("");
+    setPublishResult(null);
     try {
       const nextResult = await appStudioPublishRelease({
         confirmPublish,
@@ -311,6 +396,7 @@ export function AppStudioPublishPanel() {
     setFlowMessage("公開前チェックを実行しています。");
     let nextReleaseNotes = releaseNotes.trim();
     let nextManifestReleaseNotesJson = manifestReleaseNotesJson.trim();
+    let buildVerifyStarted = false;
     try {
       setBusy(true);
       const preflight = await appStudioPublishPreflight();
@@ -318,6 +404,9 @@ export function AppStudioPublishPanel() {
       setBusy(false);
       if (!preflight.ok) {
         throw new Error("公開前チェックに失敗項目があります。内容を確認してください。");
+      }
+      if (preflight.dirtyFiles.length > 0 && !allowDirty) {
+        throw new Error("未コミット変更があります。コミットするか、公開オプションの「dirty tree での publish を許可」を明示的に有効にしてください。");
       }
 
       if (!nextReleaseNotes || !nextManifestReleaseNotesJson) {
@@ -349,6 +438,8 @@ export function AppStudioPublishPanel() {
       } else {
         setFlowMessage("release build / verify を実行しています。");
         setBuildVerifyBusy(true);
+        buildVerifyStarted = true;
+        beginBuildVerifyProgress("推奨フロー内で release build / verify を開始しています。");
         const buildResult = await appStudioPublishBuildVerify({
           signInstaller,
           requireInstallerSignature: requireInstallerSignature || signInstaller,
@@ -359,6 +450,8 @@ export function AppStudioPublishPanel() {
         });
         setBuildVerifyResult(buildResult);
         setResult(buildResult.preflight);
+        finishBuildVerifyProgress(buildResult.ok);
+        buildVerifyStarted = false;
         setBuildVerifyBusy(false);
         if (!buildResult.ok) {
           throw new Error("release build / verify に失敗しました。");
@@ -415,6 +508,9 @@ export function AppStudioPublishPanel() {
 
       setFlowMessage("一括公開フローが完了しました。");
     } catch (flowError) {
+      if (buildVerifyStarted) {
+        finishBuildVerifyProgress(false);
+      }
       setError(formatAdminError(flowError, "一括公開フローに失敗しました。"));
       setBusy(false);
       setNotesDraftBusy(false);
@@ -430,12 +526,28 @@ export function AppStudioPublishPanel() {
   }
 
   const anyBusy = busy || dryRunBusy || prepareTargetBusy || signCurrentInstallerBusy || buildVerifyBusy || remoteVerifyBusy || publishBusy || notesDraftBusy || saveNotesBusy || flowBusy;
-  const canPublish = confirmPublish && !anyBusy;
-  const canRunOneClickFlow = confirmPublish && !anyBusy;
   const hasCodeSignSelector = Boolean(codeSignCertificateThumbprint.trim() || codeSignCertificateSubject.trim());
   const uploadAssets = result?.releaseTargetAssets?.filter((asset) => asset.upload) ?? [];
   const releaseTargetReady = uploadAssets.length > 0 && uploadAssets.every((asset) => asset.targetExists);
   const notesHaveDraft = Boolean(releaseNotes.trim() || manifestReleaseNotesJson.trim() || notesDraftResult);
+  const hasDirtyFiles = Boolean(result?.dirtyFiles?.length);
+  const dirtyTreeAllowed = !hasDirtyFiles || allowDirty;
+  const buildReady = buildVerifyResult?.ok === true || (useCurrentInstallerForPublish && signCurrentInstallerResult?.ok === true);
+  const releaseNotesReady = saveNotesResult?.ok === true;
+  const publishTargetReady = releaseTargetReady && dryRunResult?.ok === true;
+  const publishTrustReady = !signInstaller || hasCodeSignSelector || useCurrentInstallerForPublish;
+  const publishBlockReason = getPublishBlockReason({
+    confirmPublish,
+    preflightOk: result?.ok === true,
+    releaseNotesReady,
+    buildReady,
+    publishTargetReady,
+    hasDirtyFiles,
+    allowDirty,
+    publishTrustReady,
+  });
+  const canPublish = !anyBusy && !publishBlockReason;
+  const canRunOneClickFlow = confirmPublish && dirtyTreeAllowed && !anyBusy;
   const notesStatus: PublishPhaseStatus = notesDraftBusy || saveNotesBusy ? "running" : saveNotesResult?.ok ? "passed" : "pending";
   const buildStageStatus: PublishPhaseStatus = (() => {
     if (signCurrentInstallerBusy || buildVerifyBusy) {
@@ -473,6 +585,17 @@ export function AppStudioPublishPanel() {
     }
     return "pending";
   })();
+  const buildVerifyProcessSteps = buildBuildVerifyProcessSteps({
+    signInstaller,
+    requireInstallerSignature,
+    useCurrentInstallerForPublish,
+    signCurrentInstallerBusy,
+    signCurrentInstallerResult,
+    buildVerifyBusy,
+    buildVerifyResult,
+    activeStage: buildVerifyActiveStage,
+    stepStatuses: buildVerifyStepStatuses,
+  });
   const publishReadiness = [
     {
       label: "公開前確認",
@@ -486,7 +609,7 @@ export function AppStudioPublishPanel() {
     },
     {
       label: "build / verify",
-      ok: buildVerifyResult?.ok === true || (useCurrentInstallerForPublish && signCurrentInstallerResult?.ok === true),
+      ok: buildReady,
       message: buildVerifyResult?.ok
         ? "通過済みです。"
         : useCurrentInstallerForPublish
@@ -495,13 +618,13 @@ export function AppStudioPublishPanel() {
     },
     {
       label: "公開対象",
-      ok: releaseTargetReady && dryRunResult?.ok === true,
-      message: releaseTargetReady && dryRunResult?.ok ? "対象フォルダと dry-run は確認済みです。" : "対象フォルダ作成と dry-run が残っています。",
+      ok: publishTargetReady,
+      message: publishTargetReady ? "対象フォルダと dry-run は確認済みです。" : "対象フォルダ作成と dry-run が残っています。",
     },
     {
       label: "dirty tree",
-      ok: !result?.dirtyFiles?.length || allowDirty,
-      message: result?.dirtyFiles?.length
+      ok: dirtyTreeAllowed,
+      message: hasDirtyFiles
         ? allowDirty
           ? "dirty tree を明示許可しています。"
           : "未コミット変更があります。"
@@ -511,7 +634,7 @@ export function AppStudioPublishPanel() {
     },
     {
       label: "installer信頼性",
-      ok: !signInstaller || hasCodeSignSelector || useCurrentInstallerForPublish,
+      ok: publishTrustReady,
       message: signInstaller
         ? hasCodeSignSelector
           ? "指定証明書で署名します。"
@@ -534,6 +657,8 @@ export function AppStudioPublishPanel() {
     notesHaveDraft,
     releaseTargetReady,
     confirmPublish,
+    hasDirtyFiles,
+    allowDirty,
     useCurrentInstallerForPublish,
     anyBusy,
     runPreflight: () => void runPreflight(),
@@ -622,38 +747,42 @@ export function AppStudioPublishPanel() {
         </>
       ),
       children: (
-        <details className="publish-advanced-options">
-          <summary>署名設定</summary>
-          <SignatureOptions
-            anyBusy={anyBusy}
-            signInstaller={signInstaller}
-            requireInstallerSignature={requireInstallerSignature}
-            useCurrentInstallerForPublish={useCurrentInstallerForPublish}
-            codeSignCertificateThumbprint={codeSignCertificateThumbprint}
-            codeSignCertificateSubject={codeSignCertificateSubject}
-            codeSignTimestampUrl={codeSignTimestampUrl}
-            signToolPath={signToolPath}
-            setSignInstaller={(checked) => {
-              setSignInstaller(checked);
-              if (checked) {
-                setRequireInstallerSignature(true);
-                setUseCurrentInstallerForPublish(false);
-              }
-            }}
-            setRequireInstallerSignature={setRequireInstallerSignature}
-            setUseCurrentInstallerForPublish={(checked) => {
-              setUseCurrentInstallerForPublish(checked);
-              if (checked) {
-                setRequireInstallerSignature(true);
-                setAllowExistingRelease(true);
-              }
-            }}
-            setCodeSignCertificateThumbprint={setCodeSignCertificateThumbprint}
-            setCodeSignCertificateSubject={setCodeSignCertificateSubject}
-            setCodeSignTimestampUrl={setCodeSignTimestampUrl}
-            setSignToolPath={setSignToolPath}
-          />
-        </details>
+        <>
+          <PublishProcessList steps={buildVerifyProcessSteps} />
+          {buildVerifyProgressMessage ? <p className="admin-muted publish-process-message">{buildVerifyProgressMessage}</p> : null}
+          <details className="publish-advanced-options">
+            <summary>署名設定</summary>
+            <SignatureOptions
+              anyBusy={anyBusy}
+              signInstaller={signInstaller}
+              requireInstallerSignature={requireInstallerSignature}
+              useCurrentInstallerForPublish={useCurrentInstallerForPublish}
+              codeSignCertificateThumbprint={codeSignCertificateThumbprint}
+              codeSignCertificateSubject={codeSignCertificateSubject}
+              codeSignTimestampUrl={codeSignTimestampUrl}
+              signToolPath={signToolPath}
+              setSignInstaller={(checked) => {
+                setSignInstaller(checked);
+                if (checked) {
+                  setRequireInstallerSignature(true);
+                  setUseCurrentInstallerForPublish(false);
+                }
+              }}
+              setRequireInstallerSignature={setRequireInstallerSignature}
+              setUseCurrentInstallerForPublish={(checked) => {
+                setUseCurrentInstallerForPublish(checked);
+                if (checked) {
+                  setRequireInstallerSignature(true);
+                  setAllowExistingRelease(true);
+                }
+              }}
+              setCodeSignCertificateThumbprint={setCodeSignCertificateThumbprint}
+              setCodeSignCertificateSubject={setCodeSignCertificateSubject}
+              setCodeSignTimestampUrl={setCodeSignTimestampUrl}
+              setSignToolPath={setSignToolPath}
+            />
+          </details>
+        </>
       ),
     },
     {
@@ -684,7 +813,7 @@ export function AppStudioPublishPanel() {
     {
       number: "5",
       title: "GitHub公開",
-      summary: publishResult?.ok ? "GitHub Release 公開が完了しています。" : confirmPublish ? "確認済みです。公開ボタンを実行できます。" : "公開確認を有効にすると実 publish が実行可能になります。",
+      summary: publishResult?.ok ? "GitHub Release 公開が完了しています。" : publishBlockReason ?? (confirmPublish ? "公開条件は揃っています。公開ボタンを実行できます。" : "公開確認を有効にすると実 publish が実行可能になります。"),
       status: phaseFromRun(publishResult, publishBusy),
       icon: publishBusy ? <Loader2 className="studio-spinner" size={20} aria-hidden="true" /> : <UploadCloud size={20} aria-hidden="true" />,
       actions: (
@@ -696,6 +825,7 @@ export function AppStudioPublishPanel() {
       children: (
         <div className="publish-option-stack">
           <PublishReadinessChecklist items={publishReadiness} />
+          {publishBlockReason ? <p className="admin-warning">{publishBlockReason}</p> : null}
           <label className="admin-toggle publish-confirm-toggle">
             <input type="checkbox" checked={confirmPublish} disabled={anyBusy} onChange={(event) => setConfirmPublish(event.currentTarget.checked)} />
             GitHub Release への公開を実行する
@@ -841,6 +971,8 @@ function buildRecommendedAction(input: {
   notesHaveDraft: boolean;
   releaseTargetReady: boolean;
   confirmPublish: boolean;
+  hasDirtyFiles: boolean;
+  allowDirty: boolean;
   useCurrentInstallerForPublish: boolean;
   anyBusy: boolean;
   runPreflight: () => void;
@@ -873,6 +1005,9 @@ function buildRecommendedAction(input: {
   }
   if (!input.dryRunResult?.ok) {
     return { ...common, title: "次はpublish dry-run", message: "公開scriptの事前判定を確認します。", label: "publish dry-run", tone: "neutral", onAction: input.runDryRun };
+  }
+  if (input.hasDirtyFiles && !input.allowDirty) {
+    return { ...common, title: "dirty tree の判断が必要", message: "未コミット変更があるため、コミットするか、公開オプションで dirty tree publish を明示許可してください。", tone: "warn" };
   }
   if (!input.confirmPublish) {
     return { ...common, title: "公開確認が必要", message: "GitHub Release への公開を実行する確認を有効にします。", tone: "warn" };
@@ -939,6 +1074,38 @@ function ReleaseStepList({ steps }: { steps: PublishStepItem[] }) {
       ))}
     </div>
   );
+}
+
+function PublishProcessList({ steps }: { steps: PublishProcessStep[] }) {
+  return (
+    <div className="publish-process-list" aria-label="署名 / build / verify の実行状況">
+      {steps.map((step) => (
+        <div className={`publish-process-item ${step.status}`} key={step.id}>
+          <span title={PHASE_STATUS_LABELS[step.status]}>{publishProcessIcon(step.status)}</span>
+          <div>
+            <strong>{step.title}</strong>
+            <small>{step.detail}</small>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function publishProcessIcon(status: PublishPhaseStatus) {
+  if (status === "running") {
+    return <Loader2 className="studio-spinner" size={17} aria-hidden="true" />;
+  }
+  if (status === "passed") {
+    return <CheckCircle2 size={17} aria-hidden="true" />;
+  }
+  if (status === "failed") {
+    return <CircleAlert size={17} aria-hidden="true" />;
+  }
+  if (status === "skipped") {
+    return <TriangleAlert size={17} aria-hidden="true" />;
+  }
+  return <CircleDot size={17} aria-hidden="true" />;
 }
 
 function ReleaseSnapshot({ result }: { result: AppStudioPublishPreflightResult }) {
@@ -1142,6 +1309,180 @@ function phaseFromPreflight(result: AppStudioPublishPreflightResult | null, busy
     return "pending";
   }
   return result.ok ? "passed" : "failed";
+}
+
+function getPublishBlockReason(input: {
+  confirmPublish: boolean;
+  preflightOk: boolean;
+  releaseNotesReady: boolean;
+  buildReady: boolean;
+  publishTargetReady: boolean;
+  hasDirtyFiles: boolean;
+  allowDirty: boolean;
+  publishTrustReady: boolean;
+}): string | null {
+  if (!input.confirmPublish) {
+    return "GitHub Release への公開確認を有効にしてください。";
+  }
+  if (!input.preflightOk) {
+    return "公開前確認を通過してから GitHub publish を実行してください。";
+  }
+  if (!input.releaseNotesReady) {
+    return "更新内容を manifest に保存してから GitHub publish を実行してください。";
+  }
+  if (!input.buildReady) {
+    return "build / verify を通過してから GitHub publish を実行してください。";
+  }
+  if (!input.publishTargetReady) {
+    return "公開対象フォルダ作成と publish dry-run を完了してから GitHub publish を実行してください。";
+  }
+  if (input.hasDirtyFiles && !input.allowDirty) {
+    return "未コミット変更があります。コミットするか、公開オプションの「dirty tree での publish を許可」を明示的に有効にしてください。";
+  }
+  if (!input.publishTrustReady) {
+    return "installer 署名を有効にする場合は、証明書 thumbprint / subject か署名済み installer の利用を指定してください。";
+  }
+  return null;
+}
+
+function normalizeBuildVerifyStage(stage?: string): BuildVerifyStageId | null {
+  if (!stage) {
+    return null;
+  }
+  return BUILD_VERIFY_STAGE_ORDER.includes(stage as BuildVerifyStageId) ? (stage as BuildVerifyStageId) : null;
+}
+
+function normalizePhaseStatus(status?: string): PublishPhaseStatus | null {
+  if (!status) {
+    return null;
+  }
+  return ["pending", "running", "passed", "failed", "skipped"].includes(status) ? (status as PublishPhaseStatus) : null;
+}
+
+function markBuildVerifyRunning(
+  current: Partial<Record<BuildVerifyStageId, PublishPhaseStatus>>,
+  stage: BuildVerifyStageId,
+) {
+  const next = { ...current };
+  const index = BUILD_VERIFY_STAGE_ORDER.indexOf(stage);
+  BUILD_VERIFY_STAGE_ORDER.slice(0, index).forEach((previousStage) => {
+    if (next[previousStage] !== "skipped") {
+      next[previousStage] = "passed";
+    }
+  });
+  next[stage] = "running";
+  return next;
+}
+
+function markBuildVerifyComplete(
+  current: Partial<Record<BuildVerifyStageId, PublishPhaseStatus>>,
+  status: "passed" | "failed",
+) {
+  const next = { ...current };
+  BUILD_VERIFY_STAGE_ORDER.forEach((stage) => {
+    if (next[stage] !== "skipped") {
+      next[stage] = status;
+    }
+  });
+  return next;
+}
+
+function markBuildVerifyFailed(current: Partial<Record<BuildVerifyStageId, PublishPhaseStatus>>) {
+  const next = { ...current };
+  const failedStage = BUILD_VERIFY_STAGE_ORDER.find((stage) => next[stage] === "running") ?? "strict_verify";
+  next[failedStage] = "failed";
+  return next;
+}
+
+function buildBuildVerifyProcessSteps(input: {
+  signInstaller: boolean;
+  requireInstallerSignature: boolean;
+  useCurrentInstallerForPublish: boolean;
+  signCurrentInstallerBusy: boolean;
+  signCurrentInstallerResult: AppStudioPublishRunResult | null;
+  buildVerifyBusy: boolean;
+  buildVerifyResult: AppStudioPublishRunResult | null;
+  activeStage: BuildVerifyStageId | null;
+  stepStatuses: Partial<Record<BuildVerifyStageId, PublishPhaseStatus>>;
+}): PublishProcessStep[] {
+  const buildSkippedForCurrentInstaller = input.useCurrentInstallerForPublish && !input.signInstaller;
+  const completedStatus: PublishPhaseStatus | null = input.buildVerifyResult?.ok === true ? "passed" : input.buildVerifyResult?.ok === false ? "failed" : null;
+  const statusFor = (stage: BuildVerifyStageId): PublishPhaseStatus => {
+    if (stage === "signing") {
+      if (input.signCurrentInstallerBusy) {
+        return "running";
+      }
+      if (input.signCurrentInstallerResult?.ok === true) {
+        return "passed";
+      }
+      if (input.signCurrentInstallerResult?.ok === false) {
+        return "failed";
+      }
+      if (!input.signInstaller) {
+        return "skipped";
+      }
+    }
+    if (buildSkippedForCurrentInstaller && stage !== "signing") {
+      return "skipped";
+    }
+    if (input.stepStatuses[stage]) {
+      return input.stepStatuses[stage] ?? "pending";
+    }
+    if (completedStatus) {
+      return stage === "signing" && !input.signInstaller ? "skipped" : completedStatus;
+    }
+    if (input.buildVerifyBusy && input.activeStage === stage) {
+      return "running";
+    }
+    return "pending";
+  };
+
+  return [
+    {
+      id: "preflight",
+      title: "環境確認",
+      detail: "node / npm / cargo / rustc と release build 前提を確認します。",
+      status: statusFor("preflight"),
+    },
+    {
+      id: "app_packs",
+      title: "App Pack 作成/再利用",
+      detail: "変更なしの App Pack は sha256 / size 照合後に再利用します。",
+      status: statusFor("app_packs"),
+    },
+    {
+      id: "runtime",
+      title: "runtime 準備",
+      detail: "同梱 Python と Web automation runtime を確認します。",
+      status: statusFor("runtime"),
+    },
+    {
+      id: "tauri_build",
+      title: "Tauri build",
+      detail: "既存 node_modules を使い、frontend と Tauri release build を実行します。",
+      status: statusFor("tauri_build"),
+    },
+    {
+      id: "installer",
+      title: "installer 作成",
+      detail: "NSIS installer を収集し、manifest の sha256 / size を更新します。",
+      status: statusFor("installer"),
+    },
+    {
+      id: "signing",
+      title: "installer 署名",
+      detail: input.signInstaller || input.requireInstallerSignature || input.useCurrentInstallerForPublish
+        ? "証明書設定が有効な場合だけ Authenticode 署名または署名検証を行います。"
+        : "署名なし配布の既定です。sha256 / size と公開後検証で補強します。",
+      status: statusFor("signing"),
+    },
+    {
+      id: "strict_verify",
+      title: "strict verify",
+      detail: "installer、App Pack、runtime、署名条件を release gate として検証します。",
+      status: statusFor("strict_verify"),
+    },
+  ];
 }
 
 function emptyToNull(value: string): string | null {

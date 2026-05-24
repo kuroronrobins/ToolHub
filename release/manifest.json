@@ -1,65 +1,76 @@
 {
-    "schema_version":  1,
+    "apps_manifest":  "app_manifest.json",
     "channel":  "stable",
-    "toolhub":  {
-                    "name":  "ToolHub",
-                    "version":  "0.1.3",
-                    "installer":  {
-                                      "file":  "ToolHub_Setup_0.1.3.exe",
-                                      "type":  "nsis",
-                                      "sha256":  "f6a7a455af89bc73c8debffa219780ba634f5523767eb475035c797b0fc1e5ae",
-                                      "size":  327050596
-                                  }
-                },
     "core":  {
-                 "version":  "0.1.3",
-                 "minimum_supported_app_manifest":  1
+                 "minimum_supported_app_manifest":  1,
+                 "version":  "0.1.3"
              },
+    "release_notes":  {
+                          "admin":  {
+                                        "changes":  [
+                                                        "公開パネルのUI調整と操作性改善",
+                                                        "公開処理関連のコマンドと配布手順の調整",
+                                                        "ビルド/公開ドキュメントの更新",
+                                                        "リリース用メタデータの更新",
+                                                        "配布アセットの整合性確認を実施"
+                                                    ],
+                                        "summary":  "公開パネルと公開手順まわりの改善、配布データの整備、リリース用ファイルの更新を含む0.1.3です。配布物は生成済みで、主要な検証は通過しています。",
+                                        "validation":  [
+                                                           "リリース用メタデータの読込確認済み",
+                                                           "インストーラ生成物の存在確認済み",
+                                                           "サイズ・整合性チェック通過",
+                                                           "配布先の更新情報設定を確認済み",
+                                                           "未コミット変更ありのため、公開時は -AllowDirty が必要",
+                                                           "公開境界のファイルに変更があるため、意図した差分か再確認推奨"
+                                                       ]
+                                    },
+                          "edited_by_admin":  true,
+                          "generated_by":  "ai",
+                          "schema_version":  1,
+                          "user":  {
+                                       "added_apps":  [
+                                                          "20260201 AgendaSnap",
+                                                          "COMPASSのID一括取得",
+                                                          "COMPASSの文書一括ダウンロード",
+                                                          "ExcelBatchReplace",
+                                                          "PDF Workbench",
+                                                          "XCgate電子帳票登録"
+                                                      ],
+                                       "highlights":  [
+                                                          "公開画面の見やすさと操作性を改善しました",
+                                                          "アプリの公開手順をより分かりやすくしました",
+                                                          "配布用ファイルの確認を強化し、安心して更新できるようにしました",
+                                                          "今回の更新対象アプリの情報を整理しました"
+                                                      ],
+                                       "recommended":  true,
+                                       "summary":  "ToolHubの使いやすさと公開作業の安定性が向上し、各アプリをより安心してご利用いただけるようになりました。",
+                                       "title":  "ToolHub 0.1.3 公開のお知らせ"
+                                   }
+                      },
     "runner":  {
                    "version":  "0.1.3"
                },
     "runtime":  {
                     "python":  {
                                    "id":  "python-embedded-toolhub-001",
-                                   "version":  "",
-                                   "required":  false
+                                   "required":  false,
+                                   "version":  ""
                                },
                     "web_automation_runtime":  {
                                                    "id":  "web-runtime-001",
-                                                   "version":  "",
-                                                   "required":  false
+                                                   "required":  false,
+                                                   "version":  ""
                                                }
                 },
-    "release_notes":  {
-                          "schema_version":  1,
-                          "generated_by":  "admin",
-                          "edited_by_admin":  true,
-                          "user":  {
-                                       "title":  "新しいバージョンがあります",
-                                       "summary":  "新しい業務アプリが追加され、更新確認もより分かりやすくなりました。",
-                                       "highlights":  [
-                                                          "会議メモ作成を支援するアプリを追加しました",
-                                                          "3DX / XCgate 関連の作業アプリを追加しました",
-                                                          "更新があるときに、内容を確認してから進められるようにしました"
-                                                      ],
-                                       "added_apps":  [
-                                                          "AgendaSnap",
-                                                          "3DX / XCgate workflow apps"
-                                                      ],
-                                       "recommended":  true
-                                   },
-                          "admin":  {
-                                        "summary":  "ToolHub 0.1.3 release with app catalog additions and updater visibility improvements.",
-                                        "changes":  [
-                                                        "Added release notes metadata to the release manifest.",
-                                                        "Added user-facing release notes parsing for updater dialogs.",
-                                                        "Updated update notice copy to keep the main screen lightweight."
-                                                    ],
-                                        "validation":  [
-                                                           "cargo test update_release_notes",
-                                                           "launcher npm build"
-                                                       ]
-                                    }
-                      },
-    "apps_manifest":  "app_manifest.json"
+    "schema_version":  1,
+    "toolhub":  {
+                    "installer":  {
+                                      "file":  "ToolHub_Setup_0.1.3.exe",
+                                      "sha256":  "8db89188ab7c3628fe9dacf3e2267ee49225642cbca98d697a67db986e765684",
+                                      "size":  327099769,
+                                      "type":  "nsis"
+                                  },
+                    "name":  "ToolHub",
+                    "version":  "0.1.3"
+                }
 }

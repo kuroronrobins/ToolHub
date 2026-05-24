@@ -2447,6 +2447,10 @@ button {
   margin: 12px 0;
 }
 
+.publish-process-message {
+  margin: -2px 0 2px;
+}
+
 .publish-process-item {
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
@@ -2460,6 +2464,7 @@ button {
 
 .publish-process-item > span {
   display: inline-flex;
+  gap: 4px;
   align-items: center;
   justify-content: center;
   min-height: 26px;

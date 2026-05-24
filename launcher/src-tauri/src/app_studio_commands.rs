@@ -52,11 +52,15 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 use std::fs;
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Instant;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
+
+const APP_STUDIO_PUBLISH_PROGRESS_EVENT: &str = "app-studio-publish-progress";
 
 #[derive(Debug, Clone)]
 struct AiEnvPlan {
@@ -215,9 +219,10 @@ pub async fn app_studio_publish_sign_installer(
 pub async fn app_studio_publish_build_verify(
     request: AppStudioPublishBuildVerifyRequest,
     session: State<'_, AdminSessionState>,
+    app: AppHandle,
 ) -> Result<AppStudioPublishRunResult, String> {
     session.require_authenticated()?;
-    tauri::async_runtime::spawn_blocking(move || run_publish_build_verify(request))
+    tauri::async_runtime::spawn_blocking(move || run_publish_build_verify(request, app))
         .await
         .map_err(|_| "Release build/verify could not complete.".to_string())?
 }
@@ -1676,6 +1681,7 @@ fn run_publish_sign_installer(
 
 fn run_publish_build_verify(
     request: AppStudioPublishBuildVerifyRequest,
+    app: AppHandle,
 ) -> Result<AppStudioPublishRunResult, String> {
     let root = crate::manifest::project_root().map_err(|error| error.to_string())?;
     let build_script = root.join("scripts").join("build_release.ps1");
@@ -1693,7 +1699,11 @@ fn run_publish_build_verify(
         ));
     }
 
-    let mut build_args = vec!["-RequireRuntime".to_string(), "-SkipInstall".to_string()];
+    let mut build_args = vec![
+        "-RequireRuntime".to_string(),
+        "-SkipInstall".to_string(),
+        "-SkipVerify".to_string(),
+    ];
     append_installer_signing_args(
         &mut build_args,
         request.sign_installer,
@@ -1740,10 +1750,14 @@ fn run_publish_build_verify(
 
     let started_at = Utc::now().to_rfc3339();
     let started = Instant::now();
-    let output = Command::new("powershell")
-        .args(&args)
-        .current_dir(&root)
-        .output()
+    emit_publish_progress(
+        &app,
+        "build_verify",
+        "preflight",
+        "running",
+        "環境確認を開始しています。",
+    );
+    let output = run_powershell_with_publish_progress(&root, &args, &app)
         .map_err(|error| format!("Release build/verify could not start: {error}"))?;
     let process_wall_clock_seconds = started.elapsed().as_secs_f64();
     let finished_at = Utc::now().to_rfc3339();
@@ -1755,6 +1769,17 @@ fn run_publish_build_verify(
         &output.stderr,
     )));
     let ok = output.status.success();
+    emit_publish_progress(
+        &app,
+        "build_verify",
+        if ok { "complete" } else { "failed" },
+        if ok { "passed" } else { "failed" },
+        if ok {
+            "release build / verify が完了しました。"
+        } else {
+            "release build / verify が失敗しました。"
+        },
+    );
     append_app_studio_gui_log(
         "publish_build_verify finished",
         &[("exit_code", exit_code.to_string()), ("ok", ok.to_string())],
@@ -2124,6 +2149,148 @@ fn powershell_script_invocation(script: &Path, args: &[String]) -> String {
 
 fn quote_powershell_single(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
+}
+
+fn run_powershell_with_publish_progress(
+    root: &Path,
+    args: &[String],
+    app: &AppHandle,
+) -> std::io::Result<Output> {
+    let mut child = Command::new("powershell")
+        .args(args)
+        .current_dir(root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let stdout_buffer = Arc::new(Mutex::new(String::new()));
+    let stderr_buffer = Arc::new(Mutex::new(String::new()));
+
+    let stdout_handle = child.stdout.take().map(|stdout| {
+        let app = app.clone();
+        let stdout_buffer = Arc::clone(&stdout_buffer);
+        thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line_result in reader.lines() {
+                match line_result {
+                    Ok(line) => {
+                        let line = mask_sensitive(&sanitize_url_queries_in_text(&line));
+                        if let Some((stage, message)) = classify_build_verify_progress_line(&line) {
+                            emit_publish_progress(
+                                &app,
+                                "build_verify",
+                                stage,
+                                "running",
+                                message,
+                            );
+                        }
+                        if let Ok(mut buffer) = stdout_buffer.lock() {
+                            buffer.push_str(&line);
+                            buffer.push('\n');
+                        }
+                    }
+                    Err(error) => {
+                        if let Ok(mut buffer) = stdout_buffer.lock() {
+                            buffer.push_str(&format!("[stdout read error] {error}\n"));
+                        }
+                    }
+                }
+            }
+        })
+    });
+
+    let stderr_handle = child.stderr.take().map(|stderr| {
+        let stderr_buffer = Arc::clone(&stderr_buffer);
+        thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line_result in reader.lines() {
+                match line_result {
+                    Ok(line) => {
+                        let line = mask_sensitive(&sanitize_url_queries_in_text(&line));
+                        if let Ok(mut buffer) = stderr_buffer.lock() {
+                            buffer.push_str(&line);
+                            buffer.push('\n');
+                        }
+                    }
+                    Err(error) => {
+                        if let Ok(mut buffer) = stderr_buffer.lock() {
+                            buffer.push_str(&format!("[stderr read error] {error}\n"));
+                        }
+                    }
+                }
+            }
+        })
+    });
+
+    let status = child.wait()?;
+    if let Some(handle) = stdout_handle {
+        let _ = handle.join();
+    }
+    if let Some(handle) = stderr_handle {
+        let _ = handle.join();
+    }
+
+    let stdout = stdout_buffer
+        .lock()
+        .map(|buffer| buffer.as_bytes().to_vec())
+        .unwrap_or_default();
+    let stderr = stderr_buffer
+        .lock()
+        .map(|buffer| buffer.as_bytes().to_vec())
+        .unwrap_or_default();
+
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+fn classify_build_verify_progress_line(line: &str) -> Option<(&'static str, &'static str)> {
+    if line.contains("== 1. Environment preflight ==") {
+        return Some(("preflight", "node / npm / cargo / rustc を確認しています。"));
+    }
+    if line.contains("== 2. Package App Packs ==") {
+        return Some(("app_packs", "App Pack を作成または再利用しています。"));
+    }
+    if line.contains("== 3. Prepare Runtime ==") {
+        return Some(("runtime", "同梱 runtime を確認しています。"));
+    }
+    if line.contains("== 4. Frontend install/build ==") {
+        return Some(("tauri_build", "frontend / Tauri release build を実行しています。"));
+    }
+    if line.contains("Running Tauri release build.") {
+        return Some(("tauri_build", "Tauri release build を実行しています。"));
+    }
+    if line.contains("== 5. Package Installer Artifacts ==") {
+        return Some(("installer", "installer artifact を収集し manifest を更新しています。"));
+    }
+    if line.contains("Signing installer:") {
+        return Some(("signing", "installer に Authenticode 署名を付与しています。"));
+    }
+    if line.contains("ToolHub release build flow completed.") {
+        return Some(("strict_verify", "release artifact の strict verify を実行しています。"));
+    }
+    None
+}
+
+fn emit_publish_progress(
+    app: &AppHandle,
+    operation: &str,
+    stage: &str,
+    status: &str,
+    message: &str,
+) {
+    let _ = app.emit(
+        APP_STUDIO_PUBLISH_PROGRESS_EVENT,
+        json!({
+            "operation": operation,
+            "stage": stage,
+            "status": status,
+            "message": message,
+            "timestamp": Utc::now().to_rfc3339(),
+        }),
+    );
 }
 
 fn sanitize_url_query_for_log(value: &str) -> String {

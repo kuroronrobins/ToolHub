@@ -533,7 +533,7 @@ Assert-VersionMatch -Label "release/manifest.json core" -Actual ([string](Get-Js
 
 if (-not $SkipBuild) {
     Write-Step "Build release artifacts"
-    $BuildArgs = @("-RequireRuntime")
+    $BuildArgs = @("-RequireRuntime", "-SkipVerify")
     if ($SkipInstall) { $BuildArgs += "-SkipInstall" }
     if ($SignInstaller) { $BuildArgs += "-SignInstaller" }
     if ($RequireInstallerSignature) { $BuildArgs += "-RequireInstallerSignature" }

@@ -194,7 +194,7 @@ https://github.com/kuroronrobins/ToolHub/releases/download/v<version>-beta.1/man
 .\scripts\publish_github_release.ps1
 ```
 
-この標準形は、`build_release.ps1 -RequireRuntime`、`verify_release.ps1 -RequireInstaller -RequireAppPacks -RequireRuntime -Strict`、tag 作成、GitHub Release 作成 / asset upload、remote manifest verify を順番に実行します。
+この標準形は、`build_release.ps1 -RequireRuntime -SkipVerify`、`verify_release.ps1 -RequireInstaller -RequireAppPacks -RequireRuntime -Strict`、tag 作成、GitHub Release 作成 / asset upload、remote manifest verify を順番に実行します。`build_release.ps1` 単体実行時は従来どおり verify まで含めますが、publish 経路では直後に strict verify を実行するため、二重検証を避けます。
 
 署名なし配布の推奨形:
 
@@ -256,6 +256,14 @@ App Pack作成:
 
 ```powershell
 .\scripts\package_app_pack.ps1
+```
+
+既存 App Pack が現在の `apps/<app_id>/` ソース、生成される `pack_manifest.json`、package sha256 / size と一致する場合は、再圧縮せず `Reused ... (cache)` として再利用します。これにより、変更がない2回目以降の release build は大容量 App Pack の zip 作成を省略できます。再利用キャッシュは `release/app_packs/.pack_cache.json` に生成されますが、配布対象ではなく Git 管理対象にも含めません。
+
+App Pack を必ず作り直す場合:
+
+```powershell
+.\scripts\package_app_pack.ps1 -ForceRebuild
 ```
 
 runtime雛形準備:
@@ -389,6 +397,8 @@ release/app_packs/<app_id>-<version>.zip
 ```
 
 App Packの仕様は [docs/09_app_pack_spec.md](09_app_pack_spec.md) に記載します。
+
+`scripts/package_app_pack.ps1` は、変更がない App Pack について content fingerprint と package sha256 / size が一致する場合だけ既存 zip を再利用します。初回または cache 不一致時は既存 zip の内容を source と照合し、照合できない場合は再生成します。公開前の `verify_release.ps1 -RequireAppPacks -Strict` は引き続き必須です。
 
 ## Troubleshooting
 
