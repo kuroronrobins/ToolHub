@@ -58,11 +58,12 @@ export default function App() {
     setUpdateStatus("checking");
     try {
       const summary = await checkUpdatesRemote();
+      setUpdateSummary(summary);
       if (shouldShowUserUpdateNotice(summary)) {
-        setUpdateSummary(summary);
         setUpdateStatus("available");
+      } else if (isUpdateCheckFailure(summary)) {
+        setUpdateStatus("failed");
       } else {
-        setUpdateSummary(null);
         setUpdateDialogOpen(false);
         setUpdateStatus("latest");
       }
@@ -101,7 +102,7 @@ export default function App() {
   }
 
   function handleUpdateStatusClick() {
-    if (shouldShowUserUpdateNotice(updateSummary)) {
+    if (updateSummary) {
       setUpdateDialogOpen(true);
       return;
     }
@@ -237,7 +238,7 @@ function updateStatusTitle(status: UpdateStatus, summary: UpdateSummary | null):
     return "更新候補の詳細を確認";
   }
   if (status === "failed") {
-    return "更新状態を再確認";
+    return "更新確認の詳細を確認";
   }
   return "更新状態を確認";
 }
@@ -253,4 +254,9 @@ function renderUpdateStatusIcon(status: UpdateStatus, summary: UpdateSummary | n
     return <AlertTriangle size={17} aria-hidden="true" />;
   }
   return <CheckCircle2 size={17} aria-hidden="true" />;
+}
+
+function isUpdateCheckFailure(summary: UpdateSummary | null): boolean {
+  const status = summary?.status ?? "";
+  return status === "source_not_configured" || status === "remote_manifest_fetch_failed" || status.includes("failed");
 }
