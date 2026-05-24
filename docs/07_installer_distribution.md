@@ -6,9 +6,10 @@ ToolHubはインストーラー型配布を正式方針にします。
 
 ## Current Status
 
-- 現行 release manifest は ToolHub `0.1.5` / `ToolHub_Setup_0.1.5.exe` を指します。
+- 現行 release manifest は ToolHub `0.1.6` / `ToolHub_Setup_0.1.6.exe` を指します。
+- AgendaSnap はまだ一般公開対象ではないため、`release/app_manifest.json` では `app_20260201_agendasnap.enabled=false` とします。
 - Tauri標準のNSIS bundle生成、`release/dist_installer/` への収集、`release/manifest.json` の installer `sha256` / `size` 更新、`verify_release.ps1 -RequireInstaller` は確認済みです。
-- 2026-05-24 時点で、GitHub Release Latest の `manifest.json` と `ToolHub_Setup_0.1.5.exe` は remote download 後の size / sha256 一致を確認済みです。
+- 2026-05-25 時点で、GitHub Release Latest の `manifest.json` と `ToolHub_Setup_0.1.6.exe` は remote download 後の size / sha256 一致を確認済みです。
 - VM 環境で、per-user install、first launch、app card 表示、登録済み検証アプリ起動、同梱 Python / Web runtime 利用を確認済みです。最新 pass 結果ファイルが repo に取り込まれていない場合は、`docs/06_acceptance_checklist.md` の記録と混同せず扱います。
 - コード署名 pipeline はありますが、証明書署名済み artifact は未作成です。
 

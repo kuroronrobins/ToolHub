@@ -97,7 +97,7 @@ npm ci
 
 利用者には原則として `ToolHub_Setup.exe` 1 個を配布します。利用者が Python、Node.js、Rust、pip package、Web 自動化用 runtime を手動導入しない方針です。
 
-現行の release manifest は ToolHub `0.1.5` / `ToolHub_Setup_0.1.5.exe` を指します。GitHub Release Latest の remote manifest / installer hash 検証と VM install / launch / bundled runtime 確認は済みですが、証明書署名済み artifact は未作成です。
+現行の release manifest は ToolHub `0.1.6` / `ToolHub_Setup_0.1.6.exe` を指します。AgendaSnap は一般公開対象から外しています。GitHub Release Latest の remote manifest / installer hash 検証と VM install / launch / bundled runtime 確認は済みですが、証明書署名済み artifact は未作成です。
 
 runtime 実体、App Pack、installer は release artifact として扱います。Git 管理物とローカル配布 artifact を混同しないでください。
 

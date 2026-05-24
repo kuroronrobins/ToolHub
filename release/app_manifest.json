@@ -52,7 +52,7 @@
                                                  "required_core":  "\u003e=0.1.0",
                                                  "required_runner":  "\u003e=0.1.0",
                                                  "required_runtime":  "python-shared-env:py313-win_amd64-flet0283-fletdesktop0283-cac27e37",
-                                                 "enabled":  true
+                                                 "enabled":  false
                                              }
              },
     "channel":  "stable",
