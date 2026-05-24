@@ -10,7 +10,7 @@ import {
   appStudioUpdatePreflight,
   appStudioUpdateSuggest,
 } from "../../../lib/appStudioApi";
-import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata, generatedMetadataSuggestion } from "../../../lib/appStudioMetadata";
+import { automationTargetCategoryWarning, cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata, generatedMetadataSuggestion } from "../../../lib/appStudioMetadata";
 import {
   getAppStudioUpdateNextAction,
   getAppStudioUpdateRunResultMessage,
@@ -81,6 +81,7 @@ export function AppStudioUpdateWizard() {
   const newVersion = bumped.version;
   const versionCompare = compareSimpleSemVer(request.currentVersion ?? "", newVersion);
   const canRun = Boolean(request.appId.trim() && request.entry.trim() && newVersion.trim() && !busy);
+  const taxonomyWarning = useMemo(() => automationTargetCategoryWarning(request.metadata), [request.metadata]);
 
   useEffect(() => {
     void loadApps();
@@ -225,6 +226,7 @@ export function AppStudioUpdateWizard() {
         unresolvedDistributionRisksCount: summary.unresolvedDistributionRisksCount ?? runResult.unresolvedDistributionRisksCount,
         approvalBlockingReasons: summary.approvalBlockingReasons ?? runResult.approvalBlockingReasons,
         nonBlockingWarningSummaries: summary.nonBlockingWarningSummaries ?? runResult.nonBlockingWarningSummaries,
+        adminAlerts: summary.adminAlerts ?? runResult.adminAlerts,
         timingReport: summary.timingReport ?? runResult.timingReport,
         timingTotalSeconds: summary.timingTotalSeconds ?? runResult.timingTotalSeconds,
         timingEstimatedTotalSeconds: summary.timingEstimatedTotalSeconds ?? runResult.timingEstimatedTotalSeconds,
@@ -452,7 +454,7 @@ export function AppStudioUpdateWizard() {
             <Play size={17} aria-hidden="true" />
             Suggest update
           </button>
-          <button className="primary-button" type="button" onClick={() => void run("apply")} disabled={!canRun || versionCompare === 1}>
+          <button className="primary-button" type="button" onClick={() => void run("apply")} disabled={!canRun || versionCompare === 1 || Boolean(taxonomyWarning)}>
             <Rocket size={17} aria-hidden="true" />
             Apply update
           </button>
@@ -460,6 +462,7 @@ export function AppStudioUpdateWizard() {
 
         {bumped.warning ? <p className="admin-muted">{bumped.warning}</p> : null}
         {versionCompare === 1 ? <p className="admin-error">New version is older than current version.</p> : null}
+        {taxonomyWarning ? <p className="admin-error" role="alert">{taxonomyWarning}</p> : null}
         {message ? <p className={result && !result.ok && isAppStudioWarningOnly(result) ? "admin-muted" : "admin-success"}>{message}</p> : null}
         {error ? <p className="admin-error" role="alert">{error}</p> : null}
       </section>

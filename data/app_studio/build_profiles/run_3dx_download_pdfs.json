@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "app_id": "run_3dx_download_pdfs",
+  "source": "saved+auto",
+  "paths": [
+    "xcgate_flows"
+  ],
+  "hidden_imports": [
+    "src.auth.save_state",
+    "src.engine.__init__",
+    "src.engine.actions",
+    "src.engine.errors",
+    "src.engine.executor",
+    "src.engine.parser",
+    "src.engine.runtime",
+    "src.engine.selectors",
+    "src.flows.__init__",
+    "src.flows.handlers",
+    "src.io.__init__",
+    "src.io.config_loader",
+    "src.io.csv_logger",
+    "src.io.flow_settings",
+    "src.io.profiles",
+    "src.io.result_summary",
+    "src.io.windows_credentials",
+    "src.main",
+    "src.web.__init__",
+    "src.web.browser",
+    "src.web.utils",
+    "xcgate_flows.src.auth.save_state",
+    "xcgate_flows.src.engine.__init__",
+    "xcgate_flows.src.engine.actions",
+    "xcgate_flows.src.engine.errors",
+    "xcgate_flows.src.engine.executor",
+    "xcgate_flows.src.engine.parser",
+    "xcgate_flows.src.engine.runtime",
+    "xcgate_flows.src.engine.selectors",
+    "xcgate_flows.src.flows.__init__",
+    "xcgate_flows.src.flows.handlers",
+    "xcgate_flows.src.io.__init__",
+    "xcgate_flows.src.io.config_loader",
+    "xcgate_flows.src.io.csv_logger",
+    "xcgate_flows.src.io.flow_settings",
+    "xcgate_flows.src.io.profiles",
+    "xcgate_flows.src.io.result_summary",
+    "xcgate_flows.src.io.windows_credentials",
+    "xcgate_flows.src.main",
+    "xcgate_flows.src.web.__init__",
+    "xcgate_flows.src.web.browser",
+    "xcgate_flows.src.web.utils",
+    "xcgate_launcher"
+  ],
+  "add_data": [
+    {
+      "source": "xcgate_flows/config.yaml",
+      "destination": "xcgate_flows"
+    },
+    {
+      "source": "xcgate_flows/flows/3dx_create_ids.flow",
+      "destination": "xcgate_flows/flows"
+    },
+    {
+      "source": "xcgate_flows/flows/3dx_download_pdfs.flow",
+      "destination": "xcgate_flows/flows"
+    },
+    {
+      "source": "xcgate_flows/flows/xcgate_upload.flow",
+      "destination": "xcgate_flows/flows"
+    },
+    {
+      "source": "xcgate_flows/src",
+      "destination": "xcgate_flows/src"
+    }
+  ],
+  "add_binaries": [],
+  "collect_all": [
+    "playwright"
+  ],
+  "runtime_cwd": null,
+  "environment": {},
+  "required_files": [
+    "xcgate_flows/config.yaml",
+    "xcgate_flows/flows/3dx_create_ids.flow",
+    "xcgate_flows/flows/3dx_download_pdfs.flow",
+    "xcgate_flows/flows/xcgate_upload.flow",
+    "xcgate_flows/src"
+  ],
+  "manual_checks": [
+    "xcgate_launcher.py: Path - call uses a dynamic path expression",
+    "xcgate_launcher.py: read_text - Path read call uses a dynamic path expression",
+    "Playwright のブラウザバイナリがビルド用環境で利用できることを確認してください。",
+    "認証済み storage state は自動同梱しません。初回ログインまたは手動認証の流れを確認してください。",
+    "ブラウザ画面、ファイル選択、待機型の操作は自動完了確認の対象外です。人間による起動確認を行ってください。"
+  ],
+  "warnings": [
+    "ビルド前注意: frozen-folder作成後、必要な設定ファイル・データファイルは配布物検証で自動確認されます。"
+  ],
+  "source_root": "C:\\Users\\kuroron\\Documents\\RD\\20251103_XCgateAutoUpload",
+  "source_root_origin": "entry_parent",
+  "entry_relative": "run_3dx_download_pdfs.py",
+  "inventory_summary": {
+    "source_root": "C:\\Users\\kuroron\\Documents\\RD\\20251103_XCgateAutoUpload",
+    "source_root_origin": "entry_parent",
+    "entry_relative": "run_3dx_download_pdfs.py",
+    "included_count": 30,
+    "excluded_count": 14,
+    "blocked_count": 0,
+    "manual_check_count": 7,
+    "excluded_directory_count": 9,
+    "sensitive_excluded_directory_count": 0,
+    "sensitive_excluded_file_count": 0,
+    "source_root_warnings": [
+      "auto source_root contains a .git directory; use --source-root if only a subdirectory should be packaged."
+    ],
+    "toolhubignore_pattern_count": 43
+  }
+}

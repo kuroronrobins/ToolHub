@@ -39,7 +39,7 @@ ToolHub のアプリ登録後、単体で動く Python アプリが ToolHub 上�
 
 1. `apps/<app_id>/app.yaml` を source of truth とする。
 2. `launcher/src-tauri/target/release/` は生成物であり、恒久修正先にしない。
-3. 開発中に release exe を起動する場合は、どの root を読むかを明示する。
+3. 開発中 bootstrap は release artifact を探さず、開発 source root から起動する。
 4. アプリ登録 Apply 後は、登録先 root、実行 root、App Pack、release manifest の一致を検証する。
 5. GUI 起動は runner が短時間で detached success を返すことを前提にする。
 6. たとえ manifest が誤っていても、ToolHub UI が無期限に固まらない防御を入れる。
@@ -58,7 +58,7 @@ ToolHub のアプリ登録後、単体で動く Python アプリが ToolHub 上�
 
 したがって、修正は「常に dev repo を読ませる」ではない。
 
-- 開発 bootstrap から local release exe を起動する場合だけ、`TOOLHUB_ROOT=<dev source root>` を渡して stale `target/release` root を避ける。
+- 開発 bootstrap は local release artifact を起動せず、dev source root を起点にする。
 - インストール済み shortcut から起動する場合は、installed resource root を正とする。
 - `target/release` を active root として採用してよいのは、release artifact の検証中だけ。その場合も source root との差分を report に出す。
 
@@ -66,15 +66,15 @@ ToolHub のアプリ登録後、単体で動く Python アプリが ToolHub 上�
 
 | Area | Current old behavior | Impact | Fix policy | Priority |
 | --- | --- | --- | --- | --- |
-| Bootstrap `main.py` | `python main.py` は既存 release exe があれば dev より先に `launcher/src-tauri/target/release/toolhub.exe` を起動する。 | 開発中でも古い release root を読んでしまう。source root を直しても画面に反映されない。 | dev repo から release exe を起動する場合は `TOOLHUB_ROOT=<repo root>` を渡す。通常起動は dev root を優先するか、release 起動を明示オプションに限定する。 | P0 |
-| Rust `manifest::project_root()` | `TOOLHUB_ROOT` の次に current exe directory を優先する。local release exe は `target/release` を root として採用できる。 | `target/release/apps`、`target/release/runner`、`target/release/tools` が古いままでも正規 root と扱われる。 | root 決定結果をログと UI 診断に表示する。dev bootstrap から起動された release exe では source root を優先させる。 | P0 |
+| Bootstrap `main.py` | `python main.py` は dev source の launcher を起動し、既存 release artifact は探さない。 | 開発中の起動で古い release root を読まない。 | 旧互換オプションを持たせず、`python main.py` と環境チェックだけを維持する。 | Done |
+| Rust `manifest::project_root()` | `TOOLHUB_ROOT` の次に current executable directory を優先する。local release artifact は `target/release` を root として採用できる。 | 直接 release artifact を起動すると、`target/release/apps`、`target/release/runner`、`target/release/tools` が古いままでも正規 root と扱われる。 | root 決定結果をログと UI 診断に表示する。dev bootstrap では release artifact を起動しない。 | P0 |
 | `target/release/apps` | build 時点の app copy が残り、source `apps/` と別管理になる。 | `mode: cli` など古い `app.yaml` が実行される。 | 直接修正ではなく、stale check で検出する。release build 時に current source から再生成する。dev 起動では読ませない。 | P0 |
 | `target/release/runner` | build 時点の Python runner が残る。 | runner 修正が source にはあるのに release 実行では反映されない。 | source root 実行を優先する。release verification に runner freshness check を追加する。 | P0 |
 | `target/release/tools/app_studio` | build 時点の App Studio が残る。 | 登録 UI から実行した Apply が古い登録ロジックを使う可能性がある。 | active root の tools version を診断に出す。source root と divergence がある場合は登録前に警告または block する。 | P0 |
 | Tauri bundle resources | `tauri.conf.json` は `../../apps`、`../../runner`、`../../runtime`、`../../tools/app_studio` を build 時点で resource に含める。 | 正しい設計だが、local build artifact は build した瞬間の snapshot なので、開発中の修正とズレる。 | installed resource root は正規 root として扱う。一方、dev `target/release` は snapshot として freshness check 対象にする。 | P0 |
 | App Studio Apply | `apply_registration()` は `context.repo_root/apps` と `context.repo_root/release/app_manifest.json` を更新する。active ToolHub が別 root を読んでいる場合の検出がない。 | ユーザーが登録したと思っても、起動中 ToolHub が別 root の古い app を使う。 | Apply 前後に active root と context root を記録し、異なる場合は明示する。local dev では source root に統一する。 | P0 |
 | App Studio active root | App Studio UI は `manifest::project_root()` で得た active root の `tools/app_studio/main.py` を実行する。 | active root 自体が stale `target/release` の場合、context root と active root が一致しても古い App Studio が使われ、単純な root mismatch 検出では見逃す。 | context root だけでなく canonical source root / root type / tool hash を report する。dev build artifact root で Apply する場合は warning/block 対象にする。 | P0 |
-| App Pack | Apply 後に App Pack は作るが、local release execution root への同期保証ではない。 | App Pack が最新でも、現在起動中の release root は古いままになり得る。 | App Pack は配布用 artifact と位置づけ、現在起動中 root の freshness とは別に検査する。 | P1 |
+| App Pack | Apply 後に App Pack は作るが、local release artifact root への同期保証ではない。 | App Pack が最新でも、現在起動中の release root は古いままになり得る。 | App Pack は配布用 artifact と位置づけ、現在起動中 root の freshness とは別に検査する。 | P1 |
 | Rust `launch_runner()` | `Command::new(...).output()` で runner 完了まで同期待ちする。 | runner が blocking になると Tauri command が戻らず、UI が固まる。 | 非同期実行または bounded timeout にする。起動中 result が返らない場合でも UI を復帰できるようにする。 | P0 |
 | `ExeRunner` | `run.mode == "cli"` なら exe を `run_blocking()`、それ以外なら `start_detached()`。 | `mode` が古いだけで GUI exe を終了まで待つ。 | manifest 生成と freshness check で `mode` 誤りを潰す。runner 側は mode 契約を維持しつつ、diagnostic を強化する。 | P0 |
 | Launch modal | `launchApp()` の Promise が返るまで running のまま。running 中は close button も出ない。 | backend が返らないとユーザーが復帰できない。 | running timeout、キャンセル表示、診断リンク、close fallback を追加する。 | P1 |
@@ -92,7 +92,7 @@ ToolHub のアプリ登録後、単体で動く Python アプリが ToolHub 上�
 対応:
 
 1. 起動中の stale runner を止める。
-2. local release exe を使う場合は、release root の AgendaSnap `app.yaml` を source root と同期する。
+2. local release artifact への同期を開発中 bootstrap の前提にしない。必要な確認は release verification で扱う。
 3. ただし `target/release` 直接修正は恒久対応にしない。
 4. 再起動後、runner command が `mode: gui` を読んで `start_detached()` になり、2 秒程度で result JSON が作られることを確認する。
 
@@ -108,27 +108,26 @@ ToolHub のアプリ登録後、単体で動く Python アプリが ToolHub 上�
 
 対応候補:
 
-1. `main.py` から release exe を起動する場合、環境変数 `TOOLHUB_ROOT=<repo root>` を渡す。
-2. `python main.py` の既定を dev 起動に寄せ、release exe 起動は `--release` 明示時だけにする。
-3. `manifest::project_root()` の採用 root を `tauri_backend.log` と System Info に表示する。
-4. root が `launcher/src-tauri/target/release` の場合、dev repo では stale warning を出す。
-5. root type を `dev_source`、`dev_build_artifact`、`installed_resource`、`user_data` に分類して診断へ出す。
+1. `python main.py` の既定を dev 起動に寄せ、検証用 bootstrap から release artifact は起動しない。
+2. `manifest::project_root()` の採用 root を `tauri_backend.log` と System Info に表示する。
+3. root が `launcher/src-tauri/target/release` の場合、dev repo では stale warning を出す。
+4. root type を `dev_source`、`dev_build_artifact`、`installed_resource`、`user_data` に分類して診断へ出す。
 
 推奨:
 
-- まず 1 と 3 を実装する。
-- 2 は既存起動仕様を変えるため、別判断にする。
-- 5 は staleness 判定の前提なので、Phase 2 の前に入れる。
+- まず 1 と 2 を実装する。
+- `main.py` を検証用 bootstrap に限定し、release artifact 起動を廃止する。
+- 4 は staleness 判定の前提なので、Phase 2 の前に入れる。
 
 検証:
 
 ```powershell
-python main.py --release
+python main.py
 ```
 
 期待:
 
-- 起動した release exe の backend log に `project_root=<repo root>` が出る。
+- 起動した dev launcher の backend log に `project_root=<repo root>` が出る。
 - アプリ一覧と起動は source root の `apps/` を読む。
 
 ### Phase 2: Active Root Staleness Detection
@@ -249,7 +248,7 @@ python main.py --release
 完了条件:
 
 - `launcher/src-tauri/target/release/apps/<app_id>/app.yaml` が source root より古い場合に検出される。
-- release exe から起動しても、読み込む root と app yaml が明示される。
+- release artifact 検証では、読み込む root と app yaml が明示される。
 - installed shortcut では installed resource root を正として扱い、dev repo との差分だけで誤って failure にしない。
 
 ### Phase 6: Documentation Cleanup
@@ -264,7 +263,7 @@ python main.py --release
 2. `docs/32_toolhub_agendasnap_launch_parity_fix_plan.md` は AgendaSnap 発見事項として維持する。
 3. 本文書を ToolHub 側 stale flow 修正の親方針にする。
 4. 古い frozen-folder 標準の説明がある docs は historical/legacy と明示する。
-5. README の起動説明で `python main.py`、`python main.py --dev`、`python main.py --release` の root selection を明記する。
+5. README の起動説明で `python main.py` が開発中 launcher を起動することを明記する。
 
 ## Implementation Order
 
@@ -416,7 +415,7 @@ python main.py --release
 
 方針確定時に決めること:
 
-1. `python main.py` の既定を dev 優先に変えるか、release exe 起動時に `TOOLHUB_ROOT` を渡すだけにするか。
+1. `python main.py` は dev source 固定とし、release artifact 起動を bootstrap から外す。
 2. local release root が source root と違う場合、登録 Apply を block するか warning にするか。
 3. launch timeout の既定秒数。
 4. running 中の modal をユーザーが閉じられるようにするか、diagnostic 表示後だけ閉じられるようにするか。

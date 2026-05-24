@@ -11,7 +11,7 @@ interface Props {
 
 export function AppStudioLauncherPreview({ appId, name, metadata, proposal, iconOverride }: Props) {
   const iconDataUrl = previewIconDataUrl(iconOverride, proposal);
-  const categories = metadata?.categories?.filter(Boolean).slice(0, 3) ?? [];
+  const category = metadata?.targetCategories?.find((item) => item.trim()) ?? metadata?.primaryCategory?.trim() ?? "";
   return (
     <section className="studio-launcher-preview" aria-label="ランチャーカードプレビュー">
       <div className="studio-preview-icon" aria-hidden="true">
@@ -22,7 +22,7 @@ export function AppStudioLauncherPreview({ appId, name, metadata, proposal, icon
         <h4>{name?.trim() || "表示名を入力してください"}</h4>
         <p>{metadata?.shortDescription?.trim() || "一言説明は未入力です。"}</p>
         <div className="studio-preview-tags">
-          {categories.length ? categories.map((category) => <span key={category}>{category}</span>) : <span>カテゴリ未設定</span>}
+          {category ? <span>{category}</span> : <span>カテゴリ未設定</span>}
         </div>
       </div>
     </section>

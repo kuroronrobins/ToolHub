@@ -20,12 +20,13 @@ from app_studio.file_classifier import classify_files, inventory_markdown, toolh
 from app_studio.frozen_folder_builder import classify_pyinstaller_failure, pyinstaller_artifact_paths
 from app_studio.manifest_generator import generate_app_yaml
 from app_studio.metadata_override import apply_metadata_override, load_metadata_override
-from app_studio.models import BuildPlan, ImportOptions
+from app_studio.models import BuildPlan, ExecutionCheck, ImportOptions, RuntimeCheck
 from app_studio.icon_override import apply_icon_override, load_icon_override, load_uploaded_png_override
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import scan_secrets
 from app_studio.registrar import apply_registration, backup_existing
 from app_studio.util import default_app_id_for_entry, reset_output_dir
+from app_studio.warning_catalog import build_admin_alerts, merge_admin_alerts
 from toolhub_runner.manifest import manifest_from_dict, load_yaml_mapping
 from main import normalize_normal_registration_args
 from main import parse_args as parse_app_studio_args
@@ -126,6 +127,78 @@ class AppStudioTests(unittest.TestCase):
 
             self.assertFalse(report.has_high)
             self.assertTrue(any(finding.kind == "excluded-sensitive-directory" for finding in report.findings))
+
+    def test_warning_catalog_hides_known_reference_warnings(self) -> None:
+        checks = [
+            ExecutionCheck(
+                name="secret scan",
+                status="warn",
+                detail="No Apply-blocking secret findings. warnings=1, manual_checks=1",
+                approval_category="non_blocking_warning",
+            ),
+            ExecutionCheck(
+                name="runner dry execution",
+                status="warn",
+                detail="Skipped for python_shared_env GUI mode because registration startup smoke already checked the selected env.",
+                approval_category="non_blocking_warning",
+            ),
+            RuntimeCheck(
+                name="shared-env startup smoke",
+                status="warn",
+                detail="Skipped automatic startup smoke because Playwright/browser automation can require login or external sites.",
+                approval_category="non_blocking_warning",
+            ),
+            RuntimeCheck(
+                name="required add-data files",
+                status="warn",
+                detail="No add_data entries are listed in build_profile.json.",
+                approval_category="non_blocking_warning",
+            ),
+            {"name": "playwright manual check", "status": "warn", "detail": "Browser binaries and login state must be verified manually."},
+        ]
+
+        self.assertEqual(build_admin_alerts(checks), [])
+
+    def test_warning_catalog_classifies_known_admin_risks(self) -> None:
+        checks = [
+            ExecutionCheck("app.yaml exists", "fail", "C:/apps/demo/app.yaml"),
+            ExecutionCheck("runner supported", "fail", "unknown_runner"),
+            ExecutionCheck("frozen build profile", "warn", "build_profile.json was not found; data-file gate was skipped.", "approval_blocking_warning", True),
+            RuntimeCheck("shared-env collect_all imports", "warn", "Shared runtime is missing package(s) required by build_profile.collect_all: playwright", "approval_blocking_warning", True),
+            RuntimeCheck("pyinstaller layout command", "warn", "PyInstaller command does not show --contents-directory .", "approval_blocking_warning", True),
+            RuntimeCheck("build_env separation", "fail", "build_env is inside final_app: C:/out/final_app/build_env"),
+            RuntimeCheck("add-data source size", "warn", "large add-data candidates: cache=30000000 bytes", "approval_blocking_warning", True),
+            RuntimeCheck("frozen smoke execution", "warn", "Skipped automatic GUI launch because no safe smoke flag was detected. Add --toolhub-smoke or --smoke.", "approval_blocking_warning", True),
+            RuntimeCheck("shared-env startup smoke", "fail", "Startup produced a fatal error: ModuleNotFoundError."),
+        ]
+
+        alert_ids = [alert["id"] for alert in build_admin_alerts(checks)]
+
+        self.assertEqual(
+            alert_ids,
+            [
+                "app_manifest.missing",
+                "runner.unsupported",
+                "frozen.build_profile_missing",
+                "runtime.collect_all_missing",
+                "pyinstaller.layout_risk",
+                "build_env.packaged",
+                "add_data.source_large",
+                "smoke.missing_safe_flag",
+                "smoke.failed",
+            ],
+        )
+
+    def test_warning_catalog_merges_runtime_alerts_without_duplicates(self) -> None:
+        execution_alerts = [{"id": "distribution.approval_blocking", "source": "runtime check failed"}]
+        runtime_alerts = [
+            {"id": "smoke.failed", "source": "Startup produced a fatal error"},
+            {"id": "smoke.failed", "source": "Startup produced a fatal error"},
+        ]
+
+        merged = merge_admin_alerts(execution_alerts, runtime_alerts)
+
+        self.assertEqual([item["id"] for item in merged], ["distribution.approval_blocking", "smoke.failed"])
 
     def test_secret_scanner_classifies_apply_blocks_by_inventory(self) -> None:
         with workspace_tempdir() as temp:

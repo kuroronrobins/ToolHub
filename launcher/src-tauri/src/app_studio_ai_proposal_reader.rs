@@ -10,6 +10,9 @@ pub struct AppStudioAiMetadataSuggestion {
     pub name: Option<String>,
     pub short_description: Option<String>,
     pub description: Option<String>,
+    pub primary_category: Option<String>,
+    pub target_categories: Vec<String>,
+    pub tags: Vec<String>,
     pub categories: Vec<String>,
     pub keywords: Vec<String>,
     pub examples: Vec<String>,
@@ -190,6 +193,9 @@ fn metadata_from_yaml(yaml: &serde_yaml::Value) -> AppStudioAiMetadataSuggestion
         name: yaml_str(yaml, &["name"]),
         short_description: yaml_str(yaml, &["display", "short_description"]),
         description: yaml_str(yaml, &["detail", "description"]),
+        primary_category: yaml_str(yaml, &["display", "primary_category"]),
+        target_categories: yaml_string_list(yaml, &["display", "target_categories"]),
+        tags: yaml_string_list(yaml, &["display", "tags"]),
         categories: yaml_string_list(yaml, &["display", "categories"]),
         keywords: yaml_string_list(yaml, &["search", "keywords"]),
         examples: yaml_string_list(yaml, &["search", "examples"]),
@@ -268,6 +274,9 @@ fn report_value(report: &str, key: &str) -> Option<String> {
 fn clear_metadata_ai_proposal_values(metadata: &mut AppStudioAiMetadataSuggestion) {
     metadata.short_description = None;
     metadata.description = None;
+    metadata.primary_category = None;
+    metadata.target_categories.clear();
+    metadata.tags.clear();
     metadata.categories.clear();
     metadata.keywords.clear();
     metadata.examples.clear();

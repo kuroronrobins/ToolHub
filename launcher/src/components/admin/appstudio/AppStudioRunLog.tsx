@@ -8,6 +8,7 @@ interface Props {
 
 export function AppStudioRunLog({ busy, result }: Props) {
   const warningOnly = isAppStudioWarningOnly(result);
+  const referenceOnly = warningOnly && !(result?.adminAlerts?.length ?? 0);
   return (
     <section className="studio-side-section studio-run-log-section">
       <div className="admin-section-head">
@@ -20,9 +21,9 @@ export function AppStudioRunLog({ busy, result }: Props) {
         </span>
       </div>
       {busy ? <p className="admin-muted">App Studioを実行しています。完了するまで承認はできません。</p> : null}
-      {warningOnly ? (
+      {referenceOnly ? (
         <p className="admin-muted">
-          CLIの終了コードが0以外でも、execution_test_result.json が warn かつ approval_allowed=true の場合があります。配布リスクのない警告だけなら慎重モードでも承認できます。
+          管理者対応が必要なアラートはありません。内部検証に参考情報だけが残っています。
         </p>
       ) : null}
       <pre className="studio-log">{result ? joinLogs(result) : "実行ログはまだありません。"}</pre>
@@ -35,7 +36,7 @@ function statusText(result: AppStudioRunResult): string {
     return "成功";
   }
   if (isAppStudioWarningOnly(result)) {
-    return "警告";
+    return "参考情報";
   }
   return "失敗";
 }
@@ -46,7 +47,7 @@ function joinLogs(result: AppStudioRunResult): string {
     `executionStatus: ${result.executionStatus ?? "unknown"}`,
     `approvalAllowed: ${String(result.approvalAllowed ?? "unknown")}`,
     `approvalBlockingWarnings: ${String(result.approvalBlockingWarningsCount ?? 0)}`,
-    `nonBlockingWarnings: ${String(result.nonBlockingWarningsCount ?? 0)}`,
+    `adminAlerts: ${String(result.adminAlerts?.length ?? 0)}`,
     `timingTotalSeconds: ${String(result.timingTotalSeconds ?? "unknown")}`,
     `timingEstimatedTotalSeconds: ${String(result.timingEstimatedTotalSeconds ?? "unknown")}`,
     `timingPredictionErrorSeconds: ${String(result.timingPredictionErrorSeconds ?? "unknown")}`,

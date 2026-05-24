@@ -13,6 +13,7 @@ from .models import BuildPlan, ExecutionCheck, ExecutionTestResult, RuntimeCheck
 from .runtime_checker import is_forbidden_payload_path, required_data_findings
 from .trace import trace_with_import_plan
 from .util import now_iso, write_json, write_text
+from .warning_catalog import build_admin_alerts, merge_admin_alerts
 
 APPROVAL_BLOCKING_WARNING = "approval_blocking_warning"
 NON_BLOCKING_WARNING = "non_blocking_warning"
@@ -116,6 +117,8 @@ def build_execution_result(
         evidence=execution_evidence(context, output_dir, plan),
     )
     apply_approval_summary(result)
+    if runtime_result:
+        result.admin_alerts = merge_admin_alerts(result.admin_alerts, runtime_result.admin_alerts)
     return result
 
 
@@ -340,6 +343,7 @@ def execution_report_markdown(result: ExecutionTestResult) -> str:
         f"- non_blocking_warnings_count: `{result.non_blocking_warnings_count}`",
         f"- info_count: `{result.info_count}`",
         f"- unresolved_distribution_risks_count: `{result.unresolved_distribution_risks_count}`",
+        f"- admin_alerts_count: `{len(result.admin_alerts)}`",
         "",
         "| Status | Category | Blocking | Check | Detail |",
         "| --- | --- | --- | --- | --- |",
@@ -348,6 +352,22 @@ def execution_report_markdown(result: ExecutionTestResult) -> str:
         f"| {item.status} | {item.approval_category or default_approval_category(item.status)} | {str(item.approval_blocking or item.status == 'fail').lower()} | {item.name} | {item.detail} |"
         for item in result.checks
     )
+    if result.admin_alerts:
+        lines.extend(["", "## Admin Alerts", ""])
+        for alert in result.admin_alerts:
+            lines.extend(
+                [
+                    f"### {alert.get('title', '確認が必要です')}",
+                    "",
+                    f"- severity: `{alert.get('severity', '')}`",
+                    f"- check: `{alert.get('check_name', '')}`",
+                    f"- summary: {alert.get('summary', '')}",
+                    f"- detected: {alert.get('source', '')}",
+                    f"- why_dangerous: {alert.get('why_dangerous', '')}",
+                    f"- admin_action: {alert.get('admin_action', '')}",
+                    "",
+                ]
+            )
     if result.evidence:
         lines.extend(["", "## Evidence", "", "```json", json.dumps(result.evidence, ensure_ascii=False, indent=2), "```"])
     lines.append("")
@@ -394,6 +414,7 @@ def apply_approval_summary(result: ExecutionTestResult) -> None:
     result.unresolved_distribution_risks_count = summary["unresolved_distribution_risks_count"]
     result.approval_blocking_reasons = summary["approval_blocking_reasons"]
     result.non_blocking_warning_summaries = summary["non_blocking_warning_summaries"]
+    result.admin_alerts = build_admin_alerts(result.checks)
     result.approval_allowed = not has_fail(result.checks) and result.approval_blocking_warnings_count == 0
 
 

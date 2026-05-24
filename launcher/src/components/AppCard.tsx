@@ -1,5 +1,6 @@
 import { FileQuestion, Info, Play } from "lucide-react";
 import type { KeyboardEvent } from "react";
+import { appUserCategory } from "../lib/appCatalog";
 import type { ToolApp } from "../lib/types";
 
 interface Props {
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export function AppCard({ app, onLaunch, onDetail }: Props) {
+  const category = appUserCategory(app);
   function handleCardKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (event.target !== event.currentTarget) {
       return;
@@ -45,12 +47,8 @@ export function AppCard({ app, onLaunch, onDetail }: Props) {
           <p>{app.shortDescription}</p>
         </div>
 
-        <div className="tag-row" aria-label={`${app.name}のカテゴリ`}>
-          {app.categories.map((category) => (
-            <span key={category} className="tag">
-              {category}
-            </span>
-          ))}
+        <div className="tag-row" aria-label={`${app.name}の分類`}>
+          <span className="tag tag-primary">{category}</span>
         </div>
       </div>
 
@@ -82,4 +80,3 @@ export function AppCard({ app, onLaunch, onDetail }: Props) {
     </article>
   );
 }
-

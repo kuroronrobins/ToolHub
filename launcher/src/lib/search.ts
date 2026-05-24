@@ -1,4 +1,5 @@
 import type { ToolApp } from "./types";
+import { appCategoryValues, matchesCategoryFilter } from "./appCatalog";
 
 function normalize(value: string): string {
   return value.toLocaleLowerCase().replace(/\s+/g, " ").trim();
@@ -16,7 +17,7 @@ function haystack(app: ToolApp): string {
     [
       app.name,
       app.shortDescription,
-      ...app.categories,
+      ...appCategoryValues(app),
       ...app.search.keywords,
       ...app.search.examples
     ].join(" ")
@@ -34,7 +35,7 @@ export function matchesSearch(app: ToolApp, query: string): boolean {
 
 export function filterApps(apps: ToolApp[], query: string, category: string): ToolApp[] {
   return apps.filter((app) => {
-    const categoryMatches = category === "すべて" || app.categories.includes(category);
+    const categoryMatches = matchesCategoryFilter(app, category);
     return categoryMatches && matchesSearch(app, query);
   });
 }

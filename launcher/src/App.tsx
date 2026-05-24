@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, AlertTriangle, CheckCircle2, Download, RefreshCw, ShieldCheck } from "lucide-react";
+import launcherPackage from "../package.json";
 import { AdminEntryDialog } from "./components/admin/AdminEntryDialog";
 import { AppDetailDialog } from "./components/AppDetailDialog";
 import { AppGrid } from "./components/AppGrid";
@@ -8,7 +9,7 @@ import { LaunchProgressDialog } from "./components/LaunchProgressDialog";
 import { SearchBox } from "./components/SearchBox";
 import { UpdateNotice } from "./components/UpdateNotice";
 import { UpdateSummaryDialog } from "./components/UpdateSummaryDialog";
-import { ALL_CATEGORY, enabledApps, getCategoryCounts, getCategoryList } from "./lib/appCatalog";
+import { ALL_CATEGORY_FILTER, enabledApps, getCategoryGroups } from "./lib/appCatalog";
 import { checkUpdatesRemote, launchApp, listApps } from "./lib/api";
 import { filterApps } from "./lib/search";
 import type { LaunchEvent, RunStatus, ToolApp } from "./lib/types";
@@ -17,11 +18,12 @@ import { shouldShowUserUpdateNotice, updateNoticeKey } from "./lib/updateNotice"
 
 type UpdateStatus = "checking" | "latest" | "available" | "failed";
 const UPDATE_NOTICE_DISMISSED_KEY = "toolhub.updateNotice.dismissedKey";
+const PACKAGE_TOOLHUB_VERSION = typeof launcherPackage.version === "string" ? launcherPackage.version : "";
 
 export default function App() {
   const [apps, setApps] = useState<ToolApp[]>([]);
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState(ALL_CATEGORY);
+  const [category, setCategory] = useState(ALL_CATEGORY_FILTER);
   const [selectedApp, setSelectedApp] = useState<ToolApp | null>(null);
   const [launchAppTarget, setLaunchAppTarget] = useState<ToolApp | null>(null);
   const [launchStatus, setLaunchStatus] = useState<RunStatus>("idle");
@@ -34,6 +36,7 @@ export default function App() {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("checking");
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [dismissedUpdateKey, setDismissedUpdateKey] = useState(() => readDismissedUpdateKey());
+  const [toolhubVersion, setToolhubVersion] = useState(PACKAGE_TOOLHUB_VERSION);
 
   async function loadCatalog() {
     setLoading(true);
@@ -58,11 +61,15 @@ export default function App() {
     setUpdateStatus("checking");
     try {
       const summary = await checkUpdatesRemote();
+      if (summary.currentVersion) {
+        setToolhubVersion(summary.currentVersion);
+      }
+      setUpdateSummary(summary);
       if (shouldShowUserUpdateNotice(summary)) {
-        setUpdateSummary(summary);
         setUpdateStatus("available");
+      } else if (isUpdateCheckFailure(summary)) {
+        setUpdateStatus("failed");
       } else {
-        setUpdateSummary(null);
         setUpdateDialogOpen(false);
         setUpdateStatus("latest");
       }
@@ -74,10 +81,9 @@ export default function App() {
     }
   }
 
-  const categories = useMemo(() => getCategoryList(apps), [apps]);
-  const categoryCounts = useMemo(() => getCategoryCounts(apps), [apps]);
+  const categoryGroups = useMemo(() => getCategoryGroups(apps), [apps]);
   const visibleApps = useMemo(() => filterApps(apps, query, category), [apps, category, query]);
-  const isFiltered = query.trim().length > 0 || category !== ALL_CATEGORY;
+  const isFiltered = query.trim().length > 0 || category !== ALL_CATEGORY_FILTER;
   const visibleUpdateSummary = updateDialogOpen ? updateSummary : null;
   const activeUpdateKey = updateNoticeKey(updateSummary);
   const showUpdateNotice = shouldShowUserUpdateNotice(updateSummary) && activeUpdateKey !== dismissedUpdateKey;
@@ -101,7 +107,7 @@ export default function App() {
   }
 
   function handleUpdateStatusClick() {
-    if (shouldShowUserUpdateNotice(updateSummary)) {
+    if (updateSummary) {
       setUpdateDialogOpen(true);
       return;
     }
@@ -158,7 +164,7 @@ export default function App() {
       ) : null}
 
       <main className="content-layout">
-        <CategorySidebar categories={categories} counts={categoryCounts} selected={category} onSelect={setCategory} />
+        <CategorySidebar groups={categoryGroups} selected={category} onSelect={setCategory} />
         <section className="workspace">
           <div className="workspace-head">
             <button className="secondary-button workspace-refresh-button" type="button" onClick={() => void loadCatalog()} disabled={loading}>
@@ -189,6 +195,11 @@ export default function App() {
           setLaunchEvents([]);
         }}
       />
+      {toolhubVersion ? (
+        <div className="toolhub-version-badge" aria-label={`ToolHub version ${toolhubVersion}`}>
+          ToolHub v{toolhubVersion}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -237,7 +248,7 @@ function updateStatusTitle(status: UpdateStatus, summary: UpdateSummary | null):
     return "更新候補の詳細を確認";
   }
   if (status === "failed") {
-    return "更新状態を再確認";
+    return "更新確認の詳細を確認";
   }
   return "更新状態を確認";
 }
@@ -253,4 +264,9 @@ function renderUpdateStatusIcon(status: UpdateStatus, summary: UpdateSummary | n
     return <AlertTriangle size={17} aria-hidden="true" />;
   }
   return <CheckCircle2 size={17} aria-hidden="true" />;
+}
+
+function isUpdateCheckFailure(summary: UpdateSummary | null): boolean {
+  const status = summary?.status ?? "";
+  return status === "source_not_configured" || status === "remote_manifest_fetch_failed" || status.includes("failed");
 }

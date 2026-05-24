@@ -1,0 +1,87 @@
+id: run_3dx_create_ids
+name: "COMPASSのID一括取得"
+
+display:
+  icon: icon.png
+  icon_fallback: icon.svg
+  short_description: "3DXのドキュメントIDを一括で取得する業務用ランチャーです。"
+  primary_category: "業務自動化"
+  target_categories:
+    - "COMPASS"
+    - "3DX"
+  tags:
+    - "一括処理"
+    - "ID取得"
+    - "ブラウザ操作"
+  categories:
+    - "COMPASS"
+    - "業務自動化"
+    - "3DX"
+    - "一括処理"
+    - "ID取得"
+    - "ブラウザ操作"
+
+detail:
+  description: >
+    COMPASS上で3DXのドキュメントID発行・取得作業をまとめて実行するためのランチャーです。既存の自動化フローを呼び出し、手順を一定化して作業負荷を下げます。
+  use_cases:
+    - "3DXのドキュメントIDをまとめて取得する"
+    - "手作業の繰り返しを減らして処理を標準化する"
+    - "関連業務の起動口を一本化する"
+  inputs:
+    - "起動時の設定情報"
+    - "対象となる3DX関連の入力条件"
+    - "必要に応じたコマンドライン引数"
+  outputs:
+    - "取得したドキュメントIDの結果"
+    - "実行ログ"
+    - "処理結果の通知"
+  notes:
+    - "社内業務向けの自動化アプリです。"
+    - "実行前に対象データと設定内容を確認してください。"
+    - "環境依存の操作は利用先の手順に従ってください。"
+
+search:
+  keywords:
+    - 3DX
+    - COMPASS
+    - "ID取得"
+    - "一括処理"
+    - "業務自動化"
+    - "ランチャー"
+    - "ドキュメントID"
+  examples:
+    - "COMPASS上の3DXドキュメントIDをまとめて取得する。"
+    - "日次のID取得作業を自動化して確認する。"
+
+run:
+  runner: python_shared_env
+  entry: src/run_3dx_create_ids.py
+  mode: gui
+  env_id: py313-win_amd64-playwright1550-27ead7db
+  show_terminal: true
+
+admin:
+  version: 0.1.0
+  owner: admin
+  requirements: requirements.txt
+  log_dir: logs
+
+runtime:
+  distribution_mode: shared_env
+  app_env: null
+  required_runtime: python-shared-env:py313-win_amd64-playwright1550-27ead7db
+  requirements_lock: requirements.lock
+  shared_env:
+    env_id: py313-win_amd64-playwright1550-27ead7db
+    scope: versioned
+
+build:
+  managed_by: toolhub_app_studio
+  build_mode: shared-env
+  source_entry: C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload\run_3dx_create_ids.py
+  output_mirror: C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload\ToolHub_AppStudio_Output\run_3dx_create_ids
+
+quality:
+  approval_required: true
+  execution_test_required: true

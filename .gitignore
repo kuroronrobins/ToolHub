@@ -42,6 +42,9 @@ vendor/runtime/
 tools/runtime_sources/
 apps/*/bin/
 apps/*/src/assets/payload/
+!apps/pdf_workbench/src/assets/payload/
+!apps/pdf_workbench/src/assets/payload/python/
+!apps/pdf_workbench/src/assets/payload/python/MSVCP140.dll
 apps/*/build_profile.json
 apps/*/exe_readiness.json
 scripts/beta_vm/テスト/

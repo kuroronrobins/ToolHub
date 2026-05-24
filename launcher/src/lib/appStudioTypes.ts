@@ -189,6 +189,7 @@ export interface AppStudioRunResult {
   unresolvedDistributionRisksCount?: number;
   approvalBlockingReasons?: string[];
   nonBlockingWarningSummaries?: string[];
+  adminAlerts?: AppStudioAdminAlert[];
   timingReport?: string | null;
   timingTotalSeconds?: number | null;
   timingEstimatedTotalSeconds?: number | null;
@@ -228,6 +229,17 @@ export interface AppStudioPreflightResult {
   runtimePythonExists: boolean;
   warnings: string[];
   errors: string[];
+}
+
+export interface AppStudioAdminAlert {
+  id: string;
+  severity: "critical" | "warning" | "info" | string;
+  title: string;
+  summary: string;
+  whyDangerous: string;
+  adminAction: string;
+  source: string;
+  checkName: string;
 }
 
 export interface AppStudioPublishCheck {
@@ -373,6 +385,7 @@ export interface AppStudioResultSummary {
   unresolvedDistributionRisksCount?: number;
   approvalBlockingReasons?: string[];
   nonBlockingWarningSummaries?: string[];
+  adminAlerts?: AppStudioAdminAlert[];
   timingReport?: string | null;
   timingTotalSeconds?: number | null;
   timingEstimatedTotalSeconds?: number | null;
@@ -408,6 +421,9 @@ export interface AppStudioTimingPhase {
 export interface AppStudioEditableMetadata {
   shortDescription?: string;
   description?: string;
+  primaryCategory?: string;
+  targetCategories?: string[];
+  tags?: string[];
   categories?: string[];
   keywords?: string[];
   examples?: string[];
@@ -453,6 +469,9 @@ export interface AppStudioAiMetadataSuggestion {
   name?: string | null;
   shortDescription?: string | null;
   description?: string | null;
+  primaryCategory?: string | null;
+  targetCategories?: string[];
+  tags?: string[];
   categories: string[];
   keywords: string[];
   examples: string[];

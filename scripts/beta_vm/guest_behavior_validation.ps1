@@ -25,37 +25,50 @@ function Invoke-JsonProcess {
         [string[]]$Args,
         [int]$TimeoutSeconds = 180
     )
-    $RunId = [Guid]::NewGuid().ToString("N")
-    $StdoutPath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "toolhub_proc_${RunId}.out")
-    $StderrPath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "toolhub_proc_${RunId}.err")
     $QuotedArgs = New-Object System.Collections.Generic.List[string]
     foreach ($Arg in $Args) {
         [void]$QuotedArgs.Add(('"{0}"' -f $Arg.Replace('"', '\"')))
     }
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $Exe
+    $psi.Arguments = ($QuotedArgs.ToArray() -join " ")
+    $ExeParent = Split-Path -LiteralPath $Exe -Parent
+    if ($ExeParent -and (Test-Path -LiteralPath $ExeParent -PathType Container)) {
+        $psi.WorkingDirectory = $ExeParent
+    }
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
     try {
-        $Process = Start-Process `
-            -FilePath $Exe `
-            -ArgumentList $QuotedArgs.ToArray() `
-            -RedirectStandardOutput $StdoutPath `
-            -RedirectStandardError $StderrPath `
-            -WindowStyle Hidden `
-            -PassThru
+        $Process = [System.Diagnostics.Process]::Start($psi)
+        $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
+        $StderrTask = $Process.StandardError.ReadToEndAsync()
         if (-not $Process.WaitForExit($TimeoutSeconds * 1000)) {
             try { $Process.Kill() } catch {}
             try { $Process.WaitForExit() } catch {}
-            $TimedOutStdout = if (Test-Path -LiteralPath $StdoutPath) { Get-Content -Raw -Encoding UTF8 -LiteralPath $StdoutPath } else { "" }
-            $TimedOutStderr = if (Test-Path -LiteralPath $StderrPath) { Get-Content -Raw -Encoding UTF8 -LiteralPath $StderrPath } else { "" }
+            try { [void]$StdoutTask.Wait(5000) } catch {}
+            try { [void]$StderrTask.Wait(5000) } catch {}
+            $TimedOutStdout = try { $StdoutTask.Result } catch { "" }
+            $TimedOutStderr = try { $StderrTask.Result } catch { "" }
             return [ordered]@{ exit_code = 124; stdout = $TimedOutStdout; stderr = ("timeout`n" + $TimedOutStderr).Trim() }
         }
-        $Stdout = if (Test-Path -LiteralPath $StdoutPath) { Get-Content -Raw -Encoding UTF8 -LiteralPath $StdoutPath } else { "" }
-        $Stderr = if (Test-Path -LiteralPath $StderrPath) { Get-Content -Raw -Encoding UTF8 -LiteralPath $StderrPath } else { "" }
+        try { [void]$StdoutTask.Wait(5000) } catch {}
+        try { [void]$StderrTask.Wait(5000) } catch {}
+        $Stdout = try { $StdoutTask.Result } catch { "" }
+        $Stderr = try { $StderrTask.Result } catch { "" }
         return [ordered]@{
             exit_code = $Process.ExitCode
             stdout = $Stdout
             stderr = $Stderr
         }
     } finally {
-        Remove-Item -LiteralPath $StdoutPath, $StderrPath -Force -ErrorAction SilentlyContinue
+        if ($Process) {
+            $Process.Dispose()
+        }
     }
 }
 

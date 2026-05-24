@@ -6,7 +6,7 @@ ToolHubは以下の層で構成します。
 
 | Layer | Path | Responsibility |
 | --- | --- | --- |
-| Bootstrap | `main.py` | プロジェクト入口、環境確認、ビルド済み実行ファイルまたは開発モード起動 |
+| Bootstrap | `main.py` | プロジェクト入口、環境確認、開発中 launcher 起動 |
 | Launcher UI | `launcher/src` | 検索、カテゴリ、カード表示、説明モーダル、起動状態表示 |
 | Tauri Backend | `launcher/src-tauri` | `apps/` のスキャン、manifest読込、runner呼び出し |
 | Python App Runner | `runner/toolhub_runner` | runner種別選択、起動、イベント解釈、ログ保存、利用者向けエラー変換 |
@@ -15,7 +15,7 @@ ToolHubは以下の層で構成します。
 
 ## Data Flow
 
-1. `main.py` が起動方法を判断する。
+1. `main.py` が環境を確認し、開発中 launcher を起動する。
 2. Tauri backend が `apps/*/app.yaml` を読み込む。
 3. React UI は表示用情報だけを受け取りカードを描画する。
 4. 利用者が起動すると、Tauri backend が `runner/toolhub_runner/main.py` を呼び出す。

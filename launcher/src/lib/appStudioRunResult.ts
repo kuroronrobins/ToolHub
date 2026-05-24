@@ -4,7 +4,7 @@ import {
   type AppStudioApprovalDecision,
   type AppStudioApprovalFailureGuidance,
 } from "./appStudioApproval";
-import type { AppStudioApprovalMode, AppStudioRunResult } from "./appStudioTypes";
+import type { AppStudioAdminAlert, AppStudioApprovalMode, AppStudioRunResult } from "./appStudioTypes";
 
 export type AppStudioRunAction = "suggest" | "apply" | "approve";
 
@@ -39,6 +39,7 @@ export interface AppStudioRunResultView {
   blockingReasons: string[];
   nonBlockingWarnings: string[];
   manualChecks: string[];
+  adminAlerts: AppStudioAdminAlert[];
 }
 
 export interface AppStudioImportSidebarNextActionInput {
@@ -66,6 +67,7 @@ export function normalizeAppStudioRunResult(
   const canApprove = approvalDecision.canApprove;
   const warningOnly = isAppStudioWarningOnly(result);
   const secretBlocked = isAppStudioSecretBlocked(result);
+  const adminAlerts = result?.adminAlerts ?? [];
   return {
     approvalDecision,
     approvalFailureGuidance,
@@ -83,24 +85,25 @@ export function normalizeAppStudioRunResult(
     lastActionLabel: appStudioActionLabel(options.lastAction ?? null),
     metadataOverrideLabel: metadataOverrideText(result),
     iconOverrideLabel: iconOverrideText(result),
-    exeReadinessLabel: appStudioStatusLabel(result?.exeReadinessStatus),
-    executionStatusLabel: appStudioStatusLabel(result?.executionStatus),
-    runtimeStatusLabel: appStudioStatusLabel(result?.runtimeStatus),
+    exeReadinessLabel: appStudioStatusLabelForRun(result?.exeReadinessStatus, warningOnly, adminAlerts.length),
+    executionStatusLabel: appStudioStatusLabelForRun(result?.executionStatus, warningOnly, adminAlerts.length),
+    runtimeStatusLabel: appStudioStatusLabelForRun(result?.runtimeStatus, warningOnly, adminAlerts.length),
     timingSummary: timingSummary(result),
     timingDetailSummary: result ? timingDetailSummary(result) : "-",
     approvalRecordSummary: approvalRecordSummary(result),
     catalogSummary: catalogSummary(result),
     manifestEnabledLabel: triStateLabel(result?.manifestEnabled),
     appPackLabel: result?.appPack ?? "未作成",
-    blockingReasons: result?.approvalBlockingReasons ?? [],
-    nonBlockingWarnings: result?.nonBlockingWarningSummaries ?? [],
-    manualChecks: result?.manualChecks ?? [],
+    blockingReasons: adminAlerts.length ? adminAlerts.map(formatAdminAlert) : result?.approvalBlockingReasons ?? [],
+    nonBlockingWarnings: [],
+    manualChecks: [],
+    adminAlerts,
   };
 }
 
 export function getAppStudioImportSidebarNextAction(input: AppStudioImportSidebarNextActionInput): string {
   if (input.step === "selectEntry") {
-    return input.hasEntry ? "メインファイルと表示名を確認し、事前確認を実行します。" : "登録するアプリのメインファイルを選択してください。";
+    return input.hasEntry ? "メインファイル、表示名、必要ならPNGアイコンを確認し、事前確認を実行します。" : "登録するアプリのメインファイルを選択してください。";
   }
   if (input.step === "aiProposal") {
     return "表示名、説明、アイコンを確認し、テスト登録へ進みます。";
@@ -119,9 +122,7 @@ export function getAppStudioImportSidebarNextAction(input: AppStudioImportSideba
 
 export function collectAppStudioRunResultWarnings(result: AppStudioRunResult | null): string[] {
   const warnings = new Set<string>();
-  if (result?.executionStatus === "warn") {
-    warnings.add("配布物検証が警告扱いです。ログとレポートを確認してください。");
-  }
+  result?.adminAlerts?.forEach((alert) => warnings.add(`${alert.title}: ${alert.summary}`));
   if (isAppStudioSecretBlocked(result)) {
     warnings.add("秘密情報検査で停止しています。secret_scan_report.md を確認してください。");
   }
@@ -132,9 +133,19 @@ export function collectAppStudioRunResultWarnings(result: AppStudioRunResult | n
   return Array.from(warnings);
 }
 
+function formatAdminAlert(alert: AppStudioAdminAlert): string {
+  const parts = [
+    alert.summary,
+    alert.source ? `検出内容: ${alert.source}` : "",
+    alert.whyDangerous ? `危険な理由: ${alert.whyDangerous}` : "",
+    alert.adminAction ? `対応: ${alert.adminAction}` : "",
+  ].filter(Boolean);
+  return parts.join(" ");
+}
+
 export function getAppStudioRunResultMessage(result: AppStudioRunResult, action: AppStudioRunAction): string {
   if (!result.ok && isAppStudioWarningOnly(result)) {
-    return "警告がありますが処理は完了しました。ログとレポートを確認してください。";
+    return "管理者対応が必要なアラートはありません。参考情報のみで処理は完了しました。";
   }
   if (!result.ok) {
     return "処理に失敗しました。理由と次の操作を確認してください。";
@@ -185,7 +196,7 @@ export function getAppStudioUpdateNextAction(input: AppStudioUpdateNextActionInp
 
 export function getAppStudioUpdateRunResultMessage(result: AppStudioRunResult, action: AppStudioRunAction): string {
   if (!result.ok && isAppStudioWarningOnly(result)) {
-    return "警告がありますが更新処理は完了しました。ログとレポートを確認してください。";
+    return "管理者対応が必要なアラートはありません。参考情報のみで更新処理は完了しました。";
   }
   if (!result.ok) {
     return "更新処理に失敗しました。理由と次の操作を確認してください。";
@@ -227,6 +238,13 @@ export function appStudioStatusLabel(status?: string | null): string {
     return "失敗";
   }
   return status || "未確認";
+}
+
+function appStudioStatusLabelForRun(status: string | null | undefined, warningOnly: boolean, adminAlertCount: number): string {
+  if (warningOnly && adminAlertCount === 0) {
+    return "参考情報のみ";
+  }
+  return appStudioStatusLabel(status);
 }
 
 export function appStudioActionLabel(action: AppStudioRunAction | null): string {

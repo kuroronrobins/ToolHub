@@ -6,7 +6,7 @@
 
 新しいPCで確認済み:
 
-- [x] `python main.py --dev` でToolHubランチャーが起動する
+- [x] `python main.py` でToolHubランチャーが起動する
 - [x] ランチャーにアプリカードが表示される
 - [x] 登録済み検証アプリがウィンドウを開く
 - [x] CLI形式の登録済み検証アプリがrunner経由で `ok: true` を返し、ログを保存する
@@ -16,8 +16,7 @@
 ## Functional
 
 - [x] プロジェクト直下で `python main.py` を実行するとToolHub起動を試行できる
-- [x] `python main.py --dev` で開発モード起動を試行できる
-- [x] `python main.py --release` でビルド済み実行ファイルのみ起動を試行できる
+- [x] `python main.py` は既存 exe ではなく開発中の launcher を起動する
 - [x] `python main.py --check` で環境確認ができる
 - [x] ランチャーが起動できる
 - [x] `apps/` 配下の `app.yaml` を自動検出できる構造がある
@@ -120,7 +119,7 @@
 - [x] `--check` がフォルダ不足を検出する
 - [x] Node.js/npm/Rust/cargo不足時に分かりやすいメッセージを出す
 - [x] Tauriランチャー経由の起動ログが `%LOCALAPPDATA%\ToolHub\data\logs\launcher\` に保存され、runner直接実行時は `data/logs/` にフォールバックする
-- [x] `--release` はビルド済み実行ファイルがない場合に開発起動へ進まない
+- [x] `main.py` は `--check` 以外の起動オプションを持たず、生成済みバイナリは探さない
 
 ## Release Build Flow
 

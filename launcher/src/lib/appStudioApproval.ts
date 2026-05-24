@@ -65,13 +65,16 @@ export function getAppStudioApprovalDecision(
   const blockingWarnings = result.approvalBlockingWarningsCount ?? 0;
   const nonBlockingWarnings = result.nonBlockingWarningsCount ?? 0;
   if (blockingWarnings > 0) {
-    const reason = `配布リスクのある未解決警告が ${blockingWarnings} 件あります。`;
+    const adminAlertCount = result.adminAlerts?.length ?? 0;
+    const reason = adminAlertCount
+      ? `管理者対応が必要なアラートが ${adminAlertCount} 件あります。`
+      : `配布リスクのある未解決警告が ${blockingWarnings} 件あります。`;
     return blocked("approval_blocking_warning", reason, "approval_allowed=false", "承認不可");
   }
   if (approvalMode === "strict" && nonBlockingWarnings > 0) {
     return {
       canApprove: true,
-      reason: "配布リスクのない警告のみです。デフォルトの慎重モードでも承認できます。",
+      reason: "管理者対応が必要なアラートはありません。参考情報のみのため、慎重モードでも承認できます。",
       blockingKind: "none",
       systemDecision: "approval_allowed=true",
       modeDecision: "strictでも承認可",
@@ -80,10 +83,10 @@ export function getAppStudioApprovalDecision(
   if (nonBlockingWarnings > 0) {
     return {
       canApprove: true,
-      reason: "配布リスクのない警告のみです。詳細を確認して問題なければ承認できます。",
+      reason: "管理者対応が必要なアラートはありません。参考情報のみのため承認できます。",
       blockingKind: "none",
       systemDecision: "approval_allowed=true",
-      modeDecision: "警告ありでも承認可",
+      modeDecision: "参考情報のみで承認可",
     };
   }
   return {
@@ -152,7 +155,7 @@ export function getAppStudioApprovalFailureGuidance(result: AppStudioRunResult |
   if (lower.includes("runtime check result blocks approval") || lower.includes("runtime check result contains approval-blocking warnings")) {
     return {
       reason: `runtime 検証が承認を止めています。${compactSummary(summary)}`,
-      nextAction: "runtime_check_result.json の fail または配布リスク警告を解消し、テスト登録を再実行してください。",
+      nextAction: "runtime_check_result.json の fail または配布リスクを解消し、テスト登録を再実行してください。",
     };
   }
   if (

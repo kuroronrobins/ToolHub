@@ -1,0 +1,240 @@
+audio:
+  capture_rate: 48000
+  target_rate: 24000
+  channels_system: 2
+  channels_mic: 1
+  enable_system: true
+  enable_mic: false
+  frames_per_buffer: 1024
+  chunk_ms: 500
+  level_interval_seconds: 0.08
+  energy_threshold_sys: 80.0
+  energy_threshold_mic: 80.0
+  system_device_follow_default: true
+  system_device_prompt: false
+  calibration:
+    enable: true
+    seconds: 3
+    percentile: 20
+    multiplier: 1.6
+    min_threshold_sys: 0.0
+    min_threshold_mic: 25.0
+    max_threshold_sys: 1200.0
+    recalibration_interval_seconds: 300
+    recalibration_window_seconds: 10
+    recalibration_min_samples: 20
+    recalibration_min_change_ratio: 0.1
+  vad:
+    enable_hysteresis: true
+    start_ratio_sys: 1.1
+    stop_ratio_sys: 0.85
+    start_ratio_mic: 1.8
+    stop_ratio_mic: 1.2
+    min_voice_chunks_sys: 1
+    min_voice_chunks_mic: 2
+    guard_mic:
+      enable: true
+      frame_ms: 30
+      min_voiced_ms: 120
+      min_rms_std_ratio: 0.08
+      strong_rms_ratio: 2.5
+      prebuffer_chunks: 1
+    adaptive:
+      enable: true
+      update_interval_seconds: 20
+      target_drop_rate: 0.35
+      deadband: 0.05
+      max_step_ratio: 0.2
+      smoothing: 0.6
+      min_samples: 20
+      min_change_ratio: 0.01
+      min_threshold_sys: 200.0
+      max_threshold_sys: 1800.0
+      min_threshold_mic: 10.0
+      max_threshold_mic: 120.0
+  queue_max_chunks: 120
+  metrics_interval_seconds: 10
+  session_root: sessions
+  recording:
+    system: true
+    mic: true
+    format: wav
+    rotate_seconds: 30
+    rotate_mb: 0
+    directory: audio
+stt:
+  provider: openai_realtime
+  cost_profile: standard
+  api_key_service: openai
+  api_key_priority:
+  - env
+  - wincred
+  - embedded
+  language: ja
+  enable: true
+  model: gpt-realtime
+  low_cost_model: gpt-realtime-mini
+  url: wss://api.openai.com/v1/realtime?model=gpt-realtime
+  transcription_model: gpt-4o-transcribe
+  low_cost_transcription_model: gpt-4o-mini-transcribe
+  transcription_prompt: ''
+  noise_reduction_sys: near_field
+  noise_reduction_mic: far_field
+  segment_max_seconds: 12
+  segment_gap_ms: 800
+  api_key_source: env
+  rolling_session_minutes: 60
+  rolling_overlap_seconds: 3
+  rolling_context:
+    enable: true
+    use_recent_final_transcript: false
+    use_topic: false
+    use_glossary: false
+    use_summary: false
+    max_recent_segments: 1
+    max_recent_chars: 200
+    max_glossary_terms: 20
+    max_prompt_chars: 1200
+    update_policy: rolling_session
+    guard_style: current
+    include_partial: false
+    include_low_confidence: false
+    repetition_guard: true
+  min_turn_seconds: 0.6
+  include_logprobs: false
+  low_confidence_marking: false
+  max_consecutive_failures: 5
+  reconnect_enable: true
+  reconnect_backoff_seconds: 1
+  reconnect_max_backoff_seconds: 30
+translation:
+  enable: false
+  provider: openai
+  cost_profile: standard
+  api_key_service: openai
+  api_key_priority:
+  - env
+  - wincred
+  - embedded
+  base_url: https://api.openai.com/v1/responses
+  target_language_mic: ja
+  target_language_sys: en
+  model: gpt-4o-mini
+  low_cost_model: gpt-4o-mini
+  batch_wait_ms: 200
+  batch_lines: 3
+  batch_chars: 300
+  request_timeout_seconds: 20
+  max_output_tokens: 400
+  backfill_lines: 20
+  rules:
+  - input_language: zh
+    output_language: ja
+  - input_language: en
+    output_language: en
+  panel_visible: true
+secrets:
+  priority:
+  - env
+  - wincred
+  - embedded
+meeting:
+  topic: ''
+  glossary: []
+ui:
+  caption:
+    font_size: 20
+    min_font_size: 14
+    max_font_size: 64
+minutes:
+  profile: low_cost_incremental
+  profile_overrides:
+    low_cost_incremental:
+      incremental_model: gpt-5.4-nano
+      final_model: gpt-5.4
+      update_interval_seconds: 180
+      min_interval_seconds: 180
+      min_new_segments: 12
+      max_segments_per_call: 24
+      incremental_max_output_tokens: 2500
+  update_interval_seconds: 60
+  merge_enable: true
+  merge_min_seconds: 2
+  merge_max_seconds: 5
+  merge_gap_seconds: 0.8
+  merge_by_source: true
+  dedupe_enable: true
+  dedupe_window_seconds: 1.0
+  dedupe_similarity: 0.9
+  filter:
+    enable: true
+    min_chars: 4
+    allowlist:
+    - はい
+    - ええ
+    - うん
+    - 了解
+    - 承知
+    - OK
+    - オーケー
+  llm:
+    enable: true
+    provider: openai
+    cost_profile: standard
+    api_key_service: openai
+    api_key_priority:
+    - env
+    - wincred
+    - embedded
+    base_url: https://api.openai.com/v1/responses
+    model: gpt-5.2
+    low_cost_model: gpt-4o-mini
+    final_model: gpt-5.2
+    low_cost_final_model: gpt-4o-mini
+    reasoning_effort: none
+    temperature: 0.2
+    max_output_tokens: 8000
+    store: false
+    structured_output: false
+    min_interval_seconds: 60
+    min_new_segments: 6
+    max_segments_per_call: 12
+    request_timeout_seconds: 30
+    confidence_threshold: 0.45
+    dedupe_similarity: 0.9
+    prompt_version: v1
+    language: ja
+    cost_tracking:
+      enable: true
+      filename: llm_costs.jsonl
+  finalize:
+    request_timeout_seconds: 300
+    retries: 2
+    retry_backoff_seconds: 5
+    fallback_model: gpt-4o
+    low_cost_fallback_model: gpt-4o-mini
+    fallback_request_timeout_seconds: 180
+    chunking:
+      mode: auto
+      min_chars: 12000
+      max_chars: 12000
+      overlap_chars: 400
+      max_segments: 200
+resilience:
+  enable: true
+  status_interval_seconds: 10
+  delay_mode:
+    queue_ratio: 0.7
+    delay_seconds: 10.0
+    drop_rate: 0.5
+    recover_queue_ratio: 0.4
+    recover_delay_seconds: 5.0
+    recover_drop_rate: 0.2
+  actions:
+    segment_max_seconds_boost: 20
+    minutes_interval_boost: 180
+  catch_up:
+    enable: true
+    only_when_delay: true
+    overwrite_transcript: true
+    keep_realtime_artifacts: true

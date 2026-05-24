@@ -3,6 +3,9 @@ import type { AppStudioAiMetadataSuggestion, AppStudioEditableMetadata, AppStudi
 export const EMPTY_APP_STUDIO_METADATA: AppStudioEditableMetadata = {
   shortDescription: "",
   description: "",
+  primaryCategory: "",
+  targetCategories: [],
+  tags: [],
   categories: [],
   keywords: [],
   examples: [],
@@ -18,6 +21,9 @@ export function createEmptyAppStudioMetadata(): AppStudioEditableMetadata {
   return {
     shortDescription: "",
     description: "",
+    primaryCategory: "",
+    targetCategories: [],
+    tags: [],
     categories: [],
     keywords: [],
     examples: [],
@@ -34,6 +40,9 @@ export function metadataFromSuggestion(suggestion: AppStudioAiMetadataSuggestion
   return cleanEditableMetadata({
     shortDescription: suggestion.shortDescription ?? "",
     description: suggestion.description ?? "",
+    primaryCategory: suggestion.primaryCategory ?? "",
+    targetCategories: suggestion.targetCategories ?? [],
+    tags: suggestion.tags ?? [],
     categories: suggestion.categories,
     keywords: suggestion.keywords,
     examples: suggestion.examples,
@@ -57,6 +66,9 @@ export function cleanEditableMetadata(metadata?: AppStudioEditableMetadata): App
   const cleaned: AppStudioEditableMetadata = {
     shortDescription: cleanString(metadata.shortDescription),
     description: cleanString(metadata.description),
+    primaryCategory: cleanString(metadata.primaryCategory),
+    targetCategories: cleanList(metadata.targetCategories),
+    tags: cleanList(metadata.tags),
     categories: cleanList(metadata.categories),
     keywords: cleanList(metadata.keywords),
     examples: cleanList(metadata.examples),
@@ -75,9 +87,12 @@ export function hasEditableMetadata(metadata?: AppStudioEditableMetadata): boole
     return false;
   }
   return Boolean(
-    cleanString(metadata.shortDescription) ||
+      cleanString(metadata.shortDescription) ||
       cleanString(metadata.description) ||
+      cleanString(metadata.primaryCategory) ||
       cleanString(metadata.changeSummary) ||
+      cleanList(metadata.targetCategories).length ||
+      cleanList(metadata.tags).length ||
       cleanList(metadata.categories).length ||
       cleanList(metadata.keywords).length ||
       cleanList(metadata.examples).length ||
@@ -150,4 +165,46 @@ export function cleanIconOverride(iconOverride?: AppStudioIconOverride): AppStud
     candidateId: cleanString(iconOverride.candidateId) || undefined,
     sourcePrompt: cleanString(iconOverride.sourcePrompt) || undefined,
   };
+}
+
+export function automationTargetCategoryWarning(metadata?: AppStudioEditableMetadata): string {
+  const cleaned = cleanEditableMetadata(metadata);
+  if (!cleaned) {
+    return "";
+  }
+  const targetCategories = cleanList(cleaned.targetCategories);
+  if (targetCategories.length) {
+    return "";
+  }
+  if (!requiresTargetCategories(cleaned)) {
+    return "";
+  }
+  return "自動化アプリでは対象カテゴリを1件以上入力してください。先頭が利用者向けカテゴリになります。例: XCgate, COMPASS, 3DX";
+}
+
+function requiresTargetCategories(metadata: AppStudioEditableMetadata): boolean {
+  if (cleanString(metadata.primaryCategory) === "業務自動化") {
+    return true;
+  }
+  const source = normalizeTaxonomyText(
+    [
+      metadata.shortDescription,
+      metadata.description,
+      metadata.primaryCategory,
+      ...(metadata.categories ?? []),
+      ...(metadata.tags ?? []),
+      ...(metadata.keywords ?? []),
+      ...(metadata.useCases ?? []),
+      ...(metadata.inputs ?? []),
+      ...(metadata.outputs ?? []),
+      ...(metadata.notes ?? []),
+    ].join(" "),
+  );
+  return ["自動化", "ブラウザ操作", "playwright", "selenium"].some((marker) =>
+    source.includes(normalizeTaxonomyText(marker)),
+  );
+}
+
+function normalizeTaxonomyText(value: string): string {
+  return value.toLocaleLowerCase().replace(/[\s-]+/g, "");
 }

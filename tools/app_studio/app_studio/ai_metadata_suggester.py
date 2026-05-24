@@ -7,6 +7,7 @@ from typing import Any
 from .models import DependencyReport, IconDesignBrief, SecretScanReport, StudioContext
 from .openai_client import complete_json, ai_enabled, has_api_key, text_model
 from .secret_scanner import ai_submission_block_reason, scan_ai_payload_text, secret_scan_status
+from .taxonomy import PRIMARY_CATEGORIES, TAG_CATEGORIES, TARGET_CATEGORIES, normalize_metadata_taxonomy
 
 
 ACTION_NORMALIZATION: dict[str, tuple[str, ...]] = {
@@ -74,6 +75,7 @@ def suggest_metadata(context: StudioContext, secret_report: SecretScanReport | N
     if result.ok:
         parsed = parse_metadata_json(result.content)
         if parsed:
+            parsed = normalize_metadata_taxonomy(parsed)
             parsed["_ai_generation_report"] = append_metadata_secret_scan_status(
                 append_parse_status(result.report, "success", ""),
                 secret_report,
@@ -567,17 +569,21 @@ def first_non_empty(values: list[str]) -> str:
 
 
 def fallback_metadata(context: StudioContext) -> dict[str, Any]:
-    return {
+    return normalize_metadata_taxonomy({
         "short_description": f"{context.name} をToolHubから起動するアプリです。",
         "description": f"{context.name} は、指定されたメインファイルをもとにToolHubへ取り込むためのアプリ定義です。",
-        "categories": ["業務ツール"],
+        "_taxonomy_infer": False,
+        "primary_category": "その他",
+        "target_categories": [],
+        "tags": [],
+        "categories": ["その他"],
         "use_cases": [f"{context.name} をToolHubからすばやく起動する"],
         "inputs": ["アプリ設定に依存"],
         "outputs": ["アプリ実行結果"],
         "notes": ["正式登録前に実行確認と人間承認が必要です。"],
         "keywords": [context.name, context.app_id, "ToolHub"],
         "examples": [f"{context.name} を起動したい"],
-    }
+    })
 
 
 def metadata_prompt(context: StudioContext) -> str:
@@ -597,18 +603,36 @@ def metadata_prompt(context: StudioContext) -> str:
             "style": "業務アプリらしい簡潔な日本語。英語カテゴリ utility/testing/minimal/demo は使わず、日本語に言い換える。",
             "rules": [
                 "name と app_id は固有名詞や英数字でもよい。",
-                "short_description, description, categories, keywords, examples, use_cases, inputs, outputs, notes は日本語で書く。",
+                "short_description, description, primary_category, target_categories, tags, categories, keywords, examples, use_cases, inputs, outputs, notes は日本語で書く。",
+                "target_categories はユーザー向けカテゴリの基準。自動化や連携の対象システム名を target_category_options から選ぶ。XCgate、COMPASS、3DX など対象が分かる場合は必ず含める。",
+                "複数の target_categories がある場合、ユーザーが探す主対象を先頭に置く。例: COMPASS上で3DX文書を取得するアプリは COMPASS, 3DX の順にする。",
+                "primary_category は対象カテゴリがないアプリの補助分類として primary_category_options から1つだけ選ぶ。業務自動化のような汎用語だけで棚分けしない。",
+                "tags は tag_options から選ぶ。業務支援、業務効率化、業務ツールのような汎用語をカテゴリとして増やさない。",
+                "既存候補に該当しない新しい用途、対象、特徴だけ proposed_new_categories に pending 候補として出す。",
                 "keywords は日本語中心。ただし固有名詞、app_id、ファイル名は英数字のままでよい。",
                 "READMEやファイル内容を丸ごと引用しない。",
                 "APIキー、パスワード、token、credential、secret値を含めない。",
             ],
+            "primary_category_options": taxonomy_options(PRIMARY_CATEGORIES),
+            "target_category_options": taxonomy_options(TARGET_CATEGORIES),
+            "tag_options": taxonomy_options(TAG_CATEGORIES),
             "source_files": safe_source_file_names(context)[:20],
             "readme_excerpt": readme_excerpt,
             "existing_app_ids": app_names[:20],
             "required_schema": {
                 "short_description": "日本語の短い一言説明",
                 "description": "日本語の詳細説明",
-                "categories": ["日本語カテゴリ"],
+                "primary_category": "primary_category_options の label から1つ",
+                "target_categories": ["target_category_options の label。自動化対象がある場合は必須"],
+                "tags": ["tag_options の label"],
+                "categories": ["互換表示用。target_categories の先頭 + primary_category + 残りの target_categories + tags を重複なく並べる"],
+                "proposed_new_categories": [
+                    {
+                        "axis": "primary|target|tag",
+                        "label": "新カテゴリ候補名",
+                        "reason": "既存候補では不足する理由",
+                    }
+                ],
                 "use_cases": ["日本語の用途"],
                 "inputs": ["日本語の入力説明"],
                 "outputs": ["日本語の出力説明"],
@@ -619,7 +643,11 @@ def metadata_prompt(context: StudioContext) -> str:
             "example": {
                 "short_description": "ToolHubの登録動作を確認するためのテストアプリです。",
                 "description": "このアプリは、App Studioによる登録、メタデータ反映、起動確認の流れを検証するための最小構成のテストアプリです。",
-                "categories": ["開発支援", "テスト"],
+                "primary_category": "開発・管理",
+                "target_categories": [],
+                "tags": [],
+                "categories": ["開発・管理"],
+                "proposed_new_categories": [],
                 "keywords": ["テスト", "動作確認", "ToolHub"],
                 "examples": ["ToolHubへの登録動作を確認する"],
                 "use_cases": ["App Studioの登録フロー検証", "メタデータ反映確認"],
@@ -638,12 +666,18 @@ def parse_metadata_json(content: str) -> dict[str, Any] | None:
     except json.JSONDecodeError:
         return None
     required_strings = ["short_description", "description"]
-    required_lists = ["categories", "use_cases", "inputs", "outputs", "notes", "keywords", "examples"]
+    required_lists = ["use_cases", "inputs", "outputs", "notes", "keywords", "examples"]
     if not all(isinstance(data.get(key), str) and data[key].strip() for key in required_strings):
         return None
     if not all(isinstance(data.get(key), list) and data[key] for key in required_lists):
         return None
+    if not isinstance(data.get("categories"), list) and not isinstance(data.get("primary_category"), str):
+        return None
     return data
+
+
+def taxonomy_options(items: tuple[Any, ...]) -> list[dict[str, Any]]:
+    return [{"id": item.id, "label": item.label, "aliases": list(item.aliases)} for item in items]
 
 
 def append_parse_status(report: str, status: str, reason: str) -> str:

@@ -20,7 +20,7 @@ import {
   normalizeAppStudioIconProposal,
   selectedIconCandidateForProposal,
 } from "../../../lib/appStudioIconProposal";
-import { cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata, generatedMetadataSuggestion } from "../../../lib/appStudioMetadata";
+import { automationTargetCategoryWarning, cleanEditableMetadata, cleanIconOverride, createEmptyAppStudioMetadata, generatedMetadataSuggestion } from "../../../lib/appStudioMetadata";
 import { IMAGE_TEST_UPDATED_EVENT, imageApiFailureGuidance, loadImageGenerationTestResult, type StoredImageGenerationTestResult } from "../../../lib/imageApiHealth";
 import type {
   AppStudioAiProposal,
@@ -109,6 +109,7 @@ export function AppStudioImportWizard() {
   const imageApiBlocked = imageApiHealth?.ok === false;
   const approvalDecision = useMemo(() => getAppStudioApprovalDecision(result, approvalMode, busy, lastAction), [approvalMode, busy, lastAction, result]);
   const canApprove = approvalDecision.canApprove;
+  const taxonomyWarning = useMemo(() => automationTargetCategoryWarning(request.metadata), [request.metadata]);
 
   useEffect(() => {
     const reloadHealth = () => setImageApiHealth(loadImageGenerationTestResult());
@@ -222,6 +223,10 @@ export function AppStudioImportWizard() {
     const check = await runPreflight();
     if (check?.ok) {
       setStep("aiProposal");
+      if (isUploadedIconSelected(request)) {
+        setMessage("PNGアイコンを指定済みです。表示内容を確認し、必要な場合だけAI提案を作成してください。");
+        return;
+      }
       await run("suggest", "aiProposal");
     }
   }
@@ -251,7 +256,7 @@ export function AppStudioImportWizard() {
         setError(resultMessage);
         finishOperation("error", resultMessage);
       } else {
-        finishOperation(isAppStudioWarningOnly(freshResult) ? "warning" : "success", resultMessage);
+        finishOperation(operationStatusForRunResult(freshResult), resultMessage);
       }
       return freshResult;
     } catch (runError) {
@@ -284,7 +289,7 @@ export function AppStudioImportWizard() {
         setError(resultMessage);
         finishOperation("error", resultMessage);
       } else {
-        finishOperation(isAppStudioWarningOnly(freshResult) ? "warning" : "success", resultMessage);
+        finishOperation(operationStatusForRunResult(freshResult), resultMessage);
       }
     } catch (approveError) {
       const fallback = "承認処理に失敗しました。";
@@ -363,6 +368,7 @@ export function AppStudioImportWizard() {
         unresolvedDistributionRisksCount: summary.unresolvedDistributionRisksCount ?? runResult.unresolvedDistributionRisksCount,
         approvalBlockingReasons: summary.approvalBlockingReasons ?? runResult.approvalBlockingReasons,
         nonBlockingWarningSummaries: summary.nonBlockingWarningSummaries ?? runResult.nonBlockingWarningSummaries,
+        adminAlerts: summary.adminAlerts ?? runResult.adminAlerts,
         timingReport: summary.timingReport ?? runResult.timingReport,
         timingTotalSeconds: summary.timingTotalSeconds ?? runResult.timingTotalSeconds,
         timingEstimatedTotalSeconds: summary.timingEstimatedTotalSeconds ?? runResult.timingEstimatedTotalSeconds,
@@ -583,6 +589,11 @@ export function AppStudioImportWizard() {
           </label>
         </div>
 
+        {renderIconCompactPanel({
+          showAiButton: false,
+          description: "PNGを指定すると、その画像を icon.png として使います。PNG指定済みの場合、次へ進む時のAIアイコン生成は実行しません。",
+        })}
+
         <div className="studio-policy-strip">
           <CheckCircle2 size={18} aria-hidden="true" />
           <span>通常登録は共有ランタイム方式で実行します。方式の選択は不要です。</span>
@@ -627,7 +638,7 @@ export function AppStudioImportWizard() {
           <span className="studio-step-index">2</span>
           <div>
             <h4>ランチャーに表示する内容</h4>
-            <p>利用者に見える名前、説明、カテゴリ、アイコンを確認します。AI提案はこの画面に進む時に自動作成します。</p>
+            <p>利用者に見える名前、説明、カテゴリ、アイコンを確認します。PNG未指定時はこの画面に進む時にAI提案を作成します。</p>
           </div>
         </div>
 
@@ -672,17 +683,19 @@ export function AppStudioImportWizard() {
           <button className="secondary-button" type="button" onClick={() => setStep("selectEntry")}>
             戻る
           </button>
-          <button className="primary-button" type="button" onClick={() => setStep("review")}>
+          <button className="primary-button" type="button" onClick={() => setStep("review")} disabled={Boolean(taxonomyWarning)}>
             表示内容を確定して次へ
             <ChevronRight size={17} aria-hidden="true" />
           </button>
         </div>
+        {taxonomyWarning ? <p className="admin-error" role="alert">{taxonomyWarning}</p> : null}
       </section>
     );
   }
 
-  function renderIconCompactPanel() {
-    const uploadedIcon = request.iconOverride?.selectedIconSource === "uploaded_png" ? request.iconOverride.pngDataUrl : "";
+  function renderIconCompactPanel(options: { showAiButton?: boolean; description?: string } = {}) {
+    const showAiButton = options.showAiButton ?? true;
+    const uploadedIcon = isUploadedIconSelected(request) ? request.iconOverride?.pngDataUrl : "";
     const adoptedIcon = request.iconOverride?.pngDataUrl;
     return (
       <section className="studio-icon-compact-panel">
@@ -698,7 +711,7 @@ export function AppStudioImportWizard() {
             {adoptedIcon ? <img src={adoptedIcon} alt="採用中のPNGアイコン" /> : <span>{(request.name || request.appId || "A").slice(0, 1).toUpperCase()}</span>}
           </div>
           <div>
-            <p className="admin-muted">PNGを指定した場合は、その画像を icon.png として使います。AI候補は下の詳細から作成できます。</p>
+            <p className="admin-muted">{options.description ?? "PNGを指定した場合は、その画像を icon.png として使います。AI候補は下の詳細から作成できます。"}</p>
             <div className="studio-action-row compact-left">
               <label className="secondary-button" title={busy ? "処理中は選択できません" : "PNGアイコンを選択します"}>
                 <ImagePlus size={17} aria-hidden="true" />
@@ -708,10 +721,12 @@ export function AppStudioImportWizard() {
               <button className="secondary-button" type="button" onClick={clearUploadedIcon} disabled={!uploadedIcon || busy}>
                 解除
               </button>
-              <button className="secondary-button" type="button" onClick={() => void run("suggest", "suggest")} disabled={!canRun}>
-                {operation.kind === "suggest" && busy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <RefreshCw size={17} aria-hidden="true" />}
-                AIで候補を作成
-              </button>
+              {showAiButton ? (
+                <button className="secondary-button" type="button" onClick={() => void run("suggest", "suggest")} disabled={!canRun}>
+                  {operation.kind === "suggest" && busy ? <Loader2 className="studio-spinner" size={17} aria-hidden="true" /> : <RefreshCw size={17} aria-hidden="true" />}
+                  AIで候補を作成
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -841,8 +856,8 @@ export function AppStudioImportWizard() {
           <ResultSummaryRow label="アプリID" value={result?.appId || request.appId || "-"} />
           <ResultSummaryRow label="表示名" value={request.name || "-"} />
           <ResultSummaryRow label="登録方式" value={buildModeLabel(result?.selectedBuildMode || request.buildMode)} />
-          <ResultSummaryRow label="起動確認" value={result ? statusLabel(result.executionStatus) : "未実行"} tone={statusTone(result?.executionStatus)} />
-          <ResultSummaryRow label="配布物検証" value={result ? statusLabel(result.exeReadinessStatus || result.runtimeStatus) : "未実行"} tone={statusTone(result?.exeReadinessStatus || result?.runtimeStatus)} />
+          <ResultSummaryRow label="起動確認" value={result ? statusLabel(result.executionStatus, result) : "未実行"} tone={statusTone(result?.executionStatus, result)} />
+          <ResultSummaryRow label="配布物検証" value={result ? statusLabel(result.exeReadinessStatus || result.runtimeStatus, result) : "未実行"} tone={statusTone(result?.exeReadinessStatus || result?.runtimeStatus, result)} />
           <ResultSummaryRow label="手動確認" value={manualCheckCount ? `${manualCheckCount}件` : result ? "なし" : "未実行"} tone={manualCheckCount ? "warn" : result ? "ok" : "idle"} />
         </dl>
       </section>
@@ -857,7 +872,7 @@ export function AppStudioImportWizard() {
             <ResultSummaryRow label="処理結果" value={result ? (result.ok ? "成功" : "失敗") : "未実行"} tone={result ? (result.ok ? "ok" : "error") : "idle"} />
             <ResultSummaryRow label="承認判定" value={approvalDecision.reason} tone={canApprove ? "ok" : "warn"} />
             <ResultSummaryRow label="配布リスク" value={`${result?.approvalBlockingWarningsCount ?? 0}件`} tone={result?.approvalBlockingWarningsCount ? "error" : "ok"} />
-            <ResultSummaryRow label="参考警告" value={`${result?.nonBlockingWarningsCount ?? 0}件`} tone={result?.nonBlockingWarningsCount ? "warn" : "ok"} />
+            <ResultSummaryRow label="管理者アラート" value={`${result?.adminAlerts?.length ?? 0}件`} tone={result?.adminAlerts?.length ? "error" : "ok"} />
             <ResultSummaryRow label="App Pack" value={result?.appPack || "未作成"} />
           </dl>
         </AppStudioCollapsibleSection>
@@ -1033,8 +1048,8 @@ export function AppStudioImportWizard() {
           <dl>
             <ResultSummaryRow label="アプリ選択" value={preflight?.entryExists ? "完了" : "未確認"} tone={preflight?.entryExists ? "ok" : "warn"} />
             <ResultSummaryRow label="表示内容" value={request.name ? "確認済み" : "未入力"} tone={request.name ? "ok" : "warn"} />
-            <ResultSummaryRow label="テスト登録" value={result ? statusLabel(result.executionStatus) : "未実行"} tone={statusTone(result?.executionStatus)} />
-            <ResultSummaryRow label="配布物検証" value={result ? statusLabel(result.exeReadinessStatus || result.runtimeStatus) : "未実行"} tone={statusTone(result?.exeReadinessStatus || result?.runtimeStatus)} />
+            <ResultSummaryRow label="テスト登録" value={result ? statusLabel(result.executionStatus, result) : "未実行"} tone={statusTone(result?.executionStatus, result)} />
+            <ResultSummaryRow label="配布物検証" value={result ? statusLabel(result.exeReadinessStatus || result.runtimeStatus, result) : "未実行"} tone={statusTone(result?.exeReadinessStatus || result?.runtimeStatus, result)} />
             <ResultSummaryRow label="手動確認" value={manualCheckCount ? `${manualCheckCount}件あり` : result ? "なし" : "未確認"} tone={manualCheckCount ? "warn" : result ? "ok" : "idle"} />
           </dl>
         </section>
@@ -1055,7 +1070,7 @@ export function AppStudioImportWizard() {
           </ul>
           <div className="studio-approval-condition">
             <strong>承認条件</strong>
-            <span>{approvalMode === "strict" ? "配布リスクなし。手動確認メモあり。" : "配布リスク警告を許容。重大な失敗は不可。"}</span>
+            <span>{approvalMode === "strict" ? "危険アラートなし。手動確認メモあり。" : "参考情報は許容。重大な失敗は不可。"}</span>
           </div>
         </section>
 
@@ -1071,7 +1086,7 @@ export function AppStudioImportWizard() {
               />
               <span>
                 <strong>慎重モード</strong>
-                <small>配布リスクのない参考警告や手動確認メモだけなら承認できます。</small>
+                <small>参考情報や手動確認メモだけなら承認できます。</small>
               </span>
             </label>
             <label className="studio-approval-option">
@@ -1082,8 +1097,8 @@ export function AppStudioImportWizard() {
                 onChange={() => setApprovalMode("allowWarnings")}
               />
               <span>
-                <strong>警告を許容</strong>
-                <small>重大な失敗は承認せず、許容可能な警告だけを承認対象にします。</small>
+                <strong>参考情報を許容</strong>
+                <small>重大な失敗や危険アラートは承認せず、参考情報だけを承認対象にします。</small>
               </span>
             </label>
           </fieldset>
@@ -1148,11 +1163,14 @@ function buildModeLabel(mode?: string | null): string {
   return mode || "-";
 }
 
-function statusLabel(status?: string | null): string {
+function statusLabel(status?: string | null, result?: AppStudioRunResult | null): string {
   if (status === "pass") {
     return "成功";
   }
   if (status === "warn") {
+    if (isReferenceOnlyStatus(result)) {
+      return "参考情報のみ";
+    }
     return "要確認";
   }
   if (status === "fail") {
@@ -1161,17 +1179,31 @@ function statusLabel(status?: string | null): string {
   return status || "未実行";
 }
 
-function statusTone(status?: string | null): StatusTone {
+function statusTone(status?: string | null, result?: AppStudioRunResult | null): StatusTone {
   if (status === "pass") {
     return "ok";
   }
   if (status === "warn") {
+    if (isReferenceOnlyStatus(result)) {
+      return "ok";
+    }
     return "warn";
   }
   if (status === "fail") {
     return "error";
   }
   return "idle";
+}
+
+function isReferenceOnlyStatus(result?: AppStudioRunResult | null): boolean {
+  return Boolean(result?.approvalAllowed === true && !(result.adminAlerts?.length ?? 0));
+}
+
+function operationStatusForRunResult(result: AppStudioRunResult): StudioOperationStatus {
+  if (isAppStudioWarningOnly(result) && (result.adminAlerts?.length ?? 0) > 0) {
+    return "warning";
+  }
+  return "success";
 }
 
 function buildIconRevisionContext(
@@ -1266,6 +1298,10 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(new Error("PNGファイルの読み込みに失敗しました。"));
     reader.readAsDataURL(file);
   });
+}
+
+function isUploadedIconSelected(request: AppStudioImportRequest): boolean {
+  return request.iconOverride?.selectedIconSource === "uploaded_png" && Boolean(request.iconOverride.pngDataUrl?.startsWith("data:image/png;base64,"));
 }
 
 function estimateOperationSeconds(kind: StudioOperationKind, result: AppStudioRunResult | null): number | null {

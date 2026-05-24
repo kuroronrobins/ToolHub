@@ -1,0 +1,86 @@
+id: run_xcgate_upload
+name: "XCgate電子帳票登録"
+
+display:
+  icon: icon.png
+  icon_fallback: icon.svg
+  short_description: "XC-Gateへの帳票登録を自動化する起動アプリです。"
+  primary_category: "業務自動化"
+  target_categories:
+    - "XCgate"
+  tags:
+    - "登録"
+    - "ブラウザ操作"
+    - "一括処理"
+  categories:
+    - "XCgate"
+    - "業務自動化"
+    - "登録"
+    - "ブラウザ操作"
+    - "一括処理"
+
+detail:
+  description: >
+    XC-Gate（社内システム）のチェックシート登録を、ブラウザ操作で順次実行するための起動アプリです。Excelファイル群をまとめて扱い、ログイン後の手動操作を挟みながら登録処理を進めます。Playwrightを使ったフロー実行に対応しており、詳細ログや画面確認を行いながら運用しやすい構成です。
+  use_cases:
+    - "XC-Gateへのチェックシート登録をまとめて実行する"
+    - "複数のExcelファイルを順次アップロードする"
+    - "手動ログイン後に登録処理だけを自動化する"
+  inputs:
+    - "登録対象のExcelファイル群"
+    - "実行時の設定情報"
+    - "ブラウザ上でのログイン済み状態"
+  outputs:
+    - "XC-Gateへの登録結果"
+    - "実行ログ"
+    - "必要に応じた画面キャプチャ"
+  notes:
+    - "1件ずつ順番に処理します。"
+    - "登録前に対象ファイルと設定内容を確認してください。"
+    - "画面操作を伴うため、実行中はブラウザの状態に注意してください。"
+
+search:
+  keywords:
+    - XC-Gate
+    - "チェックシート登録"
+    - "帳票登録"
+    - Excel
+    - "アップロード"
+    - "ブラウザ自動化"
+    - Playwright
+    - "業務自動化"
+  examples:
+    - "XC-Gateに複数の帳票を順次登録する。"
+    - "ログイン後の画面から登録処理だけを自動実行する。"
+
+run:
+  runner: python_shared_env
+  entry: src/run_xcgate_upload.py
+  mode: gui
+  env_id: py313-win_amd64-playwright1550-27ead7db
+  show_terminal: true
+
+admin:
+  version: 0.1.0
+  owner: admin
+  requirements: requirements.txt
+  log_dir: logs
+
+runtime:
+  distribution_mode: shared_env
+  app_env: null
+  required_runtime: python-shared-env:py313-win_amd64-playwright1550-27ead7db
+  requirements_lock: requirements.lock
+  shared_env:
+    env_id: py313-win_amd64-playwright1550-27ead7db
+    scope: versioned
+
+build:
+  managed_by: toolhub_app_studio
+  build_mode: shared-env
+  source_entry: C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload\run_xcgate_upload.py
+  output_mirror: C:\Users\kuroron\Documents\RD\20251103_XCgateAutoUpload\ToolHub_AppStudio_Output\run_xcgate_upload
+
+quality:
+  approval_required: true
+  execution_test_required: true

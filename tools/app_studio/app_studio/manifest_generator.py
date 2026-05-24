@@ -4,10 +4,15 @@ from typing import Any
 
 from .app_contract import infer_run_mode_from_source
 from .models import BuildPlan, StudioContext
+from .taxonomy import normalize_metadata_taxonomy
 from .util import yaml_scalar
 
 
 def generate_app_yaml(context: StudioContext, plan: BuildPlan, metadata: dict[str, Any]) -> str:
+    metadata = normalize_metadata_taxonomy(metadata)
+    primary_category = str(metadata.get("primary_category") or "その他").strip() or "その他"
+    target_categories = list_or_empty(metadata.get("target_categories"))
+    tags = list_or_empty(metadata.get("tags"))
     categories = list_or_default(metadata.get("categories"), ["業務ツール"])
     use_cases = list_or_default(metadata.get("use_cases"), [f"{context.name} をToolHubから起動する"])
     inputs = list_or_default(metadata.get("inputs"), ["アプリ設定に依存"])
@@ -34,6 +39,11 @@ def generate_app_yaml(context: StudioContext, plan: BuildPlan, metadata: dict[st
         "  icon: icon.png",
         "  icon_fallback: icon.svg",
         f"  short_description: {yaml_scalar(short_description)}",
+        f"  primary_category: {yaml_scalar(primary_category)}",
+        "  target_categories:",
+        *[f"    - {yaml_scalar(item)}" for item in target_categories],
+        "  tags:",
+        *[f"    - {yaml_scalar(item)}" for item in tags],
         "  categories:",
         *[f"    - {yaml_scalar(item)}" for item in categories],
         "",

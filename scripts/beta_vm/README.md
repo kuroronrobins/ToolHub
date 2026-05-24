@@ -82,6 +82,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\beta_vm\run_guestc
 
 Use `-SkipUninstall -SkipReinstall` for the current already-installed VM state. For a clean proof, restore a clean VM snapshot and run with only `-RunInstallTest`.
 
+For deeper app behavior checks after installation, run the guest-side behavior script through Guest Control or from inside the VM:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File \\VBOXSVR\beta_vm\guest_behavior_validation.ps1 -PackageRoot \\VBOXSVR\beta_vm\package\ToolHub_Beta_VM_Test
+```
+
+This adds PDF thumbnail rendering, app smoke checks, runner launch checks, and uninstall / reinstall user-data preservation checks. Excel workbook replacement requires Microsoft Excel to be installed in the VM; without Excel, only Excel smoke and runner launch can be validated.
+
 ## What It Checks
 
 - developer tools are absent from `PATH`.

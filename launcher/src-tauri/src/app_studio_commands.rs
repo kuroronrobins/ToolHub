@@ -40,8 +40,8 @@ use crate::app_studio_types::AppStudioEditableMetadata;
 use crate::app_studio_types::{
     AppStudioAiDiagnostics, AppStudioDeletePlan, AppStudioFullDeleteResult,
     AppStudioIconRegenerateRequest, AppStudioImportRequest, AppStudioManagedApp,
-    AppStudioManagementActionResult, AppStudioPreflightResult, AppStudioPublishCheck,
-    AppStudioPublishAsset, AppStudioPublishPreflightResult, AppStudioPublishRemoteVerifyRequest,
+    AppStudioManagementActionResult, AppStudioPreflightResult, AppStudioPublishAsset,
+    AppStudioPublishCheck, AppStudioPublishPreflightResult, AppStudioPublishRemoteVerifyRequest,
     AppStudioPublishRequest, AppStudioPublishRunResult, AppStudioRegisteredApp, AppStudioRunResult,
     AppStudioUpdateRequest,
 };
@@ -1140,7 +1140,11 @@ fn build_publish_preflight(root: &Path) -> AppStudioPublishPreflightResult {
     push_check(
         &mut checks,
         "release_target_assets",
-        if release_target_ready { "pass" } else { "warning" },
+        if release_target_ready {
+            "pass"
+        } else {
+            "warning"
+        },
         if release_target_ready {
             "All planned GitHub Release upload assets exist in the target folder."
         } else {
@@ -1842,7 +1846,9 @@ fn build_release_target_asset(
         .and_then(|path| fs::metadata(path).ok())
         .map(|metadata| metadata.len());
     let target_size = if target_exists {
-        fs::metadata(target_path).ok().map(|metadata| metadata.len())
+        fs::metadata(target_path)
+            .ok()
+            .map(|metadata| metadata.len())
     } else {
         None
     };
@@ -2778,7 +2784,7 @@ mod tests {
         assert!(!result.ok);
         assert_eq!(result.execution_status.as_deref(), Some("warn"));
         assert_eq!(result.approval_allowed, Some(true));
-        assert!(result.user_message.contains("warnings"));
+        assert!(result.user_message.contains("reference information only"));
     }
 
     #[test]
@@ -2791,7 +2797,22 @@ mod tests {
         std::fs::create_dir_all(&output).unwrap();
         std::fs::write(
             output.join("execution_test_result.json"),
-            "{\"overall_status\":\"warn\",\"approval_allowed\":true}",
+            r#"{
+                "overall_status": "warn",
+                "approval_allowed": true,
+                "admin_alerts": [
+                    {
+                        "id": "registration.failed",
+                        "severity": "critical",
+                        "title": "登録検証に失敗しました",
+                        "summary": "summary",
+                        "why_dangerous": "risk",
+                        "admin_action": "fix",
+                        "source": "detail",
+                        "check_name": "distribution check"
+                    }
+                ]
+            }"#,
         )
         .unwrap();
         std::fs::write(
@@ -2804,6 +2825,8 @@ mod tests {
         assert_eq!(summary.execution_status.as_deref(), Some("warn"));
         assert_eq!(summary.approval_allowed, Some(true));
         assert_eq!(summary.selected_build_mode.as_deref(), Some("existing-exe"));
+        assert_eq!(summary.admin_alerts.len(), 1);
+        assert_eq!(summary.admin_alerts[0].why_dangerous, "risk");
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -3384,12 +3407,14 @@ mod tests {
         );
 
         assert_eq!(assets.len(), 4);
-        assert!(assets.iter().any(|asset| asset.name == "ToolHub_Setup_1.2.3.exe"
-            && asset.source_exists
-            && !asset.target_exists));
-        assert!(assets.iter().any(|asset| asset.name == "checksums.sha256.txt"
-            && asset.generated
-            && asset.upload));
+        assert!(assets
+            .iter()
+            .any(|asset| asset.name == "ToolHub_Setup_1.2.3.exe"
+                && asset.source_exists
+                && !asset.target_exists));
+        assert!(assets
+            .iter()
+            .any(|asset| asset.name == "checksums.sha256.txt" && asset.generated && asset.upload));
         let _ = std::fs::remove_dir_all(root);
     }
 

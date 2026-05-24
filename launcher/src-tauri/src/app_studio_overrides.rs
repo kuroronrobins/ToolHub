@@ -192,9 +192,22 @@ fn metadata_override_payload(
     insert_string_override(
         &mut map,
         &mut keys,
+        "primary_category",
+        metadata.primary_category.as_deref(),
+    );
+    insert_string_override(
+        &mut map,
+        &mut keys,
         "change_summary",
         metadata.change_summary.as_deref(),
     );
+    insert_list_override(
+        &mut map,
+        &mut keys,
+        "target_categories",
+        metadata.target_categories.as_ref(),
+    );
+    insert_list_override(&mut map, &mut keys, "tags", metadata.tags.as_ref());
     insert_list_override(
         &mut map,
         &mut keys,

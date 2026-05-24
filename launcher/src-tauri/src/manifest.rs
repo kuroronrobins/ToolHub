@@ -13,6 +13,9 @@ pub struct AppInfo {
     pub icon_svg: Option<String>,
     pub icon_data_url: Option<String>,
     pub short_description: String,
+    pub primary_category: Option<String>,
+    pub target_categories: Vec<String>,
+    pub tags: Vec<String>,
     pub categories: Vec<String>,
     pub detail: AppDetail,
     pub search: AppSearch,
@@ -64,6 +67,12 @@ struct RawDisplay {
     icon: String,
     icon_fallback: Option<String>,
     short_description: String,
+    primary_category: Option<String>,
+    #[serde(default)]
+    target_categories: Vec<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
     categories: Vec<String>,
 }
 
@@ -302,13 +311,28 @@ fn load_one_app(app_dir: &Path, manifest_path: &Path) -> Result<AppInfo, Box<dyn
             .flatten()
     };
 
+    let primary_category = clean_optional_string(raw.display.primary_category)
+        .or_else(|| first_non_empty(&raw.display.categories))
+        .or_else(|| Some("その他".to_string()));
+    let target_categories = clean_string_list(raw.display.target_categories);
+    let tags = clean_string_list(raw.display.tags);
+    let categories = merge_category_labels(
+        primary_category.as_deref(),
+        &target_categories,
+        &tags,
+        &raw.display.categories,
+    );
+
     Ok(AppInfo {
         id: raw.id,
         name: raw.name,
         icon_svg,
         icon_data_url,
         short_description: raw.display.short_description,
-        categories: raw.display.categories,
+        primary_category,
+        target_categories,
+        tags,
+        categories,
         detail: AppDetail {
             description: raw.detail.description,
             use_cases: raw.detail.use_cases,
@@ -398,6 +422,9 @@ fn disabled_app(app_dir: &Path, reason: String) -> AppInfo {
         icon_svg: None,
         icon_data_url: None,
         short_description: "このアプリ定義を読み込めませんでした。".to_string(),
+        primary_category: Some("未分類".to_string()),
+        target_categories: Vec::new(),
+        tags: Vec::new(),
         categories: vec!["未分類".to_string()],
         detail: AppDetail {
             description: "アプリ定義に問題があります。管理者に確認してください。".to_string(),
@@ -413,6 +440,58 @@ fn disabled_app(app_dir: &Path, reason: String) -> AppInfo {
         admin: None,
         enabled: false,
         disabled_reason: Some(reason),
+    }
+}
+
+fn merge_category_labels(
+    primary_category: Option<&str>,
+    target_categories: &[String],
+    tags: &[String],
+    legacy_categories: &[String],
+) -> Vec<String> {
+    let mut values = Vec::new();
+    push_category_label(&mut values, primary_category.unwrap_or(""));
+    for value in target_categories {
+        push_category_label(&mut values, value);
+    }
+    for value in tags {
+        push_category_label(&mut values, value);
+    }
+    for value in legacy_categories {
+        push_category_label(&mut values, value);
+    }
+    if values.is_empty() {
+        values.push("その他".to_string());
+    }
+    values
+}
+
+fn clean_optional_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+}
+
+fn first_non_empty(values: &[String]) -> Option<String> {
+    values
+        .iter()
+        .map(|item| item.trim())
+        .find(|item| !item.is_empty())
+        .map(str::to_string)
+}
+
+fn clean_string_list(values: Vec<String>) -> Vec<String> {
+    let mut cleaned = Vec::new();
+    for value in values {
+        push_category_label(&mut cleaned, &value);
+    }
+    cleaned
+}
+
+fn push_category_label(values: &mut Vec<String>, value: &str) {
+    let text = value.trim();
+    if !text.is_empty() && !values.iter().any(|existing| existing == text) {
+        values.push(text.to_string());
     }
 }
 
@@ -444,6 +523,9 @@ mod tests {
             icon_svg: None,
             icon_data_url: None,
             short_description: "desc".to_string(),
+            primary_category: Some("CSV".to_string()),
+            target_categories: Vec::new(),
+            tags: Vec::new(),
             categories: vec!["CSV".to_string()],
             detail: AppDetail {
                 description: "desc".to_string(),

@@ -534,6 +534,7 @@ class RuntimeCheckResult:
     unresolved_distribution_risks_count: int = 0
     approval_blocking_reasons: list[str] = field(default_factory=list)
     non_blocking_warning_summaries: list[str] = field(default_factory=list)
+    admin_alerts: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -547,6 +548,7 @@ class RuntimeCheckResult:
             "unresolved_distribution_risks_count": self.unresolved_distribution_risks_count,
             "approval_blocking_reasons": self.approval_blocking_reasons,
             "non_blocking_warning_summaries": self.non_blocking_warning_summaries,
+            "admin_alerts": self.admin_alerts,
         }
 
 
@@ -636,6 +638,7 @@ class ExecutionTestResult:
     unresolved_distribution_risks_count: int = 0
     approval_blocking_reasons: list[str] = field(default_factory=list)
     non_blocking_warning_summaries: list[str] = field(default_factory=list)
+    admin_alerts: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -651,6 +654,7 @@ class ExecutionTestResult:
             "unresolved_distribution_risks_count": self.unresolved_distribution_risks_count,
             "approval_blocking_reasons": self.approval_blocking_reasons,
             "non_blocking_warning_summaries": self.non_blocking_warning_summaries,
+            "admin_alerts": self.admin_alerts,
         }
 
 

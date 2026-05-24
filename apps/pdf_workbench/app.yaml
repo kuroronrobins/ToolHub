@@ -5,8 +5,19 @@ display:
   icon: icon.png
   icon_fallback: icon.svg
   short_description: "PDF Workbench をToolHubから起動するアプリです。"
+  primary_category: "文書・PDF"
+  target_categories:
+    - "PDF"
+  tags:
+    - "編集"
+    - "変換"
+    - "文書管理"
   categories:
-    - "業務ツール"
+    - "PDF"
+    - "文書・PDF"
+    - "編集"
+    - "変換"
+    - "文書管理"
 
 detail:
   description: >

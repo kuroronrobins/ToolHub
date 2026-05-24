@@ -16,7 +16,7 @@ ToolHub は、複数の Python アプリケーションを 1 つのデスクト�
 
 ## 開発時の起動
 
-プロジェクト直下で実行します。
+プロジェクト直下で実行します。`main.py` は検証用ブートストラップのため、常に `launcher/` の開発中プログラムを起動します。生成済みバイナリは起動しません。
 
 ```powershell
 python main.py
@@ -26,18 +26,6 @@ Windows の `py` ランチャーでも実行できます。
 
 ```powershell
 py main.py
-```
-
-Tauri 開発モードを強制する場合:
-
-```powershell
-python main.py --dev
-```
-
-ビルド済み実行ファイルだけを探す場合:
-
-```powershell
-python main.py --release
 ```
 
 ## 環境チェック

@@ -6,7 +6,7 @@
                                                         "required_core":  "\u003e=0.1.0",
                                                         "required_runner":  "\u003e=0.1.0",
                                                         "required_runtime":  "python-shared-env:py313-win_amd64-pywin32310-dd4d21f1",
-                                                        "sha256":  "6affd80cd4228caa45dece4506482420a14b41e909ff8055571f7b21daa09f2f",
+                                                        "sha256":  "9fe78941c37ad5552e4e40f48eb32a2725a097b06722c840a00d8dc50348e4bd",
                                                         "version":  "0.1.0"
                                                     },
                  "pdf_workbench":  {
@@ -15,9 +15,45 @@
                                        "required_core":  "\u003e=0.1.0",
                                        "required_runner":  "\u003e=0.1.0",
                                        "required_runtime":  "python-shared-env:py313-win_amd64-runtime-37c71daf",
-                                       "sha256":  "6951e82d7cfafd4cd2efc387baef45ac0b396ba32ba9ea7c8425397ade9ef60a",
+                                       "sha256":  "cd30cbf8e5ef790ecddf832f2f359fbab391ac9cf10f3eb7fc0de5c744cf2678",
                                        "version":  "0.2.0"
-                                   }
+                                   },
+                 "run_3dx_create_ids":  {
+                                            "version":  "0.1.0",
+                                            "package":  "app_packs/run_3dx_create_ids-0.1.0.zip",
+                                            "sha256":  "1653947918be74286d4e9836f945990be3de51708d303bad3eaeddf838cd1559",
+                                            "required_core":  "\u003e=0.1.0",
+                                            "required_runner":  "\u003e=0.1.0",
+                                            "required_runtime":  "python-shared-env:py313-win_amd64-playwright1550-27ead7db",
+                                            "enabled":  true
+                                        },
+                 "run_3dx_download_pdfs":  {
+                                               "version":  "0.1.0",
+                                               "package":  "app_packs/run_3dx_download_pdfs-0.1.0.zip",
+                                               "sha256":  "f87f79250b2c2fe85b4f980cef9ce3629851da781d407eac42024f8296ccb2eb",
+                                               "required_core":  "\u003e=0.1.0",
+                                               "required_runner":  "\u003e=0.1.0",
+                                               "required_runtime":  "python-shared-env:py313-win_amd64-playwright1550-27ead7db",
+                                               "enabled":  true
+                                           },
+                 "run_xcgate_upload":  {
+                                           "version":  "0.1.0",
+                                           "package":  "app_packs/run_xcgate_upload-0.1.0.zip",
+                                           "sha256":  "683bdd0d192f5565e3c8ecc8cfaef06c1a55bbfbe1e2203342b1bcf24df9cd24",
+                                           "required_core":  "\u003e=0.1.0",
+                                           "required_runner":  "\u003e=0.1.0",
+                                           "required_runtime":  "python-shared-env:py313-win_amd64-playwright1550-27ead7db",
+                                           "enabled":  true
+                                       },
+                 "app_20260201_agendasnap":  {
+                                                 "version":  "0.1.0",
+                                                 "package":  "app_packs/app_20260201_agendasnap-0.1.0.zip",
+                                                 "sha256":  "6f8375772346f5ee8e0073766017a48c54234a0fc10ab89df5c10c822a5e16b9",
+                                                 "required_core":  "\u003e=0.1.0",
+                                                 "required_runner":  "\u003e=0.1.0",
+                                                 "required_runtime":  "python-shared-env:py313-win_amd64-flet0283-fletdesktop0283-cac27e37",
+                                                 "enabled":  true
+                                             }
              },
     "channel":  "stable",
     "schema_version":  1

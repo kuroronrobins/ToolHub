@@ -97,9 +97,10 @@ describe("normalizeAppStudioRunResult", () => {
 
     expect(view.canApprove).toBe(true);
     expect(view.warningOnly).toBe(true);
-    expect(view.nonBlockingWarnings).toEqual(["manual review note"]);
+    expect(view.nonBlockingWarnings).toEqual([]);
+    expect(view.executionStatusLabel).toBe("参考情報のみ");
     expect(isAppStudioWarningOnly(warningOnly)).toBe(true);
-    expect(getAppStudioRunResultMessage(warningOnly, "apply")).toContain("警告がありますが処理は完了");
+    expect(getAppStudioRunResultMessage(warningOnly, "apply")).toContain("参考情報のみで処理は完了");
   });
 
   it("treats enabled results as already approved in the UI view", () => {
@@ -168,7 +169,7 @@ describe("normalizeAppStudioRunResult", () => {
       nonBlockingWarningsCount: 1,
     });
 
-    expect(getAppStudioUpdateRunResultMessage(warningOnly, "apply")).toContain("更新処理は完了");
+    expect(getAppStudioUpdateRunResultMessage(warningOnly, "apply")).toContain("参考情報のみで更新処理は完了");
   });
 
   it("uses update-specific approved messages for enabled approve results", () => {

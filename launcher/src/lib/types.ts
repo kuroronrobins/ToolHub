@@ -26,6 +26,9 @@ export interface ToolApp {
   iconSvg?: string;
   iconDataUrl?: string;
   shortDescription: string;
+  primaryCategory?: string;
+  targetCategories?: string[];
+  tags?: string[];
   categories: string[];
   detail: AppDetail;
   search: AppSearch;

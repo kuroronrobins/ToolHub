@@ -11,19 +11,22 @@ import type { AppStudioAiMetadataSuggestion, AppStudioEditableMetadata } from ".
 import { AppStudioArrayField } from "./AppStudioArrayField";
 import { AppStudioMetadataField } from "./AppStudioMetadataField";
 
-type ScalarKey = "shortDescription" | "description" | "changeSummary";
-type ArrayKey = "categories" | "keywords" | "examples" | "useCases" | "inputs" | "outputs" | "notes" | "releaseNotes";
+type ScalarKey = "shortDescription" | "description" | "primaryCategory" | "changeSummary";
+type ArrayKey = "targetCategories" | "tags" | "categories" | "keywords" | "examples" | "useCases" | "inputs" | "outputs" | "notes" | "releaseNotes";
 type MetadataKey = ScalarKey | ArrayKey;
 type FieldHistory = Partial<Record<MetadataKey, string | string[]>>;
 
 const SCALAR_FIELDS: Array<{ key: ScalarKey; label: string; rows: number; releaseOnly?: boolean; detail?: boolean }> = [
   { key: "shortDescription", label: "一言説明", rows: 2 },
   { key: "description", label: "詳細説明", rows: 4 },
+  { key: "primaryCategory", label: "補助分類", rows: 1 },
   { key: "changeSummary", label: "変更概要", rows: 3, releaseOnly: true },
 ];
 
 const ARRAY_FIELDS: Array<{ key: ArrayKey; label: string; releaseOnly?: boolean; detail?: boolean }> = [
-  { key: "categories", label: "カテゴリ" },
+  { key: "targetCategories", label: "対象カテゴリ（先頭が表示カテゴリ）" },
+  { key: "tags", label: "特徴タグ" },
+  { key: "categories", label: "互換カテゴリ", detail: true },
   { key: "keywords", label: "検索キーワード" },
   { key: "examples", label: "利用例", detail: true },
   { key: "useCases", label: "用途", detail: true },
@@ -216,8 +219,9 @@ function statusForList(current?: string[], proposal?: string[]): string {
 
 function warningForString(key: ScalarKey, value?: string): string {
   const cleaned = cleanString(value);
-  if (!cleaned && (key === "shortDescription" || key === "description")) {
-    return `${key === "shortDescription" ? "一言説明" : "詳細説明"}が未入力です。採用または手入力しない場合はCLI側のフォールバックが使われます。`;
+  if (!cleaned && (key === "shortDescription" || key === "description" || key === "primaryCategory")) {
+    const label = key === "shortDescription" ? "一言説明" : key === "description" ? "詳細説明" : "補助分類";
+    return `${label}が未入力です。採用または手入力しない場合はCLI側のフォールバックが使われます。`;
   }
   if (key === "shortDescription" && cleaned.length > 160) {
     return "一言説明が長めです。ランチャーカードでは短い文の方が読みやすくなります。";
@@ -227,8 +231,8 @@ function warningForString(key: ScalarKey, value?: string): string {
 
 function warningForList(key: ArrayKey, value?: string[]): string {
   const cleaned = cleanList(value);
-  if (!cleaned.length && (key === "categories" || key === "keywords")) {
-    return `${key === "categories" ? "カテゴリ" : "検索キーワード"}が未入力です。採用または手入力しない場合はCLI側のフォールバックが使われます。`;
+  if (!cleaned.length && (key === "targetCategories" || key === "keywords")) {
+    return `${key === "targetCategories" ? "対象カテゴリ" : "検索キーワード"}が未入力です。採用または手入力しない場合はCLI側のフォールバックが使われます。`;
   }
   return "";
 }

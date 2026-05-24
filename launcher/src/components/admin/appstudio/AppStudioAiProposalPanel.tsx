@@ -33,7 +33,10 @@ interface Props {
 const METADATA_FIELDS: Array<{ key: keyof AppStudioAiProposal["metadata"]; label: string; compact?: boolean }> = [
   { key: "shortDescription", label: "一言説明", compact: true },
   { key: "description", label: "詳細説明" },
-  { key: "categories", label: "カテゴリ", compact: true },
+  { key: "primaryCategory", label: "補助分類", compact: true },
+  { key: "targetCategories", label: "対象カテゴリ", compact: true },
+  { key: "tags", label: "特徴タグ", compact: true },
+  { key: "categories", label: "互換カテゴリ" },
   { key: "keywords", label: "検索キーワード", compact: true },
   { key: "examples", label: "利用例" },
   { key: "useCases", label: "用途" },

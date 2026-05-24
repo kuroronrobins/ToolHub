@@ -6,9 +6,11 @@ from pathlib import Path
 from typing import Any
 
 
-STRING_KEYS = {"short_description", "description", "change_summary"}
+STRING_KEYS = {"short_description", "description", "primary_category", "change_summary"}
 LIST_KEYS = {
     "categories",
+    "target_categories",
+    "tags",
     "keywords",
     "examples",
     "use_cases",

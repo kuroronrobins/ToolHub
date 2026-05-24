@@ -10,7 +10,7 @@ the launcher and runner layers.
 from __future__ import annotations
 
 import argparse
-import datetime as _dt
+import json
 import logging
 import os
 import shutil
@@ -22,13 +22,7 @@ from typing import Iterable, List, Optional
 
 
 APP_NAME = "ToolHub"
-REQUIRED_DIRS = ("launcher", "runner", "apps", "config", "data")
-RELEASE_CANDIDATES = (
-    Path("launcher/src-tauri/target/release/toolhub.exe"),
-    Path("launcher/src-tauri/target/release/ToolHub.exe"),
-    Path("release/ToolHub.exe"),
-    Path("dist/ToolHub.exe"),
-)
+REQUIRED_DIRS = ("launcher", "runner", "apps", "config")
 
 
 @dataclass
@@ -52,18 +46,15 @@ def ensure_log_dir(root: Path) -> Path:
 def configure_logging(root: Path) -> Path:
     log_dir = ensure_log_dir(root)
     latest_log = log_dir / "latest.log"
-    timestamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_log = log_dir / f"launch_{timestamp}.log"
 
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
 
     formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-    for path in (latest_log, run_log):
-        handler = logging.FileHandler(path, encoding="utf-8")
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
+    handler = logging.FileHandler(latest_log, encoding="utf-8")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
     logging.info("%s bootstrap started", APP_NAME)
     logging.info("project_root=%s", root)
@@ -96,41 +87,14 @@ def local_npm_bin(root: Path, command: str) -> Optional[Path]:
     return None
 
 
-def frontend_dependency_issue(root: Path) -> Optional[str]:
-    launcher_dir = root / "launcher"
-    package_json = launcher_dir / "package.json"
-    package_lock = launcher_dir / "package-lock.json"
-    node_modules = launcher_dir / "node_modules"
-
-    if not package_json.is_file():
-        return "launcher/package.json が見つかりません。"
-    if not package_lock.is_file():
-        return "launcher/package-lock.json が見つかりません。"
-    if not node_modules.is_dir():
-        return "launcher/node_modules が見つかりません。"
-    if local_npm_bin(root, "tauri") or which("tauri"):
-        return None
-    return "Tauri CLI が見つかりません。launcher の npm 依存関係が未復元の可能性があります。"
-
-
-def print_frontend_dependency_help(root: Path, latest_log: Path, detail: str) -> None:
-    logging.error("frontend dependency check failed: %s", detail)
-    print("")
-    print("ToolHubを起動できませんでした。")
-    print("フロントエンド依存関係が未準備です。")
-    print("")
-    print("原因:")
-    print(f"- {detail}")
-    print("")
-    print("次のコマンドを実行してください:")
-    print("")
-    print("cd launcher")
-    print("npm ci")
-    print("cd ..")
-    print("py main.py")
-    print("")
-    print("詳細ログ:")
-    print(latest_log)
+def launcher_version(root: Path) -> str:
+    package_json = root / "launcher" / "package.json"
+    try:
+        data = json.loads(package_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "unknown"
+    version = data.get("version")
+    return version if isinstance(version, str) and version.strip() else "unknown"
 
 
 def check_environment(root: Path) -> List[CheckItem]:
@@ -176,8 +140,10 @@ def check_environment(root: Path) -> List[CheckItem]:
     return items
 
 
-def print_check_result(items: Iterable[CheckItem]) -> int:
+def print_check_result(root: Path, items: Iterable[CheckItem]) -> int:
     print("ToolHub 環境チェック")
+    print(f"ToolHub version: {launcher_version(root)}")
+    print("起動対象: launcher の開発中プログラム")
     print("")
     failed_required = False
     for item in items:
@@ -195,36 +161,7 @@ def print_check_result(items: Iterable[CheckItem]) -> int:
     return 0
 
 
-def validate_project_structure(root: Path) -> List[str]:
-    missing = [name for name in REQUIRED_DIRS if not (root / name).is_dir()]
-    if not (root / "launcher" / "package.json").is_file():
-        missing.append("launcher/package.json")
-    return missing
-
-
-def find_release_executable(root: Path) -> Optional[Path]:
-    for relative in RELEASE_CANDIDATES:
-        candidate = root / relative
-        logging.info("checking release candidate: %s", candidate)
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-def launch_release(executable: Path, root: Path) -> int:
-    logging.info("launching release executable: %s", executable)
-    logging.info("passing TOOLHUB_ROOT=%s to release executable", root)
-    env = os.environ.copy()
-    env["TOOLHUB_ROOT"] = str(root)
-    try:
-        subprocess.Popen([str(executable)], cwd=str(executable.parent), env=env)
-    except OSError:
-        logging.exception("failed to launch release executable")
-        raise
-    return 0
-
-
-def dev_command(root: Path) -> List[str]:
+def dev_command() -> List[str]:
     npm = which("npm")
     if not npm:
         raise FileNotFoundError("npm")
@@ -233,22 +170,16 @@ def dev_command(root: Path) -> List[str]:
 
 def launch_dev(root: Path) -> int:
     launcher_dir = root / "launcher"
-    missing = validate_project_structure(root)
-    if missing:
-        raise RuntimeError("missing project files: " + ", ".join(missing))
-
-    dependency_issue = frontend_dependency_issue(root)
-    if dependency_issue:
-        latest_log = root / "data" / "logs" / "launcher" / "latest.log"
-        print_frontend_dependency_help(root, latest_log, dependency_issue)
-        return 1
-
-    failed_checks = [item.name for item in check_environment(root) if item.required and not item.ok]
+    failed_checks = [item for item in check_environment(root) if item.required and not item.ok]
     if failed_checks:
-        raise RuntimeError("missing development environment: " + ", ".join(failed_checks))
+        detail = "; ".join(f"{item.name}: {item.detail}" for item in failed_checks)
+        raise RuntimeError("missing development environment: " + detail)
 
-    command = dev_command(root)
+    command = dev_command()
+    logging.info("launcher_version=%s", launcher_version(root))
     logging.info("launching dev command: %s", command)
+    print(f"ToolHub version: {launcher_version(root)}")
+    print("起動対象: launcher の開発中プログラム")
     completed = subprocess.run(command, cwd=str(launcher_dir), check=False)
     logging.info("dev command finished with exit_code=%s", completed.returncode)
     return int(completed.returncode)
@@ -275,8 +206,6 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         prog="python main.py",
         description="ToolHub launcher bootstrap",
     )
-    parser.add_argument("--dev", action="store_true", help="強制的に開発モードで起動します")
-    parser.add_argument("--release", action="store_true", help="ビルド済み実行ファイルのみ起動します")
     parser.add_argument("--check", action="store_true", help="環境とフォルダ構成を確認します")
     return parser.parse_args(argv)
 
@@ -287,23 +216,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     latest_log = configure_logging(root)
 
     if args.check:
-        return print_check_result(check_environment(root))
+        return print_check_result(root, check_environment(root))
 
     try:
-        if args.dev and args.release:
-            print("--dev と --release は同時に指定できません。")
-            return 2
-
-        if not args.dev:
-            release_exe = find_release_executable(root)
-            if release_exe:
-                return launch_release(release_exe, root)
-            if args.release:
-                logging.error("release executable not found")
-                print("ビルド済みToolHub実行ファイルが見つかりません。")
-                print(f"詳細ログ：{latest_log}")
-                return 1
-
         return launch_dev(root)
 
     except FileNotFoundError as exc:

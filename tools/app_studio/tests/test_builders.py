@@ -2069,7 +2069,7 @@ class OpenAIFallbackTests(unittest.TestCase):
                 metadata = suggest_metadata(context)
 
             self.assertIn("起動", metadata["short_description"])
-            self.assertIn("業務ツール", metadata["categories"])
+            self.assertIn("その他", metadata["categories"])
 
     def test_responses_api_success_parses_metadata_json(self) -> None:
         with workspace_tempdir() as root:

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { appStudioOpenOutputDir } from "../../../lib/appStudioApi";
 import { formatAppStudioSeconds, normalizeAppStudioRunResult } from "../../../lib/appStudioRunResult";
-import type { AppStudioApprovalMode, AppStudioRunResult } from "../../../lib/appStudioTypes";
+import type { AppStudioAdminAlert, AppStudioApprovalMode, AppStudioRunResult } from "../../../lib/appStudioTypes";
 
 interface Props {
   result: AppStudioRunResult | null;
@@ -45,9 +45,9 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
         <span className={`admin-status-pill ${view.statusPillOk ? "ok" : ""}`}>{view.statusPillLabel}</span>
       </div>
 
-      {warningOnly ? (
+      {warningOnly && !view.adminAlerts.length ? (
         <p className="admin-muted">
-          配布リスクのない警告のみです。詳細を確認して問題なければ、デフォルトの慎重モードでも承認できます。
+          自動検証の参考情報だけです。管理者対応が必要な危険アラートはありません。
         </p>
       ) : null}
 
@@ -85,8 +85,8 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
         <ResultRow icon={<CircleAlert size={18} />} label="配布物検証" value={view.executionStatusLabel} />
         <ResultRow icon={<CircleAlert size={18} />} label="システム承認判定" value={approvalDecision.systemDecision} />
         <ResultRow icon={<CircleAlert size={18} />} label="現在モードの判定" value={approvalDecision.modeDecision} />
-        <ResultRow icon={<CircleAlert size={18} />} label="配布リスク警告" value={String(result?.approvalBlockingWarningsCount ?? 0)} />
-        <ResultRow icon={<CircleAlert size={18} />} label="参考警告" value={String(result?.nonBlockingWarningsCount ?? 0)} />
+        <ResultRow icon={<CircleAlert size={18} />} label="管理者アラート" value={String(view.adminAlerts.length)} />
+        <ResultRow icon={<CircleAlert size={18} />} label="配布リスク" value={String(result?.approvalBlockingWarningsCount ?? 0)} />
         <ResultRow icon={<CircleAlert size={18} />} label="未解決リスク" value={String(result?.unresolvedDistributionRisksCount ?? 0)} />
         <ResultRow icon={<CircleAlert size={18} />} label="runtime検証" value={view.runtimeStatusLabel} />
         <ResultRow icon={<CircleAlert size={18} />} label="秘密情報ブロック" value={String(result?.secretBlockingCount ?? 0)} />
@@ -99,13 +99,7 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
         <ResultRow icon={<ShieldCheck size={18} />} label="次の操作" value={view.primaryNextAction} />
       </div>
 
-      {view.blockingReasons.length ? (
-        <FindingList title="配布リスクあり" items={view.blockingReasons} />
-      ) : null}
-      {view.nonBlockingWarnings.length ? (
-        <FindingList title="配布リスクなしの警告" items={view.nonBlockingWarnings} />
-      ) : null}
-      {view.manualChecks.length ? <FindingList title="手動確認メモ" items={view.manualChecks} /> : null}
+      {view.adminAlerts.length ? <AdminAlertList items={view.adminAlerts} /> : view.blockingReasons.length ? <RiskReasonList items={view.blockingReasons} /> : null}
       {result?.timingPhases?.length ? (
         <div className="studio-manual-checks">
           <strong>工程別時間</strong>
@@ -147,8 +141,8 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
             onChange={() => onApprovalModeChange("allowWarnings")}
           />
           <span>
-            <strong>警告ありでも承認可能</strong>
-            <small>配布物破損ではない警告を許容します。ただし exe欠落、required_files欠落、secret混入などのfailは承認できません。</small>
+            <strong>参考情報を許容して承認</strong>
+            <small>危険アラートがなければ承認できます。ただし exe欠落、required_files欠落、secret混入などのfailは承認できません。</small>
           </span>
         </label>
         <label className="studio-approval-option">
@@ -159,8 +153,8 @@ export function AppStudioResultPanel({ result, lastAction, approvalMode, onAppro
             onChange={() => onApprovalModeChange("strict")}
           />
           <span>
-            <strong>配布リスクがある警告は承認しない</strong>
-            <small>配布リスクのない参考警告や手動確認メモだけなら、このモードでも承認できます。</small>
+            <strong>危険アラートがある場合は承認しない</strong>
+            <small>参考情報や手動確認メモだけなら、このモードでも承認できます。</small>
           </span>
         </label>
       </fieldset>
@@ -198,19 +192,6 @@ function buildModeLabel(mode?: string | null): string {
   return mode || "-";
 }
 
-function FindingList({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div className="studio-manual-checks">
-      <strong>{title}</strong>
-      <ul>
-        {items.map((item, index) => (
-          <li key={`${title}-${index}`}>{item}</li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 function OutputDirRow({ value, disabled, onOpen }: { value: string; disabled: boolean; onOpen: () => void }) {
   return (
     <div className="studio-result-row output-dir-row">
@@ -225,6 +206,38 @@ function OutputDirRow({ value, disabled, onOpen }: { value: string; disabled: bo
           フォルダを開く
         </button>
       </div>
+    </div>
+  );
+}
+
+function AdminAlertList({ items }: { items: AppStudioAdminAlert[] }) {
+  return (
+    <div className="studio-manual-checks">
+      <strong>管理者対応が必要なアラート</strong>
+      <ul>
+        {items.map((item, index) => (
+          <li key={`${item.id}-${index}`}>
+            <strong>{item.title}</strong>
+            <p>{item.summary}</p>
+            {item.source ? <p>検出内容: {item.source}</p> : null}
+            {item.whyDangerous ? <p>危険な理由: {item.whyDangerous}</p> : null}
+            {item.adminAction ? <p>対応: {item.adminAction}</p> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function RiskReasonList({ items }: { items: string[] }) {
+  return (
+    <div className="studio-manual-checks">
+      <strong>管理者対応が必要なリスク</strong>
+      <ul>
+        {items.map((item, index) => (
+          <li key={`risk-${index}`}>{item}</li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-use crate::app_studio_types::AppStudioTimingPhase;
+use crate::app_studio_types::{AppStudioAdminAlert, AppStudioTimingPhase};
 use serde::Serialize;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -34,6 +34,7 @@ pub struct AppStudioResultSummary {
     pub unresolved_distribution_risks_count: usize,
     pub approval_blocking_reasons: Vec<String>,
     pub non_blocking_warning_summaries: Vec<String>,
+    pub admin_alerts: Vec<AppStudioAdminAlert>,
     pub timing_report: Option<String>,
     pub timing_total_seconds: Option<f64>,
     pub timing_estimated_total_seconds: Option<f64>,
@@ -190,12 +191,25 @@ fn read_execution_result(output_dir: &Path, summary: &mut AppStudioResultSummary
     summary.approval_blocking_reasons = string_array(json.get("approval_blocking_reasons"));
     summary.non_blocking_warning_summaries =
         string_array(json.get("non_blocking_warning_summaries"));
+    summary.admin_alerts = read_admin_alerts(json.get("admin_alerts"));
     if summary.approval_failure_summary.is_none()
         && (summary.approval_allowed == Some(false)
             || summary.execution_status.as_deref() == Some("fail"))
     {
         summary.approval_failure_summary = execution_failure_summary(&json);
     }
+}
+
+fn read_admin_alerts(value: Option<&Value>) -> Vec<AppStudioAdminAlert> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| serde_json::from_value(item.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn read_timing_result(output_dir: &Path, summary: &mut AppStudioResultSummary) {

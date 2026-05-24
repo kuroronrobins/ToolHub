@@ -13,6 +13,7 @@ from .models import BuildPlan, RuntimeCheck, RuntimeCheckResult, StudioContext
 from .payload_policy import is_forbidden_packaged_payload, should_exclude_payload_path
 from .trace import planned_build_env_path, trace_with_import_plan
 from .util import file_sha256, write_json, write_text
+from .warning_catalog import build_admin_alerts
 
 
 APPROVAL_BLOCKING_WARNING = "approval_blocking_warning"
@@ -705,6 +706,7 @@ def build_runtime_result(context: StudioContext, output_dir: Path, checks: list[
         unresolved_distribution_risks_count=summary["unresolved_distribution_risks_count"],
         approval_blocking_reasons=summary["approval_blocking_reasons"],
         non_blocking_warning_summaries=summary["non_blocking_warning_summaries"],
+        admin_alerts=build_admin_alerts(checks),
     )
 
 
@@ -758,6 +760,7 @@ def runtime_report_markdown(result: RuntimeCheckResult) -> str:
         f"- approval_blocking_warnings_count: `{result.approval_blocking_warnings_count}`",
         f"- non_blocking_warnings_count: `{result.non_blocking_warnings_count}`",
         f"- unresolved_distribution_risks_count: `{result.unresolved_distribution_risks_count}`",
+        f"- admin_alerts_count: `{len(result.admin_alerts)}`",
         "",
         "| Status | Category | Blocking | Check | Detail |",
         "| --- | --- | --- | --- | --- |",
@@ -766,6 +769,22 @@ def runtime_report_markdown(result: RuntimeCheckResult) -> str:
         f"| {check.status} | {check.approval_category or (APPROVAL_BLOCKING_WARNING if check.approval_blocking else NON_BLOCKING_WARNING if check.status == 'warn' else INFO)} | {str(check.approval_blocking or check.status == 'fail').lower()} | {check.name} | {check.detail} |"
         for check in result.checks
     )
+    if result.admin_alerts:
+        lines.extend(["", "## Admin Alerts", ""])
+        for alert in result.admin_alerts:
+            lines.extend(
+                [
+                    f"### {alert.get('title', '確認が必要です')}",
+                    "",
+                    f"- severity: `{alert.get('severity', '')}`",
+                    f"- check: `{alert.get('check_name', '')}`",
+                    f"- summary: {alert.get('summary', '')}",
+                    f"- detected: {alert.get('source', '')}",
+                    f"- why_dangerous: {alert.get('why_dangerous', '')}",
+                    f"- admin_action: {alert.get('admin_action', '')}",
+                    "",
+                ]
+            )
     if result.evidence:
         lines.extend(["", "## Evidence", "", "```json", json.dumps(result.evidence, ensure_ascii=False, indent=2), "```"])
     lines.extend(["", "Normal App Studio registration verifies the generated exe/frozen-folder payload, not runtime/app_env."])

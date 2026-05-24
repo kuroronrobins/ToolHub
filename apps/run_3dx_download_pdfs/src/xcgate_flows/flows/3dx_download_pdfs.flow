@@ -1,0 +1,78 @@
+# 3Dexperience: download PDF files by document IDs
+settings:
+  editable_vars: [site, download_all_revisions]
+
+vars:
+  site: "https://cps2ap01p.terumo.co.jp/3dpassport/login"
+  download_all_revisions: "false"
+  timeout_ms: 30000
+  search_timeout_ms: 60000
+  detail_timeout_ms: 30000
+  download_timeout_ms: 45000
+
+selectors:
+  ready_marker:         css:"#topbar span.topbar-app-name" | text:"Collaboration and Approvals"
+  search_input:         css:"#input_search_div > form > div.sn-search-field.uwa-autocomplete.nv-autocomplete-searchbox > input"
+  search_submit:        css:"#input_search_div form button[type='submit']" | css:"#input_search_div form input[type='submit']" | css:"#input_search_div form [class*='search-icon']" | css:"#input_search_div form [class*='search']"
+  results_ready:        { frame_name:"detailsDisplay", css:"div.wux-datagrid-cell[data-index*='identifier']" } | { frame_name:"detailsDisplay", css:"div.wux-datagrid-cell[column-id='6']" } | css:"div.wux-datagrid-cell[data-index*='identifier']" | css:"div.wux-datagrid-cell[column-id='6']"
+  result_cells:         { frame_name:"detailsDisplay", css:"div.wux-datagrid-cell[data-index*='identifier']" } | { frame_name:"detailsDisplay", css:"div.wux-datagrid-cell[column-id='6']" } | css:"div.wux-datagrid-cell[data-index*='identifier']" | css:"div.wux-datagrid-cell[column-id='6']"
+
+  result_row:           { frame_name:"detailsDisplay", css:"div.wux-datagrid-cell[data-index*='identifier']:has-text('${doc_id}')" } | { frame_name:"detailsDisplay", css:"div.wux-datagrid-cell[column-id='6']:has-text('${doc_id}')" } | css:"div.wux-datagrid-cell[data-index*='identifier']:has-text('${doc_id}')" | css:"div.wux-datagrid-cell[column-id='6']:has-text('${doc_id}')"
+  result_row_by_id:     { frame_name:"detailsDisplay", css:"div.wux-datagrid-cell[wux-uuid='${row.row_uuid}']:has-text('${doc_id}')" } | { frame_name:"detailsDisplay", css:"div.wux-datagrid-cell[wux-uuid='${row.row_uuid}']" } | { frame_name:"detailsDisplay", css:"div.wux-datagrid-cell[data-index*='identifier'][virtual-row-id='${row.row_id}']:has-text('${doc_id}')" } | { frame_name:"detailsDisplay", css:"div.wux-datagrid-cell[data-index*='identifier'][row-id='${row.row_id}']:has-text('${doc_id}')" } | { frame_name:"detailsDisplay", css:"div.wux-datagrid-cell[column-id='6'][virtual-row-id='${row.row_id}']:has-text('${doc_id}')" } | { frame_name:"detailsDisplay", css:"div.wux-datagrid-cell[column-id='6'][row-id='${row.row_id}']:has-text('${doc_id}')" } | css:"div.wux-datagrid-cell[wux-uuid='${row.row_uuid}']:has-text('${doc_id}')" | css:"div.wux-datagrid-cell[wux-uuid='${row.row_uuid}']" | css:"div.wux-datagrid-cell[data-index*='identifier'][virtual-row-id='${row.row_id}']:has-text('${doc_id}')" | css:"div.wux-datagrid-cell[data-index*='identifier'][row-id='${row.row_id}']:has-text('${doc_id}')" | css:"div.wux-datagrid-cell[column-id='6'][virtual-row-id='${row.row_id}']:has-text('${doc_id}')" | css:"div.wux-datagrid-cell[column-id='6'][row-id='${row.row_id}']:has-text('${doc_id}')" | { frame_name:"detailsDisplay", css:"div.wux-datagrid-cell[data-index*='identifier']:has-text('${doc_id}')" } | css:"div.wux-datagrid-cell[data-index*='identifier']:has-text('${doc_id}')"
+  menu_display_detail:  { frame_name:"detailsDisplay", css:"#action_DisplayDetails > span.item-text" } | { frame_name:"detailsDisplay", css:"#action_DisplayDetails" } | css:"#action_DisplayDetails > span.item-text" | css:"#action_DisplayDetails" | text:"Display detail"
+  pdf_download_btn:     { frame_name:"DCLDocumentProperties", css:"td#TRMPdfDownloadCommand[title='Download PDF']" } | { frame_name:"DCLDocumentProperties", css:"#TRMPdfDownloadCommand" } | { frame_name:"DCLDocumentProperties", css:"#TRMPdfDownloadCommand > img" } | { frame_name:"pagecontent", css:"#TRMPdfDownloadCommand" } | { frame_name:"pagecontent", css:"#TRMPdfDownloadCommand > img" } | { frame_name:"detailsDisplay", css:"#TRMPdfDownloadCommand" } | { frame_name:"detailsDisplay", css:"#TRMPdfDownloadCommand > img" } | css:"td#TRMPdfDownloadCommand[title='Download PDF']" | css:"#TRMPdfDownloadCommand" | css:"#TRMPdfDownloadCommand > img"
+
+start:
+  goto ${site}
+
+whens:
+  - condition: ready_marker:
+    steps:
+      wait search_input timeout:${search_timeout_ms}
+      foreach batch in ${search_batches}:
+        log "SEARCH BATCH START: ${batch.index}/${batch.total} count=${batch.size}"
+        click search_input
+        set_value search_input, value:"${batch.search_query}"
+        retry 2 every 3s:
+          try:
+            click search_submit
+          catch:
+            log "search_submit click failed, fallback to JS submit"
+          set_value search_input, value:"${batch.search_query}", submit:true
+          wait results_ready timeout:${search_timeout_ms}
+
+        foreach doc_id in ${batch.files}:
+          try:
+            pick_rows_by_revision result_cells, out:selected_rows, all:${download_all_revisions}, revision_col:9, revision_index:ds6wg:revision
+
+            foreach row in ${selected_rows}:
+              log "PDF DOWNLOAD START: ${doc_id} Rev${row.revision}"
+              log "ROW TARGET: row_id=${row.row_id}, row_uuid=${row.row_uuid}, revision=${row.revision}, identifier=${row.identifier}"
+              try:
+                retry 2 every 1s:
+                  right_click result_row_by_id
+                  wait menu_display_detail timeout:${timeout_ms}
+                click menu_display_detail
+
+                retry 1 every 2s:
+                  download pdf_download_btn, path:"logs/downloads/${doc_id}_row${row.row_id}.pdf", timeout:${download_timeout_ms}
+
+                log_csv { timestamp: now(), file: "${doc_id}-Rev${row.revision}", destination: "3DX PDF", result:"OK", error_summary:"", screenshot:"", html:"", document_id:"${doc_id}", revision:"${row.revision}" }
+                log "PDF DOWNLOAD DONE: ${doc_id} Rev${row.revision}"
+              catch:
+                screenshot path:"logs/${doc_id}_row${row.row_id}_download_error.png", full:false
+                log_csv { timestamp: now(), file: "${doc_id}-Rev${row.revision}", destination: "3DX PDF", result:"NG", error_summary:"PDF_DOWNLOAD_FAILED", screenshot:"logs/${doc_id}_row${row.row_id}_download_error.png", html:"", document_id:"${doc_id}", revision:"${row.revision}" }
+                log "PDF DOWNLOAD FAILED: ${doc_id} Rev${row.revision}"
+
+              try:
+                close_popup
+              catch:
+                log "No popup to close for ${doc_id} Rev${row.revision}"
+          catch:
+            screenshot path:"logs/${doc_id}_row_select_error.png", full:false
+            log_csv { timestamp: now(), file: "${doc_id}", destination: "3DX PDF", result:"NG", error_summary:"ROW_SELECT_FAILED", screenshot:"logs/${doc_id}_row_select_error.png", html:"", document_id:"${doc_id}", revision:"" }
+            log "ROW SELECT FAILED: ${doc_id}"
+
+        log "SEARCH BATCH DONE: ${batch.index}/${batch.total}"
+
+      log "ALL DOC IDS COMPLETED"

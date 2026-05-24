@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanEditableMetadata, cleanIconOverride, generatedMetadataSuggestion, splitMetadataText } from "./appStudioMetadata";
+import { automationTargetCategoryWarning, cleanEditableMetadata, cleanIconOverride, generatedMetadataSuggestion, splitMetadataText } from "./appStudioMetadata";
 
 describe("appStudioMetadata", () => {
   it("splits newline and comma separated metadata", () => {
@@ -20,6 +20,9 @@ describe("appStudioMetadata", () => {
     ).toEqual({
       shortDescription: "Short",
       description: "",
+      primaryCategory: "",
+      targetCategories: [],
+      tags: [],
       categories: ["ops"],
       keywords: ["tool"],
       examples: [],
@@ -50,6 +53,23 @@ describe("appStudioMetadata", () => {
     expect(generatedMetadataSuggestion(suggestion)).toBe(suggestion);
     expect(generatedMetadataSuggestion({ ...suggestion, aiGenerated: false })).toBeNull();
     expect(generatedMetadataSuggestion({ ...suggestion, aiGenerated: undefined })).toBeNull();
+  });
+
+  it("requires target categories for automation metadata", () => {
+    expect(
+      automationTargetCategoryWarning({
+        primaryCategory: "業務自動化",
+        targetCategories: [],
+        tags: ["ブラウザ操作"],
+      }),
+    ).toContain("対象カテゴリ");
+    expect(
+      automationTargetCategoryWarning({
+        primaryCategory: "業務自動化",
+        targetCategories: ["XCgate"],
+        tags: ["ブラウザ操作"],
+      }),
+    ).toBe("");
   });
 
   it("keeps adopted png icon overrides only when data is present", () => {

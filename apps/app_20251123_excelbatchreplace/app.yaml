@@ -5,10 +5,17 @@ display:
   icon: icon.png
   icon_fallback: icon.svg
   short_description: "複数のExcelファイルに対して、指定範囲の一括置換を行う業務向けツールです。"
-  categories:
-    - "業務効率化"
-    - "Excel操作"
+  primary_category: "Excel・表計算"
+  target_categories:
+    - "Excel"
+  tags:
     - "一括処理"
+    - "置換"
+  categories:
+    - "Excel"
+    - "Excel・表計算"
+    - "一括処理"
+    - "置換"
 
 detail:
   description: >

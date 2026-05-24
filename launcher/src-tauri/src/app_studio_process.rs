@@ -21,7 +21,8 @@ pub(crate) fn result_from_process(
     } else if summary.execution_status.as_deref() == Some("warn")
         && summary.approval_allowed == Some(true)
     {
-        "App Studio completed with warnings. execution_test_result.json allows approval; review the logs before approving.".to_string()
+        "App Studio completed with reference information only. No admin alert blocks approval."
+            .to_string()
     } else if summary.execution_status.as_deref() == Some("pass") {
         "App Studio process returned a non-zero exit code, but execution checks passed. Review stdout/stderr before approval.".to_string()
     } else {
@@ -62,6 +63,7 @@ pub(crate) fn result_from_process(
         unresolved_distribution_risks_count: summary.unresolved_distribution_risks_count,
         approval_blocking_reasons: summary.approval_blocking_reasons,
         non_blocking_warning_summaries: summary.non_blocking_warning_summaries,
+        admin_alerts: summary.admin_alerts,
         timing_report: summary.timing_report,
         timing_total_seconds: summary.timing_total_seconds.or(process_wall_clock_seconds),
         timing_estimated_total_seconds: summary.timing_estimated_total_seconds,
@@ -245,6 +247,6 @@ mod tests {
         assert_eq!(result.approval_allowed, Some(true));
         assert_eq!(result.timing_total_seconds, Some(1.25));
         assert_eq!(result.process_wall_clock_seconds, Some(1.25));
-        assert!(result.user_message.contains("completed with warnings"));
+        assert!(result.user_message.contains("reference information only"));
     }
 }

@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import { appTags, appTargetCategories, appUserCategory } from "../lib/appCatalog";
 import type { ToolApp } from "../lib/types";
 
 interface Props {
@@ -27,6 +28,9 @@ export function AppDetailDialog({ app, onClose }: Props) {
   if (!app) {
     return null;
   }
+  const category = appUserCategory(app);
+  const targetCategories = appTargetCategories(app);
+  const tags = appTags(app);
 
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}>
@@ -44,6 +48,15 @@ export function AppDetailDialog({ app, onClose }: Props) {
         <section className="detail-section">
           <h3>概要</h3>
           <p>{app.detail.description}</p>
+        </section>
+
+        <section className="detail-section">
+          <h3>分類</h3>
+          <div className="detail-tag-groups">
+            <TagGroup title="カテゴリ" items={[category]} />
+            <TagGroup title="対象システム" items={targetCategories} />
+            <TagGroup title="特徴" items={tags} />
+          </div>
         </section>
 
         <SectionList title="できること" items={app.detail.useCases} />
@@ -74,6 +87,17 @@ export function AppDetailDialog({ app, onClose }: Props) {
           </dl>
         </details>
       </section>
+    </div>
+  );
+}
+
+function TagGroup({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="detail-tag-group">
+      <strong>{title}</strong>
+      <div className="tag-row">
+        {items.length ? items.map((item) => <span key={item} className="tag">{item}</span>) : <span className="admin-muted">未設定</span>}
+      </div>
     </div>
   );
 }

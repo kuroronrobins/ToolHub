@@ -70,6 +70,9 @@ pub struct AppStudioIconRegenerateRequest {
 pub struct AppStudioEditableMetadata {
     pub short_description: Option<String>,
     pub description: Option<String>,
+    pub primary_category: Option<String>,
+    pub target_categories: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
     pub categories: Option<Vec<String>>,
     pub keywords: Option<Vec<String>>,
     pub examples: Option<Vec<String>>,
@@ -215,6 +218,22 @@ pub struct AppStudioTimingPhase {
     pub duration_seconds: Option<f64>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStudioAdminAlert {
+    pub id: String,
+    pub severity: String,
+    pub title: String,
+    pub summary: String,
+    #[serde(alias = "why_dangerous")]
+    pub why_dangerous: String,
+    #[serde(alias = "admin_action")]
+    pub admin_action: String,
+    pub source: String,
+    #[serde(alias = "check_name")]
+    pub check_name: String,
+}
+
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AppStudioRunResult {
@@ -252,6 +271,7 @@ pub struct AppStudioRunResult {
     pub unresolved_distribution_risks_count: usize,
     pub approval_blocking_reasons: Vec<String>,
     pub non_blocking_warning_summaries: Vec<String>,
+    pub admin_alerts: Vec<AppStudioAdminAlert>,
     pub timing_report: Option<String>,
     pub timing_total_seconds: Option<f64>,
     pub timing_estimated_total_seconds: Option<f64>,
@@ -421,7 +441,8 @@ pub struct AppStudioPublishRequest {
 #[cfg(test)]
 mod tests {
     use super::{
-        AppStudioIconOverride, AppStudioImportRequest, AppStudioRunResult, AppStudioTimingPhase,
+        AppStudioAdminAlert, AppStudioIconOverride, AppStudioImportRequest, AppStudioRunResult,
+        AppStudioTimingPhase,
     };
     use serde_json::{json, Value};
 
@@ -537,6 +558,16 @@ mod tests {
             unresolved_distribution_risks_count: 0,
             approval_blocking_reasons: vec![],
             non_blocking_warning_summaries: vec!["manual check".to_string()],
+            admin_alerts: vec![AppStudioAdminAlert {
+                id: "registration.failed".to_string(),
+                severity: "critical".to_string(),
+                title: "登録検証に失敗しました".to_string(),
+                summary: "summary".to_string(),
+                why_dangerous: "risk".to_string(),
+                admin_action: "fix".to_string(),
+                source: "source".to_string(),
+                check_name: "check".to_string(),
+            }],
             timing_report: Some("timing_report.json".to_string()),
             timing_total_seconds: Some(1.0),
             timing_estimated_total_seconds: Some(2.0),
@@ -572,6 +603,8 @@ mod tests {
         assert_eq!(value["selectedBuildMode"], Value::from("shared-env"));
         assert_eq!(value["approvalAllowed"], Value::from(true));
         assert_eq!(value["approvalBlockingWarningsCount"], Value::from(0));
+        assert_eq!(value["adminAlerts"].as_array().map(Vec::len), Some(1));
+        assert_eq!(value["adminAlerts"][0]["whyDangerous"], Value::from("risk"));
         assert_eq!(value["timingPhases"].as_array().map(Vec::len), Some(1));
         assert_eq!(
             value["timingPhases"][0]["durationSeconds"],

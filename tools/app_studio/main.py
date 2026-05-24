@@ -40,6 +40,7 @@ from app_studio.runtime_checker import verify_runtime
 from app_studio.scanner import create_context
 from app_studio.secret_scanner import ai_submission_block_reason, scan_secrets, secret_scan_status
 from app_studio.shared_runtime import prepare_shared_runtime, update_registry as update_shared_runtime_registry
+from app_studio.taxonomy import automation_target_category_error, normalize_metadata_taxonomy
 from app_studio.timing import TimingRecorder, write_timing_reports
 from app_studio.trace import app_studio_trace, merge_trace_into_import_plan, planned_build_env_path
 from app_studio.util import find_repo_root, write_json, write_text
@@ -190,6 +191,11 @@ def run_import(args: argparse.Namespace, repo_root: Path) -> int:
     if options.metadata_override_path:
         override = load_metadata_override(options.metadata_override_path)
         metadata, metadata_override_applied, metadata_override_warnings = apply_metadata_override(metadata, override)
+    metadata = normalize_metadata_taxonomy(metadata)
+    if action == "apply":
+        taxonomy_error = automation_target_category_error(metadata)
+        if taxonomy_error:
+            raise ValueError(taxonomy_error)
     app_yaml = generate_app_yaml(context, plan, metadata)
     readme = generate_readme(context, plan)
     package_blocks_icon_ai = secret_report.blocks_apply
