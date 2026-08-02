@@ -123,10 +123,10 @@ def _validate_output_name(name: str) -> None:
 
 def _safe_copy_to_final(source_file: Path, final_file: Path) -> None:
     final_file.parent.mkdir(parents=True, exist_ok=True)
-    temp_file = final_file.parent / f".pdf-workbench-final-{uuid4().hex}-{final_file.name}"
+    if source_file.resolve() == final_file.resolve():
+        return
     try:
-        temp_file.write_bytes(source_file.read_bytes())
-        os.replace(temp_file, final_file)
+        os.replace(source_file, final_file)
     except PermissionError as exc:
         raise EngineError(
             "output_file_locked",
@@ -142,11 +142,6 @@ def _safe_copy_to_final(source_file: Path, final_file: Path) -> None:
             target=str(final_file),
             detail=str(exc),
         ) from exc
-    finally:
-        try:
-            temp_file.unlink()
-        except OSError:
-            pass
 
 
 def _apply_post_processing(

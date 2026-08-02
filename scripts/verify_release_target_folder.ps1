@@ -242,7 +242,22 @@ try {
     $Installer = Get-PropertyValue -Object $Toolhub -Name "installer"
     $InstallerFile = [string](Get-PropertyValue -Object $Installer -Name "file")
     $InstallerPath = Join-Path $ResolvedTargetDir $InstallerFile
-    $UploadAssetNames = @($InstallerFile, "manifest.json", "app_manifest.json", "checksums.sha256.txt")
+    $EnabledAppPacks = @()
+    $Apps = Get-PropertyValue -Object $AppManifest -Name "apps"
+    foreach ($Property in $Apps.PSObject.Properties) {
+        $Entry = $Property.Value
+        if ((Get-PropertyValue -Object $Entry -Name "enabled") -ne $true) {
+            continue
+        }
+        $Package = [string](Get-PropertyValue -Object $Entry -Name "package")
+        $Name = [System.IO.Path]::GetFileName($Package.Replace("/", "\"))
+        $EnabledAppPacks += [ordered]@{
+            app_id = $Property.Name
+            name = $Name
+            sha256 = ([string](Get-PropertyValue -Object $Entry -Name "sha256")).Trim().ToLowerInvariant()
+        }
+    }
+    $UploadAssetNames = @($InstallerFile, "manifest.json", "app_manifest.json") + @($EnabledAppPacks | ForEach-Object { $_.name }) + @("checksums.sha256.txt")
     $Assets = @()
     foreach ($Name in $UploadAssetNames) {
         $Assets += New-AssetRecord -Name $Name -Path (Join-Path $ResolvedTargetDir $Name)
@@ -272,13 +287,22 @@ try {
     }
 
     $ChecksumMap = Read-ChecksumMap -Path $ChecksumsPath
-    foreach ($Name in @($InstallerFile, "manifest.json", "app_manifest.json")) {
+    foreach ($Name in @($InstallerFile, "manifest.json", "app_manifest.json") + @($EnabledAppPacks | ForEach-Object { $_.name })) {
         $Asset = $Assets | Where-Object { $_.name -eq $Name } | Select-Object -First 1
         $ExpectedHash = $ChecksumMap[$Name]
         if ($ExpectedHash -and $ExpectedHash -eq $Asset.sha256) {
             Add-Check -Checks $Checks -Id "checksums_file_$Name" -Status "pass" -Message "checksums.sha256.txt matches $Name"
         } else {
             Add-Check -Checks $Checks -Id "checksums_file_$Name" -Status "fail" -Message "checksums.sha256.txt does not match $Name"
+        }
+    }
+
+    foreach ($AppPack in $EnabledAppPacks) {
+        $Asset = $Assets | Where-Object { $_.name -eq $AppPack.name } | Select-Object -First 1
+        if ($Asset.sha256 -eq $AppPack.sha256) {
+            Add-Check -Checks $Checks -Id "app_manifest_sha256_$($AppPack.app_id)" -Status "pass" -Message "app pack sha256 matches app_manifest.json: $($AppPack.app_id)"
+        } else {
+            Add-Check -Checks $Checks -Id "app_manifest_sha256_$($AppPack.app_id)" -Status "fail" -Message "app pack sha256 does not match app_manifest.json: $($AppPack.app_id)"
         }
     }
 

@@ -16,6 +16,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ReleaseManifestPath = Join-Path $Root "release\manifest.json"
+$AppManifestPath = Join-Path $Root "release\app_manifest.json"
 $VerifyScript = Join-Path $PSScriptRoot "verify_github_release_assets.ps1"
 
 function Write-Line {
@@ -143,7 +144,20 @@ if ($Manifest) {
     $Installer = Get-JsonProperty -Object $Toolhub -Name "installer"
     $InstallerFile = [string](Get-JsonProperty -Object $Installer -Name "file")
 }
-$RequiredAssets = @($InstallerFile, "manifest.json", "app_manifest.json", "checksums.sha256.txt") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+$RequiredAppPacks = @()
+if (Test-Path -LiteralPath $AppManifestPath -PathType Leaf) {
+    try {
+        $AppManifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $AppManifestPath | ConvertFrom-Json
+        foreach ($Property in $AppManifest.apps.PSObject.Properties) {
+            if ($Property.Value.enabled -eq $true -and -not [string]::IsNullOrWhiteSpace([string]$Property.Value.package)) {
+                $RequiredAppPacks += [System.IO.Path]::GetFileName(([string]$Property.Value.package).Replace("/", "\"))
+            }
+        }
+    } catch {
+        Add-Check -Checks $Checks -Id "app_manifest_read" -Status "fail" -Message "release/app_manifest.json could not be read: $($_.Exception.Message)"
+    }
+}
+$RequiredAssets = @($InstallerFile, "manifest.json", "app_manifest.json") + @($RequiredAppPacks) + @("checksums.sha256.txt") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 
 $Report = [ordered]@{
     generated_at = (Get-Date).ToString("s")

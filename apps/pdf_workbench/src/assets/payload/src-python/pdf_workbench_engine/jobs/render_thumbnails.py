@@ -23,6 +23,6 @@ def handle(request: dict[str, Any]) -> dict[str, Any]:
             normalized_pages,
             password=password,
             zoom=float(thumbnail_zoom) if isinstance(thumbnail_zoom, (int, float)) else 0.32,
-            preview_zoom=float(preview_zoom) if isinstance(preview_zoom, (int, float)) else 2.25,
+            preview_zoom=float(preview_zoom) if isinstance(preview_zoom, (int, float)) else None,
         )
     }

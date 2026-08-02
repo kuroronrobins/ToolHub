@@ -310,7 +310,17 @@ function Initialize-ReleaseTargetDirectory {
         if (($TargetItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
             Fail "Release target directory must not be a reparse point: $TargetDir"
         }
-        Remove-Item -LiteralPath $TargetDir -Recurse -Force
+        try {
+            Remove-Item -LiteralPath $TargetDir -Recurse -Force -ErrorAction Stop
+        } catch {
+            Get-ChildItem -LiteralPath $TargetDir -Recurse -Force -File | ForEach-Object {
+                [System.IO.File]::Delete($_.FullName)
+            }
+            Get-ChildItem -LiteralPath $TargetDir -Recurse -Force -Directory |
+                Sort-Object FullName -Descending |
+                ForEach-Object { [System.IO.Directory]::Delete($_.FullName, $false) }
+            [System.IO.Directory]::Delete($TargetDir, $false)
+        }
     }
     New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
     Write-Host "[OK] Prepared release target folder: $TargetDir"
@@ -336,6 +346,40 @@ function Copy-ReleaseTargetAsset {
     Copy-Item -LiteralPath $SourcePath -Destination $TargetPath -Force
     Write-Host "[OK] Staged asset: $Name"
     return $TargetPath
+}
+
+function Get-EnabledAppPackAssets {
+    param([object]$AppManifest)
+
+    $Apps = Get-JsonProperty -Object $AppManifest -Name "apps"
+    if ($null -eq $Apps) {
+        Fail "release/app_manifest.json does not contain an apps object."
+    }
+
+    $Assets = @()
+    foreach ($Property in $Apps.PSObject.Properties) {
+        $Entry = $Property.Value
+        $Enabled = Get-JsonProperty -Object $Entry -Name "enabled"
+        if ($Enabled -ne $true) {
+            continue
+        }
+        $Package = [string](Get-JsonProperty -Object $Entry -Name "package")
+        if ([string]::IsNullOrWhiteSpace($Package)) {
+            Fail "Enabled app $($Property.Name) does not define package."
+        }
+        $SourcePath = Join-Path $ReleaseDir $Package
+        $Name = [System.IO.Path]::GetFileName($Package.Replace("/", "\"))
+        if ([string]::IsNullOrWhiteSpace($Name)) {
+            Fail "Enabled app $($Property.Name) has an invalid package path: $Package"
+        }
+        $Assets += [ordered]@{
+            AppId = $Property.Name
+            Name = $Name
+            SourcePath = $SourcePath
+            ExpectedSha256 = ([string](Get-JsonProperty -Object $Entry -Name "sha256")).Trim().ToLowerInvariant()
+        }
+    }
+    return @($Assets)
 }
 
 function Write-ChecksumsFile {
@@ -479,6 +523,7 @@ if ([string]::IsNullOrWhiteSpace($Owner) -or [string]::IsNullOrWhiteSpace($Repo)
 $Repository = "$Owner/$Repo"
 
 $Manifest = Read-JsonFile $ManifestPath
+$AppManifest = Read-JsonFile $AppManifestPath
 $ManifestToolhub = Get-JsonProperty -Object $Manifest -Name "toolhub"
 $ManifestCore = Get-JsonProperty -Object $Manifest -Name "core"
 $ManifestVersion = [string](Get-JsonProperty -Object $ManifestToolhub -Name "version")
@@ -615,6 +660,15 @@ $StagedAssetInfos = @(
     [ordered]@{ Name = "manifest.json"; Path = $TargetManifestPath; SourcePath = $ManifestPath },
     [ordered]@{ Name = "app_manifest.json"; Path = $TargetAppManifestPath; SourcePath = $AppManifestPath }
 )
+$EnabledAppPackAssets = Get-EnabledAppPackAssets -AppManifest $AppManifest
+foreach ($AppPack in $EnabledAppPackAssets) {
+    $TargetAppPackPath = Copy-ReleaseTargetAsset -SourcePath $AppPack.SourcePath -TargetDir $ReleaseTargetDir -Name $AppPack.Name
+    $ActualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $AppPack.SourcePath).Hash.ToLowerInvariant()
+    if ($ActualSha256 -ne $AppPack.ExpectedSha256) {
+        Fail "Enabled app pack sha256 does not match app_manifest.json: $($AppPack.AppId) expected=$($AppPack.ExpectedSha256) actual=$ActualSha256"
+    }
+    $StagedAssetInfos += [ordered]@{ Name = $AppPack.Name; Path = $TargetAppPackPath; SourcePath = $AppPack.SourcePath }
+}
 $ChecksumsPath = Write-ChecksumsFile -AssetInfos $StagedAssetInfos -TargetDir $ReleaseTargetDir
 $UploadAssetInfos = @($StagedAssetInfos + [ordered]@{ Name = "checksums.sha256.txt"; Path = $ChecksumsPath; SourcePath = $null })
 $TargetManifestReportPath = Write-ReleaseTargetManifest `
@@ -628,12 +682,7 @@ $TargetManifestReportPath = Write-ReleaseTargetManifest `
     -TagManifestUrl $TagManifestUrl `
     -RemoteVerifyManifestUrl $RemoteVerifyManifestUrl `
     -AssetInfos $UploadAssetInfos
-$Assets = @(
-    $TargetInstallerPath,
-    $TargetManifestPath,
-    $TargetAppManifestPath,
-    $ChecksumsPath
-)
+$Assets = @($StagedAssetInfos | ForEach-Object { $_.Path }) + @($ChecksumsPath)
 Write-Host "Release target manifest: $TargetManifestReportPath"
 Write-Host "Upload assets:"
 $Assets | ForEach-Object { Write-Host "  $_" }

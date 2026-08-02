@@ -4508,12 +4508,12 @@
       "destination": "assets/payload/src-python"
     },
     {
-      "source": "icon.png",
-      "destination": "."
-    },
-    {
       "source": "assets/payload",
       "destination": "assets/payload"
+    },
+    {
+      "source": "icon.png",
+      "destination": "."
     },
     {
       "source": "assets/payload/python/Lib/ensurepip/_bundled/pip-24.3.1-py3-none-any.whl",
@@ -7112,8 +7112,8 @@
     "assets/payload/resources/icon.ico",
     "assets/payload/src-python/README.md",
     "assets/payload/src-python/requirements.txt",
-    "icon.png",
     "assets/payload",
+    "icon.png",
     "assets/payload/python/Lib/ensurepip/_bundled/pip-24.3.1-py3-none-any.whl",
     "assets/payload/python/Lib/site-packages/pip-24.3.1.dist-info/AUTHORS.txt",
     "assets/payload/python/Lib/site-packages/pip-24.3.1.dist-info/entry_points.txt",
@@ -7705,18 +7705,18 @@
   "warnings": [
     "ビルド前注意: frozen-folder作成後、必要な設定ファイル・データファイルは配布物検証で自動確認されます。"
   ],
-  "source_root": "C:\\Users\\kuroron\\Documents\\RD\\20260215_PDFApplication\\build\\toolhub-registration\\pdf_workbench",
+  "source_root": "C:\\Users\\kuroron\\Documents\\RD\\20260215_PDFApplication\\toolhub\\pdf_workbench",
   "source_root_origin": "entry_parent",
   "entry_relative": "main.py",
   "inventory_summary": {
-    "source_root": "C:\\Users\\kuroron\\Documents\\RD\\20260215_PDFApplication\\build\\toolhub-registration\\pdf_workbench",
+    "source_root": "C:\\Users\\kuroron\\Documents\\RD\\20260215_PDFApplication\\toolhub\\pdf_workbench",
     "source_root_origin": "entry_parent",
     "entry_relative": "main.py",
-    "included_count": 1406,
-    "excluded_count": 3,
+    "included_count": 1405,
+    "excluded_count": 2,
     "blocked_count": 0,
     "manual_check_count": 2,
-    "excluded_directory_count": 12,
+    "excluded_directory_count": 2,
     "sensitive_excluded_directory_count": 0,
     "sensitive_excluded_file_count": 0,
     "source_root_warnings": [],

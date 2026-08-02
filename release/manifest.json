@@ -3,52 +3,44 @@
     "channel":  "stable",
     "core":  {
                  "minimum_supported_app_manifest":  1,
-                 "version":  "0.1.6"
+                 "version":  "0.1.7"
              },
     "release_notes":  {
                           "admin":  {
                                         "changes":  [
-                                                        "v0.1.6 のリリース構成を確認",
-                                                        "AgendaSnap を一般公開対象から非表示化",
-                                                        "配布対象のアプリ一覧を反映",
-                                                        "インストーラー成果物を確認",
-                                                        "更新案内の既定設定を確認",
-                                                        "公開対象の出力物に不足がないことを確認"
+                                                        "AgendaSnap v3 の自己完結型 Windows 配布物を追加",
+                                                        "PDF Workbench 0.2.5 を利用期限なしの配布物へ更新",
+                                                        "有効な App Pack を GitHub Release の公開・チェックサム検証対象へ追加",
+                                                        "ToolHub 0.1.7 の完全インストーラー更新で 0.1.6 からの起動時通知を有効化"
                                                     ],
-                                        "summary":  "ToolHub v0.1.6 の配布物を確認済みです。AgendaSnap は一般公開対象から外し、更新案内とインストーラーの整合性を確認しています。",
+                                        "summary":  "ToolHub 0.1.7 の完全インストーラーに AgendaSnap v3 と利用期限を撤廃した PDF Workbench 0.2.5 を収録します。",
                                         "validation":  [
-                                                           "release/manifest.json と release/app_manifest.json の読み取り確認を実施",
-                                                           "インストーラーの存在、サイズ、整合性を確認",
-                                                           "作業ツリーがクリーンであることを確認",
-                                                           "公開対象フォルダとアップロード予定アセットの存在を確認",
-                                                           "更新案内の既定設定が有効であることを確認"
+                                                           "AgendaSnap と PDF Workbench の App Pack を実物から再生成",
+                                                           "manifest、App Pack、installer、runtime を strict 検証",
+                                                           "公開対象フォルダ内の全 asset と SHA-256 を検証",
+                                                           "ToolHub runner 経由で AgendaSnap v3 と PDF Workbench 0.2.5 の起動をローカル実機検証"
                                                        ]
                                     },
                           "edited_by_admin":  true,
-                          "generated_by":  "ai",
+                          "generated_by":  "codex",
                           "schema_version":  1,
                           "user":  {
                                        "added_apps":  [
-                                                          "COMPASSのID一括取得",
-                                                          "COMPASSの文書一括ダウンロード",
-                                                          "ExcelBatchReplace",
-                                                          "PDF Workbench",
-                                                          "XCgate電子帳票登録"
+                                                          "AgendaSnap v3"
                                                       ],
                                        "highlights":  [
-                                                          "配布内容と案内情報を最新化しました",
-                                                          "インストーラーの準備が完了しています",
-                                                          "更新時の案内がわかりやすくなりました",
-                                                          "今回の対象ツールをまとめて利用できます"
+                                                          "会議の録音・文字起こし・議事録作成を行える AgendaSnap v3 を追加しました",
+                                                          "PDF Workbench を利用期限なしの最新版へ更新しました",
+                                                          "ToolHub 0.1.6 をお使いの場合は次回起動時に 0.1.7 の更新案内が表示されます"
                                                       ],
                                        "recommended":  true,
-                                       "summary":  "各ツールをより安心して使えるように、配布内容を整えて公開しました。",
-                                       "title":  "ToolHub 0.1.6 を公開しました"
+                                       "summary":  "更新後は AgendaSnap v3 と、利用期限を撤廃した PDF Workbench 0.2.5 を ToolHub から起動できます。",
+                                       "title":  "AgendaSnap v3 と期限なし PDF Workbench を追加"
                                    }
                       },
-    "release_notes_url":  "https://github.com/kuroronrobins/ToolHub/releases/tag/v0.1.6",
+    "release_notes_url":  "https://github.com/kuroronrobins/ToolHub/releases/tag/v0.1.7",
     "runner":  {
-                   "version":  "0.1.6"
+                   "version":  "0.1.7"
                },
     "runtime":  {
                     "python":  {
@@ -65,13 +57,13 @@
     "schema_version":  1,
     "toolhub":  {
                     "installer":  {
-                                      "file":  "ToolHub_Setup_0.1.6.exe",
-                                      "sha256":  "848470ce9aaa7f2b0b1e9083d177ff3bffb1421963f651cb5ea5080270edef5b",
-                                      "size":  327160850,
+                                      "file":  "ToolHub_Setup_0.1.7.exe",
+                                      "sha256":  "4a980c9ce484c000e7d47f6532ece9f7ddfdd7642734955a47cccfcbb39f0a1b",
+                                      "size":  442203484,
                                       "type":  "nsis",
-                                      "url":  "https://github.com/kuroronrobins/ToolHub/releases/download/v0.1.6/ToolHub_Setup_0.1.6.exe"
+                                      "url":  "https://github.com/kuroronrobins/ToolHub/releases/download/v0.1.7/ToolHub_Setup_0.1.7.exe"
                                   },
                     "name":  "ToolHub",
-                    "version":  "0.1.6"
+                    "version":  "0.1.7"
                 }
 }

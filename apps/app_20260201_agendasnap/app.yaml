@@ -1,80 +1,60 @@
 id: app_20260201_agendasnap
-name: 20260201 AgendaSnap
+name: AgendaSnap
 
 display:
-  icon: icon.png
+  icon: icon.svg
   icon_fallback: icon.svg
-  short_description: "会議音声を録音し、文字起こしと議事録作成を支援するWindows向けアプリです。"
-  primary_category: "業務自動化"
+  short_description: "会議録音、文字起こし、根拠付き議事録を一つの画面で扱います。"
+  primary_category: "productivity"
   target_categories:
-    - Windows
+    - "productivity"
+    - "meeting"
   tags:
-    - "ブラウザ操作"
+    - "meeting"
+    - "transcription"
+    - "minutes"
   categories:
-    - Windows
-    - "業務自動化"
-    - "ブラウザ操作"
+    - "productivity"
+    - "meeting"
 
 detail:
   description: >
-    このアプリは、Windows上で会議音声を扱い、リアルタイムの文字起こし、字幕表示、議事録生成を支援するアプリです。音声入力と連携しながら、会議内容の記録と整理を行う用途を想定しています。
+    監査済みのAgendaSnap v3 Windows配布物をToolHubから起動します。
+    Node、ブラウザ、開発サーバー、共有Python環境は必要ありません。
   use_cases:
-    - "会議の音声を記録して後から見返せるようにする"
-    - "文字起こし結果をもとに議事録を作成する"
-    - "会議中の発言を字幕として確認する"
+    - "会議の録音とライブ字幕を開始する"
+    - "正式文字起こしから議事録とWordを作成する"
   inputs:
-    - "会議音声"
-    - "マイク入力"
-    - "文字起こし用の設定情報"
+    - "ToolHubの起動操作"
   outputs:
-    - "文字起こしテキスト"
-    - "字幕表示"
-    - "議事録"
+    - "AgendaSnap v3デスクトップアプリ"
   notes:
-    - "音声認識や議事録生成の設定は実行環境に依存します。"
-    - "機密性の高い会議では、保存先や共有範囲に注意してください。"
+    - "API認証情報と会議データは配布物に含めません。"
 
 search:
   keywords:
-    - AgendaSnap
-    - "会議"
-    - "録音"
-    - "文字起こし"
-    - "字幕"
-    - "議事録"
-    - Windows
-    - "音声認識"
+    - "AgendaSnap"
+    - "meeting"
+    - "transcription"
+    - "minutes"
+    - "ToolHub"
   examples:
-    - "定例会議の音声を文字起こしして議事録を作成する"
-    - "会議中の発言をリアルタイム字幕で確認する"
+    - "AgendaSnapを起動"
 
 run:
-  runner: python_shared_env
-  entry: src/main.py
+  runner: exe
+  entry: bin/AgendaSnap/AgendaSnap.exe
   mode: gui
-  env_id: py313-win_amd64-flet0283-fletdesktop0283-cac27e37
-  show_terminal: true
 
 admin:
   version: 0.1.0
   owner: admin
-  requirements: requirements.txt
   log_dir: logs
 
 runtime:
-  distribution_mode: shared_env
-  app_env: null
-  required_runtime: python-shared-env:py313-win_amd64-flet0283-fletdesktop0283-cac27e37
+  distribution_mode: frozen_folder
+  required_runtime: self-contained:windows-x64
   requirements_lock: requirements.lock
-  shared_env:
-    env_id: py313-win_amd64-flet0283-fletdesktop0283-cac27e37
-    scope: versioned
-
-build:
-  managed_by: toolhub_app_studio
-  build_mode: shared-env
-  source_entry: C:\Users\kuroron\Documents\RD\20260201_AgendaSnap\main.py
-  output_mirror: C:\Users\kuroron\Documents\RD\20260201_AgendaSnap\ToolHub_AppStudio_Output\app_20260201_agendasnap
 
 quality:
   approval_required: true

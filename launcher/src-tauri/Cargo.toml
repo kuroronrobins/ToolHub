@@ -1,6 +1,6 @@
 [package]
 name = "toolhub"
-version = "0.1.6"
+version = "0.1.7"
 description = "ToolHub desktop launcher"
 authors = ["ToolHub"]
 edition = "2021"

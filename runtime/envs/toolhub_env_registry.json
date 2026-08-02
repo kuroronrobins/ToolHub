@@ -13,9 +13,10 @@
       "path": "runtime\\envs\\py313-win_amd64-runtime-37c71daf",
       "requirements_lock_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "apps": [
+        "app_20260201_agendasnap",
         "pdf_workbench"
       ],
-      "last_used_at": "2026-05-22T22:41:01"
+      "last_used_at": "2026-06-02T22:10:26"
     },
     "py313-win_amd64-flet0283-fletdesktop0283-cac27e37": {
       "path": "runtime\\envs\\py313-win_amd64-flet0283-fletdesktop0283-cac27e37",

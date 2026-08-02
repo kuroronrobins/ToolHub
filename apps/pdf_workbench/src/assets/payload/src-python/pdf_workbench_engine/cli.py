@@ -5,6 +5,7 @@ import sys
 import traceback
 from typing import Any, Callable
 
+from . import __version__
 from .errors import EngineError
 from .jobs.convert_office import handle as convert_office
 from .jobs.export_workspace import handle as export_workspace
@@ -32,7 +33,7 @@ if hasattr(sys.stdout, "reconfigure"):
 HANDLERS: dict[str, Handler] = {
     "ping": lambda request: {
         "engine": "pdf_workbench_engine",
-        "version": "0.2.0",
+        "version": __version__,
         "ok": True,
     },
     "convert_office": convert_office,

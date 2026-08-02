@@ -294,7 +294,7 @@ def _insert_text(
         "fontsize": font_size,
         "color": color,
         "overlay": True,
-        **text_insert_kwargs(),
+        **text_insert_kwargs(text),
     }
     if morph is not None:
         kwargs["morph"] = morph
@@ -351,29 +351,23 @@ def _insert_textbox(
         "color": color,
         "align": align,
         "overlay": True,
-        **text_insert_kwargs(),
+        **text_insert_kwargs(text),
     }
     try:
-        page.insert_textbox(rect, text, **kwargs)
-        return
+        spare_height = page.insert_textbox(rect, text, **kwargs)
+        if spare_height >= 0:
+            return
     except Exception:
         pass
 
-    fallback_kwargs: dict[str, Any] = {
-        "fontsize": font_size,
-        "color": color,
-        "align": align,
-        "overlay": True,
-        "fontname": PDF_WORKBENCH_FALLBACK_FONT,
-    }
-    try:
-        page.insert_textbox(rect, text, **fallback_kwargs)
-        return
-    except Exception:
-        pass
-
-    point = (rect.x0, rect.y0 + font_size)
-    _insert_text(page, point, text, font_size, color)
+    text_width_pt = _text_width(text, font_size)
+    if align == _align_from_name(_import_fitz(), "right"):
+        x = rect.x1 - text_width_pt
+    elif align == _align_from_name(_import_fitz(), "center"):
+        x = rect.x0 + max(0.0, (rect.width - text_width_pt) / 2)
+    else:
+        x = rect.x0
+    _insert_text(page, (x, rect.y0 + font_size), text, font_size, color)
 
 
 def _applies_to_page(

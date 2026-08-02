@@ -382,6 +382,8 @@ if ($AppManifest) {
             } else {
                 Fail "$Id shared runtime is missing: runtime/envs/$EnvId"
             }
+        } elseif ($RequiredRuntime.StartsWith("self-contained:", [System.StringComparison]::OrdinalIgnoreCase)) {
+            Pass "$Id uses a self-contained runtime: $RequiredRuntime"
         } else {
             $AppEnv = Join-Path (Join-Path $Root "runtime\app_envs") $Id
             if (Test-Path -LiteralPath $AppEnv -PathType Container) { Pass "$Id app_env skeleton exists" } else { Warn "$Id app_env skeleton is missing" }
