@@ -4,7 +4,7 @@ name: AgendaSnap
 display:
   icon: icon.svg
   icon_fallback: icon.svg
-  short_description: "会議録音、文字起こし、根拠付き議事録を一つの画面で扱います。"
+  short_description: "会議録音、リアルタイム文字起こし、多言語通訳、日本語議事録を一つのアプリで扱います。"
   primary_category: "productivity"
   target_categories:
     - "productivity"
@@ -22,8 +22,8 @@ detail:
     監査済みのAgendaSnap v3 Windows配布物をToolHubから起動します。
     Node、ブラウザ、開発サーバー、共有Python環境は必要ありません。
   use_cases:
-    - "会議の録音とライブ字幕を開始する"
-    - "正式文字起こしから議事録とWordを作成する"
+    - "会議の録音、ライブ字幕、多言語通訳を開始する"
+    - "正式文字起こしから日本語の議事録とWordを作成する"
   inputs:
     - "ToolHubの起動操作"
   outputs:
@@ -47,7 +47,7 @@ run:
   mode: gui
 
 admin:
-  version: 0.1.0
+  version: 0.1.1
   owner: admin
   log_dir: logs
 
