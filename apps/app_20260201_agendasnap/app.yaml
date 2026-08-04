@@ -47,7 +47,7 @@ run:
   mode: gui
 
 admin:
-  version: 0.1.1
+  version: 0.1.2
   owner: admin
   log_dir: logs
 

@@ -3,22 +3,22 @@
     "channel":  "stable",
     "core":  {
                  "minimum_supported_app_manifest":  1,
-                 "version":  "0.1.8"
+                 "version":  "0.1.9"
              },
     "release_notes":  {
                           "admin":  {
                                         "changes":  [
-                                                        "AgendaSnap 0.1.1 の字幕・通訳原文を選択位置の入力欄から即時修正可能に更新",
-                                                        "ライブ文字通訳の空表示と会議中の表示言語設定操作を修正",
-                                                        "修正内容を慎重な用語ヒントとして次回以降の認識へ利用",
-                                                        "ToolHub 0.1.8 の完全インストーラー更新で 0.1.6 / 0.1.7 からの起動時通知を有効化"
+                                                        "AgendaSnap 0.1.2へAlibaba Cloud北京Workspace設定、Windows資格情報、content-free接続確認を追加",
+                                                        "中国向けDashScope providerを既存provider abstraction内へ追加",
+                                                        "Alibabaモデル拒否時のベンチマーク非同期終了処理を修正",
+                                                        "ToolHub 0.1.9の完全インストーラーで既存ユーザーへ更新を配信"
                                                     ],
-                                        "summary":  "ToolHub 0.1.8 に、選択箇所をその場で修正できる AgendaSnap 0.1.1 を収録します。",
+                                        "summary":  "ToolHub 0.1.9に、中国向けAlibaba Cloud設定と安全な接続確認を備えたAgendaSnap 0.1.2を収録します。",
                                         "validation":  [
-                                                           "AgendaSnap 0.1.1 App Packを監査済みPhase 10配布物から再生成",
-                                                           "manifest、App Pack、installer、runtime を strict 検証",
-                                                           "公開対象フォルダ内の全 asset と SHA-256 を検証",
-                                                           "ToolHub runner 経由で AgendaSnap 0.1.1 の起動をローカル実機検証"
+                                                           "AgendaSnap全回帰662 passed / 2 skipped",
+                                                           "AgendaSnap 0.1.2 frozen package監査、秘密情報・会議データ混入0",
+                                                           "App Pack、manifest、installer、runtimeをstrict検証",
+                                                           "ToolHub runner経由でAgendaSnap 0.1.2の起動とCore worker生成を検証"
                                                        ]
                                     },
                           "edited_by_admin":  true,
@@ -29,18 +29,18 @@
 
                                                       ],
                                        "highlights":  [
-                                                          "ライブ字幕と通訳画面の原文を選択すると、その場で修正入力できます",
-                                                          "Enterまたは右端の✓で素早く確定し、修正内容を次回の認識候補へ活用します",
-                                                          "ToolHub 0.1.6 / 0.1.7 をお使いの場合は次回起動時に0.1.8の更新案内が表示されます"
+                                                          "設定画面からAlibaba Cloud北京Workspaceを保存できます",
+                                                          "APIキーはWindows資格情報に保持し、配布物や設定ファイルへ含めません",
+                                                          "接続確認でDNS、TLS、APIキー認証、利用可能モデル一覧を会議内容を送らず確認できます"
                                                       ],
                                        "recommended":  true,
-                                       "summary":  "更新後は字幕や通訳原文の誤認識を、選択位置の入力欄からすぐ修正できます。",
-                                       "title":  "AgendaSnapの字幕修正をもっと素早く"
+                                       "summary":  "AgendaSnap 0.1.2でAlibaba Cloud北京WorkspaceとWindows資格情報を設定し、中国向け接続を事前確認できます。",
+                                       "title":  "AgendaSnapに中国出張モードの接続設定を追加"
                                    }
                       },
-    "release_notes_url":  "https://github.com/kuroronrobins/ToolHub/releases/tag/v0.1.8",
+    "release_notes_url":  "https://github.com/kuroronrobins/ToolHub/releases/tag/v0.1.9",
     "runner":  {
-                   "version":  "0.1.8"
+                   "version":  "0.1.9"
                },
     "runtime":  {
                     "python":  {
@@ -57,13 +57,13 @@
     "schema_version":  1,
     "toolhub":  {
                     "installer":  {
-                                      "file":  "ToolHub_Setup_0.1.8.exe",
-                                      "sha256":  "00cd8a549ff83f08ffa420071a788ba393e5a8916b48a54bf71b927f778d4215",
-                                      "size":  442325858,
+                                      "file":  "ToolHub_Setup_0.1.9.exe",
+                                      "sha256":  "b45df9ccbc44c3dfefbc2796ce58190d370d20f104ec980ded796fe90a7dc7db",
+                                      "size":  442421958,
                                       "type":  "nsis",
-                                      "url":  "https://github.com/kuroronrobins/ToolHub/releases/download/v0.1.8/ToolHub_Setup_0.1.8.exe"
+                                      "url":  "https://github.com/kuroronrobins/ToolHub/releases/download/v0.1.9/ToolHub_Setup_0.1.9.exe"
                                   },
                     "name":  "ToolHub",
-                    "version":  "0.1.8"
+                    "version":  "0.1.9"
                 }
 }

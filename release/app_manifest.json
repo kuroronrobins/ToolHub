@@ -10,9 +10,9 @@
                                                         "version":  "0.1.0"
                                                     },
                  "app_20260201_agendasnap":  {
-                                                 "version":  "0.1.1",
-                                                 "package":  "app_packs/app_20260201_agendasnap-0.1.1.zip",
-                                                 "sha256":  "eefe822b2bd2552c5a7c12c694ef3c9e7fd5ba69fd6f333fc742493beaa35d9b",
+                                                 "version":  "0.1.2",
+                                                 "package":  "app_packs/app_20260201_agendasnap-0.1.2.zip",
+                                                 "sha256":  "9f5d9f033a192b1c142c417b8313357784fd906ef1eb99420d0f14c6177d7f36",
                                                  "required_core":  "\u003e=0.1.0",
                                                  "required_runner":  "\u003e=0.1.0",
                                                  "required_runtime":  "self-contained:windows-x64",
